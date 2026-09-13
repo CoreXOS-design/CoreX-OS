@@ -12609,3 +12609,249 @@ that constructs an already-submitted fixture directly (rather than going
 through a real submit()) — each updated to seed the session's gate-passed
 flag explicitly, since that's exactly the scenario the gate now correctly
 intercepts by design, not a regression.
+
+## Submission identity gate — ID/OTP gate on FIRST submission (Johan, 2026-09-13)
+
+Johan found this hole himself, not from a report: he walked the applicant
+link end to end in a real browser, signed both pads, pressed "Submit and
+Complete FICA Verification," and landed straight in the FICA form. No
+identity challenge anywhere. His words: "priorities are as the process
+runs - agent sends application to applicant. so on completion we need the
+fica gate. ON SUBMISSION THE ID / OTP GATE." The FICA gate (cc6) already
+existed and was walked and confirmed working. This closed the other half.
+
+**Why this is a different gate from the Return Gate above, not the same
+one running twice:** the Return Gate deliberately does not fire on first
+submission — its own design and its own tests assert "first-open-not-
+gated" and treat the submitting session as trusted because it just proved
+itself by completing the form. This gate is the opposite case: it exists
+*because* that trust is exactly the gap — the moment of first submission
+is the one point in the whole flow where nobody has ever confirmed who is
+actually signing, and it is the moment the signatures and the FICA hand-
+off both depend on.
+
+### What already existed and was reused, not rebuilt
+
+Read before any of this was designed, per Johan's explicit instruction
+("if there is a working OTP mechanism in this codebase we are using it,
+not writing a second one"):
+
+- **`App\Services\Otp\OtpService`** — the engine behind DR2's secure-
+  document-link OTP (`AT-130`/`AT-158`). Destination-, subject- and
+  purpose-agnostic by design; DR2's `SecureDocumentController` and the
+  Return Gate above both already consume it standalone. This gate reuses
+  it a third time, under its own purpose string
+  (`rental_application_identity_gate`) — no second code-generation,
+  hashing, delivery, or throttling logic written anywhere.
+- **6-digit CSPRNG code, hashed at rest, generic `OtpMail` template,
+  `config/otp.php` floor** (10 min expiry / 5 attempts / 60s cooldown /
+  5 per hour) — all reused as-is; agency overrides layer on top via the
+  engine's own existing per-call `$opts`, which neither DR2 nor the
+  Return Gate has needed until now.
+- **The ID-number comparator** (`preg_replace('/[^0-9]/', '', ...)` then
+  `hash_equals()`) from the Return Gate's `idNumberMatches()` — reused
+  verbatim as this gate's fallback method, not a second comparator.
+- **The gate-choke-point pattern** from esign's `isSigningBlocked()`: one
+  check, one place, every sensitive action passes through it, a generic
+  no-oracle failure message, a lockout screen that always names a human.
+- **The token/expiry convention** already on `RentalApplication` (`token`,
+  `token_expires_at`, `queryWithoutAgencyScope()` resolution) — unchanged,
+  no new token scheme.
+
+### (a) When it fires
+
+Immediately when the applicant presses "Submit and Complete FICA
+Verification" — after cc6's hard-floor field validation has passed and
+the answers and both signatures have been saved exactly as they are
+today, but *before* the application is flipped to submitted/visible-to-
+the-agency and before the existing FICA gate runs. A gate that only
+checked identity after the agency already had the application would be
+too late to matter; the point is that a signed application never reaches
+the agency's pipeline without a confirmed identity behind it.
+
+### (b) Which channel — decided per applicant, not fixed by the agency
+
+cc6's compulsory-field work (`required_field_keys`, agency-configurable
+per field, nothing locked — see below) means email is not guaranteed
+present on any given applicant, and neither is a cell number. So the
+channel is chosen at the moment of the gate, per applicant:
+
+- **Email present → email OTP** (the stronger method, same engine as the
+  Return Gate's own OTP option).
+- **Email absent, ID number present → ID-number match** (the Return
+  Gate's existing fallback method, reused verbatim).
+- **Neither present → see "Unreachable applicants" below.** Cell-number
+  OTP was deliberately not built: `OtpService`'s SMS channel is an
+  unbuilt seam, and building it now would mean a new gateway, a per-
+  message cost, and a case for making cell mandatory — none of which
+  Johan asked for, and all of which cuts against his ruling below.
+
+### Johan's ruling on the locked-field question — nothing is locked
+
+The original design proposed treating ID number as an always-compulsory
+field so this gate would always have something to check. Johan overruled
+that outright: "leave the compulsory selection agency selectable. yes its
+corex but its the agency's decision what they want to do with it. we
+provide the system, they set it up the way they want to use it." No field
+this gate depends on is ever forced compulsory. The gate is built to cope
+with that, not to work around it by the back door.
+
+### Unreachable applicants — the agency's problem to see, never the applicant's problem to hit
+
+The first version of this design refused the submission if neither email
+nor ID number was present, asking the applicant to add a contact method.
+Johan corrected this directly: "that reintroduces a lock through the back
+door — the agency switched those fields off deliberately, and the
+applicant would be blocked by a rule their agency thought it had turned
+off. Worse, the person who gets stopped is the one who cannot fix it."
+The corrected behaviour:
+
+- **At submission**, if the identity gate is enabled and neither email nor
+  ID number is present for that applicant, the application is let
+  through — never blocked, never shown a dead-end. It is marked
+  `identity_gate_unreachable = true` on the `rental_applications` row and
+  surfaces with its own visible indicator on the agent's applications
+  list, distinct from the FICA/return-gate indicators, so the agent — who
+  can actually act on it — chases it themselves.
+- **On the settings screen**, saving the identity gate switched ON while
+  every field it could use (email, cell) is unticked shows a plain,
+  non-blocking warning at save time — the same convention as the existing
+  "above the legal guideline" affordability warning
+  (`assertSessionHas('warning')`, and persists as a banner on later
+  visits to the settings screen, not just a one-time toast). It saves
+  anyway; Johan's ruling is that the agency decides. It is warned
+  clearly, then honoured.
+
+### (c) Non-receipt, expiry, and retry — human sentences, not "Too many attempts"
+
+Reuses `OtpService`'s existing resend/cooldown/hourly-limit/max-attempts
+machinery, all agency-configurable (see Settings below) with the engine's
+own defaults as the floor. Every user-facing message states plainly what
+happened and what to do next, mirroring the Return Gate's own lockout
+screen (names the agent's name, email and phone):
+
+- Wrong or expired code (email_otp only — an ID number has no concept of
+  expiring, so that method keeps the Return Gate's own exact wording):
+  "That code didn't match or has expired. Please try again, or request a
+  new one below."
+- Resend before cooldown: "A code was just sent — please wait a moment
+  before requesting another."
+- Hourly cap reached: "We've sent a few codes already. Please wait a
+  little while, or contact {agent name} at {agent phone/email} for help."
+- Attempt-limit lockout: the same named-agent lockout screen as the
+  Return Gate — never a bare "Too many attempts." This is the exact
+  failure Johan named directly after being burned by it once already
+  today: "we were bitten today by a throttle that told a real user 'Too
+  many attempts' with no explanation. Do not build another one of those."
+- The resend endpoint tells the truth about what happened, unlike the
+  Return Gate's own `resendGateOtp()` (which always says "A new code has
+  been sent" even when `OtpService`'s throttle silently swallowed it):
+  `issueIdentityGateOtp()` now returns the throttle outcome, and
+  `resendIdentityGateOtp()` shows the cooldown or hourly message above
+  instead of a false "sent" whenever nothing actually went out.
+
+### (d) Abandon safety — nothing already captured is ever at risk
+
+The gate sits strictly *after* data capture, never instead of it or
+ahead of it. If the applicant closes the browser mid-gate, their answers
+and both signatures are already saved exactly as they are today — this
+step doesn't touch them. Returning to the same link resumes precisely at
+the identity-gate screen (reusing the token/session mechanism above), not
+the start of the form and not a re-ask of anything already answered.
+
+### (e) What the agent sees
+
+Two new, distinct states on the agent's rental applications list, named
+and badged separately from each other and from the existing FICA
+indicators (never folded into one ambiguous "needs attention" tile):
+
+- **Awaiting applicant identity confirmation** — the applicant has
+  submitted, the gate fired, and they have not yet completed it (mirrors
+  `ficaAwaitingApplicantAction()`'s exact shape and naming convention:
+  `identityVerificationAwaitingApplicantAction()`).
+- **Identity unreachable — agent action needed** — the
+  `identity_gate_unreachable` case above. The agent's own path forward:
+  contact the applicant directly for an ID number or email, or override
+  manually if they're satisfied by other means.
+
+### (f) Nothing hardcoded — extends the Return Gate's own settings surface, not a second one
+
+New agency-configurable columns on `RentalApplicationQualifyingSetting`
+(the same model the Return Gate's own settings already live on — one
+settings home, not two):
+
+- `identity_gate_enabled` (bool)
+- `identity_gate_otp_length`, `identity_gate_otp_expiry_minutes`,
+  `identity_gate_max_attempts`, `identity_gate_resend_cooldown_seconds`
+  (nullable ints — null falls through to `config/otp.php`'s own
+  defaults, same convention `OtpService`'s `$opts` already supports and
+  neither DR2 nor the Return Gate has previously exercised)
+
+Coordinated directly with cc6 before either migration was written (both
+lanes extending the same model in the same window): separate migration
+files, each lane appending only its own keys to `$fillable`/`$casts` and
+its own `xxxFor()` accessors, second-to-push rebases rather than either
+editing around the other. Confirmed no column-name collision: cc6's
+`required_field_keys` (json) is the only column they're adding to this
+model; this gate's columns above are additive alongside it.
+
+### Data model
+
+New columns on `rental_applications`: `identity_verified_at` (nullable
+timestamp — set when the gate passes; mirrors how FICA state is tracked,
+a single nullable timestamp rather than an enum) and
+`identity_gate_unreachable` (bool, default false).
+
+### Sequencing with cc6's hard-floor validation — same submit() moment, confirmed no collision
+
+Agreed directly with cc6: their hard-floor field validation runs first,
+inside `submit()`, as pure request validation before any status
+transition — it either passes (rejecting the request with nothing
+changed) or the request proceeds. If it passes, the answers and
+signatures save exactly as today. This gate then fires, before the
+application flips to submitted/visible-to-the-agency. The existing FICA
+gate (cc6, already built and walked) proceeds only after this gate
+resolves (passed, or flagged unreachable and let through).
+
+### Files (planned)
+
+Migration adding the `RentalApplicationQualifyingSetting` columns above;
+migration adding `identity_verified_at`/`identity_gate_unreachable` to
+`rental_applications`; `app/Models/RentalApplicationQualifyingSetting.php`
+(settings + `identityGate*For()` accessors, unreachable-warning helper for
+the settings screen); `app/Models/RentalApplication.php`
+(`identityVerificationAwaitingApplicantAction()`, mirroring
+`ficaAwaitingApplicantAction()`); `app/Http/Controllers/
+RentalApplicationSigningController.php` (identity-gate check wired into
+`submit()`, reusing `issueGateOtp()`/`verifyReturnGate()`'s shape under
+the gate's own purpose string and route pair); a view for the identity
+gate screen (sibling of `gate.blade.php`, or the same view parameterised
+by which gate is firing — decided during build, not a second wording
+system); settings controller + view (extending the existing "Applicant
+Return Gate" block, adding the save-time unreachable warning); agent list
+view (two new badges); `tests/Feature/RentalApplications/
+RentalApplicationIdentityGateTest.php`.
+
+### Acceptance criteria
+
+- First-time submission with email present is gated by email OTP before
+  the application becomes visible to the agency; correct code passes,
+  wrong/expired code shows a plain retry message, hourly/attempt limits
+  show a named-agent message, never "Too many attempts."
+- First-time submission with no email but an ID number present is gated
+  by ID-number match (spaces/dashes normalised), same no-oracle failure
+  message as the Return Gate.
+- First-time submission with neither present is let through, flagged
+  `identity_gate_unreachable`, and visible on the agent's list — never
+  blocked at the applicant's end.
+- Abandoning at the gate loses nothing: returning to the same link
+  resumes at the gate screen with all prior answers and both signatures
+  intact.
+- Saving the identity gate ON with no reachable field ticked warns
+  plainly at save time on the settings screen and still saves.
+- Passing the gate sets `identity_verified_at`; the application only then
+  flips to submitted/visible and proceeds into the existing FICA gate.
+- Every message a real applicant can see was checked against actual
+  shipped text in a test, not just against the intent described here.
+- Clicked through in a real browser, unauthenticated, before being
+  reported done — per standing rule, PHPUnit is not the proof.

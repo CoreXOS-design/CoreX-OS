@@ -52,6 +52,14 @@ final class RentalApplicationFicaHandoffTest extends TestCase
             'first_name' => 'Sipho', 'last_name' => 'Ndlovu', 'email' => 'sipho@example.co.za',
         ]);
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        // Submission identity gate, 2026-09-13 — this file is entirely
+        // about the FICA hand-off that happens immediately on submit();
+        // the contact's own email would otherwise route every submit()
+        // here into the new identity gate screen first, never reaching
+        // FICA at all. Not what this file tests — disabled for this agency.
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $this->agency->id], ['identity_gate_enabled' => false],
+        );
     }
 
     private function application(array $attrs = []): RentalApplication

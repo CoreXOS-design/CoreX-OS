@@ -69,6 +69,12 @@ final class RentalApplicationReturnGateTest extends TestCase
     {
         return $this->application(array_merge([
             'status' => 'returned', 'submitted_at' => now()->subDay(),
+            // Submission identity gate, 2026-09-13 — this file tests the
+            // RETURN gate specifically; identity_verified_at is set so
+            // these fixtures (never built via a real submit()) don't also
+            // collide with the separate, sibling identity gate, which has
+            // its own dedicated test file.
+            'identity_verified_at' => now()->subDay(),
             'full_name' => 'Sipho Ndlovu', 'id_number' => '8501015800083', 'current_generation' => 1,
         ], $attrs));
     }

@@ -202,7 +202,7 @@ final class RentalApplicationCurrentLivingSituationTest extends TestCase
         // Simulates a real pre-feature record: landlord fields filled in,
         // current_living_situation genuinely never asked (null).
         $app = $this->application([
-            'status' => 'returned', 'submitted_at' => now(),
+            'status' => 'returned', 'submitted_at' => now(), 'identity_verified_at' => now(),
             'current_landlord_name' => 'Pre-Existing Landlord CC',
             'current_landlord_tel' => '0399991111',
             'current_rental_amount' => 7500,

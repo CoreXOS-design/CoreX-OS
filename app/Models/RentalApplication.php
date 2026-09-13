@@ -357,6 +357,14 @@ class RentalApplication extends Model
         'agency_id', 'branch_id', 'contact_id', 'property_id', 'created_by_user_id',
         'status', 'delivery_mode', 'token', 'token_expires_at', 'submitted_at', 'draft_saved_at', 'submitted_for_approval_at', 'approved_rental_amount',
         'current_generation', 'reopened_at', 'reopened_by_user_id', 'reopened_note',
+        // Submission identity gate, 2026-09-13 — safe to mass-assign despite
+        // being internal-tracking columns: the public form's own fill($fields)
+        // call sites (submit()/autosave()) only ever pass keys drawn from
+        // fieldValidationRules(), which never includes these two — an
+        // applicant POSTing either field has zero effect regardless of
+        // $fillable. Needed here so direct-construction test fixtures
+        // (RentalApplication::create([...])) can set them without forceFill().
+        'identity_verified_at', 'identity_gate_unreachable',
         'property_address_override',
         'full_name', 'id_number', 'marital_status', 'spouse_name', 'spouse_id', 'citizenship',
         'current_residential_address', 'email', 'cell', 'work_number',
@@ -372,6 +380,8 @@ class RentalApplication extends Model
     protected $casts = [
         'token_expires_at' => 'datetime',
         'submitted_at' => 'datetime',
+        'identity_verified_at' => 'datetime',
+        'identity_gate_unreachable' => 'boolean',
         'draft_saved_at' => 'datetime',
         'submitted_for_approval_at' => 'datetime',
         'reopened_at' => 'datetime',
@@ -627,6 +637,36 @@ class RentalApplication extends Model
             ->orderByDesc('created_at')->orderByDesc('id')->first();
 
         return $latest === null || in_array($latest->status, ['draft', 'rejected', 'corrections_requested'], true);
+    }
+
+    /**
+     * Submission identity gate, 2026-09-13 — mirrors ficaAwaitingApplicantAction()'s
+     * own shape deliberately (Johan: "reusing the existing shape means the
+     * agent learns one pattern, not two"). True only in the narrow window
+     * between a first-ever submission firing the gate and the applicant
+     * actually resolving it — never true once identity_verified_at is set,
+     * never true when the gate found nothing to check against
+     * (identity_gate_unreachable — see identityVerificationUnreachable()
+     * below, a DIFFERENT agent-facing state with a different action), and
+     * never true for an agency that has the gate switched off.
+     */
+    public function identityVerificationAwaitingApplicantAction(): bool
+    {
+        return $this->isSubmitted()
+            && $this->identity_verified_at === null
+            && ! $this->identity_gate_unreachable
+            && \App\Models\RentalApplicationQualifyingSetting::identityGateEnabledFor($this->agency_id);
+    }
+
+    /**
+     * Johan's ruling, 2026-09-13: an applicant with neither email nor an ID
+     * number on file (both legitimately agency-optional) is let THROUGH,
+     * never blocked — "the person who gets stopped is the one who cannot
+     * fix it." This is the agent's own signal to chase it themselves.
+     */
+    public function identityVerificationUnreachable(): bool
+    {
+        return (bool) $this->identity_gate_unreachable;
     }
 
     /**

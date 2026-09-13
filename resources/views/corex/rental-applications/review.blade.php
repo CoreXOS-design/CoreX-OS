@@ -261,6 +261,17 @@
                         };
                     @endphp
                     <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="FICA status for {{ $rentalApplication->contact?->full_name }}">{{ $ficaBadgeLabel }}</span>
+                    {{-- Submission identity gate, 2026-09-13 — two DISTINCT
+                         states, never folded into one ambiguous tile:
+                         "still waiting on the applicant" vs "we can't even
+                         ask them, go chase this yourself." Same ds-badge
+                         convention as the FICA badge above so an agent
+                         reads it the same way. --}}
+                    @if($rentalApplication->identityVerificationAwaitingApplicantAction())
+                        <span class="ds-badge ds-badge-warning flex-shrink-0" title="The applicant has submitted but hasn't yet completed identity verification">Awaiting applicant identity confirmation</span>
+                    @elseif($rentalApplication->identityVerificationUnreachable())
+                        <span class="ds-badge ds-badge-danger flex-shrink-0" title="No email or ID number on file to verify this applicant — contact them directly">Identity unreachable — action needed</span>
+                    @endif
                 </h1>
 
                 @if($viewerRole === 'agent')

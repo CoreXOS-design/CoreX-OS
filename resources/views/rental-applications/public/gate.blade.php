@@ -67,7 +67,7 @@
                             your email.
                         @endif
                     </p>
-                    <form method="POST" action="{{ route('rental-applications.public.verify-gate', $token) }}">
+                    <form method="POST" action="{{ route($verifyRouteName ?? 'rental-applications.public.verify-gate', $token) }}">
                         @csrf
                         <input type="text" name="otp_code" inputmode="numeric" autocomplete="one-time-code"
                                maxlength="6" placeholder="6-digit code"
@@ -76,13 +76,13 @@
                         <button type="submit" class="w-full rounded-lg text-white font-semibold py-3 text-sm"
                                 style="background: var(--brand-default, #0b2a4a);">Continue</button>
                     </form>
-                    <form method="POST" action="{{ route('rental-applications.public.gate.resend-otp', $token) }}" class="mt-3">
+                    <form method="POST" action="{{ route($resendRouteName ?? 'rental-applications.public.gate.resend-otp', $token) }}" class="mt-3">
                         @csrf
                         <button type="submit" class="text-xs text-slate-500 hover:text-slate-700 underline">Resend code</button>
                     </form>
                 @else
                     <p class="text-sm text-slate-500 mb-4">Enter your ID number to continue.</p>
-                    <form method="POST" action="{{ route('rental-applications.public.verify-gate', $token) }}">
+                    <form method="POST" action="{{ route($verifyRouteName ?? 'rental-applications.public.verify-gate', $token) }}">
                         @csrf
                         <input type="text" name="id_number" inputmode="numeric" placeholder="ID number"
                                class="w-full text-center text-lg rounded-lg border border-slate-300 px-3 py-3 mb-3"

@@ -65,13 +65,14 @@ class OtpService
      *   mail?: callable,
      *   audit?: callable,
      *   expires_minutes?: int,
+     *   length?: int,
      *   attributes?: array<string,mixed>
      * } $opts
      */
     public function issue(string $purpose, string $destination, array $opts = []): Otp
     {
         $destination = trim($destination);
-        $code        = $this->generateCode();
+        $code        = $this->generateCode(isset($opts['length']) ? (int) $opts['length'] : null);
         $subject     = $opts['subject'] ?? null;
         $expiresMin  = (int) ($opts['expires_minutes'] ?? config('otp.expires_minutes', 10));
 
@@ -172,11 +173,15 @@ class OtpService
 
     /**
      * The hardened generation primitive — zero-padded random_int of the
-     * configured length.
+     * configured length. Rental-applications identity gate, 2026-09-13 —
+     * $length is an optional per-call override (Johan: "OTP length...
+     * agency-configurable, never hardcoded"); every pre-existing caller
+     * (DR2, the Return Gate) passes nothing and keeps today's exact
+     * behaviour, reading config('otp.length', 6) as before.
      */
-    public function generateCode(): string
+    public function generateCode(?int $length = null): string
     {
-        $len = (int) config('otp.length', 6);
+        $len = $length ?? (int) config('otp.length', 6);
         $max = (10 ** $len) - 1;
 
         return str_pad((string) random_int(0, $max), $len, '0', STR_PAD_LEFT);

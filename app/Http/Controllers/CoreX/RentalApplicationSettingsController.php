@@ -95,6 +95,21 @@ class RentalApplicationSettingsController extends Controller
         $returnGateAttemptMax = RentalApplicationQualifyingSetting::returnGateAttemptMaxFor($agencyId);
         $returnGateAttemptWindowMinutes = RentalApplicationQualifyingSetting::returnGateAttemptWindowMinutesFor($agencyId);
 
+        // Submission identity gate, 2026-09-13 — Johan walked the applicant
+        // link himself and found NO identity challenge on first submission
+        // at all. $identityGateUnreachableByDesign drives a PERSISTENT
+        // banner (same convention as $qualifyingExceedsLegalCeiling above)
+        // when the gate is on but no field it could check against is
+        // compulsory — Johan's ruling: warn, never block; the agency's
+        // configuration choice to make.
+        $identityGateEnabled = RentalApplicationQualifyingSetting::identityGateEnabledFor($agencyId);
+        $identityGateOtpLength = RentalApplicationQualifyingSetting::identityGateOtpLengthFor($agencyId);
+        $identityGateOtpExpiryMinutes = RentalApplicationQualifyingSetting::identityGateOtpExpiryMinutesFor($agencyId);
+        $identityGateAttemptMax = RentalApplicationQualifyingSetting::identityGateAttemptMaxFor($agencyId);
+        $identityGateAttemptWindowMinutes = RentalApplicationQualifyingSetting::identityGateAttemptWindowMinutesFor($agencyId);
+        $identityGateResendCooldownSeconds = RentalApplicationQualifyingSetting::identityGateResendCooldownSecondsFor($agencyId);
+        $identityGateUnreachableByDesign = RentalApplicationQualifyingSetting::identityGateUnreachableByDesign($agencyId);
+
         // AT-392 round 2, 2026-09-13 — the conductor's sweep: the five
         // remaining public routes' volume caps, same pattern as the
         // document cap above, each its own agency-configurable pair.
@@ -186,7 +201,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -530,6 +545,48 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Return gate setting saved.');
+    }
+
+    /**
+     * Submission identity gate, 2026-09-13 — Johan walked the applicant
+     * link himself and found no identity challenge on first submission at
+     * all. Channel (email OTP vs ID-number fallback) is decided PER
+     * APPLICANT at the moment of the gate, never an agency setting here —
+     * see RentalApplicationSigningController::identityGateChannelFor().
+     * Johan's ruling on the reachability question: warn here, on save,
+     * in plain words — never block the save itself; the agency's own
+     * field-compulsory choices (cc6's required_field_keys) are theirs to
+     * make.
+     */
+    public function updateIdentityGate(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'identity_gate_otp_length' => ['required', 'integer', 'min:4', 'max:10'],
+            'identity_gate_otp_expiry_minutes' => ['required', 'integer', 'min:1', 'max:60'],
+            'identity_gate_attempt_max' => ['required', 'integer', 'min:2', 'max:50'],
+            'identity_gate_attempt_window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            'identity_gate_resend_cooldown_seconds' => ['required', 'integer', 'min:10', 'max:600'],
+        ]);
+
+        // Checkbox — absent from the POST body means unticked, never
+        // coerced to false without knowing the form actually rendered it.
+        $validated['identity_gate_enabled'] = $request->has('identity_gate_enabled');
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            $validated,
+        );
+
+        $redirect = redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Identity gate setting saved.');
+
+        if ($validated['identity_gate_enabled'] && RentalApplicationQualifyingSetting::identityGateUnreachableByDesign($agencyId)) {
+            $redirect->with('warning', "Identity verification is on, but no field it can check (email, cell, or ID number) is currently compulsory for applicants. Applications may arrive that can't be verified — they'll be flagged on your list for you to follow up, never blocked at the applicant's end.");
+        }
+
+        return $redirect;
     }
 
     /**

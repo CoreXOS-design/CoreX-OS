@@ -370,6 +370,75 @@
         </form>
     </div>
 
+    {{-- Submission identity gate, 2026-09-13 — Johan walked the applicant
+         link himself, signed both pads, pressed submit, and landed
+         straight in FICA with no identity challenge anywhere. This fires
+         ONCE, on first submission, before the application is visible to
+         the agency — a DIFFERENT moment from the Return Gate above, which
+         only ever gates a LATER visit. Channel (email code, or an ID
+         number fallback when no email is on file) is chosen per
+         applicant automatically — never a setting here. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Applicant Identity Gate</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Verifies who is actually submitting before the application reaches your team — a code
+            emailed to the applicant, or their ID number if no email is on file. Nothing an applicant
+            has typed or signed is ever lost if they can't get past this; it just waits for them.
+        </p>
+
+        {{-- Persistent, not a one-time toast — same convention as the
+             qualifying-formula banner above: a configuration gap
+             shouldn't be easy to miss on a later visit to this screen. --}}
+        @if($identityGateUnreachableByDesign)
+            <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #b45309);">
+                Identity verification is on, but no field it can check (email, cell, or ID number) is
+                currently compulsory for applicants. Applications may arrive that can't be verified —
+                they'll be flagged on your applications list for you to follow up, never blocked at
+                the applicant's end.
+            </div>
+        @endif
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.identity-gate') }}" class="flex flex-wrap items-end gap-3">
+            @csrf
+            <div class="flex items-center gap-2">
+                <input type="checkbox" name="identity_gate_enabled" id="identity_gate_enabled" value="1"
+                       @checked(old('identity_gate_enabled', $identityGateEnabled))>
+                <label for="identity_gate_enabled" class="text-xs font-medium" style="color: var(--text-secondary);">Enabled</label>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Code length</label>
+                <input type="number" name="identity_gate_otp_length" step="1" min="4" max="10"
+                       value="{{ old('identity_gate_otp_length', $identityGateOtpLength ?? config('otp.length', 6)) }}"
+                       class="corex-input text-sm" style="width: 80px;">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Code valid for (minutes)</label>
+                <input type="number" name="identity_gate_otp_expiry_minutes" step="1" min="1" max="60"
+                       value="{{ old('identity_gate_otp_expiry_minutes', $identityGateOtpExpiryMinutes ?? config('otp.expires_minutes', 10)) }}"
+                       class="corex-input text-sm" style="width: 90px;">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Maximum attempts</label>
+                <input type="number" name="identity_gate_attempt_max" step="1" min="2" max="50"
+                       value="{{ old('identity_gate_attempt_max', $identityGateAttemptMax) }}"
+                       class="corex-input text-sm" style="width: 100px;">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Per this many minutes</label>
+                <input type="number" name="identity_gate_attempt_window_minutes" step="1" min="1" max="1440"
+                       value="{{ old('identity_gate_attempt_window_minutes', $identityGateAttemptWindowMinutes) }}"
+                       class="corex-input text-sm" style="width: 90px;">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Resend cooldown (seconds)</label>
+                <input type="number" name="identity_gate_resend_cooldown_seconds" step="1" min="10" max="600"
+                       value="{{ old('identity_gate_resend_cooldown_seconds', $identityGateResendCooldownSeconds ?? config('otp.resend_cooldown_secs', 60)) }}"
+                       class="corex-input text-sm" style="width: 100px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- Public link volume caps, AT-392 round 2, 2026-09-13 — conductor's
          sweep of the remaining public applicant-journey routes, all of
          which still carried Laravel's stock per-IP throttle (the exact
