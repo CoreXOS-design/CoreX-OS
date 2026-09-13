@@ -9,20 +9,81 @@ prospective agency this week. It is not a Monday nice-to-have.
 
 ---
 
-## 0. What this replaces
+## 0. What already exists — read directly from the live code, twice corrected, now precise
 
-CoreX already has a **Rental Images** tab on the property record (`.ai/specs/rental-images.md`,
-built 2026-06-24) — an In Inspection gallery, an Out Inspection gallery, and unlimited custom
-dated galleries, photos only, no checklist, no notes, no parties, no signatures, no report, no
-deposit consequence. Its own "Out of scope" section says outright: *"A formal inspection PDF
-report (future enhancement; the data model already supports it)."* This spec is that
-enhancement. Rental Inspections **supersedes** Rental Images' In/Out sections specifically —
-custom ad-hoc galleries (e.g. "Garden handover" mid-tenancy) are a separate concern and are
-**not touched or replaced** by this spec (see §11 Out of scope).
+Two rounds of correction on this spec, both real and both worth recording: first, that a
+"Rental" tab already exists for lease/party information; second, that the "Rental Images" tab
+already has in-inspection and out-inspection photo upload. Both are true. Leading with exactly
+what's there and exactly what's missing, per instruction — this is now a smaller spec than
+either earlier draft, and that's the right direction for it to move in.
 
-The existing mobile API for Rental Images (`MobileRentalImagesController`, gated by
-`Property::rentalInspectionsAvailable()`) will need to change shape once this ships — flagged
-here for Andre, not designed here (see §8 Mobile boundary).
+### 0.1 The "Rental" tab — lease terms, no parties (unchanged finding from the first draft)
+
+Built and live (`rentals-shared-screens.md` §11, `Property.php`, `show.blade.php`'s Rental tab).
+Holds: `rental_amount`, `deposit_amount`, `lease_start_date`, `lease_end_date`, `lease_period`
+(free text), `lease_type` (a commercial-lease enum), `price_per_day/week/year`, `has_deposit`,
+`commission_percent`, `admin_fee`, `marketing_fee`, `furnished_status`, `occupation_date`,
+`water/electricity/levies_included`. All real, saved columns — not cosmetic.
+
+**Missing, precisely**: no landlord field, no tenant field, no link to a `Contact` anywhere on
+this tab. Separately — NOT on this tab, but real and already working — `PropertyContactController::
+LINK_ROLES` (`app/Http/Controllers/CoreX/PropertyContactController.php:86`) already includes
+`landlord` and `tenant` as linkable roles via the property's **Contacts tab**, a different tab
+again. So a landlord and a tenant CAN already be linked to a property as real Contacts today —
+just not from the Rental tab, and the link itself carries no start/end date and no "this one is
+current" marker (`syncWithoutDetaching()` allows more than one contact holding `tenant`
+simultaneously with nothing to say which is active). Johan's "which property is leased to whom,
+when are they moving out" is therefore answerable TODAY only by combining two different tabs by
+hand, with no history once a tenant changes.
+
+### 0.2 The "Rental Images" tab — in/out photo upload already exists, confirmed live in code
+
+Built and live (`.ai/specs/rental-images.md`, `Property.php:1858-1904`,
+`PropertyController::uploadRentalImages/saveRentalImagesMeta/deleteRentalImage`). Verified
+directly against the CURRENT model code, not the original 2026-06-24 spec alone (specs can go
+stale; this was checked fresh):
+
+```php
+// Property::rentalImagesStructure() — Property.php:1865-1904
+'in_inspection'  => ['date' => ..., 'images' => [ /* flat array of URL STRINGS */ ]],
+'out_inspection' => ['date' => ..., 'images' => [ /* flat array of URL STRINGS */ ]],
+'custom'         => [ ['id', 'name', 'date', 'images'] , ... ],
+```
+
+Confirmed by reading the actual filter (`array_filter(..., 'is_string')`, `Property.php:1881-1884`):
+**every image is a plain URL string. No per-image id, no space/room tag, no order beyond array
+position, no metadata of any kind.** One date per section, not per photo. Who can upload: any
+user with ordinary property-edit access within their own agency scope (`authorizeProperty()`,
+the same guard the rest of the property screen uses) — there's no separate "only the agent
+assigned to this tenancy" gate, and no party/signature concept at all. A full working mobile API
+mirrors this exact shape (`MobileRentalImagesController`), gated by
+`Property::rentalInspectionsAvailable()` (rental listing type AND currently on-market).
+
+**Missing, precisely**: everything Johan actually wants compared per space. There is no
+concept of a "space" anywhere in this data — In Inspection and Out Inspection are each one flat
+bucket of photos for the WHOLE property, not per-room. No condition checklist, no notes, no
+signatures, no report, no deposit consequence. No link to a specific tenancy either — if a
+property gets a new tenant, the SAME `rental_images_json` column holds whatever's there; nothing
+distinguishes "this tenant's in-inspection" from a previous tenant's.
+
+### 0.3 THE KEY QUESTION — can existing in/out photos be given a space retroactively? No.
+
+Checked directly against the live filter above: an entry in `images[]` is a bare string, nothing
+else. There is no photo-level record to attach a `space_id` to — assigning an existing photo to
+a space would require a HUMAN looking at each one and deciding, because the system has never
+recorded which room it was taken in. **This spec does not attempt that automatically.** See §4.4
+for exactly what happens to photos already sitting in `rental_images_json` when this ships —
+they are not deleted, not silently hidden, and not force-migrated; they become a clearly labelled
+legacy view.
+
+### 0.4 What this spec adds, and where
+
+Given both tabs already exist and hold real, live data: this spec is now about giving
+**structure** to the photo side (space-grouping, checklist, comparison, report, deposit
+consequence, signatures) and **completing** the party side (linking a tenancy's dates to its
+actual landlord and tenant, in one place) — not building a module from nothing. See §2
+(dependency — the party/date gap) and §10.1 (where the new inspection UI lives — expanding the
+Rental Images tab in place, per Johan's own instruction, not a new tab).
 
 ---
 
@@ -44,14 +105,16 @@ evidence, not as a screen.
 
 ---
 
-## 2. THE DEPENDENCY — read this before anything else in this spec
+## 2. THE REMAINING DEPENDENCY — the party/date gap, smaller than first stated
 
 An inspection needs to know: **which property, whose tenancy, which landlord, which tenant,
-when it started, when it ends.** Johan's correction: this is not a gap to fill with a new
-module — there is already a "Rental" tab on the property record meant to hold exactly this.
-Investigated directly, not assumed. The honest picture is that **three separate, disconnected
-mechanisms already exist, none of which alone is "the tenancy record" — this is the gap,
-stated precisely, item by item:**
+when it started, when it ends.** Per §0.1, the Rental tab already holds the dates and the
+Contacts tab already supports real landlord/tenant Contact links — this is genuinely smaller
+than either earlier draft of this spec assumed. What's still missing is that **three separate,
+disconnected mechanisms exist, and none of them alone is "the tenancy record" that ties dates
+and parties together as one addressable thing** — this is the gap, stated precisely, item by
+item (A and B restate §0.1 for completeness; C is additional, found by investigation, not
+mentioned by Johan):
 
 | # | What exists today | Where | What it has | What it's missing |
 |---|---|---|---|---|
@@ -215,6 +278,25 @@ table is genuinely new, not another `*_json` column on `properties`, because a p
 needs its own identity (for the report's side-by-side pairing, for the offline sync contract,
 and for the mobile ghost-image feature — see §8) that a flat JSON array of URLs cannot carry.
 
+#### 4.4.1 What happens to photos already sitting in `rental_images_json` — answered plainly, per Johan's own question
+
+Confirmed in §0.3: an existing in/out photo is a bare URL string with no space, no id, no
+metadata — there is nothing to automatically re-home it into `inspection_photos`. **Nothing
+here is deleted, hidden, or silently migrated.** When a property's structured inspection UI
+(§10.1) is opened for the first time:
+
+- Any existing `rental_images_json.in_inspection`/`out_inspection` photos render in a clearly
+  labelled **"Photos from before structured inspections"** block, once, above the new per-space
+  layout — visible, downloadable, exactly as they are today.
+- They are NOT counted in the new per-space report (§6) — there is no space to put them in, and
+  guessing would be worse than leaving them out and labelled.
+- A one-time, OPTIONAL "sort these into spaces" tool (an agent manually drags/assigns each
+  legacy photo to a space, converting it into a real `inspection_photos` row) is a genuinely
+  useful future addition, named here so it isn't lost, but **not built in this spec** — v1 ships
+  with the legacy block read-only, and a property with no legacy photos never sees the block at
+  all.
+- Custom ad-hoc sections (§0.2, unrelated to in/out) are entirely untouched by any of this.
+
 ### 4.5 Deposit consequence
 
 ```
@@ -365,6 +447,16 @@ silently drop a late-arriving one just because time has passed.
 Johan: *"say clearly what the web side owns, what the mobile side owns, and what they must
 agree on."*
 
+**Flagged first, before the ownership split**: the existing `MobileRentalImagesController` and
+its `rental_inspections_available`/`in_inspection`/`out_inspection` flat-photo API (§0.2)
+already ships in the mobile app today. Once the structured model (§4) replaces those two
+sections, this API's response shape changes — a mobile client built against today's flat
+`images: [url,...]` array will not understand `inspection_spaces`/`inspection_photos`. This is
+a real coordination point with Andre, not a detail to redesign here: whether the old endpoints
+are versioned, replaced outright, or kept serving the legacy block (§4.4.1) while new endpoints
+serve the structured data is his and this spec author's call to make together once this spec is
+approved — named here so it is not discovered mid-build.
+
 **Web owns:**
 - The `rental_inspections` / `inspection_spaces` / `inspection_space_entries` /
   `inspection_photos` / `inspection_damage_items` tables and their API — this is the source of
@@ -412,21 +504,31 @@ filter, pagination, and a real empty state; every list/detail/export/download en
 OWN/BRANCH/AGENCY scoping at the query layer; every screen names its navigation entry; every
 threshold is an agency setting with a sensible default.
 
-### 10.1 Where this lives — two entry points, one dataset
+### 10.1 Where this lives — NOT a new tab; expand the two tabs that already exist
 
-Per Johan's own framing (*"once a property has a tenant, its inspections are part of that
-property's rental story"*): the primary entry point is **a new tab on the property record**,
-next to (and eventually replacing the in/out sections of) the existing Rental Images tab —
-gated the same way (`listing_type === 'rental'`), additionally requiring an active
-`PropertyTenancy` to exist before an in-pass can be started (a property advertised for rent
-with nobody living in it yet has nothing to inspect).
+Johan's own instruction, verbatim: *"we can expand the inspections on the rental images tab."*
+No new tab. Two existing tabs, each doing more of what it already does:
 
-A SECOND entry point — **"Rentals → Inspections"** in the sidebar, alongside the already-
-existing "Rentals → Properties" / "Rentals → Core Matches" / "Rentals → Rental Pipeline"
-entries (`rentals-shared-screens.md`) — is the list screen required by the CRUD standard
-below: every inspection across the agency, not found by clicking into properties one at a
-time. This is the same "reachable from the pillar AND from its own control centre" pattern
-Rental Applications already uses.
+- **The "Rental Images" tab** (existing, §0.2) — its current "In Inspection" / "Out Inspection"
+  cards are replaced IN PLACE by the new structured, per-space form (§5): space list, condition
+  checklist, notes, and photos per space, with the legacy-photo handling from §4.4.1. The tab's
+  own gating is unchanged (`listing_type === 'rental'`), with one addition: starting a NEW
+  in-pass additionally requires an active `PropertyTenancy` to exist (§2) — a property advertised
+  for rent with nobody living in it yet has nothing to inspect. Custom ad-hoc sections on this
+  same tab (§0.2) are entirely unaffected — they keep working exactly as they do today.
+- **The "Rental" tab** (existing, §0.1) — gains the parties/dates work this spec depends on
+  (§2.1) — landlord, tenant, start/end/escalation dates, becoming `PropertyTenancy`. This is
+  where Johan already said this belongs: *"its the lease / parties / and whatever else that we
+  can put on that rental tab."* The finished REPORT (§6) is reachable from either tab (a
+  "View inspection report" link once both passes exist), since it's genuinely the product of
+  data from both.
+
+A SECOND, separate entry point — **"Rentals → Inspections"** in the sidebar, alongside the
+already-existing "Rentals → Properties" / "Rentals → Core Matches" / "Rentals → Rental
+Pipeline" entries (`rentals-shared-screens.md`) — is the list screen required by the CRUD
+standard below: every inspection across the agency, not found by clicking into properties one
+at a time. Same "reachable from the pillar AND from its own control centre" pattern Rental
+Applications already uses.
 
 ### 10.2 List screen — search, sort, filter, pagination, empty state
 
@@ -562,7 +664,8 @@ natural future hook for the "tenant vacated" side of `rentals-shared-screens.md`
   `InspectionPhoto`, `InspectionDamageItem`, `RentalInspectionSettings`.
 - Controller(s): a new `RentalInspectionController` (agent-facing, mirroring
   `RentalApplicationController`'s scoping/tile pattern) + settings controller additions.
-- Views: a new tab on `properties/show.blade.php`, a new `Rentals → Inspections` list screen,
+- Views: `properties/show.blade.php`'s existing Rental Images tab (in/out sections replaced
+  in place) and Rental tab (parties/dates added), a new `Rentals → Inspections` list screen,
   the report Blade/PDF template.
 - Config: `rental_inspections.*` permission keys, `agency-onboarding-copy.php` entries.
 - Events/listeners per §10.7.
