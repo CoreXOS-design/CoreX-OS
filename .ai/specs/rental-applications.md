@@ -12636,47 +12636,41 @@ so a rental property correctly linked only to its tenant reads as
 critical-attention-needed on that dashboard. Minor, pre-existing,
 unrelated to this feature's own code — flagged, not fixed.
 
-## `contact_property` allows exactly ONE role per contact-property pair — a product question, not a bug, flagged not fixed (2026-09-13, conductor + cc3)
+## `contact_property` allows exactly ONE role per contact-property pair — CONFIRMED business rule, not a gap (Johan, 2026-09-13)
 
-Found while working out how to make `contact_property` soft-delete-safe
-for re-linking (see the hard-delete fix section below). **Named
-separately from that fix on the conductor's explicit instruction — this
-is a product question for Johan, not something to design a fix for
-here.**
+Surfaced while working out how to make `contact_property` soft-delete-safe
+for re-linking (see the hard-delete fix section below), initially written
+up as an open question for Johan. **It is not an open question.** Johan's
+ruling, verbatim: **"contact should not be placed on the same property as
+different roles. if that scenario happens the contact will be changed."**
 
-**The constraint:** `contact_property`'s unique index is
-`(contact_id, property_id)` only — `role` is not part of it
+**The rule, confirmed:** one contact holds exactly one role on a given
+property, ever. When the real-world relationship changes — a landlord
+becomes that property's tenant, a seller ends up buying their own
+listing — the SAME link's role changes to reflect it. There is
+deliberately no second, parallel link recording the old relationship
+alongside the new one.
+
+**What already enforces this, exactly as intended:** `contact_property`'s
+unique index, `(contact_id, property_id)` only, `role` excluded
 (`database/migrations/2026_03_05_200001_create_contact_property_table.php:18`).
-One contact can hold exactly one role on a given property, ever, at the
-database level.
+`ContactPropertyController::link()` (`app/Http/Controllers/CoreX/
+ContactPropertyController.php:70-72`) already behaves correctly under
+this rule: `syncWithoutDetaching()` finds the existing row for the pair
+regardless of its current role and updates the role in place — "the
+contact will be changed," precisely as Johan describes it.
 
-**What happens today when someone tries to add a second role:** verified
-in code, not assumed — `ContactPropertyController::link()` (`app/Http/
-Controllers/CoreX/ContactPropertyController.php:70-72`) calls
-`$contact->properties()->syncWithoutDetaching([$data['property_id'] =>
-['role' => $role]])`. Because the pivot lookup `syncWithoutDetaching`
-uses to decide "does a row already exist for this pair" is keyed purely
-on `(contact_id, property_id)`, linking an already-linked contact with a
-*different* role does not fail and does not create a second row — it
-**silently overwrites the existing role**, in place, with no warning, no
-history, no trace of what the prior role was.
-
-**What this prevents, concretely:** a landlord who later becomes that
-same property's tenant. An owner who is also its buyer's estate agent
-listed as both. A seller who ends up buying their own listing back. Any
-scenario where the SAME real person legitimately holds two relationships
-to the SAME property at once, or holds a second one later without losing
-the record of the first. None of these can be represented today — the
-second link doesn't add to the record, it erases the first one.
-
-**Why it's worth Johan seeing, in his own words' spirit rather than
-ours:** this is exactly the kind of thing that surfaces a year from now
-as "the system changed my contact from owner to tenant and lost the
-owner link" — a support ticket that looks like a bug but is actually
-this documented, current, by-design behaviour. Whether it matters to the
-business is entirely his call — it may be fine as-is. **No fix designed
-here, per instruction — this is a named finding for a later, calmer
-conversation, not part of the hard-delete fix in progress.**
+**What changes because history is being kept, not because the rule
+changes:** today a role change leaves no record of what the role was
+before — no audit entry, and (confirmed by re-reading `link()`'s own
+comment) the `ContactLinkedToProperty` domain event fires "only on new
+link, not on no-op re-attach," so a role change on an *already-linked*
+pair is invisible even to the domain-events audit path, not just to
+the pivot row itself. Once the hard-delete fix below adds real history
+to this table, a bare unaudited role flip becomes the same class of gap
+the whole fix exists to close. See the hard-delete fix's stage 2/4 below
+for how the audit requirement folds this in — the rule itself is not
+changing, only the audit trail underneath it.
 
 ## The `contact_property` hard-delete fix — plan, findings, and where tomorrow starts (2026-09-13, conductor + cc3)
 
@@ -12740,11 +12734,16 @@ same composite tuple. Widening the index would silently remove the one
 protection the table has today, not add one — this would have shipped
 as a silent duplicate-active-links bug months from now if not caught.
 
-**The actual fix:** leave the unique index exactly as it is. Every write
-path must look up the existing row FIRST — including trashed rows via a
-query that bypasses the new read-side scope — and restore/update it if
-found, rather than blind-inserting. "Restore, never blind-insert" is the
-rule for stage 2 below, not an index change.
+**The actual fix, and it's simpler than first framed:** leave the unique
+index exactly as it is. Because Johan has since confirmed one row per
+`(contact_id, property_id)` pair is the intended rule, not a gap (see the
+finding above), the rule for every write path has an unambiguous target —
+there is only ever ONE legitimate row for a pair, so "find the existing
+row, trashed or not, and restore it with the new role" needs no
+reasoning about which of several candidates to restore. Never insert a
+second row for a pair that already has one, trashed or active. "Restore,
+never blind-insert, never leave a trashed row behind while creating a
+fresh one" is the rule for stage 2 below, not an index change.
 
 ### Check 2 — role values / other features
 
@@ -12780,13 +12779,45 @@ detail, that's tomorrow's first job in this stage) plus
 `ComposeSellerService.php:490,522`. ALL become soft-deletes (set
 `deleted_at`), never a real `DELETE`. Additionally — this is the
 scope-widening found tonight — every LINK/attach/sync/`updateOrInsert`
-write path for this pivot must apply "restore, never blind-insert":
-check for an existing row (trashed or not) before writing; if trashed,
-clear `deleted_at` and update role/timestamps; if active, update in
-place as today; only insert fresh when genuinely nothing exists for that
-pair. Without this, re-linking a previously-unlinked contact would throw
-a duplicate-key error the instant a soft-deleted row already occupies
-that `(contact_id, property_id)` slot.
+write path for this pivot must apply "restore, never blind-insert, never
+leave a trashed row behind": check for the one existing row for that
+pair (trashed or not) before writing; restore it (`deleted_at = null`)
+and set its role to whatever role is now being applied — same operation
+whether the row was active with a different role (a role change) or
+trashed (a re-link) or absent (a genuinely fresh link, insert only in
+this last case). **Every role change — including a restore-with-new-role
+— must write an audit entry recording old role → new role, per Johan's
+confirmation that a role change is a real business event, not a silent
+field update** (see the finding above). Today's `ContactLinkedToProperty`
+domain event does not cover this — its own comment says it fires "only
+on new link, not on no-op re-attach," so a role change on an existing
+pair currently produces no event and no audit trail at all. Whether
+tomorrow's fix extends that event to cover role changes (with old/new
+role in the payload) or introduces its own is an implementation
+decision for tomorrow, not decided here — but the requirement itself
+(a role change must be visible in the audit trail) is fixed by
+tonight's ruling and belongs in whatever gets built.
+
+**What happens when a soft-deleted row is re-linked in a DIFFERENT
+role, worked through as asked:** it restores the one existing row and
+takes the new role — it does not stay recorded as the old role, and no
+second row preserves the old role standing alongside it. This follows
+directly from Johan's rule above: there is only ever one legitimate row
+per pair, so restoring it IS changing its role, the same operation as a
+live role change on an active row. The consequence for "was this
+contact ever the owner here?" a year from now: **the pivot row itself
+cannot answer that once it's been restored into a new role** — its own
+`role` column only ever holds the current one, and restoring doesn't
+freeze or copy the prior value anywhere on the row itself. The AUDIT
+TRAIL is therefore the only place that question is answerable, which is
+exactly why the audit requirement above is not optional polish — without
+it, "was this person ever linked as X" silently stops being answerable
+the moment this fix ships, for both a genuine unlink-and-forget and a
+restore-into-a-new-role. Note also that the row's own `created_at` stays
+from whenever the pair was FIRST ever linked, not from when the current
+role started — after a restore, the pivot row's timestamps describe the
+pair's whole history, not the current role's tenure; only the audit log
+carries "when did THIS role start."
 
 **Stage 3 — every raw read site.** Every `DB::table('contact_property')`
 query and every join by that table name needs its own
@@ -12802,7 +12833,14 @@ below once that lands.
 `PropertyContactController.php:388`, and `MobilePropertyController.php:1284`
 currently log nothing at all before deleting — matching pattern already
 proven in `RentalApplicationController::unlinkTenantProperty()`'s own
-audit call.
+audit call. Same requirement extends to their LINK counterparts once
+stage 2's restore rule is live: a restore-with-new-role is a role
+change, and per Johan's confirmation (see the finding above) a role
+change must be audited the same way an unlink is — old role → new role,
+not a silent overwrite. This is a genuinely new audit surface, not
+present anywhere today (`ContactLinkedToProperty` only fires on a
+brand-new link), so tomorrow's stage 2/4 work should treat "log the role
+change" as part of building the restore path, not a separate follow-up.
 
 ### Non-negotiable constraints, restated for whoever starts tomorrow
 
