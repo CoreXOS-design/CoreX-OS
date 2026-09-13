@@ -948,6 +948,7 @@ class PropertyIntelligenceService
             ->join('contacts', 'contacts.id', '=', 'contact_property.contact_id')
             ->where('contact_property.property_id', $propertyId)
             ->whereNull('contacts.deleted_at')
+            ->whereNull('contact_property.deleted_at')
             ->select(
                 'contacts.id as contact_id',
                 'contacts.first_name',

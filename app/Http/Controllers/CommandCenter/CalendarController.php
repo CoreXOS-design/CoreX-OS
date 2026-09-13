@@ -2780,7 +2780,7 @@ class CalendarController extends Controller
                 ->filter()
                 ->toArray();
             foreach ($properties as $p) {
-                $owners = $p->contacts()->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])->get();
+                $owners = $p->contacts()->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])->wherePivotNull('deleted_at')->get();
                 foreach ($owners as $owner) {
                     if (in_array($owner->id, $seenContactIds)) continue;
                     $seenContactIds[] = $owner->id;
@@ -2905,6 +2905,7 @@ class CalendarController extends Controller
             ->join('contacts as c', 'c.id', '=', 'cp.contact_id')
             ->where('cp.property_id', $property->id)
             ->whereNull('c.deleted_at')
+            ->whereNull('cp.deleted_at')
             ->where('c.agency_id', $property->agency_id)
             ->orderBy('c.id')
             ->get(['c.id', 'c.first_name', 'c.last_name', 'c.phone', 'c.email', 'cp.role']);
