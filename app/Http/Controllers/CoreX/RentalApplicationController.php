@@ -950,7 +950,7 @@ class RentalApplicationController extends Controller
      *
      * Deliberate agent action, not automatic on approval — Johan has been
      * consistent all weekend that consequential things need a press.
-     * Reuses two mechanisms verbatim rather than building either again:
+     * Reuses a mechanism verbatim rather than building it again:
      *   - The contact/property link itself is the SAME contact_property
      *     pivot ContactPropertyController::link() already writes, role
      *     'tenant' — already a first-class value there (the esign_role
@@ -972,12 +972,15 @@ class RentalApplicationController extends Controller
      *     MarkBuyerWonOnPropertyLink already reacts to 'buyer'/'purchaser')
      *     sees a rental-sourced tenant link exactly like any other.
      *
-     * Reversible, per instruction — "no one-way state changes, no
-     * destroyed history": unlinkTenantProperty() below detaches the pivot
-     * row (nothing deleted) and, mirroring DR2's own revert-on-decline
-     * companion (RevertPropertyStatusOnDealDeclined), restores the
-     * property's prior status from pre_tenant_link_status if this link is
-     * what set it and nothing else on the property still needs it let.
+     * DOES NOT TOUCH PROPERTY STATUS. Johan's original ask ("the property
+     * changes to let out status") was built and then deliberately pulled
+     * apart by the conductor's ruling, 2026-09-13, after an investigation
+     * found flipping to let_out risked a live Property24/Private Property
+     * listing silently vanishing (see .ai/specs/rental-applications.md,
+     * "Property status side effects — DO NOT flip on tenant link"). The
+     * link and the status change are now two separate features; only the
+     * link is built here. Reversible regardless — unlinkTenantProperty()
+     * below detaches the pivot row and nothing else (nothing deleted).
      * Building the full "tenant moving out" workflow is explicitly NOT
      * today's job (Johan has parked it) — this only keeps that door open.
      */
@@ -1035,36 +1038,39 @@ class RentalApplicationController extends Controller
             ));
         }
 
-        // Flip to Let — mirrors FlagPropertyUnderOfferOnDealCreated's own
-        // guard exactly: never touch a property that's already off-market
-        // (sold/withdrawn/already let out/…) or the snapshot below would
-        // overwrite a status this action didn't itself set aside.
-        $oldPropertyStatus = $property->status;
-        if (! in_array((string) $oldPropertyStatus, Property::OFF_MARKET_STATUSES, true)) {
-            $property->pre_tenant_link_status = $oldPropertyStatus !== '' ? $oldPropertyStatus : null;
-            $property->status = 'let_out';
-            $property->save(); // PropertyObserver: audit + P24/website syndication fire on the status change.
-        }
+        // Deliberately does NOT touch $property->status. The conductor's
+        // ruling, 2026-09-13: linking a tenant and marking a property Let
+        // are two separate features. The status flip was pulled after an
+        // investigation (see .ai/specs/rental-applications.md, "Property
+        // status side effects — DO NOT flip on tenant link") found that
+        // PropertyObserver's off-market-delist path does not recognise
+        // the RENTED lifecycle as protected the way it protects SOLD, so
+        // flipping to let_out risked the listing being silently withdrawn
+        // from Property24 minutes later, and Private Property delists a
+        // rented property outright by design — an agent approving a
+        // rental application could pull a live listing off both portals.
+        // What the status change SHOULD do is Johan's call, pending; this
+        // action only ever writes the contact_property link.
 
         $audit->log(
             $rentalApplication,
             eventCategory: 'tenant_link',
             eventType: 'linked',
             user: $request->user(),
-            oldValues: ['property_id' => $oldPropertyId, 'property_status' => $oldPropertyStatus],
-            newValues: ['property_id' => $property->id, 'property_status' => $property->status],
-            humanSummary: 'Linked ' . $contact->full_name . ' to ' . $property->buildDisplayAddress() . ' as tenant' . ($property->status === 'let_out' ? ' — property marked Let' : ''),
+            oldValues: ['property_id' => $oldPropertyId],
+            newValues: ['property_id' => $property->id],
+            humanSummary: 'Linked ' . $contact->full_name . ' to ' . $property->buildDisplayAddress() . ' as tenant',
         );
 
-        return back()->with('success', 'Linked to ' . $property->buildDisplayAddress() . ' as tenant.' . ($property->status === 'let_out' ? ' Property marked Let.' : ''));
+        return back()->with('success', 'Linked to ' . $property->buildDisplayAddress() . ' as tenant.');
     }
 
     /**
      * The reversal — see linkTenantProperty()'s own docblock for why this
      * exists even though the fuller "tenant moving out" workflow is parked.
      * Detaches the tenant link (nothing deleted — the contact and property
-     * both stand untouched) and, only when safe, restores the property's
-     * prior status.
+     * both stand untouched). No status to restore — linkTenantProperty()
+     * no longer touches property status (conductor's ruling, 2026-09-13).
      */
     public function unlinkTenantProperty(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
     {
@@ -1076,31 +1082,23 @@ class RentalApplicationController extends Controller
 
         $contact->properties()->wherePivot('role', 'tenant')->detach($property->id);
 
-        $oldStatus = $property->status;
-        // Only revert a status THIS link set aside, and only when no other
-        // contact is still linked as tenant to the same property — mirrors
-        // RevertPropertyStatusOnDealDeclined's own "don't clobber if
-        // something else still needs it" check exactly.
-        if ($oldStatus === 'let_out' && $property->pre_tenant_link_status !== null) {
-            $stillTenanted = $property->contacts()->wherePivot('role', 'tenant')->exists();
-            if (! $stillTenanted) {
-                $property->status = $property->pre_tenant_link_status;
-                $property->pre_tenant_link_status = null;
-                $property->save(); // PropertyObserver: audit + re-syndication.
-            }
-        }
+        // No status to revert — linkTenantProperty() above no longer
+        // touches $property->status (conductor's ruling, 2026-09-13; see
+        // that method's own comment). pre_tenant_link_status is left
+        // unused/reserved rather than dropped, since a properly-designed
+        // status-change feature may want the same snapshot column later.
 
         $audit->log(
             $rentalApplication,
             eventCategory: 'tenant_link',
             eventType: 'unlinked',
             user: $request->user(),
-            oldValues: ['property_id' => $property->id, 'property_status' => $oldStatus],
-            newValues: ['property_id' => null, 'property_status' => $property->status],
-            humanSummary: 'Unlinked ' . $contact->full_name . ' from ' . $property->buildDisplayAddress() . ' as tenant' . ($oldStatus !== $property->status ? ' — property status restored' : ''),
+            oldValues: ['property_id' => $property->id],
+            newValues: ['property_id' => null],
+            humanSummary: 'Unlinked ' . $contact->full_name . ' from ' . $property->buildDisplayAddress() . ' as tenant',
         );
 
-        return back()->with('success', 'Tenant link removed.' . ($oldStatus !== $property->status ? ' Property status restored.' : ''));
+        return back()->with('success', 'Tenant link removed.');
     }
 
     /**
