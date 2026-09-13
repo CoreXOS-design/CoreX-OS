@@ -101,7 +101,10 @@ final class TaskBoardExcludesPropertyAutomationTest extends TestCase
             ->assertSee('data-kanban-column="in_progress"', false)
             ->assertSee('data-kanban-column="awaiting"', false)
             ->assertSee('data-kanban-column="done"', false)
-            ->assertDontSee('emptyColumnHidden');
+            ->assertDontSee('emptyColumnHidden')
+            // Column fold state is never remembered: Done must load open every visit.
+            ->assertSee("colCollapsed: { todo: false, in_progress: false, awaiting: false, done: false }", false)
+            ->assertDontSee("readJSON(LS.col");
     }
 
     public function test_archived_view_hides_archived_property_housekeeping(): void

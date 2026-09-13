@@ -552,7 +552,6 @@
 function taskBoard() {
     const LS = {
         density: 'hfc_tasks_density',
-        col:     'hfc_tasks_col_collapsed',
         bucket:  'hfc_tasks_bucket_collapsed',
     };
     const readJSON = (k, fb) => {
@@ -576,7 +575,11 @@ function taskBoard() {
         filters: { overdue: false, today: false, week: false, critical: false, high: false },
         pillars: [],
         density: localStorage.getItem(LS.density) || 'comfortable',
-        colCollapsed: readJSON(LS.col, { todo: false, in_progress: false, awaiting: false, done: false }),
+        // Every column — Done included — ALWAYS loads open so agents see what they
+        // have finished. Folding a column is an in-session convenience only; it is
+        // deliberately NOT remembered (a remembered "Done collapsed" hid the column
+        // on every visit, which is exactly what Andre asked to stop).
+        colCollapsed: { todo: false, in_progress: false, awaiting: false, done: false },
         bucketCollapsed: readJSON(LS.bucket, { overdue: false, today: false, tomorrow: false, week: false, later: true, none: true }),
         colShowAll: {},
         limitPerColumn: 10,
@@ -587,7 +590,9 @@ function taskBoard() {
 
         init() {
             this.$watch('density',         v => localStorage.setItem(LS.density, v));
-            this.$watch('colCollapsed',    v => localStorage.setItem(LS.col, JSON.stringify(v)), { deep: true });
+            // Clear the pre-2026-09-13 remembered column state so a stale "Done collapsed"
+            // never resurfaces if this key is ever read again.
+            try { localStorage.removeItem('hfc_tasks_col_collapsed'); } catch (e) {}
             this.$watch('bucketCollapsed', v => localStorage.setItem(LS.bucket, JSON.stringify(v)), { deep: true });
 
             ['search', 'filters', 'pillars', 'colShowAll'].forEach(k => {
