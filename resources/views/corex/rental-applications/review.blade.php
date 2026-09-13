@@ -115,13 +115,29 @@
     // and Zone 4's own button visibility (further down the page) read the
     // exact same gate — see RentalApplicationReviewController::reopen()/
     // requestMoreInfoFromApplicant() for what each path actually does.
+    // AT-392 round 2, 2026-09-13 — parity fix: this gate used to check the
+    // override tier ONLY for 'declined', so a non-override agent viewing a
+    // WITHDRAWN application saw the full Reopen button enabled, clicked it,
+    // and hit the controller's own override-tier 403 (which correctly
+    // requires it for BOTH declined and withdrawn — see reopen()'s
+    // $isOverrideReopen). Matches the backend now: both terminal statuses
+    // require the same override tier to reopen.
     $canReopenNow = $viewerRole === 'agent'
         && in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true)
-        && ($rentalApplication->status !== 'declined' || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
+        && (! in_array($rentalApplication->status, ['declined', 'withdrawn'], true) || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
     // $reviewLocked already computed above, near $initialMarkedUpDocIds —
     // this screen's header text needs it before this second @php block runs.
+    //
+    // AT-392 round 2, 2026-09-13 — companion parity fix: 'withdrawn' was
+    // missing from this exclusion list, so a non-override agent could
+    // always trigger the LESSER requestMoreInfoFromApplicant() action on a
+    // withdrawn application. That endpoint has no status guard at all — it
+    // sends the applicant an email but never touches status or
+    // token_expires_at, so the applicant's link stays genuinely dead. An
+    // agent without reopen permission must see no button at all here,
+    // exactly like declined already worked.
     $canSendBackToApplicant = $viewerRole === 'agent'
-        && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined'], true));
+        && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined', 'withdrawn'], true));
 @endphp
 <div class="w-full"
      @if($viewerRole === 'agent')
@@ -478,8 +494,42 @@
            (89px -> 103px, see the 2026-09-13 comment above for that math) —
            taken as its own column, not from the amount column's own
            hard-won floor. */
+        /* HIT-AREA FIX, 2026-09-13 (cc1's own-hand find, verifying cc2's
+           strike fix: "aimed a real mouse click at the centre of that
+           control and nothing happened... 14 by 14 pixels"). Measured
+           in-situ, not assumed: .rr-ledger-strike really was exactly
+           14x14 with zero padding — no invisible padding was hiding a
+           bigger real target. Rows are only 20.5px tall with ZERO gap
+           between them (confirmed by measurement), so any invisible
+           hit-area expansion past a row's OWN boundary risks landing on
+           the NEXT row's strike button instead — worse than the original
+           problem. The only safe budget is what's already inside this
+           row's own box: gap shrunk 3px -> 2px (freeing 4px across the
+           4 gaps, same borrow-from-gap technique as the 2026-09-13 date-
+           column fix above) handed entirely to the strike column
+           (14px -> 18px); row height, row width, and every other
+           column's width are unchanged (15+53+72(min)+12+18=170,
+           +4x2=8 gap = 178, byte-identical to before: 15+53+72+12+14=166
+           +4x3=12 = 178). Glyph itself (font-size, ⊘/↺) untouched.
+           Width grew via the real button box (18px, safe — width doesn't
+           drive row height); height grew via an invisible ::before
+           overlay instead of the button's own box (see that rule's own
+           comment) after a first attempt that made the button itself
+           18px tall and measurably grew every row by 1.5px — caught by
+           re-measuring after the change, not assumed safe. Real hit area
+           confirmed after: 18x20 (from 14x14), safely within the row's
+           own 20.5px height, row height itself unchanged. This does not
+           reach the 44px touch
+           guideline Johan cited — that would need loosening the whole
+           panel's row density, a bigger, costlier call flagged
+           separately rather than assumed here. The jump arrow (visually
+           12px) and the out-of-period dot were checked too and need no
+           fix: the arrow's REAL click target is this whole row
+           (@click="jumpToMark(row)" below, not the glyph itself), and the
+           dot has no click handler at all — hover-only, so a hit-area
+           guideline doesn't apply to it the same way. */
         .rr-ledger-row {
-            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px 14px; gap: 3px; align-items: center;
+            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px 18px; gap: 2px; align-items: center;
             padding: 2px 0;
         }
         .rr-ledger-badge {
@@ -489,8 +539,24 @@
         }
         .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .rr-ledger-strike {
-            width: 14px; height: 14px; padding: 0; border: none; background: transparent;
-            color: var(--text-muted); font-size: 12px; line-height: 14px; cursor: pointer;
+            position: relative;
+            width: 18px; height: 14px; padding: 0; border: none; background: transparent;
+            color: var(--text-muted); font-size: 12px; line-height: 14px; text-align: center; cursor: pointer;
+        }
+        /* The real button box stays 14px TALL on purpose — this row's height
+           was governed by the arrow column's own 16.5px content, not the
+           strike button; making the button's own box any taller than that
+           would become the new tallest thing and grow every row (measured:
+           it did, by 1.5px, before this was caught and fixed). ::before is
+           position:absolute, so it's removed from layout entirely — free to
+           be taller than the button's own box, using exactly the row's own
+           already-measured 6.5px of vertical slack (20.5px row - 14px
+           button), without ever touching the next row (gap between rows is
+           0, confirmed by measurement — going even 1px past this row's own
+           boundary risks landing on the NEXT row's own strike button). */
+        .rr-ledger-strike::before {
+            content: ''; position: absolute; top: 50%; left: 0; transform: translateY(-50%);
+            width: 100%; height: 20px;
         }
         .rr-ledger-strike:hover { color: var(--text-primary); }
         .rr-ledger-strike:disabled { cursor: default; opacity: 0.5; }
@@ -677,7 +743,7 @@
                  } }"
                  x-init="restoreJustUploadedDocRow()">
                 <div class="flex items-center justify-between">
-                    <button type="button" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
+                    <button type="button" data-qa="docs-toggle" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
                         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">
                             Supporting Documents
                             <span class="ds-badge ds-badge-default">{{ $documents->count() }}</span>
@@ -736,7 +802,7 @@
                                 </span>
                                 <span class="flex items-center gap-2 flex-shrink-0 ml-2">
                                     @if($row['inline_viewable'])
-                                        <button type="button" style="color: var(--ds-blue, #2563eb); font-weight: 600;"
+                                        <button type="button" data-qa="doc-view-markup" style="color: var(--ds-blue, #2563eb); font-weight: 600;"
                                                 @click="openContinuousView({{ $document->id }})">View &amp; Mark Up</button>
                                     @else
                                         <span class="ds-badge ds-badge-default" title="This file type cannot be previewed on screen — download it to view it.">No preview</span>
@@ -1236,7 +1302,7 @@
                     <div class="rounded-md px-3 py-2 text-xs mb-2" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
                         <p class="font-semibold mb-1.5">Declined — not yet sent.</p>
                         <p class="mb-2">Read the email below, edit anything you need to, then send it. The applicant sees nothing until you do.</p>
-                        <button type="button" @click="declineSendDrawerOpen = true" class="corex-btn-primary text-xs">Review &amp; send to applicant</button>
+                        <button type="button" data-qa="decline-send-open" @click="declineSendDrawerOpen = true" class="corex-btn-primary text-xs">Review &amp; send to applicant</button>
                     </div>
                 @elseif($isPendingAuthorisation)
                     <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb);">
@@ -1460,10 +1526,10 @@
                          add a NEW line, and there is nothing partial about
                          "add" the way there is about, say, a date field the
                          agent might still want to glance at. --}}
-                    <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" x-show="!reviewLocked" @click="openManualEntry()">Add line manually</button>
+                    <button type="button" data-qa="ledger-add-manual-open" class="corex-btn-outline text-xs w-full mb-1.5" x-show="!reviewLocked" @click="openManualEntry()">Add line manually</button>
                     <div x-show="manualEntryOpen && !reviewLocked" x-cloak class="rounded-md p-2 mb-1.5" style="border: 1px solid var(--border); background: var(--surface-2, #f9fafb);">
                         <div class="grid grid-cols-2 gap-1 mb-1">
-                            <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'income' ? 'var(--ds-purple-soft, #f3e8ff)' : 'transparent', color: manualEntry.entry_type === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'income'">Income</button>
+                            <button type="button" data-qa="ledger-add-manual-type-income" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'income' ? 'var(--ds-purple-soft, #f3e8ff)' : 'transparent', color: manualEntry.entry_type === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'income'">Income</button>
                             <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'expense' ? 'var(--ds-amber-soft, #fffbeb)' : 'transparent', color: manualEntry.entry_type === 'expense' ? 'var(--ds-amber, #b45309)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'expense'">Expense</button>
                         </div>
                         {{-- .lazy — see the statement-period date fields' own comment above. --}}
@@ -1482,16 +1548,16 @@
                                  just this button via :style, so "you have
                                  not chosen a type yet" reads at a glance,
                                  not just on click. --}}
-                            <button type="button" class="corex-btn-primary text-xs"
+                            <button type="button" data-qa="ledger-add-manual-save" class="corex-btn-primary text-xs"
                                     :style="{ padding: '0.2rem 0.6rem', opacity: (!manualEntry.entry_type && !manualEntrySaving) ? '0.45' : '1', cursor: (!manualEntry.entry_type && !manualEntrySaving) ? 'not-allowed' : 'pointer' }"
                                     :disabled="manualEntrySaving || !manualEntry.entry_type" :title="!manualEntry.entry_type ? 'Choose Income or Expense first' : ''" @click="saveManualEntry()" x-text="manualEntrySaving ? 'Saving…' : 'Save'"></button>
                         </div>
                     </div>
                     @if($canSendBackToApplicant)
-                        <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
+                        <button type="button" data-qa="send-back-to-applicant-open" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
                     @endif
                     @unless(in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true) || $isPendingAuthorisation)
-                        <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                        <button type="button" data-qa="submit-for-approval" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
                     @endunless
                     @if($rentalApplication->generations->count() > 1)
                         <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-blue, #2563eb);" @click="submissionHistoryOpen = true">Submission history</button>
@@ -1500,8 +1566,8 @@
                     @if($blockedBySelfApproval)
                         <p class="text-[11px]" style="color: var(--text-muted);">You created this application — only another authoriser may act on it.</p>
                     @else
-                        <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
-                        <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true">Approve &amp; continue</button>
+                        <button type="button" data-qa="authoriser-send-back-open" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
+                        <button type="button" data-qa="authoriser-approve-open" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true">Approve &amp; continue</button>
                         {{-- Equal weight with Approve, 2026-09-14 (cc4's walk,
                              Johan GO): "declining is the unusual, awkward
                              path" was a real, visible bias — a full-width
@@ -1513,7 +1579,7 @@
                              visually agree) — distinct from Approve's solid
                              primary treatment on purpose, per instruction:
                              equal weight, not equal invitation. --}}
-                        <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline</button>
+                        <button type="button" data-qa="authoriser-decline-open" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline</button>
                     @endif
                 @endif
             </div>
@@ -1572,7 +1638,7 @@
                               placeholder="What do they need to fix or provide? e.g. ID number was typed incorrectly"></textarea>
                     <div class="flex justify-end gap-2">
                         <button type="button" class="corex-btn-outline text-xs" @click="sendBackModalOpen = false">Cancel</button>
-                        <button type="button" class="corex-btn-primary text-xs" :disabled="sendBackSending || !sendBackNote.trim()" @click="sendBackToApplicant()" x-text="sendBackSending ? 'Sending…' : 'Confirm and send'"></button>
+                        <button type="button" data-qa="send-back-to-applicant-confirm" class="corex-btn-primary text-xs" :disabled="sendBackSending || !sendBackNote.trim()" @click="sendBackToApplicant()" x-text="sendBackSending ? 'Sending…' : 'Confirm and send'"></button>
                     </div>
                 </div>
             </div>
@@ -1644,7 +1710,7 @@
                             <input type="hidden" name="reason" x-ref="approveReasonField">
                             <div class="flex justify-end gap-2">
                                 <button type="button" class="corex-btn-outline text-xs" @click="approveModalOpen = false">Cancel</button>
-                                <button type="submit" class="corex-btn-primary text-xs" :disabled="!approveAmount">Approve</button>
+                                <button type="submit" data-qa="authoriser-approve-confirm" class="corex-btn-primary text-xs" :disabled="!approveAmount">Approve</button>
                             </div>
                         </form>
                     </div>
@@ -1698,7 +1764,7 @@
                             <input type="hidden" name="decline_reason_template_id" x-ref="declineReasonTemplateIdField">
                             <div class="flex justify-end gap-2">
                                 <button type="button" class="corex-btn-outline text-xs" @click="declineModalOpen = false">Cancel</button>
-                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim() || !declineReasonTemplateId">Decline</button>
+                                <button type="submit" data-qa="authoriser-decline-confirm" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim() || !declineReasonTemplateId">Decline</button>
                             </div>
                         </form>
                     </div>
@@ -1899,7 +1965,7 @@
                         <textarea name="body" x-model="body" rows="16" class="corex-input text-sm w-full mb-4" style="white-space: pre-wrap;" required maxlength="10000"></textarea>
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" @click="declineSendDrawerOpen = false">Cancel</button>
-                            <button type="submit" class="corex-btn-primary text-xs" :disabled="sending || !subject.trim() || !body.trim()">Send to applicant</button>
+                            <button type="submit" data-qa="decline-send-confirm" class="corex-btn-primary text-xs" :disabled="sending || !subject.trim() || !body.trim()">Send to applicant</button>
                         </div>
                     </form>
                 </div>

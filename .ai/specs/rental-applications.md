@@ -11465,6 +11465,209 @@ its place. Detail page afterward: header, pill, and audit-trail line
 ("returned → Applicant withdrawn") all agree. Zero console errors, render
 gate PASS throughout.
 
+## The strike/restore button shipped dead — root cause, hotfix, and the permanent click-through gate (2026-09-15, cc4)
+
+### The bug, live on QA1, found by Johan himself testing end-to-end
+
+The struck-out-lines feature built the previous round (6 tests, 35
+assertions, proved to the cent both directions, cross-agency 404s and
+wrong-author 403s verified) shipped with its own button **permanently
+disabled from first paint, for everyone, on every application** —
+cc4/cc5 found it independently the same morning Johan ran his own
+end-to-end test.
+
+**Root cause, confirmed directly in a real headless Chromium, not
+guessed:** `row.strikingBusy` was never given an initial value, so
+`:disabled="row.strikingBusy"` bound `undefined` rather than `false`. A
+boolean-attribute binding backed by `undefined` resolves through
+`Element.toggleAttribute(name, force)`, and the DOM spec treats
+`force === undefined` as the argument being OMITTED — toggleAttribute
+then just flips whatever the attribute's current presence already is,
+instead of forcing it false. Proved directly: `el.toggleAttribute(
+'disabled', undefined)` on a fresh element turns `disabled` ON, not off.
+
+**Hotfix, live same morning:** `:disabled="!!row.strikingBusy"` at both
+binding sites (a real boolean can never trigger the omitted-argument
+ambiguity), plus `strikingBusy: false` given explicitly wherever a row
+enters `captureEntries` (initial load, `addCaptureEntry()`,
+`updateCaptureEntry()` — the last of these matters just as much as the
+first: it replaces the WHOLE row object on every strike/restore
+response, and without the same default there the very toggle that
+finishes clearing the busy state would immediately reintroduce the bug).
+Verified in headless Chromium against the worktree, then against the
+real fixture (application 22, restored to its original state
+afterward) before push.
+
+### The honest answer to "what would have caught this"
+
+**Every PHPUnit test in this module POSTs straight to a controller
+action. None of them loads the page and clicks the thing a human
+clicks. A PHPUnit test cannot see a disabled button — it does not run a
+browser.** The 6 tests and 35 assertions proved the server contract
+exactly right and said nothing about whether the control that calls it
+worked, because nothing in the suite was capable of saying so. Recorded
+as a standing rule, not just this incident's postmortem — see
+`.ai/STANDARDS.md`, Standard −1f, "Proving an endpoint is not proving a
+feature."
+
+### The permanent gate — `scripts/rental-click-through.mjs`
+
+A sibling to `rental-smoke.mjs`, not an edit to it (agreed directly with
+cc1 before writing a line — rental-smoke.mjs is read-only/page-load
+focused and several of its own checks depend on persistent fixture
+state staying exactly as it is; a click-through check mutates state —
+strikes, submits, approves, declines are one-way transitions — so it
+creates and soft-deletes its OWN throwaway agency/applications/document
+on every run via `rental-click-through-fixture.php`, never touching app
+22, app 4, or any of Johan's own real applications).
+
+The pattern every check runs: **find a real control by selector, assert
+it is not wrongly disabled, click it for real, assert a real network
+request (or, for a control with no server round-trip, a real observable
+state change) actually happened.** A control legitimately disabled
+because its precondition isn't met (manual-entry Save with no type
+chosen, Approve with no amount typed, Decline with no reason typed,
+Send-back with no note typed) is asserted as correctly disabled — a
+pass, not a skip; a control disabled for no legitimate reason is
+exactly the bug class this gate hunts, and fails loudly.
+
+**Coverage — named in the script's own file header so the next person
+can see what's checked and what isn't, not sampled:** strike, restore,
+add-line-manually (open, legitimately-disabled Save, working Save), a
+ledger row's jump-to-document, submit for approval, send back to
+applicant (legitimately-disabled and working), authoriser Approve
+(legitimately-disabled and working, including its native `confirm()`),
+authoriser Decline (same). 13 real checks, all passing.
+
+**A second dead control found the same way, the same day — reported,
+not fixed here:** the capture chip's EDIT path (click an existing
+capture-ledger mark on a document to reopen it) has never worked, for
+anyone, since `entry_type` was added to marks.
+`document-highlighter-script.blade.php`'s mark-loading code (the
+`common` object built from the server's `toMarkArray()` response) never
+copies `entry_type`/`entry_date`/`entry_description`/`entry_amount`/
+`struck_out` onto `this.marks` — only `id`/`highlighterId`/
+`authorUserId`/`authorName`/`authorRole`/`type`/`page`/`points`/`width`
+survive. `onStrokeClick()`'s own guard, `if (!mark.entry_type) return`,
+therefore fires on every mark, always, because that field is always
+undefined client-side — confirmed directly via `Alpine.$data()`'s real
+key list, not inferred. A one-line, additive fix (thread the missing
+fields into `common`) — not applied here since it touches cc3's file,
+actively worked on this same weekend; recorded as a `KNOWN ISSUE` in the
+gate script itself, printed loudly on every run, tracked separately from
+pass/fail so this one pre-existing, already-reported bug doesn't
+permanently block the gate from catching NEW regressions on the other 13
+controls — the same discipline already applied to the pre-existing
+Round10/Round11 test debt.
+
+### Files changed
+
+- `resources/views/corex/rental-applications/review.blade.php` — the
+  `strikingBusy` hotfix; `data-qa` attributes on every control the gate
+  needs a stable selector for (none of them change layout, styling, or
+  behaviour).
+- `scripts/rental-click-through.mjs` — new, the permanent gate.
+- `scripts/rental-click-through-fixture.php` — new, throwaway fixture
+  create/cleanup (agency, branch, two admin users, three applications,
+  one real document + anchored/unanchored marks), soft-deletes
+  everything on every run success or failure; leaves the mark's own
+  document-highlight raster cache and the fixture's admin users' "last
+  admin" guard leftovers as the only intentional, documented exceptions.
+- `.ai/STANDARDS.md` — Standard −1f, the standing rule.
+
+## Strike/restore hit area was really 14x14 — measured, fixed, proved with a real click (2026-09-13, conductor + cc3)
+
+CORRECTION, same day — this section originally credited this finding to
+cc1. cc1 checked and confirmed they have no record of it: never touched
+fixture 300, entries 452/453, or the strike control this session. The
+finding actually came from a message opening "Conductor. New finding from
+my own verification just now" and continuing entirely in first person —
+nothing in it names cc1. The misattribution was mine, caught only because
+cc1 pushed back on it rather than quietly accepting credit that didn't
+check out. Corrected below; the commit message that first shipped this
+fix still says "cc1's own-hand find" and could not be safely rewritten
+after pushing — this note is the correction of record.
+
+The conductor, verifying cc2's strike fix by hand on fixture 300: the
+arithmetic and persistence are correct (R3,500 struck from a R23,500
+income → totals to R20,000, restore puts it back, survives reload) — but
+"I aimed a real mouse click at the centre of that control and nothing
+happened. A programmatic click on the same element worked immediately...
+14 by 14 pixels." Explicitly flagged as not yet certain the miss was
+purely size — asked for the real hit area to be established, not assumed.
+
+**Measured before touching anything.** `.rr-ledger-strike` really was
+exactly 14x14px with `padding: 0` — no invisible padding was hiding a
+bigger real target; the reported number was exactly right. Also measured, since
+it bears directly on how much room exists to fix it: the ledger rows are
+only 20.5px tall with **zero gap between them** — any hit-area expansion
+that goes past a row's own boundary lands on the NEXT row's own strike
+button instead, which would be worse than the original problem.
+
+**The other two controls the conductor asked about did not need the same fix:**
+- The panel row's jump arrow (visually ~12px) is not itself a click
+  target — the `@click="jumpToMark(row)"` handler is on the WHOLE
+  `.rr-ledger-row` div (confirmed by reading the markup, not assumed),
+  so the real hit area is the entire row: full width, 20.5px tall. No fix
+  needed; the small arrow is purely a visual affordance.
+- The out-of-period dot (5x5px) has no click handler at all — a hover-
+  only tooltip (`title="..."`). A hit-area guideline doesn't apply to a
+  control nobody clicks. Also not fixed.
+
+So this was a one-control problem, not a shared-class problem — no class-
+level fix was needed across three controls, only the strike button's own.
+
+**The fix, sized to the real, measured budget — not a guess:**
+- Width: the row's own `gap` shrunk 3px → 2px (freeing 4px across the 4
+  gaps between the row's 5 columns — the same borrow-from-gap technique
+  already used for the 2026-09-13 date-column fix on this same row),
+  handed entirely to the strike column: 14px → 18px. Every other column
+  and the row's total width are unchanged (178px either way).
+- Height: a real attempt to also grow the button's own box to 18px tall
+  measurably grew every row by 1.5px (20.5px → 22px) — caught by
+  re-measuring after the change, not assumed safe, and reverted. Instead,
+  the button's own real box stays 14px tall (so it stays UNDER the
+  16.5px arrow-column content that actually governs this row's height),
+  and a `::before` pseudo-element — `position: absolute`, so it is
+  removed from layout and cannot affect row height or push any sibling —
+  carries the extra height: 20px, centered on the button, using exactly
+  the row's own already-measured 6.5px of vertical slack (3px above, 3px
+  below), never reaching the next row's own 0px-away boundary.
+- Glyph itself (font-size, ⊘/↺) is completely untouched.
+
+**Real hit area: 14x14 → 18x20 (invisible height, visible width).** Row
+height, row width, and every other column confirmed unchanged by
+measurement, not by re-reading the CSS math and assuming it holds.
+
+**Proved with real clicks, not read off the source** — `page.mouse.click()`
+at real screen coordinates (not `element.click()`, which bypasses hit-
+testing entirely and would prove nothing about this): clicked 8px above
+the button's visual center — outside the OLD 14px box (half-height 7px)
+but inside the NEW 20px invisible zone (half-height 10px) — on a real
+ledger entry on fixture 300. Toggled correctly. Repeated the identical
+test at phone width (390px): toggled correctly there too. Row height
+confirmed unchanged (20.5px) and the gap to the next row confirmed still
+0 in both cases — the fix does not eat into that non-existent buffer.
+
+**Does not reach the 44px touch guideline the conductor cited** — that
+would need loosening the whole panel's row density, a bigger and costlier
+call than "padding on the button," flagged here rather than assumed. This
+fix is a real, measured, ~2x area improvement (196px² → likely-clickable
+region closer to 360px², counting the invisible overlay) aimed
+specifically at the mouse/trackpad miss actually reported, not a claim of
+full touch compliance.
+
+**Housekeeping:** the real-click proof above ran against fixture 300 —
+the same shared record the conductor's own verification had just used —
+since `toggleStrike()` persists to the real database, not just client
+state. The automated clicks landed on entry id 452 (R20,000), not the
+R3,500 entry (id 453) named in the conductor's own R23,500→R20,000
+example — that example's own entry was never touched — but id 452 was
+left struck by the automated test and was explicitly restored to
+unstruck afterward (`struck_out_at` set back to `null`) so the fixture is
+exactly as it was found. Named here per this session's own standing rule
+about shared-fixture writes.
+
 ## AT-410 — "File a document directly, without going through the splitter" (2026-09-13, cc5)
 
 Johan, on application 230's review screen, verbatim: *"this applicant sent

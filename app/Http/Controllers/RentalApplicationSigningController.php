@@ -91,7 +91,18 @@ class RentalApplicationSigningController extends Controller
         // OWN attributes ($application->full_name etc, unchanged since the
         // last submission) — Johan: "prefilled - its a reopen, not new."
         if (in_array($application->status, RentalApplication::POST_RETURN_STATUSES, true)) {
-            return view('rental-applications.public.already-submitted', compact('application'));
+            // AT-392 round 2, 2026-09-13 — the view needs to know whether
+            // documents are open (see RentalApplication::documentUploadsOpen())
+            // to decide whether to render the upload widget or the honest
+            // closed message, and whether the WHOLE page should read as
+            // closed (withdrawn/declined) rather than "already received".
+            $documentUploadsOpen = $application->documentUploadsOpen();
+            $documentUploadsClosedMessage = $application->documentUploadsClosedMessage();
+            $isTerminallyClosed = in_array($application->status, RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, true);
+
+            return view('rental-applications.public.already-submitted', compact(
+                'application', 'documentUploadsOpen', 'documentUploadsClosedMessage', 'isTerminallyClosed'
+            ));
         }
 
         // Applicant-side autosave, 2026-09-12 — agency-configurable debounce,
@@ -345,6 +356,33 @@ class RentalApplicationSigningController extends Controller
      * intact for any caller that still wants it (e.g. a no-JS fallback),
      * unchanged in behaviour.
      */
+    /**
+     * AT-392 round 2, 2026-09-13 — cc3's finding while investigating the
+     * withdraw control: this route (and remove/replace below) never
+     * checked status at all, so a withdrawn or declined application's
+     * public link kept accepting files indefinitely. Shared here so
+     * upload/remove/replace can never drift out of sync on WHEN uploads
+     * are closed, same reasoning as assertDocumentsNotLocked() below for
+     * WHETHER already-submitted documents are locked. See
+     * RentalApplication::documentUploadsOpen()/documentUploadsClosedMessage()
+     * for the actual rule (withdrawn/declined always closed; approved is
+     * an agency setting, default open).
+     */
+    private function assertDocumentUploadsOpen(RentalApplication $application, string $token, Request $request)
+    {
+        if ($application->documentUploadsOpen()) {
+            return null;
+        }
+
+        $message = $application->documentUploadsClosedMessage();
+
+        if ($request->wantsJson()) {
+            return response()->json(['message' => $message], 403);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('error', $message);
+    }
+
     public function uploadDocuments(Request $request, string $token)
     {
         $application = $this->findByToken($token);
@@ -356,6 +394,10 @@ class RentalApplicationSigningController extends Controller
 
             return redirect()->route('rental-applications.public.show', $token)
                 ->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
         }
 
         if ($application->status === 'draft') {
@@ -510,6 +552,10 @@ class RentalApplicationSigningController extends Controller
                 ->with('error', 'This link has expired.');
         }
 
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
+        }
+
         $doc = $this->scopedDocument($application, $document);
 
         if ($locked = $this->assertDocumentsNotLocked($application, $token)) {
@@ -546,6 +592,10 @@ class RentalApplicationSigningController extends Controller
 
             return redirect()->route('rental-applications.public.show', $token)
                 ->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
         }
 
         $oldDoc = $this->scopedDocument($application, $document);

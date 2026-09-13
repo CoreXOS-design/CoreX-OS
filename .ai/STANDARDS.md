@@ -97,6 +97,14 @@ rendered"), run `node scripts/rental-smoke.mjs` — see BUILD_STANDARD.md for
 the full contract. **A 200 HTTP status is not a pass signal in either
 script and must never be treated as one.**
 
+Neither of these two scripts drives an interaction — a page loading is not
+the same claim as a control on that page actually working. For any push
+touching a rental review-screen control (strike/restore, add-line, submit,
+approve, decline, send-back, etc.), `node scripts/rental-click-through.mjs`
+is a third REQUIRED gate — see Standard −1f, below, for the full contract
+and why a PHPUnit test proving a controller endpoint works is not proof a
+human can actually reach it.
+
 **`scripts/dev-check.ps1` is PowerShell. There is no `pwsh` on this box. It
 has never run here, for any build, ever.** Stop citing it as a verification
 gate for any change made in this environment — the two scripts above are
@@ -144,6 +152,18 @@ from past sessions already litter that namespace.
 This is orthogonal to the schema-snapshot bootstrap (non-negotiable #12a) —
 that makes ONE lane's bootstrap fast; this stops lanes from corrupting or
 blocking EACH OTHER. Both matter; neither substitutes for the other.
+
+**Correction, 2026-09-13 — this standard covers TEST RUNS ONLY, never
+migrations.** `TEST_DB_DATABASE` is read exclusively by `tests/bootstrap.php`,
+which is wired in solely via `phpunit.xml`'s own `bootstrap=` attribute — a
+bare `php artisan migrate` never loads that file and is completely
+unaffected by anything on this page. Every worktree's real `DB_DATABASE`
+(the one `migrate` actually uses) has always been `corex_qa1` — the live,
+shared, Johan-tests-in-it database — regardless of what `TEST_DB_DATABASE`
+is set to. If you read this standard and concluded per-lane isolation
+covers migrations too, that was a reasonable read of an incomplete
+document, not an error on your part — see Standard −1g for what actually
+guards `migrate` now, and why this needed its own separate answer.
 
 ---
 
@@ -308,6 +328,142 @@ constructor) the sandbox simply never modeled, and if so, fix the sandbox
 against several DIFFERENT previously-passing pages afterward, not just the
 one that surfaced it — a shared sandbox change can affect every page this
 gate has ever checked.
+
+---
+
+## Standard −1f — Proving an endpoint is not proving a feature (REQUIRED, before any push touching a rental review-screen control)
+
+Johan, 2026-09-15, after the strike/restore button shipped completely dead
+to everyone on QA1: the build behind it had 6 PHPUnit tests and 35
+assertions — the server contract proved to the cent in both directions,
+cross-agency 404s and wrong-author 403s all verified — and the button a
+human actually clicks never fired, because `:disabled="row.strikingBusy"`
+bound `undefined` rather than `false`, and a boolean-attribute binding
+backed by `undefined` resolves through `Element.toggleAttribute(name,
+force)`, where `force === undefined` is spec'd as the argument being
+OMITTED — toggleAttribute just flips whatever the attribute's current
+state already is, instead of forcing it false.
+
+**Every PHPUnit test in this module POSTs straight to a controller
+action. None of them loads the page and clicks the thing a human clicks.
+A PHPUnit test cannot see a disabled button — it does not run a browser.**
+That is not a gap in one test file; it is the shape of every test this
+module had. Six tests and 35 assertions proved the server was right and
+said nothing at all about whether the control that calls it worked,
+because nothing in the suite was capable of saying so.
+
+**A test that POSTs to an endpoint proves the server contract. It proves
+nothing about whether a human can reach that endpoint at all — not
+whether the control is disabled, not whether the click fires, not whether
+the request that leaves the browser is the one the server was tested
+against.** Endpoint coverage and control coverage are two different
+claims; treating the first as proof of the second is exactly how this
+shipped dead.
+
+**Before pushing any change that adds or touches an interactive control
+on the rental review/authorisation screens** (a button, a form, anything
+an agent or authoriser clicks to make something happen), run:
+
+```bash
+php8.2 scripts/rental-click-through.mjs \
+    [--app-root=/corex-qa1] [--base-url=https://qatesting1.corexos.co.za] [--php-bin=php8.2]
+```
+
+This is a SIBLING to `rental-smoke.mjs`, not an edit to it — deliberately.
+`rental-smoke.mjs` is read-only and page-load-focused, several of its own
+checks assert against known-stable persistent fixture state (exact mark
+counts on app 22, app 4); a click-through check MUTATES state (strikes a
+line, submits, approves, declines — one-way transitions), so it creates
+and soft-deletes its own throwaway agency/applications/document on every
+run (`rental-click-through-fixture.php`) rather than touching any
+persistent fixture, Johan's own real applications included.
+
+The pattern every check in that script runs, the same one that would have
+caught the dead strike button: **find a real control by selector, assert
+it is not wrongly disabled, click it for real, assert a real network
+request (or, for a control with no server round-trip, a real observable
+state change) actually happened.** A control legitimately disabled
+because its precondition isn't met yet (manual-entry Save with no type
+chosen, Approve with no amount typed, the review screen locked while with
+the authoriser) is asserted as correctly disabled — that is a pass, not a
+skip. A control disabled with no legitimate reason is exactly the bug
+class this gate hunts, and fails loudly, the same way a `[SCRIPT EVAL
+ERROR]` in the render gate does.
+
+**The script's own file header names every control it covers, and every
+control it deliberately doesn't, so this stays an honest, readable list
+rather than a silent gap** — read it before assuming a control is
+checked. If you add a new interactive control to these screens, add its
+own named check to that list in the same push; a control invisible to
+this gate is a control nobody but a live human will ever prove works.
+
+**A currently-failing control found this way is reported as a `KNOWN
+ISSUE`, not silently marked passing and not left to fail the gate
+forever on every future push.** The gate itself found a second one this
+way, the same day it was built: the capture chip's EDIT path (click an
+existing capture-ledger mark on the document to reopen it) has never
+worked, for anyone, since `entry_type` was added to marks — the code that
+loads marks into the per-document viewer never copied that field across,
+so the click-to-edit guard always sees it as unset and refuses. That is
+tracked as a named, dated, explained exception in the script itself, not
+fixed by this standard (it touches a file mid-rework by another lane) —
+the same discipline BUILD_STANDARD already applies to the pre-existing
+Round10/Round11 test debt: one tracked, explained exception that prints
+loudly on every run, never a silent, growing pile of them.
+
+---
+
+## Standard −1g — No worktree migrates the shared QA1 database directly (ENFORCED, not a paragraph)
+
+Real incident, 2026-09-13: two lanes (independently) ran `php artisan
+migrate` directly in their own worktrees, against `corex_qa1` — the exact
+live database `/corex-qa1` serves to `qatesting1.corexos.co.za`, that
+Johan was testing in at the time. One created a genuine table collision
+(a provisional stand-in table for code the other lane hadn't pushed yet)
+and caught it live, by luck, because the two lanes happened to be talking
+to each other. It could just as easily have landed silently, or mid-test.
+
+**Root cause: every worktree's `DB_DATABASE` has always been `corex_qa1`.**
+Standard −1a's per-lane `TEST_DB_DATABASE` isolation was never the
+protection anyone assumed it was here — see the correction added to that
+standard. Nothing before this stopped a bare `migrate` from hitting the
+shared schema from any worktree, at any time. This has been true since
+the first worktree on this box was created, not something new — the only
+reason it hadn't caused visible damage before is that most migrations
+run this way were ALSO ones that were going to be pulled and applied
+through `/corex-qa1` anyway, so the redundant early application just
+showed up later as an unremarkable "Nothing to migrate."
+
+**Fix — enforced in code, not documented as a rule to remember.** The
+`artisan` entrypoint itself now refuses `migrate`, `migrate:fresh`,
+`migrate:refresh`, `migrate:reset`, `migrate:rollback`, and `db:wipe`
+outright — before Laravel's own container boots, before a single query
+runs — whenever `DB_DATABASE` resolves to `corex_qa1` (or any future name
+added to that same blocklist) UNLESS `QA1_DEPLOY_CHECKOUT=true` is set in
+that checkout's own `.env`. That flag is set in exactly one place:
+`/corex-qa1`'s own `.env` (gitignored, not committed) — the one
+checkout that is actually the sanctioned deploy target. A brand-new
+worktree that has never heard of this rule is safe by default: the
+blocklist is deny-by-default, not an opt-out a new worktree could
+accidentally miss.
+
+**What to do instead, in any other worktree:** write and commit your
+migration as normal, push it, and it gets pulled + applied through
+`/corex-qa1` the same way every other change on this box already lands —
+nothing about your own workflow changes except that `migrate` itself now
+refuses locally with a clear message telling you exactly that, instead of
+silently succeeding against the shared schema.
+
+**Known limits, stated plainly rather than left implicit:** this guard
+reads `DB_DATABASE` from the environment/`.env` the same way
+`tests/bootstrap.php` reads `TEST_DB_DATABASE` — a command-line
+`--database=` override pointing at a *different* connection name that
+still happens to resolve to the same physical `corex_qa1` schema in
+`config/database.php` would not be caught by this check. Same category of
+limitation the existing test-DB guard already has; noted here rather than
+pretending the guard is airtight against deliberate circumvention. It
+stops the accidental case — which is the one that actually happened,
+twice, in one afternoon — not a determined bypass.
 
 ---
 
