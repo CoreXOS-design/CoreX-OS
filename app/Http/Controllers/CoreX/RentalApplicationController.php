@@ -284,6 +284,21 @@ class RentalApplicationController extends Controller
     private function applyTileFilter($query, string $tile): void
     {
         $def = self::TILES[$tile] ?? self::TILES['all'];
+        if (! empty($def['fica_bucket'])) {
+            // FICA tiles have their own status-eligibility rule, not the
+            // generic whereIn below — see applyFicaBucketFilter()'s
+            // docblock for why 'approved' rows need a way back in.
+            $query->where(function ($q) use ($def) {
+                $q->whereIn('rental_applications.status', $def['statuses'])
+                    ->orWhere(function ($q2) {
+                        $q2->where('rental_applications.status', 'approved')
+                            ->whereNotNull('rental_applications.approved_subject_to_fica_at');
+                    });
+            });
+            $this->applyFicaBucketFilter($query, $def['fica_bucket']);
+
+            return;
+        }
         if ($def['statuses'] !== null) {
             $query->whereIn('rental_applications.status', $def['statuses']);
         }
@@ -291,9 +306,6 @@ class RentalApplicationController extends Controller
             $query->whereNotNull('rental_applications.submitted_for_approval_at');
         } elseif ($def['submitted_for_approval'] === false) {
             $query->whereNull('rental_applications.submitted_for_approval_at');
-        }
-        if (! empty($def['fica_bucket'])) {
-            $this->applyFicaBucketFilter($query, $def['fica_bucket']);
         }
     }
 
@@ -336,13 +348,27 @@ class RentalApplicationController extends Controller
      * applicant's own confirmation page, a different audience answering a
      * different question) — not a rewrite of that method, a separate one.
      *
-     * Conditional approval ("approved subject to FICA verification", cc5,
-     * separate build) is NOT wired in yet — rental_applications.
-     * approved_subject_to_fica_at doesn't exist in the schema yet. Once it
-     * lands, these two tiles' $def['statuses'] need to also match
-     * status='approved' AND approved_subject_to_fica_at IS NOT NULL (see
-     * the spec's section (g)) — building against a column that doesn't
-     * exist yet would break this query today.
+     * Conditional approval (AT-410d, "approved subject to FICA
+     * verification", cc5) widens the outer status eligibility in
+     * applyTileFilter() above: an 'approved' row with a non-null
+     * approved_subject_to_fica_at is eligible for these two tiles despite
+     * 'approved' being excluded from REVIEWABLE_STATUSES — spec section
+     * (g). It does NOT change the bucket logic below: a conditionally-
+     * approved row is still classified into 'applicant'/'us' by its
+     * underlying FicaSubmission status exactly like any other row.
+     * Confirmed with cc5 directly (2026-09-15) rather than assumed: no
+     * third status value, the column is a nullable timestamp that clears
+     * itself automatically once FICA verifies, so the outer
+     * whereDoesntHave(approved && valid) below stays correct — a
+     * conditionally-approved row's FICA is, by construction, always
+     * still outstanding at the moment its condition is set.
+     *
+     * A row surfacing in both the Approved tile and one of these two is
+     * intentional double membership, not a bug — Johan/conductor: these
+     * are a work queue, not a mutually-exclusive status breakdown, once
+     * conditional approval exists. It must still be exactly ONE row in
+     * "All" (a plain WHERE, not a JOIN, so no duplication risk) — covered
+     * by RentalApplicationFicaTileSplitTest::test_conditionally_approved_application_is_still_one_row_in_all_and_approved().
      */
     private function applyFicaBucketFilter($query, string $bucket): void
     {

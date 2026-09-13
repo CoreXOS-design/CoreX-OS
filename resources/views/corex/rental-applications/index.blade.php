@@ -171,6 +171,18 @@
          misleading number actually was — the toggle above already shows
          which scope is active; this is the plain-language reading of it. --}}
     <p class="text-xs mb-0" style="color: var(--text-muted);">{{ ['own' => 'Yours only', 'branch' => 'Your branch', 'all' => 'Whole agency'][$resolvedScope] ?? '' }}</p>
+    {{-- AT-410d, 2026-09-16 — same screen-honesty standard as the scope
+         caption above: since conditional approval, a row can legitimately
+         sit in BOTH the Approved tile and one of the two FICA tiles at
+         once (spec section (g)) — stated plainly rather than left for the
+         numbers to silently not add up. Rendered whenever the FICA tiles
+         have anything in them at all, since that's exactly the
+         population conditional approval draws from — not a live overlap
+         count of its own, which would be one more thing to keep in sync
+         for a one-line caption. --}}
+    @if(($counts['fica_waiting_applicant'] ?? 0) + ($counts['fica_waiting_us'] ?? 0) > 0)
+        <p class="text-xs mb-0" style="color: var(--text-muted);">FICA tiles can overlap with Approved — an application can be both.</p>
+    @endif
     <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
         @foreach($primaryTiles as $key)
             @if($key === $ficaGroupBeforeTile)
@@ -317,6 +329,19 @@
                         @if($application->status === 'under_assessment')
                             <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">
                                 {{ $application->submitted_for_approval_at ? '→ with authoriser' : '→ with agent' }}
+                            </div>
+                        @endif
+                        {{-- AT-410d, 2026-09-16 — one clear marker, reusing cc5's
+                             exact review-screen phrase ("subject to FICA
+                             verification") rather than inventing a second
+                             wording for the same fact (.ai/specs/rental-
+                             applications.md, FICA tile split, section (g)).
+                             This is the row's own visible link back to why a
+                             conditionally-approved application also appears in
+                             one of the FICA tiles below. --}}
+                        @if($application->approved_subject_to_fica_at)
+                            <div class="text-[10px] mt-0.5" style="color: var(--ds-amber, #f59e0b); font-weight:600;">
+                                Subject to FICA verification
                             </div>
                         @endif
                     </td>

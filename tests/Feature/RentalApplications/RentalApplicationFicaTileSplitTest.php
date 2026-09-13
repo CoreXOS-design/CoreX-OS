@@ -12,6 +12,7 @@ use App\Models\RentalApplication;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -94,7 +95,7 @@ final class RentalApplicationFicaTileSplitTest extends TestCase
         $this->assertSame(0, $counts['fica_waiting_us']);
     }
 
-    /** @dataProvider applicantStatusProvider */
+    #[DataProvider('applicantStatusProvider')]
     public function test_applicant_bucket_statuses(string $status): void
     {
         $contact = $this->contact();
@@ -114,7 +115,7 @@ final class RentalApplicationFicaTileSplitTest extends TestCase
         ];
     }
 
-    /** @dataProvider staffStatusProvider */
+    #[DataProvider('staffStatusProvider')]
     public function test_staff_bucket_statuses(string $status): void
     {
         $contact = $this->contact();
@@ -241,5 +242,79 @@ final class RentalApplicationFicaTileSplitTest extends TestCase
         $response = $this->actingAs($this->agent)->get(route('corex.rental-applications.index', ['scope' => 'own']));
         $response->assertOk();
         $this->assertSame(0, $response->viewData('counts')['fica_waiting_applicant'], 'not the creating agent — own scope must not see it');
+    }
+
+    /**
+     * AT-410d, conditional approval — the tile split's own spec section
+     * (g): a conditionally-approved application is 'approved' status,
+     * which the two FICA tiles' base status list otherwise excludes
+     * entirely. It must still surface here, classified into whichever
+     * of the two buckets its underlying FicaSubmission status calls for
+     * — conditional approval doesn't create a third bucket, it just
+     * widens which rental_applications.status values are eligible.
+     */
+    public function test_conditionally_approved_application_surfaces_in_the_applicant_bucket(): void
+    {
+        $contact = $this->contact();
+        $application = $this->application($contact, 'approved');
+        $application->approved_subject_to_fica_at = now();
+        $application->save();
+        $this->ficaSubmission($contact, 'draft');
+
+        $counts = $this->tileCounts();
+        $this->assertSame(1, $counts['fica_waiting_applicant']);
+        $this->assertSame(0, $counts['fica_waiting_us']);
+    }
+
+    public function test_conditionally_approved_application_surfaces_in_the_us_bucket(): void
+    {
+        $contact = $this->contact();
+        $application = $this->application($contact, 'approved');
+        $application->approved_subject_to_fica_at = now();
+        $application->save();
+        $this->ficaSubmission($contact, 'referred_to_co');
+
+        $counts = $this->tileCounts();
+        $this->assertSame(0, $counts['fica_waiting_applicant']);
+        $this->assertSame(1, $counts['fica_waiting_us']);
+    }
+
+    /**
+     * A plain (non-conditional) 'approved' application must stay excluded
+     * from both FICA tiles, exactly as it was before conditional approval
+     * existed — the widening is scoped to approved_subject_to_fica_at IS
+     * NOT NULL specifically, not "status = approved" generally.
+     */
+    public function test_a_plain_approved_application_stays_out_of_both_fica_tiles(): void
+    {
+        $contact = $this->contact();
+        $this->application($contact, 'approved');
+        // No FicaSubmission at all — if 'approved' status alone were
+        // enough to leak into the FICA tiles, this would wrongly appear.
+
+        $counts = $this->tileCounts();
+        $this->assertSame(0, $counts['fica_waiting_applicant']);
+        $this->assertSame(0, $counts['fica_waiting_us']);
+    }
+
+    /**
+     * The overlap is real and intentional (spec (g)): a conditionally-
+     * approved application belongs in BOTH the Approved tile and a FICA
+     * tile at once — "All" must still count it exactly once, since a
+     * naive implementation that widened the FICA tiles via a JOIN rather
+     * than a correlated subquery could silently duplicate the row.
+     */
+    public function test_conditionally_approved_application_is_still_one_row_in_all_and_approved(): void
+    {
+        $contact = $this->contact();
+        $application = $this->application($contact, 'approved');
+        $application->approved_subject_to_fica_at = now();
+        $application->save();
+        $this->ficaSubmission($contact, 'draft');
+
+        $counts = $this->tileCounts();
+        $this->assertSame(1, $counts['all'], 'All must count the distinct row exactly once');
+        $this->assertSame(1, $counts['approved']);
+        $this->assertSame(1, $counts['fica_waiting_applicant']);
     }
 }
