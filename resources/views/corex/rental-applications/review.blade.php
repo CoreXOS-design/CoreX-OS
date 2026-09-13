@@ -477,8 +477,42 @@
            (89px -> 103px, see the 2026-09-13 comment above for that math) —
            taken as its own column, not from the amount column's own
            hard-won floor. */
+        /* HIT-AREA FIX, 2026-09-13 (cc1's own-hand find, verifying cc2's
+           strike fix: "aimed a real mouse click at the centre of that
+           control and nothing happened... 14 by 14 pixels"). Measured
+           in-situ, not assumed: .rr-ledger-strike really was exactly
+           14x14 with zero padding — no invisible padding was hiding a
+           bigger real target. Rows are only 20.5px tall with ZERO gap
+           between them (confirmed by measurement), so any invisible
+           hit-area expansion past a row's OWN boundary risks landing on
+           the NEXT row's strike button instead — worse than the original
+           problem. The only safe budget is what's already inside this
+           row's own box: gap shrunk 3px -> 2px (freeing 4px across the
+           4 gaps, same borrow-from-gap technique as the 2026-09-13 date-
+           column fix above) handed entirely to the strike column
+           (14px -> 18px); row height, row width, and every other
+           column's width are unchanged (15+53+72(min)+12+18=170,
+           +4x2=8 gap = 178, byte-identical to before: 15+53+72+12+14=166
+           +4x3=12 = 178). Glyph itself (font-size, ⊘/↺) untouched.
+           Width grew via the real button box (18px, safe — width doesn't
+           drive row height); height grew via an invisible ::before
+           overlay instead of the button's own box (see that rule's own
+           comment) after a first attempt that made the button itself
+           18px tall and measurably grew every row by 1.5px — caught by
+           re-measuring after the change, not assumed safe. Real hit area
+           confirmed after: 18x20 (from 14x14), safely within the row's
+           own 20.5px height, row height itself unchanged. This does not
+           reach the 44px touch
+           guideline Johan cited — that would need loosening the whole
+           panel's row density, a bigger, costlier call flagged
+           separately rather than assumed here. The jump arrow (visually
+           12px) and the out-of-period dot were checked too and need no
+           fix: the arrow's REAL click target is this whole row
+           (@click="jumpToMark(row)" below, not the glyph itself), and the
+           dot has no click handler at all — hover-only, so a hit-area
+           guideline doesn't apply to it the same way. */
         .rr-ledger-row {
-            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px 14px; gap: 3px; align-items: center;
+            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px 18px; gap: 2px; align-items: center;
             padding: 2px 0;
         }
         .rr-ledger-badge {
@@ -488,8 +522,24 @@
         }
         .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .rr-ledger-strike {
-            width: 14px; height: 14px; padding: 0; border: none; background: transparent;
-            color: var(--text-muted); font-size: 12px; line-height: 14px; cursor: pointer;
+            position: relative;
+            width: 18px; height: 14px; padding: 0; border: none; background: transparent;
+            color: var(--text-muted); font-size: 12px; line-height: 14px; text-align: center; cursor: pointer;
+        }
+        /* The real button box stays 14px TALL on purpose — this row's height
+           was governed by the arrow column's own 16.5px content, not the
+           strike button; making the button's own box any taller than that
+           would become the new tallest thing and grow every row (measured:
+           it did, by 1.5px, before this was caught and fixed). ::before is
+           position:absolute, so it's removed from layout entirely — free to
+           be taller than the button's own box, using exactly the row's own
+           already-measured 6.5px of vertical slack (20.5px row - 14px
+           button), without ever touching the next row (gap between rows is
+           0, confirmed by measurement — going even 1px past this row's own
+           boundary risks landing on the NEXT row's own strike button). */
+        .rr-ledger-strike::before {
+            content: ''; position: absolute; top: 50%; left: 0; transform: translateY(-50%);
+            width: 100%; height: 20px;
         }
         .rr-ledger-strike:hover { color: var(--text-primary); }
         .rr-ledger-strike:disabled { cursor: default; opacity: 0.5; }
