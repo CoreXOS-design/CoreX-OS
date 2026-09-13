@@ -79,10 +79,18 @@ what actually exists — not bigger:
      the Contact's `ContactType` — Johan's ruling, with the reasoning recorded. See §7.
    - A space added mid-inspection persists to the property's permanent list, visibly and
      reversibly — Johan's ruling. See §4.1.2.
-   - Two new sections added, both requested directly: what happens when a tenancy ends (§2.3),
+   - Two new sections added, both requested directly: what happens when a tenancy ends (§2.4),
      and what an out-inspection with no matching in-inspection looks like (§5.1) — the second
      is not hypothetical, it will happen on day one for every property an agency already has
      tenanted when they join CoreX.
+5. **This revision — Johan's rulings on the review step, and one finding escalated rather than
+   answered:**
+   - **Q1 decided**: the visible review step ("these people will be named — remove anyone no
+     longer here") is now the built design, not a proposed option. See §2.2.
+   - **A named, separate strategic finding**: `contact_property` has no dates and cannot
+     express a tenancy's start or end — found independently by this spec and by cc3 from the
+     other direction. Not designed or built here; Johan is taking it to a product decision. See
+     §2.3.
 
 ---
 
@@ -165,7 +173,7 @@ Rental-tab values (§1.1) at the same moment. All of this is captured ONCE, at c
 never re-read — the same "frozen snapshot" principle already used for spaces (§4.1). **No new
 tenancy table is required** — `contact_property` plus this one-time capture is enough.
 
-### 2.2 The problem this reopens — OPEN QUESTION, genuinely uncertain, flagged not guessed
+### 2.2 The problem this reopened, and the interim answer — DECIDED, Johan's ruling
 
 Coordinated directly with cc3 (who is building the `contact_property` tenant link right now)
 before finalising this, per Johan's own instruction — the answer changes the picture:
@@ -190,29 +198,53 @@ tidied up, ALSO include a tenant who moved out two tenancies ago, with the syste
 way to tell the difference. A signed inspection report naming a long-departed tenant is a
 worse outcome than the one Johan's ruling was written to prevent.
 
-**This spec does not resolve this quietly.** Two honest options, neither decided here:
+**DECIDED — build the visible review step.** At the moment an in-pass (or a no-prior-in-pass
+out-pass, §5.1) is started, the agent sees the full current set of linked tenant/landlord
+contacts as a plain, visible list — *"these people will be named on this inspection: [list] —
+remove anyone who's no longer here"* — with a remove action on each row that calls cc3's
+existing unlink action directly, not a new mechanism. Only what remains after this step is
+frozen into `inspection_parties`. This is **not** a forced single pick between people who
+genuinely live there together — Johan's original objection doesn't apply, because nobody is
+being asked to choose between two real co-tenants; they're confirming a list they can see and
+correcting it if a name shouldn't be there. Accepted specifically because it protects against
+the confirmed stale-link risk at the cost of one extra glance, without reopening the
+couples/sharers case it was built to protect in the first place.
 
-1. **Include everyone, exactly as ruled, and accept the stale-data risk** — correct until an
-   agency has properties with un-cleaned-up old tenant links, which will happen over time
-   without active discipline from agents remembering to unlink on every move-out.
-2. **Show the full current set as a lightweight, visible confirmation before it's frozen onto
-   the inspection** — not a forced single-pick (Johan's objection doesn't apply: this is
-   reviewing a list, not choosing between people), just a "these will be named as tenants on
-   this inspection: [list] — remove anyone who's no longer living here" step, using the SAME
-   unlink action cc3 already built rather than inventing a new one. This directly protects
-   against the confirmed stale-link risk at the cost of one extra glance for the agent, every
-   time.
+### 2.3 STRATEGIC FINDING, escalated — a tenancy has no start or end date anywhere in this system
 
-Recommendation: option 2, because the risk is confirmed real, not hypothetical, and the cost
-is small — but this changes the literal shape of "do not make the agent choose," so it's
-Johan's call, not built quietly either way.
+This is bigger than inspections, and is recorded here as its own named finding, not a caveat
+buried inside §2.2's interim fix. **Not designed or built here — Johan is taking this to a
+product decision directly.**
 
-### 2.3 What happens when a tenancy ends and a new one begins — stated plainly, for the record
+`contact_property` links a contact to a property with a role. It has no date. Nothing marks
+when a tenancy began, nothing marks when it ended, and nothing distinguishes "this tenant, now"
+from "a tenant, at some point." The Rental tab's own `lease_start_date`/`lease_end_date`
+(§1.1) exist, but describe the PROPERTY's current advertised lease terms, not a specific
+tenant's occupancy — they get overwritten, not versioned, and were never linked to a specific
+`contact_property` row in the first place. **The concept missing from this codebase is a
+tenancy itself: a record with a start, an end, and the parties who held it.**
+
+This was found from two independent directions, which is usually the sign a gap is real, not
+imagined: this spec found it while working out how an inspection knows who its parties are;
+cc3 found the identical gap independently while building the property-link action itself, from
+the other side. Johan's own words on what the Rental tab is for — *"its the lease / parties /
+and whatever else that we can put on that rental tab"* — describe exactly this concept without
+it existing yet.
+
+**§2.2's review step is the correct INTERIM answer with what exists today** — it makes the
+risk visible to the person best placed to catch it, at the moment it matters, and it is being
+built on that basis. **It becomes unnecessary the day tenancy dates exist**, because a real
+tenancy record would answer "who are the current parties" directly, with no review needed. This
+spec does not propose a shape for that record, does not add it to any table above, and does
+not depend on it existing — §2.1's design works correctly without it, today, indefinitely, if
+that's where Johan lands. Flagged, not decided, not built.
+
+### 2.4 What happens when a tenancy ends and a new one begins — stated plainly, for the record
 
 Because each inspection's tenant/landlord/dates are captured once at creation (§2.1) and never
 re-derived, **a new tenancy's in-pass does not depend on the old tenancy's `contact_property`
 links ever being removed.** The new in-pass captures whichever contacts and dates are current
-(or confirmed, if §2.2's option 2 is adopted) AT THAT MOMENT, and that capture is what the new
+and confirmed via the §2.2 review step AT THAT MOMENT, and that capture is what the new
 inspection permanently belongs to — regardless of what the old tenant's own now-stale
 `contact_property` row still says. The PREVIOUS tenancy's inspections are entirely unaffected:
 they keep the tenant/landlord/dates they captured at their own creation, forever, whether or
@@ -389,9 +421,8 @@ single column, because Johan's ruling requires ALL co-tenants named, never reduc
 An in-pass and its out-pass are linked by sharing the same `inspection_spaces` snapshot (§4.1)
 and — practically — by being the two most recent in/out rows for the same property with the
 SAME set of tenant `inspection_parties`; there is no separate join table connecting them,
-since nothing beyond that is needed given §2's resolution. **If §2.2's option 2 (a visible
-confirmation step) is adopted, that confirmation is what reliably pairs an in-pass with its
-out-pass — flagged as the same open point, not a second one.**
+since nothing beyond that is needed given §2's resolution. The §2.2 review step's confirmed
+set is exactly what reliably pairs an in-pass with its out-pass in practice.
 
 ### 4.3 Per-space record — checklist, notes, photos
 
@@ -725,21 +756,20 @@ against; it just stops appearing as an option to add NEW entries under, and can 
   designed here.
 - **Per-space-type checklist customisation** — one shared default checklist to start (§4.3);
   named as a future refinement.
-- **Automatic resolution of the stale-tenant-link problem in §2.2** — flagged as an open
-  question, not decided.
+- **A tenancy record with a start and end date** (§2.3) — a real, named, escalated finding,
+  not designed or built here; Johan's own product decision to make.
 - **Cleaning up old `contact_property` tenant links** — not required for this module's
-  correctness (§2.3), and not built or enforced here; remains the existing manual unlink
+  correctness (§2.4), and not built or enforced here; remains the existing manual unlink
   action, unchanged.
 - **The legacy-photo manual reclassification tool** (§4.4.1) — named, not built.
 
 ---
 
-## 13. OPEN QUESTIONS — for Johan, not guessed
+## 13. Questions this spec raised, and where each one landed
 
-Two of the three questions from the prior revision are now resolved by Johan's own ruling —
-recorded here for the audit trail, not re-asked. One is **reopened**, with a materially
-different shape than originally posed, because coordinating with cc3 surfaced a real technical
-fact that changes what's actually being decided.
+All three of the original open questions are now resolved by Johan's own ruling. One of them
+surfaced a finding bigger than this spec, which is tracked separately (§13.1), not left mixed
+in with a resolved question.
 
 1. **RESOLVED — §7, signing role.** Use `contact_property.role`, never the Contact's own
    `ContactType`. Johan's reasoning: the same person can be a landlord on one property and a
@@ -751,17 +781,21 @@ fact that changes what's actually being decided.
    Johan's reasoning: the agent in the property has the best information about what's actually
    there, and the space most likely to matter in a dispute is exactly the one most likely to
    have been missed on the advert.
-3. **REOPENED, DIFFERENT SHAPE — §2.2, which tenants are named.** Johan's original ruling —
-   include every contact currently linked as `role='tenant'`, never force a pick between real
-   co-tenants — stands and is correct for the case it was written for. What's new: cc3 has
-   confirmed `contact_property` links are add-only with no automatic removal and no grouping
-   key, so "everyone currently linked" can include a tenant who moved out tenancies ago, with
-   the system unable to tell the difference from a genuine current co-tenant. This is a
-   **confirmed real risk, not a hypothetical edge case** — it will happen on any property with
-   more than one tenancy's history and imperfect agent housekeeping. Two options laid out in
-   §2.2, a recommendation given (a lightweight, visible review-before-freezing step — not a
-   forced single pick, so it doesn't reopen the thing Johan's original ruling was protecting
-   against), not decided here.
+3. **RESOLVED (interim) — §2.2, which tenants are named.** Johan's original ruling — include
+   every contact currently linked as `role='tenant'`, never force a pick between real
+   co-tenants — stands, and is built as the lightweight visible review step described in §2.2:
+   the agent sees the current set and can remove anyone who shouldn't be there, using cc3's
+   existing unlink action. Accepted on the basis that it protects against the confirmed
+   stale-link risk (found while resolving this question — see §13.1) without reopening the
+   couples/sharers case the original ruling exists to protect.
+
+### 13.1 Not a question this spec answers — a finding escalated to Johan directly
+
+Resolving question 3 surfaced something bigger than an inspections detail: `contact_property`
+has no way to express a tenancy's start or end, found independently from two directions (this
+spec, and cc3 building the link itself). Written up as its own named finding in §2.3, not
+folded into question 3's resolution above. **Not a spec decision — Johan is taking it to a
+product decision directly, and this spec neither designs nor depends on the outcome.**
 
 ---
 
