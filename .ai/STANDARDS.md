@@ -520,6 +520,14 @@ as this. Two different mechanisms, both real; this entry's own evidence
 PROCESSLIST`) stands unchanged. Don't conclude cross-lane contention
 from an `ERROR 1213` alone — check which schema was actually involved.
 
+**Independently reconfirmed the same night** (cc4, own isolated
+`hfc_dash_test_4`): 183–247s per test on schema bootstrap under
+tonight's multi-lane load, checked live via `PROCESSLIST` — state
+`Query`, mid `CREATE TABLE`, not `Waiting for table lock`, i.e. genuine
+contention slowing bootstrap, not a hang. This is the "slow" claim this
+standard makes; −1k's retraction was about "stuck" (deadlock), a
+different claim entirely — see −1k for why the two must not be conflated.
+
 ## Standard −1i — Disk headroom, tracked as a data point (not yet a decision)
 
 Measured 2026-09-13: `/mnt/HC_Volume_103099143` at **86% full — 161G of
@@ -661,6 +669,24 @@ contention ACROSS different lanes' schemas, directly observed via a
 different lane's `migrate:fresh` blocking an unrelated query) — that
 finding stands on its own evidence and is not what this retraction
 concerns. This standard is about a single lane colliding with itself.
+
+**Scope of the retraction, stated precisely so this isn't misread in
+either direction**: what got retracted was specifically the DEADLOCK
+diagnosis for these two incidents — cross-lane contention was not, in
+fact, what caused those two `ERROR 1213`s. It is NOT a finding that
+cross-lane contention doesn't exist. The same night, independently, cc4
+ran a real test against its own isolated `hfc_dash_test_4` and observed
+183–247s per test on schema bootstrap, checked live via MySQL's
+`PROCESSLIST` — state was `Query`, mid `CREATE TABLE`, not `Waiting for
+table lock` — confirming genuine shared-host contention slowing schema
+bootstrap under tonight's multi-lane load, not a hang and not a
+deadlock. Six lanes sharing one MySQL host measurably slows schema
+bootstrap (Standard −1h) — that is real and still true. Six lanes
+sharing one MySQL host do NOT deadlock each other by simply coexisting
+(what this standard retracts) — a deadlock traced back to one lane's
+own concurrent test processes, every time it's been checked tonight.
+Slow is not the same claim as stuck; don't let evidence for one stand
+in for the other.
 
 ---
 
