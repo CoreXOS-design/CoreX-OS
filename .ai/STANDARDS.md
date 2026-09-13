@@ -467,6 +467,68 @@ twice, in one afternoon — not a determined bypass.
 
 ---
 
+## Standard −1h — Six-lane MySQL contention is a known, accepted cost (RULED, 2026-09-13 — do not build a fix without Johan's go-ahead)
+
+Real evidence, 2026-09-13: a single, unrelated `information_schema` query
+sat blocked for **125+ seconds**, caught live via `SHOW FULL PROCESSLIST`
+at the exact moment — the blocker was a concurrent `migrate:fresh`
+actively mid-`CREATE TABLE` on a DIFFERENT lane's `hfc_dash_test_N`
+schema. This is genuine, not anecdotal.
+
+**Why schema isolation (Standard −1a) doesn't prevent this**: it fixes
+*correctness* (no cross-lane data collisions) but not *contention* — DDL
+locks and MySQL's shared redo log aren't scoped per-schema. Every fresh
+PHPUnit process re-runs a full snapshot-restore-then-replay on its first
+test (the schema-snapshot mechanism, non-negotiable #12a, working exactly
+as designed); six lanes each doing that periodically compounds on one
+shared `mysqld` regardless of how separate the schemas are. The snapshot
+load itself was measured taking 2.5–4 minutes this session, against a
+documented ~25s target (see Standard −1b) — that gap is the concrete
+sign something is worse than baseline, not just "six lanes exist."
+
+**Ruling (Johan, via the conductor): do not build a fix today.**
+Re-architecting how six lanes' tests get their databases while all six
+are mid-build on work he needs tonight is how the evening gets lost. This
+is recorded as a known, accepted cost for now, not a solved or ignored
+problem. When the board is quieter, the real choice — serializing heavy
+suites vs. a MySQL instance per lane — is Johan's to make, with these
+numbers in hand.
+
+**Two cheap mitigations every lane can follow meanwhile, no rebuild
+required:**
+- **Prefer a plain `php artisan migrate` over `migrate:fresh` wherever
+  it will do.** `migrate:fresh` always drops and fully replays; a plain
+  `migrate` only applies what's actually new, far less DDL load on a
+  schema that's already current.
+- **Never kill a test run mid-DDL.** This is exactly what corrupted
+  cc2's isolated test database this session — a `migrate:fresh` running
+  minutes instead of seconds under load is far more likely to get killed
+  by an impatient timeout while genuinely mid-drop, leaving the schema
+  half-migrated. If a run is taking a long time, wait it out or let it
+  fail on its own; don't Ctrl-C a schema operation in flight.
+
+**The migration guard (Standard −1g) has no bearing on this** — it only
+ever touches `migrate*` against `corex_qa1` specifically, never
+`hfc_dash_test_N`, which is what PHPUnit actually uses. Stated here
+plainly so the two aren't conflated later.
+
+## Standard −1i — Disk headroom, tracked as a data point (not yet a decision)
+
+Measured 2026-09-13: `/mnt/HC_Volume_103099143` at **86% full — 161G of
+197G used, 27G free** — of which MySQL's own datadir accounts for **38G**.
+Not today's problem. Six lanes continuously creating and dropping test
+databases (Standard −1h) is not a shrinking workload, so this is worth
+watching rather than filing away.
+
+This is a tracked data point, not a call to act — re-measure
+(`df -h /mnt/HC_Volume_103099143`, `du -sh
+/mnt/HC_Volume_103099143/mysql-data/`) whenever touching this area of the
+box, and update the numbers here. Report to the conductor if the free
+space drops materially from 27G — that's the trigger for it becoming a
+decision for Johan, not before.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
