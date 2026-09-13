@@ -423,6 +423,16 @@ async function main() {
     await roPageApprove.goto(`${BASE_URL}/corex/rental-applications/authorisation/${fx.app_b_id}`, { waitUntil: 'networkidle0', timeout: 25000 });
     await new Promise((r) => setTimeout(r, 800));
 
+    // 2026-09-16, cc5 — native confirm() removed from Approve too (same
+    // reasoning as decline, but Johan's explicit call here was to KEEP a
+    // real confirmation step, not drop it): Approve is now a genuine
+    // two-stage IN-PAGE flow, not one submit. "Approve"
+    // (data-qa="authoriser-approve-continue") never submits — it just
+    // flips approveConfirming=true, which Alpine's x-if swaps for a
+    // SECOND button, "Yes, approve" (data-qa="authoriser-approve-confirm")
+    // — the two never coexist in the DOM (both live inside <template
+    // x-if>), so this is genuinely two clicks on two different elements,
+    // not one selector whose disabled state changes.
     await roPageApprove.click('[data-qa="authoriser-approve-open"]');
     await new Promise((r) => setTimeout(r, 300));
     await checkControl(roPageApprove, {

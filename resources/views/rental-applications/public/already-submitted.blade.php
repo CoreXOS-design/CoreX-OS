@@ -69,8 +69,28 @@
                 <p class="text-sm font-semibold text-amber-800 mb-1">One more step needed</p>
                 <p class="text-sm text-amber-700">
                     Your application has been received, but we still need to verify your identity documents (FICA)
-                    before it can move forward. Please contact your agent to finish this step.
+                    before it can move forward.
                 </p>
+                {{--
+                    Return leg, AT-392 round 5, 2026-09-13 — Johan, walking
+                    this page live: it told the applicant to finish FICA and
+                    then gave them nothing to click — "the one thing that
+                    page should obviously do... it does not do." Wording
+                    deliberately echoes the submit button's own copy
+                    ("Submit and Complete FICA Verification") so this reads
+                    as finishing that same step, not a new task. Only
+                    rendered when $ficaContinueUrl resolved to a real,
+                    unexpired, tokenised link — never a generic one.
+                --}}
+                @if($ficaContinueUrl ?? null)
+                    <a href="{{ $ficaContinueUrl }}"
+                       class="inline-block mt-3 px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700">
+                        Complete FICA Verification
+                    </a>
+                    <p class="text-xs text-amber-700 mt-2">Something not working? Contact your agent.</p>
+                @else
+                    <p class="text-sm text-amber-700 mt-1">Please contact your agent to finish this step.</p>
+                @endif
             @else
                 <p class="text-sm font-semibold text-amber-800 mb-1">Verification in progress</p>
                 <p class="text-sm text-amber-700">

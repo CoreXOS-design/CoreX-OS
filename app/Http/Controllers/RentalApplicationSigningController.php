@@ -304,8 +304,30 @@ class RentalApplicationSigningController extends Controller
             $ficaOutstanding = $application->ficaOutstanding();
             $ficaAwaitingApplicantAction = $application->ficaAwaitingApplicantAction();
 
+            // Return leg, AT-392 round 5, 2026-09-13 — Johan: the applicant
+            // was told at submit to "complete FICA verification" and this
+            // page then told them to contact their agent, with no way back
+            // to the form that told them to. Only offer the link when the
+            // ball is genuinely in the APPLICANT's court (never started, or
+            // rejected/needs corrections) — once they've submitted and it's
+            // awaiting OUR review, the existing "no action needed from you"
+            // message is correct and no button belongs here. A missing or
+            // expired token falls back to the existing contact-your-agent
+            // wording rather than offering a dead link.
+            $ficaContinueUrl = null;
+            if ($ficaAwaitingApplicantAction) {
+                $latestFicaSubmission = $application->latestFicaSubmission();
+                if ($latestFicaSubmission && ! $latestFicaSubmission->isTokenExpired()) {
+                    $ficaContinueUrl = route('fica.form', [
+                        'token' => $latestFicaSubmission->token,
+                        'return_url' => route('rental-applications.public.show', $application->token),
+                        'return_context' => 'rental_application',
+                    ]);
+                }
+            }
+
             return view('rental-applications.public.already-submitted', compact(
-                'application', 'documentUploadsOpen', 'documentUploadsClosedMessage', 'isTerminallyClosed', 'ficaOutstanding', 'ficaAwaitingApplicantAction'
+                'application', 'documentUploadsOpen', 'documentUploadsClosedMessage', 'isTerminallyClosed', 'ficaOutstanding', 'ficaAwaitingApplicantAction', 'ficaContinueUrl'
             ));
         }
 
