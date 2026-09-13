@@ -623,7 +623,9 @@ inspector** and asked for the property header to use the full inspector width ("
 otherwise it is very squished").
 
 ```
-┌ header card: title + Own/Branch/All + search + agent picker ─────────────────┐  frozen
+┌ header card (contact-page shape, AT-336/AT-393) ─────────────────────────────┐  frozen
+│ Deeds Capture  [N waiting]          Own/Branch/All · search · agent · Search │
+│ Waiting │ New to us │ Possible matches │ Need a look │ VA numbers │ Showing  │  facts strip
 ├ flash (success / info) ──────────────────────────────────────────────────────┤  frozen
 ├──────────────┬───────────────────────────────────────────────────────────────┤
 │ QUEUE 380px  │ INSPECTOR (selected capture)                                  │
@@ -644,7 +646,15 @@ otherwise it is very squished").
 - **Frame:** `w-full h-full flex flex-col` inside the layout's `<main id="appScroll">`, the same
   frozen-header / inner-scroll pattern as the contact page (AT-393). The queue list carries
   `data-scroll-region` so the global scroll preserve/restore keeps the agent's place in the queue
-  across the PRG reload every action causes.
+  across the PRG reload every action causes. Both scroll regions (queue, inspector body) use
+  `.corex-brand-scroll` — the sidebar's slim brand-tinted scrollbar (Andre, 2026-09-13).
+- **Header (Andre, 2026-09-13: "match the contact page header, header and filter being one"):**
+  the same surface card as `corex.contacts._header` — `rounded-lg`, hairline shadow, an identity
+  row with the screen name + a "N waiting" badge on the left and the whole filter form
+  (Own/Branch/All, search, agent picker, Search, Clear) on the right, then a six-cell facts strip:
+  Waiting (+ page x of y), New to us, Possible matches, Need a look, Virtual Agent numbers, Showing
+  (scope · agent · search term). The facts are the queue counts, so the output-free capture loops
+  run ABOVE the header in the template; nothing renders until the frame.
 - **Queue row** = headline (sectional headline swap from §6.3 unchanged; wraps, never truncates),
   `first owner [+ N more] · scraped by <name>`, and ONE tag: `Blocked` (take rule `active_blocked`),
   `Owner differs` (open owner conflict), `Same property?` (confident match to stock), `Possible match`
