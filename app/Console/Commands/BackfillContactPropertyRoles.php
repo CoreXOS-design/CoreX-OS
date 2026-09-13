@@ -44,7 +44,15 @@ class BackfillContactPropertyRoles extends Command
         $ambiguous = [];
 
         // Only rows whose role is not already a canonical value need attention.
-        $rows = DB::table('contact_property')->get();
+        // Deliberately EXCLUDES soft-deleted rows — a backfill is not an
+        // ordinary write site: "helpfully" normalising or inferring a role
+        // on a link somebody deliberately removed would silently resurrect
+        // its role field across the whole database in one run, corrupting
+        // exactly the "what did this link look like when it was removed"
+        // history the hard-delete fix exists to preserve, with no way to
+        // tell afterward which rows were touched. See .ai/specs/
+        // rental-applications.md, "The contact_property hard-delete fix".
+        $rows = DB::table('contact_property')->whereNull('deleted_at')->get();
 
         foreach ($rows as $row) {
             $raw = $row->role;
@@ -63,7 +71,12 @@ class BackfillContactPropertyRoles extends Command
                 continue;
             }
 
-            $contactCount = DB::table('contact_property')->where('property_id', $row->property_id)->count();
+            // Same exclusion — a soft-deleted co-contact must not count
+            // toward "this property has N contacts", or a genuinely sole
+            // ACTIVE contact would be wrongly treated as ambiguous (or a
+            // property with a removed contact would be wrongly inferred
+            // sole when it once had two).
+            $contactCount = DB::table('contact_property')->where('property_id', $row->property_id)->whereNull('deleted_at')->count();
             $listingType = DB::table('properties')->where('id', $row->property_id)->value('listing_type') ?? 'sale';
             $inferredRole = $listingType === 'rental' ? 'landlord' : 'seller';
 
