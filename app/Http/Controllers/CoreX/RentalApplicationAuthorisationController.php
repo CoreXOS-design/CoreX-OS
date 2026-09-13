@@ -365,8 +365,18 @@ class RentalApplicationAuthorisationController extends Controller
         $fromStatus = $rentalApplication->status;
         $oldAmount = $rentalApplication->approved_rental_amount;
 
+        // AT-410d, 2026-09-16 — Johan's ruling: "yes, can become approved
+        // subject to fica verification." Not a block, not a second status —
+        // status stays exactly 'approved'; whether FICA is still
+        // outstanding for the applicant AT THIS MOMENT decides whether the
+        // approval carries the condition. Live check (ficaOutstanding()
+        // reads the contact's current FICA status fresh, same as the badge
+        // at the top of this screen already does) — never a stale snapshot.
+        $isSubjectToFica = $rentalApplication->ficaOutstanding();
+
         $rentalApplication->status = 'approved';
         $rentalApplication->approved_rental_amount = $validated['approved_rental_amount'];
+        $rentalApplication->approved_subject_to_fica_at = $isSubjectToFica ? now() : null;
         $rentalApplication->save();
 
         RentalApplicationStatusHistory::record(
@@ -381,9 +391,10 @@ class RentalApplicationAuthorisationController extends Controller
             isOverride: $decision['is_override'],
             reason: $validated['reason'] ?? null,
             oldValues: ['status' => $fromStatus, 'approved_rental_amount' => $oldAmount],
-            newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount']],
+            newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount'], 'approved_subject_to_fica' => $isSubjectToFica],
             humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to approve' : 'Approved')
-                . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})",
+                . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})"
+                . ($isSubjectToFica ? ', subject to FICA verification' : ''),
         );
 
         // AT-392 — Johan changed the flow: approval no longer auto-emails
@@ -406,7 +417,8 @@ class RentalApplicationAuthorisationController extends Controller
         // decline()'s own message below: "{Decision} — {contact} …".
         return redirect()->route('corex.rental-applications.authorisation.index')
             ->with('success', 'Approved — ' . $rentalApplication->contact->full_name . ' for R'
-                . number_format((float) $validated['approved_rental_amount'], 2) . '. Saved.');
+                . number_format((float) $validated['approved_rental_amount'], 2)
+                . ($isSubjectToFica ? ', subject to FICA verification' : '') . '. Saved.');
     }
 
     public function decline(

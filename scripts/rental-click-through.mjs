@@ -39,7 +39,11 @@
  *   9. Send back to applicant — Confirm is LEGITIMATELY disabled with no note typed
  *  10. Send back to applicant — Confirm works once a note is typed
  *  11. Authoriser Approve — Approve is LEGITIMATELY disabled with no amount typed
- *  12. Authoriser Approve — works once an amount is typed (handles the native confirm())
+ *  12. Authoriser Approve — works once an amount is typed AND the in-page
+ *      confirmation ("Yes, approve") is clicked (2026-09-16, cc5 — native
+ *      confirm() removed here too, but Johan's call was to KEEP a real
+ *      confirmation step; this is now a genuine two-stage flow, not one
+ *      button whose disabled state changes)
  *  13. Authoriser Decline — Decline is LEGITIMATELY disabled with no reason typed
  *  14. Authoriser Decline — works once BOTH a reason AND a reason template are
  *      chosen (AT-410b added the required template select; handles the native
@@ -400,19 +404,30 @@ async function main() {
     await roPageApprove.goto(`${BASE_URL}/corex/rental-applications/authorisation/${fx.app_b_id}`, { waitUntil: 'networkidle0', timeout: 25000 });
     await new Promise((r) => setTimeout(r, 800));
 
+    // 2026-09-16, cc5 — native confirm() removed from Approve too (same
+    // reasoning as decline, but Johan's explicit call here was to KEEP a
+    // real confirmation step, not drop it): Approve is now a genuine
+    // two-stage IN-PAGE flow, not one submit. "Approve"
+    // (data-qa="authoriser-approve-continue") never submits — it just
+    // flips approveConfirming=true, which Alpine's x-if swaps for a
+    // SECOND button, "Yes, approve" (data-qa="authoriser-approve-confirm")
+    // — the two never coexist in the DOM (both live inside <template
+    // x-if>), so this is genuinely two clicks on two different elements,
+    // not one selector whose disabled state changes.
     await roPageApprove.click('[data-qa="authoriser-approve-open"]');
     await new Promise((r) => setTimeout(r, 300));
     await checkControl(roPageApprove, {
       name: '11. Authoriser Approve — legitimately disabled with no amount typed',
-      selector: '[data-qa="authoriser-approve-confirm"]',
+      selector: '[data-qa="authoriser-approve-continue"]',
       expectDisabledBefore: true,
     });
     await roPageApprove.type('input[x-model="approveAmount"]', '9500');
     await new Promise((r) => setTimeout(r, 200));
+    await roPageApprove.click('[data-qa="authoriser-approve-continue"]');
+    await new Promise((r) => setTimeout(r, 300));
     await checkControl(roPageApprove, {
-      name: '12. Authoriser Approve — works once an amount is typed',
+      name: '12. Authoriser Approve — works once an amount is typed and confirmed',
       selector: '[data-qa="authoriser-approve-confirm"]',
-      expectDisabledBefore: false,
       requestPattern: /\/approve$/,
       requestMethod: 'POST',
       timeout: 6000,

@@ -13140,11 +13140,13 @@ DECLINED should ever be blocked by this at all, given declining is
 refusing to take them on, not proceeding with them — is exactly the
 choice put to him. **Nothing built pending that ruling.**
 
-## FICA Outstanding tile split — SPEC, approved in principle, not yet built (2026-09-15)
+## FICA Outstanding tile split — BUILT (2026-09-15/16)
 
-Johan's ruling: **"yes on fica."** Approved. Not built yet — this section
-is still spec, and the plan is spec-review-then-build, but it is no
-longer a proposal that might be thrown away.
+Johan's ruling: **"yes on fica."** Built and verified — 19 PHPUnit tests
+(`tests/Feature/RentalApplications/RentalApplicationFicaTileSplitTest.php`),
+including the conditional-approval interaction from section (g). The
+wording below reflects the FINAL copy after one round of conductor
+feedback, not the first draft — see (c).
 
 ### The crux question, answered directly — is this a half-hour job or a real one
 
@@ -13294,24 +13296,27 @@ has simply gone stale, where nobody has yet requested a renewal, will
 sit under "Waiting on us" until a staff member notices and asks — which
 is arguably the entire point of splitting the tile in the first place.
 
-### (c) Wording — proposed for approval, not yet built
+### (c) Wording — FINAL, after one round of feedback
 
-In the same register as "Yours only / Your branch / Whole agency"
-(approved earlier today) — plain, short, no developer language:
+First draft was **"FICA — Applicant" / "FICA — Us"**. Rejected by
+Johan/conductor: doesn't read as English — "each label must be a
+complete plain-English answer to the question the control exists to
+answer" (the exact test the scope toggle's "Yours only / Your branch /
+Whole agency" already passed), and the tile exists to answer exactly
+one question — who does the agent chase. "FICA — Us" answers a
+different, unasked question ("what category is this").
 
-> **FICA — Applicant** and **FICA — Us**
+**Built as:**
 
-Reasoning: the shared "FICA —" prefix keeps the pair legible as one
-family at a glance even though tiles aren't visually boxed together: an
-agent scanning the row sees two adjacent FICA tiles, not one ambiguous
-"Us" floating among unrelated labels like "Sent for Authorisation."
-Short enough to sit comfortably next to the longest existing label
-("Sent for Authorisation", 22 characters) without crowding the row.
+> **"Waiting on applicant"** and **"Waiting on us"**
 
-Runner-up, if "Applicant"/"Us" reads too terse in context: **"FICA —
-Waiting on Applicant"** and **"FICA — Waiting on Us"** — clearer in
-isolation, costs meaningfully more width. Recommend the shorter pair;
-either is Johan's call to make, exactly like the scope wording was.
+Each one directly answers "who am I waiting for" — nothing to decode.
+Dropping "FICA" from the label text loses the anchor back to what the
+pair is about (an agent scanning the row could misread "Waiting on us"
+floating among "Sent for Authorisation"/"Approved"), so a small,
+non-clickable **"FICA:"** marker renders immediately before the pair in
+the tile row instead of being stuffed into both tile names — mechanics
+left to the build, exactly as invited.
 
 ### (d) Screen real estate — honest count, not rounded
 
@@ -13439,27 +13444,58 @@ Concretely:
   confirm the list needs to show it at all, once, and reuse rather than
   duplicate.
 
-### Files (when built — not yet)
+### Files — built
 
-`app/Http/Controllers/CoreX/RentalApplicationController.php` (split
-`fica_outstanding` into two TILES entries, widen each one's status list
-to also match `status = 'approved' AND approved_subject_to_fica_at IS
-NOT NULL` per (g), new `applyTileFilter()` branch keyed on
-latest-FicaSubmission-status), `app/Models/RentalApplication.php` (new
-`ficaWaitingOnApplicant()`/`ficaWaitingOnUs()`, alongside — not
-replacing — the existing `ficaAwaitingApplicantAction()`),
-`resources/views/corex/rental-applications/index.blade.php` (tile
-labels + `$primaryTiles` + the overlap caption from (g) + the row-level
-conditional-approval tag, copy from cc5's spec), a click-through gate
-check (Standard −1f) proving both new tiles' counts move together, sum
-to the old single number for the pre-conditional-approval population,
-and correctly ALSO surface a conditionally-approved fixture without
-double-appearing in the wrong FICA bucket.
+`app/Http/Controllers/CoreX/RentalApplicationController.php` — `TILES`
+split into `fica_waiting_applicant`/`fica_waiting_us`, `VIEW_RETURNED_TILES`
+updated; `applyTileFilter()` gained a dedicated branch for FICA tiles
+(widens status eligibility to also match `status = 'approved' AND
+approved_subject_to_fica_at IS NOT NULL`, per (g), before deferring to
+the new `applyFicaBucketFilter()` for the applicant/us split itself, a
+raw correlated subquery on the contact's latest, non-soft-deleted
+`FicaSubmission.status`).
 
-**Coordination dependency, confirmed directly with cc5 (2026-09-15, not
-assumed)**: conditional approval is `rental_applications.approved_subject_to_fica_at`
-(nullable timestamp; non-null = conditional, cleared to null once FICA
-verifies), no new status value. This spec's filter is written against
-that column name and semantics. cc5's own spec is still pending Johan's
-sign-off — if the column name or shape changes there, this spec's Files
-section and filter both need a matching update before build.
+`resources/views/corex/rental-applications/index.blade.php` — `$tileLabels`/
+`$primaryTiles`/`$emptyStateCopy` updated for the two new keys; a
+non-clickable "FICA:" group marker (`$ficaGroupBeforeTile`) renders
+immediately before the pair; the overlap caption from (g) renders
+whenever either FICA tile is non-empty; a per-row "Subject to FICA
+verification" tag (reusing cc5's exact review-screen phrase, not new
+copy) renders under the status cell for a conditionally-approved row.
+
+**Deliberately NOT added**: the `ficaWaitingOnApplicant()`/
+`ficaWaitingOnUs()` model methods sketched in the spec draft. Nothing in
+this build calls them — the tile filter is a self-contained list-level
+SQL condition, and index.blade.php has no per-row FICA badge (that's
+review.blade.php's territory, out of this task's scope) that would need
+a per-instance version of the same classification. Left out rather than
+built ahead of a caller that doesn't exist yet; if a future prompt wants
+a per-row FICA-bucket badge on this list, the same logic in
+`applyFicaBucketFilter()` is the reference to port into an instance
+method at that point, not before.
+
+`tests/Feature/RentalApplications/RentalApplicationFicaTileSplitTest.php`
+(new) — 19 tests, 58 assertions: every status in the real
+`FicaSubmission` vocabulary lands in the bucket this spec settled on
+(including the deliberate `rejected`/`cancelled` divergence from
+`ficaAwaitingApplicantAction()`), the latest-submission-wins guarantee
+in both directions (an old submission of one bucket must never out-rank
+a newer one of the other), the two tiles summing to the original
+single-tile population, scope-toggle respect, and all four
+conditional-approval interactions from (g) — surfaces in whichever
+bucket its FICA status calls for, a plain (non-conditional) `approved`
+row stays out of both tiles, and the double-membership with "All"/
+"Approved" is confirmed to still count the row exactly once (a plain
+`WHERE`, not a `JOIN`, so no duplication risk).
+
+**Coordination dependency, confirmed directly with cc5 (2026-09-15) and
+verified against the real column after it shipped (2026-09-16)**:
+conditional approval is `rental_applications.approved_subject_to_fica_at`
+(nullable timestamp; non-null = conditional, cleared to null
+automatically once FICA verifies — `ResolveConditionalApprovalOnFicaVerified`),
+no new status value, exactly as told. Migration
+`2026_09_16_090000_add_approved_subject_to_fica_at_to_rental_applications`
+applied to `corex_qa1` before this build's filter was widened to use it
+— building against a column that didn't exist yet was avoided by
+shipping the two-bucket split first and the widening as a fast follow-up
+once the dependency actually landed, rather than guessing ahead of it.
