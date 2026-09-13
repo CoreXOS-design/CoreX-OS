@@ -11942,6 +11942,20 @@ Fixture: application 321 (agency 1, fresh contact, `status='under_assessment'`, 
 - `.env` `MAIL_FROM_ADDRESS` reverted to its original value after testing; local `php artisan serve` test instance stopped.
 - `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.
 
+### Round 2 — Johan's real-Chrome walk, recipient visibility, and a retracted click report (2026-09-15)
+
+Johan walked the merged flow in real Windows Chrome. Result summary, for the record:
+
+**Confirmed working, unchanged:** the two-field gate (all four states), the fully-resolved draft email (real name, agency tone, template guidance merged naturally, zero placeholders), the amber "not yet sent" hold surviving a page reload, structural idempotency (send controls disappear entirely from the DOM once sent — nothing left to press twice), the audit trail, the PDF filing.
+
+**A real gap he found and this round fixed — the agent was never shown who the email was actually going to.** The send-decline drawer now shows a read-only `To: {email}` line, resolved via the same `RentalApplication::recipientEmail()` the actual send uses. When there's no email anywhere on the application, the drawer says so plainly and the Send button is disabled — enforced server-side too: `sendDecline()` previously still marked `applicant_notified_at` and flashed "Decline sent to the applicant" even when the mailer's own internal guard had silently swallowed a missing-recipient send. That false-success path is now closed, refused before anything is written.
+
+**Round 2b — the guard message names the remedy, not just the problem.** Johan: "the message tells the agent WHAT IS WRONG but not WHAT TO DO... add the remedy in the same sentence... if there is a sensible link straight to it, better still." Checked where an agent actually adds an email rather than guessing — `corex.contacts.show`'s own edit form, "Emails" section (the `_identifier-repeater` partial, `kind=emails`) — the exact field `recipientEmail()` falls back to. The guard message now links straight there, naming the contact. The disabled Send button also carries a `title` tooltip for the case the on-screen message scrolls out of view (Johan's own "low priority, but it costs nothing" ask).
+
+**Native `confirm()`/`alert()`/`prompt()` removed from both decline-path submit handlers** — the authoriser's Decline modal and the agent's send-decline drawer — per Johan's standing instruction ("a native dialog is not acceptable in this product... it behaves differently in every browser"). Approve, Send-back-to-agent, and Clear-linked-property keep theirs — out of scope, not touched.
+
+**The click-freeze report — investigated, then retracted by Johan himself, worth recording so nobody re-opens it.** Johan initially reported the enabled Decline button doing nothing on a real mouse click, plus a renderer freeze on a follow-up programmatic click. Both were real observations of *something*, but not of a code defect: his testing tab was in the background (a second tab, with Johan working in his own foreground tabs on the same browser) — Chrome does not deliver synthetic input to a background tab at all, and throttles/can appear to hang a backgrounded renderer, which produced both symptoms without a single line of application code being at fault. He proved this himself (capture-phase `mousedown` listeners on `document` receiving zero events on a background-tab click) and retracted the report in full. cc5's own reproduction attempts (real CDP-driven mouse click, varied focus states, a genuine native-select keyboard interaction) never reproduced a swallowed click either, consistent with the retraction. **Decline-button clickability remains formally unverified, not proven-safe** — Johan intends to walk it again with a genuine foreground tab before signing it off, and nothing further should be built on the assumption that click is broken or that it's confirmed fixed.
+
 ## Decline reason templates — agency-configurable reason + guidance library (2026-09-15, cc4)
 
 ### What this feature does and why
