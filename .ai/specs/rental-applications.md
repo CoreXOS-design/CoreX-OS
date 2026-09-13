@@ -12872,6 +12872,32 @@ immediately following a brand-new `Contact::create()`/`Property::
 duplicate()` are safe in practice — a fresh id can't collide — listed
 in the full investigation transcript, not repeated here.)
 
+### The portal lead webhooks — highest-risk item in the whole fix, named separately on the conductor's instruction
+
+Three of the B2 blind-write sites above are not "a person clicks something
+and sees an error" — they're inbound, automatic, and unattended:
+`Property24/P24LeadService.php:366` (`syncWithoutDetaching`, role
+`lead`), `PrivateProperty/PpLeadService.php:401` (same), and
+`PpWebhookController.php:73` (same). Every other write-side risk on this
+list fails LOUDLY — an agent clicks a link button, gets an error, tries
+again or reports it. **A webhook path fails SILENTLY.** If a soft-deleted
+`contact_property` row already occupies the `(contact_id, property_id)`
+slot a P24 or PP lead webhook is trying to write to, the blind `attach()`/
+`syncWithoutDetaching()` throws a duplicate-key exception inside a
+background request nobody is watching — the portal thinks it delivered
+the lead, CoreX's HTTP response to the portal may still be 200 depending
+on whether the exception is caught upstream (not yet confirmed — check
+this specifically tomorrow, since a swallowed exception with a 200
+response is worse than a visible failure), and the practical symptom
+is an agent asking days later "why did this enquiry never arrive,"
+with a stack trace in a log file nobody reads by default. Johan sells
+CoreX on portal lead capture — this is not one bullet among a dozen,
+it is the first thing to fix and test once stage 1's foundation is
+confirmed, with its own explicit test coverage (a repeat-lead scenario
+against a previously-unlinked-then-relinked contact/property pair for
+each of the three webhook paths), before any of the person-facing link
+buttons are touched.
+
 **LIST A — read sites needing `deleted_at IS NULL`, by module:**
 - **Core relations** (fixed for free once stage 1's scope lands):
   `Contact.php:212,1091`, `Property.php:798,986,1620,1666`
@@ -12954,6 +12980,17 @@ not a silent overwrite. This is a genuinely new audit surface, not
 present anywhere today (`ContactLinkedToProperty` only fires on a
 brand-new link), so tomorrow's stage 2/4 work should treat "log the role
 change" as part of building the restore path, not a separate follow-up.
+
+### Tomorrow's order, as ruled by the conductor
+
+1. Confirm whether `Deal::properties()`'s existing pattern covers the
+   write-side restore problem as well as reads, before copying its shape.
+2. Stage 1 foundation, built on that pattern (a `ContactProperty` pivot
+   model, not a bespoke one).
+3. Write-side paths — **the three portal lead webhooks first, with their
+   own named test coverage**, before any person-facing link button.
+4. Then the remaining delete sites and raw reads, split with cc4 once
+   they've read this section.
 
 ### Non-negotiable constraints, restated for whoever starts tomorrow
 
