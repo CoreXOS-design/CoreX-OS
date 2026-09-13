@@ -512,6 +512,14 @@ ever touches `migrate*` against `corex_qa1` specifically, never
 `hfc_dash_test_N`, which is what PHPUnit actually uses. Stated here
 plainly so the two aren't conflated later.
 
+**See also −1k**: a lane colliding with itself (two test processes
+against its own worktree database at once) produces the same symptoms —
+`ERROR 1213` deadlocks, long DDL waits — and was initially misdiagnosed
+as this. Two different mechanisms, both real; this entry's own evidence
+(a different lane's schema, directly observed via `SHOW FULL
+PROCESSLIST`) stands unchanged. Don't conclude cross-lane contention
+from an `ERROR 1213` alone — check which schema was actually involved.
+
 ## Standard −1i — Disk headroom, tracked as a data point (not yet a decision)
 
 Measured 2026-09-13: `/mnt/HC_Volume_103099143` at **86% full — 161G of
