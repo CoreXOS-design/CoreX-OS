@@ -11761,3 +11761,82 @@ a cross-agency document 403/404s, retyping updates the SAME row in place
 - `php artisan test tests/Feature/RentalApplications/FileDocumentDirectlyTest.php` and the pre-existing `tests/Feature/Tools/PdfSplitterRentalApplicationMarkGuardTest.php` (proving the guard refactor didn't regress the splitter itself) — see results recorded at push time below.
 - Real Puppeteer click-through against a local `php artisan serve` instance on the actual worktree, per the conductor's explicit instruction not to hand over an endpoint test alone — full walk above, zero console errors throughout.
 - `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.
+
+## Strike hit-area round 2 — the real defect was clipping, not sizing, and headless couldn't see it (2026-09-13, conductor + cc3)
+
+Round 1's fix (14x14 → real 18px width + an invisible 20px-tall overlay)
+measured clean in every headless check — mine, cc1's on live QA1 post-
+cache-clear, and a second live headless run using the conductor's own
+exact scan script. All agreed: full 18×20, centre hit true. The conductor
+kept measuring their own real Windows Chrome anyway rather than accepting
+three matching headless results, and found the SAME control genuinely
+missing its right half live — 9px wide, not 18, and the glyph's own centre
+dead. Both measurements were correct; they were measuring two different
+things, and figuring out why *is* the fix.
+
+**Root cause, found by the conductor comparing `offsetWidth` to
+`clientWidth` on `.rental-review-aside` live:** that panel's vertical
+scrollbar genuinely reserves 15px of its 196px width (`scrollbar-gutter:
+stable` was already set there, from an earlier round — it was never the
+missing piece). `.rr-ledger-row`'s fixed-pixel column budget (170px +
+gaps) was 21px wider than the real content width left after that
+reservation (157px measured), so the row silently overflowed its own
+container — and `overflow-x: hidden` on the same panel clips exactly that
+overflow, cutting straight through the middle of the strike/restore
+button, since it's the last (rightmost) column.
+
+**Why three separate headless checks all missed it:** a headless browser
+still computes the SAME layout overflow (confirmed: `offsetWidth -
+clientWidth = 15` reproduces identically in headless against the live
+site) — but its hit-testing does not clip the overflowing child the same
+way a real browser's compositor does, so `elementFromPoint` kept resolving
+to the button across its full visual width even in the clipped region.
+The bug was real and reproducible by arithmetic (`offsetWidth` vs
+`clientWidth`, row's own right edge vs the panel's true content edge) the
+entire time — just invisible to a click-simulation approach that assumes
+headless and real hit-testing agree on clipped regions. **They don't, and
+this generalises**: any interactive element positioned against the edge
+of a scrollable container should be checked by that arithmetic, not by a
+headless click test alone, because a headless pass here is a false
+negative, not a weaker positive.
+
+**Fix:** `.rental-review-aside`'s own horizontal padding, 12px → 4px per
+side (padding, not data — every OTHER element in the panel keeps its own
+real content, only the row's available width changes), combined with
+`.rr-ledger-row`'s own gap, 2px → 0px (second reduction of the same lever
+round 1 already used). Together this closes the 21px shortfall with 4px
+of real, measured slack — verified via the panel's own `offsetWidth`/
+`clientWidth` arithmetic on the actual committed code, not assumed from
+reading the CSS.
+
+**Verified, live-URL-equivalent methodology:**
+- Content-edge-vs-button-edge arithmetic at 1536px, 1440px, and 1280px
+  (the breakpoint floor where this panel's fixed layout first applies):
+  strike button clipped = false at all three, 4px slack at all three,
+  button width still 18px (unchanged from round 1).
+- A generic scan of every `button`/`a`/`span` inside the panel for ANYTHING
+  else whose right edge exceeds the same content boundary — zero found,
+  answering the conductor's "check everything else pinned to that edge"
+  directly rather than assuming only the strike button was affected.
+- Row height confirmed unchanged (20.5px, all three rows) — the gap
+  reduction only affects horizontal spacing between columns, never row
+  height.
+- Screenshot of the whole panel post-fix: badges, dates, amounts, group
+  labels, and the three action buttons below the ledger all render
+  cleanly at the tighter padding — nothing cramped, nothing overlapping.
+- Also corrected in the same pass: an earlier version of round 1's own
+  code comment credited this finding to cc1. cc1 checked and had no
+  record of it — the actual message was the conductor's own first-person
+  verification. Fixed in the comment directly (the spec's own correction
+  from the provenance thread already covered this narrative; the inline
+  code comment had been missed).
+
+**Still true, unchanged from round 1:** doesn't reach the 44px touch
+guideline (a bigger, separately-flagged call); the jump arrow's real
+click target is still the whole row, not the glyph; the out-of-period dot
+still has no click handler. Neither was affected by this round's fix and
+neither needed one.
+
+**Not yet re-confirmed in an actual real browser** — that is the
+conductor's own next step per their instruction, and the honest state of
+this fix until they do.
