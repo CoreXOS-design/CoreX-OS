@@ -158,10 +158,10 @@ final class EntryPointController extends Controller
         app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'seller');
 
         // Link contact ↔ existing property via the seller pivot. Idempotent.
-        DB::table('contact_property')->updateOrInsert(
-            ['contact_id' => $contact->id, 'property_id' => $property->id],
-            ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],
-        );
+        // ContactPropertyLinker, not a raw updateOrInsert() — see
+        // .ai/specs/rental-applications.md, "The contact_property
+        // hard-delete fix".
+        \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, 'seller');
 
         $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
 
@@ -545,10 +545,10 @@ final class EntryPointController extends Controller
             if ($contact) {
                 // AT-398 — the owner set behind an open deal cannot move underneath it.
                 app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'seller');
-                DB::table('contact_property')->updateOrInsert(
-                    ['contact_id' => $contact->id, 'property_id' => $property->id],
-                    ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],
-                );
+                // ContactPropertyLinker, not a raw updateOrInsert() — see
+                // .ai/specs/rental-applications.md, "The contact_property
+                // hard-delete fix".
+                \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, 'seller');
             }
 
             // Close the loop: mark the listing as matched to the promoted Property
