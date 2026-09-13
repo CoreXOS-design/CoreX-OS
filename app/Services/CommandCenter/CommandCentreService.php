@@ -232,12 +232,20 @@ class CommandCentreService
             ->filter($isAppointment)
             ->sortBy('event_date')->take(5)->values();
 
+        // Day-timeline fields (Today page redesign, 2026-09-13): the Today board
+        // draws today's appointments on an hour grid, so every item carries its
+        // end time, its all-day flag (authoritative — same rule as the Calendar
+        // day view), its date (deep link into the calendar day) and its colour.
         $items = collect($todayEvents)->merge($tomorrowEvents)->take(8)->map(fn($e) => [
             'id' => $e->id,
             'title' => $e->title,
             'time' => $e->event_date->format('H:i'),
+            'end_time' => $e->end_date?->format('H:i'),
+            'all_day' => (bool) $e->all_day,
+            'date' => $e->event_date->toDateString(),
             'date_label' => $e->event_date->isToday() ? 'Today' : 'Tomorrow',
             'category' => $e->category,
+            'colour' => $e->colour,
         ])->values()->toArray();
 
         return [

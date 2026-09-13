@@ -976,3 +976,83 @@ cards inherit the **Calendar** scope, its task/overdue-task cards inherit the
 - `app/Http/Controllers/CoreX/RoleManagerController.php` — module labels.
 - `routes/web.php` — `permission:` middleware on calendar/tasks read routes.
 - `database/migrations/2026_06_23_120000_default_command_center_visibility_scope.php`.
+
+---
+
+## Today page — Day timeline layout (2026-09-13)
+
+> Johan reviewed five layout options for `/corex/command-center/Today` and chose
+> the **Day timeline**. Replaces the stacked three-band card grid (Action Required /
+> Today / Snapshot) that made the page scroll.
+
+### Business requirement
+The Today page is the agent's morning screen. It must show the whole day on one
+screen with **no page scroll on desktop**: what is happening when, what is waiting
+on the agent, and the numbers that matter — each in its own place, each scrolling
+inside itself when it has more than fits.
+
+### Layout (desktop, ≥1024px)
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  Welcome back, <name> · date                 Updated · Refresh · ⚙   │
+├──────────────────────────────────┬───────────────────────────────────┤
+│  TODAY (7/12)                    │  QUEUES RAIL (5/12)               │
+│  4 appointments · next at 11:30  │  Overdue & Unresolved        [5]  │
+│  All day: chips                  │    rows…                          │
+│  08:00 ─────────────────────     │  E-Sign Needs Your Approval  [2]  │
+│  09:00 ▌Show-day prep 09:00–10:30│    rows…                          │
+│  10:00 ─────────────────────     │  Buyers Needing Follow-up    [4]  │
+│  ●━━━ 10:42 (now line) ━━━━━━━   │    rows…                          │
+│  11:00 ▌Valuation                │  … every other card, most urgent  │
+│  …     (grid scrolls internally) │    first (rail scrolls internally)│
+│  Tomorrow · 09:00 Viewing …      │                                   │
+├──────────────────────────────────┴───────────────────────────────────┤
+│  WEBSITE (30D) 1,284 views · 23 enquiries   MY COMPLIANCE FFC in 20d │
+└──────────────────────────────────────────────────────────────────────┘
+```
+Below 1024px the three regions stack and the page scrolls normally.
+
+### Rules
+- **Timeline** draws `today_appointments` items with `date_label = Today` and
+  `all_day = false` as blocks on an hour grid. Window is 08:00–18:00, widened to
+  hold any appointment outside it. An item without `end_time` is drawn as one
+  hour. Overlapping appointments are packed into side-by-side lanes. All-day items
+  are chips above the grid (the all-day flag is authoritative, as on the Calendar
+  day view). Tomorrow's items (already in the card) list under the grid. Every
+  block/chip deep-links to the Calendar day view for its date.
+- **Now line** uses the server clock at render plus elapsed client time; it ticks
+  every 30 s and the grid auto-scrolls so the line sits a third of the way down on
+  load.
+- **Rail** renders every other card through the shared `<x-tile :compact="true">`
+  shell (same contract as the Calendar Deck: per-row links, invitation buttons,
+  empty/degraded states), sorted critical → high → medium → low.
+- **Strip** takes the figure cards — `website_performance`, `my_compliance`,
+  `agency_health`, `branch_lost_value`, `branch_compliance` — as plain
+  value + label pairs (max 4 per card, top-listing rows with a `url` excluded),
+  each group titled with a link to the card's `view_all_url`. A figure card that
+  turns **critical** (e.g. expired FFC) leaves the strip and joins the rail as a
+  queue. The strip hides when no figure card is present.
+- Header, Refresh, 60 s auto-refresh, settings gear, tour anchors
+  (`cc-today-board/header/greeting/refresh`) and the empty state are unchanged.
+  New tour anchors: `cc-today-timeline`, `cc-today-rail`, `cc-today-strip`.
+
+### Data
+`CommandCentreService::todayAppointments()` items gain `end_time` (H:i|null),
+`all_day` (bool), `date` (Y-m-d) and `colour` (resolved event colour). No schema
+change.
+
+### Files
+- `resources/views/command-center/today.blade.php` — the layout.
+- `app/Services/CommandCenter/CommandCentreService.php` — item fields above.
+- `app/Support/Tours/defs/command-center.php` — board step copy.
+- `tests/Feature/CommandCenter/TodayDayTimelineTest.php`.
+
+### Acceptance
+1. On a 1440×900 desktop the page shows header, timeline, rail and strip with no
+   page scrollbar; long lists scroll inside their own region.
+2. A timed appointment appears as a block at its hour; an all-day one as a chip;
+   two overlapping appointments sit side by side.
+3. The now line shows at the current time and moves without a reload.
+4. Every card the service returns is visible somewhere: schedule → timeline, figure
+   cards → strip, everything else → rail, most urgent first.
+5. Refresh and the 60 s auto-refresh redraw all three regions.
