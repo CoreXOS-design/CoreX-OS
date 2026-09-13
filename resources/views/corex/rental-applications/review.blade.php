@@ -115,13 +115,29 @@
     // and Zone 4's own button visibility (further down the page) read the
     // exact same gate — see RentalApplicationReviewController::reopen()/
     // requestMoreInfoFromApplicant() for what each path actually does.
+    // AT-392 round 2, 2026-09-13 — parity fix: this gate used to check the
+    // override tier ONLY for 'declined', so a non-override agent viewing a
+    // WITHDRAWN application saw the full Reopen button enabled, clicked it,
+    // and hit the controller's own override-tier 403 (which correctly
+    // requires it for BOTH declined and withdrawn — see reopen()'s
+    // $isOverrideReopen). Matches the backend now: both terminal statuses
+    // require the same override tier to reopen.
     $canReopenNow = $viewerRole === 'agent'
         && in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true)
-        && ($rentalApplication->status !== 'declined' || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
+        && (! in_array($rentalApplication->status, ['declined', 'withdrawn'], true) || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
     // $reviewLocked already computed above, near $initialMarkedUpDocIds —
     // this screen's header text needs it before this second @php block runs.
+    //
+    // AT-392 round 2, 2026-09-13 — companion parity fix: 'withdrawn' was
+    // missing from this exclusion list, so a non-override agent could
+    // always trigger the LESSER requestMoreInfoFromApplicant() action on a
+    // withdrawn application. That endpoint has no status guard at all — it
+    // sends the applicant an email but never touches status or
+    // token_expires_at, so the applicant's link stays genuinely dead. An
+    // agent without reopen permission must see no button at all here,
+    // exactly like declined already worked.
     $canSendBackToApplicant = $viewerRole === 'agent'
-        && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined'], true));
+        && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined', 'withdrawn'], true));
 @endphp
 <div class="w-full"
      @if($viewerRole === 'agent')

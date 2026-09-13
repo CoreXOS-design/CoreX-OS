@@ -19,7 +19,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ $reason === 'not_sent' ? 'Not Ready Yet' : 'Link Expired' }}</title>
+    <title>{{ match($reason) { 'not_sent' => 'Not Ready Yet', 'rate_limited' => 'One Moment', default => 'Link Expired' } }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
@@ -28,6 +28,13 @@
             @if($reason === 'not_sent')
                 <h1 class="text-xl font-bold text-slate-800 mb-2">This application isn't ready yet</h1>
                 <p class="text-sm text-slate-500">Your agent hasn't sent this application to you yet. Please wait for them to send it, or contact them if you believe this is a mistake.</p>
+            @elseif($reason === 'rate_limited')
+                {{-- AT-392 round 2, 2026-09-13 — the re-keyed rental-application-show
+                     limiter's trip page. Same standard as every other rate-limit
+                     message this feature carries: plain words, says what happened,
+                     says what to do — never "Too many attempts". --}}
+                <h1 class="text-xl font-bold text-slate-800 mb-2">One moment</h1>
+                <p class="text-sm text-slate-500">This page is receiving a lot of requests right now, so it's paused for a moment. Your application is safe — please wait a minute and reload.</p>
             @else
                 <h1 class="text-xl font-bold text-slate-800 mb-2">This link has expired</h1>
                 <p class="text-sm text-slate-500">Please contact your agent for a new link.</p>

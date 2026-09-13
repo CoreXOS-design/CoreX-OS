@@ -2846,6 +2846,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Document upload/replace/remove volume cap, 2026-09-13.
     Route::post('/settings/rental-applications/document-rate-limit', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDocumentRateLimit'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.document-rate-limit');
+    // AT-392 round 2, 2026-09-13 — whether approved applications still accept documents.
+    Route::post('/settings/rental-applications/document-uploads-after-approval', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDocumentUploadsOpenAfterApproval'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.document-uploads-after-approval');
+    // AT-392 round 2, 2026-09-13 — the five remaining public-route volume caps.
+    Route::post('/settings/rental-applications/route-rate-limits', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRouteRateLimits'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.route-rate-limits');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
@@ -4976,13 +4982,23 @@ Route::prefix('rental')->middleware(['auth', 'permission:view_rentals', 'feature
 // Modelled on the /sign/{token} mechanism directly below — same throttle
 // convention, same no-identity-leak treatment of an expired/used link.
 Route::prefix('rental-application')->group(function () {
-    Route::get('/{token}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'show'])->middleware('throttle:30,1')->name('rental-applications.public.show');
+    // 2026-09-13 round 2 — was throttle:30,1 per-IP. Same defect class as
+    // documents below: a shared office/carrier-NAT connection shared one
+    // IP-keyed budget across every applicant reloading their own form.
+    // Re-keyed to the APPLICATION TOKEN — see AppServiceProvider::boot().
+    Route::get('/{token}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'show'])->middleware('throttle:rental-application-show')->name('rental-applications.public.show');
     // Applicant-side autosave, 2026-09-12 — debounced client-side (agency-
     // configurable, default 5s), so this fires far less than once per
-    // keystroke; throttle set generously above the settings screen's own
-    // 2s minimum debounce floor.
-    Route::post('/{token}/autosave', [\App\Http\Controllers\RentalApplicationSigningController::class, 'autosave'])->middleware('throttle:40,1')->name('rental-applications.public.autosave');
-    Route::post('/{token}/submit', [\App\Http\Controllers\RentalApplicationSigningController::class, 'submit'])->middleware('throttle:10,1')->name('rental-applications.public.submit');
+    // keystroke. 2026-09-13 round 2 — was throttle:40,1 per-IP; re-keyed
+    // to the token (rental-application-autosave-request, a SEPARATE
+    // setting from autosave_rate_limit_max — see that limiter's own
+    // docblock for why the two must not share one number).
+    Route::post('/{token}/autosave', [\App\Http\Controllers\RentalApplicationSigningController::class, 'autosave'])->middleware('throttle:rental-application-autosave-request')->name('rental-applications.public.autosave');
+    // 2026-09-13 round 2 — was throttle:10,1 per-IP. Johan: "several
+    // agents helping several applicants submit in the same minute" from
+    // one office IP was the actual risk this route carried — re-keyed to
+    // the token removes that collision entirely.
+    Route::post('/{token}/submit', [\App\Http\Controllers\RentalApplicationSigningController::class, 'submit'])->middleware('throttle:rental-application-submit')->name('rental-applications.public.submit');
     // 2026-09-13 — was throttle:10,1 (per-IP, Laravel's default
     // unauthenticated signature). Johan hit it live, blocked before golf:
     // a shared office/mobile connection shares one IP-keyed budget across
@@ -4994,11 +5010,13 @@ Route::prefix('rental-application')->group(function () {
     // Same limiter shared by upload/remove/replace below — all three are
     // the same "managing documents on this application" action class.
     Route::post('/{token}/documents', [\App\Http\Controllers\RentalApplicationSigningController::class, 'uploadDocuments'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents');
-    Route::get('/{token}/pdf', [\App\Http\Controllers\RentalApplicationSigningController::class, 'pdf'])->middleware('throttle:30,1')->name('rental-applications.public.pdf');
+    // 2026-09-13 round 2 — was throttle:30,1 per-IP; re-keyed to the token.
+    Route::get('/{token}/pdf', [\App\Http\Controllers\RentalApplicationSigningController::class, 'pdf'])->middleware('throttle:rental-application-pdf')->name('rental-applications.public.pdf');
     // Johan, 2026-09-07 — full CRUD for the applicant's own documents, not
     // just create. {document} is scoped inside the controller against the
     // TOKEN's own application — a bare id proves nothing on its own.
-    Route::get('/{token}/documents/{document}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'viewDocument'])->middleware('throttle:30,1')->name('rental-applications.public.documents.view');
+    // 2026-09-13 round 2 — was throttle:30,1 per-IP; re-keyed to the token.
+    Route::get('/{token}/documents/{document}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'viewDocument'])->middleware('throttle:rental-application-document-view')->name('rental-applications.public.documents.view');
     Route::post('/{token}/documents/{document}/remove', [\App\Http\Controllers\RentalApplicationSigningController::class, 'removeDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.remove');
     Route::post('/{token}/documents/{document}/replace', [\App\Http\Controllers\RentalApplicationSigningController::class, 'replaceDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.replace');
 });
