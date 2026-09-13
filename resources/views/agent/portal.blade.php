@@ -16,9 +16,15 @@
      x-init="window.addEventListener('hashchange', () => tab = (window.location.hash || '#overview').replace('#', ''))">
 
     {{-- Frozen top block: page header + agent identity strip stay pinned to the top of the
-         scroll area while the tabs and tab content scroll beneath. The negative top margin /
-         matching padding absorbs <main>'s own padding so nothing peeks through above it. --}}
-    <div class="sticky top-0 z-20 -mt-4 pt-4 lg:-mt-6 lg:pt-6 pb-3" style="background:var(--bg);">
+         scroll area while the tabs and tab content scroll beneath.
+         • Full-bleed (-mx / px cancel <main>'s p-4 / lg:p-6) so the opaque background also
+           covers the side gutters — .corex-page-banner is itself full-bleed via negative margins.
+         • Negative top margin + matching padding absorb <main>'s top padding; the banner's own
+           -mt then lands flush at the very top of the scroll area.
+         • Sticky offset is NEGATIVE <main>'s padding: browsers measure a sticky box against the
+           scroll container's content box (inside its padding), so top:0 would pin it 1.5rem
+           down and leave a bare strip of background above the header. --}}
+    <div class="sticky -top-4 lg:-top-6 z-20 -mt-4 pt-4 lg:-mt-6 lg:pt-6 -mx-4 px-4 lg:-mx-6 lg:px-6 pb-3" style="background:var(--bg);">
 
     {{-- Page header (Pattern A — flat neutral bar, AT-336; matches /worksheet + Properties) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
