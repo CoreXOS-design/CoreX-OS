@@ -13233,12 +13233,48 @@ grep -rn "contact_property" app/ --include='*.php' | grep -iE "insert|upsert"
 ```
 → zero hits.
 
+**Re-run after cc4's independent, from-scratch sweep found the same
+write inventory by a different route (reconciled line-by-line, nothing
+unaccounted for) — one gap in my own exclusion filter caught and fixed
+before calling this final:**
+
+```
+for verb in attach detach sync syncWithoutDetaching updateExistingPivot; do
+  grep -rn -- "->contacts()->$verb\|->properties()->$verb" app/
+done | sort -u | grep -viE '\$(doc|document|deal|filedDoc|newDoc|contactTag|tag|filed)\b'
+```
+First pass missed `$filed->contacts()->syncWithoutDetaching(...)` /
+`$filed->properties()->syncWithoutDetaching(...)`
+(`RentalApplicationReviewController.php:1030,1032`) — confirmed a
+genuine false positive (`$filed = Document::create(...)`, i.e.
+`Document::contacts()`/`properties()` on `document_contacts`/
+`document_properties`, same class as every other Document false
+positive above), but my own exclusion regex hadn't named that variable.
+Widened the filter, re-ran → zero hits.
+
 **Target met: zero unjustified direct writes to `contact_property`
 outside `ContactPropertyLinker.php`.** Two named, individually-justified
 exceptions stand, both already agreed: `PropertyObserver.php:892`
 (permanent property purge, correctly unconditional) and
 `ContactController.php:2201` (documented super-admin hard-purge escape
 hatch, pre-existing and out of scope).
+
+**A spelling no text search for `contact_property` can ever catch —
+found by cc4, recorded here so a future grep-only audit knows to look
+for the TECHNIQUE, not just the string.** `ContactController.php:2196-2210`
+(`destroyAll()`) builds an array of relation objects
+(`$pivotRelations = [..., $proto->properties(), ...]`) and purges each
+via `DB::table($relation->getTable())->whereIn($relation->
+getForeignPivotKeyName(), $contactIds)->delete()` — the table name and
+foreign key are resolved from the Eloquent relation OBJECT at runtime,
+never appearing as the literal string `contact_property` anywhere in
+this file. It genuinely does hard-delete `contact_property` rows for
+every purged contact. Already inside this section's exception bucket
+(same documented super-admin-only escape hatch as above) so it is not a
+miss — but any FUTURE audit of this table done by grepping the string
+`contact_property` will not find this call site, and must specifically
+also check for `$anyModel->properties()`/`$anyModel->contacts()` fed
+into a generic `DB::table($relation->getTable())`-style purge.
 
 **Combined write-site inventory (mine — cc4 owns the read-side list in
 the earlier "Verified, disambiguated file list" section above), for the
