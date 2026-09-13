@@ -12772,11 +12772,7 @@ from a worktree.
 **Stage 2 — every write site.** The 4 originally-named detach sites
 (`RentalApplicationController.php:1083`, `ContactPropertyController.php:112`,
 `PropertyContactController.php:388`, `MobilePropertyController.php:1284`)
-plus `PropertyObserver.php:892` (bulk-deletes every `contact_property`
-row for a property — needs careful handling, described as the one most
-likely to behave differently under soft-delete; not yet analysed in
-detail, that's tomorrow's first job in this stage) plus
-`ComposeSellerService.php:490,522`. ALL become soft-deletes (set
+plus `ComposeSellerService.php:339,490,522`. ALL become soft-deletes (set
 `deleted_at`), never a real `DELETE`. Additionally — this is the
 scope-widening found tonight — every LINK/attach/sync/`updateOrInsert`
 write path for this pivot must apply "restore, never blind-insert, never
@@ -12822,12 +12818,129 @@ carries "when did THIS role start."
 **Stage 3 — every raw read site.** Every `DB::table('contact_property')`
 query and every join by that table name needs its own
 `whereNull('deleted_at')` — these bypass the stage-1 relationship scope
-entirely, so they are NOT covered for free. The verified, disambiguated
-file list (with false positives from unrelated same-named
-`contacts()`/`properties()` relations on other models — Deal, Document,
-ContactTag etc. — stripped out) is being produced tonight as
-investigation-only prep so tomorrow starts clean; see the follow-up note
-below once that lands.
+entirely, so they are NOT covered for free. The full verified,
+disambiguated list is below.
+
+### The verified, disambiguated file list (tonight's investigation — no code written)
+
+**A precedent exists in this codebase already — copy the shape, don't
+invent one.** `Deal::properties()` (`app/Models/Deal.php:244-249`)
+already solves this exact problem for the `deal_properties` pivot: a
+dedicated `DealProperty` pivot model registered via `->using()`,
+`deleted_at` carried in `withPivot()`, `wherePivotNull('deal_properties.
+deleted_at')` baked into the relation itself, plus a companion
+`withTrashedProperties()` (`Deal.php:254`) for the one or two screens
+that deliberately need to see removed rows (`resources/views/dr2/
+create.blade.php:209,802`). No `ContactProperty` pivot model exists yet
+— building one, the same shape, is the natural stage-1 design, not a
+novel one. **Not yet confirmed:** whether `Deal::properties()`'s existing
+pattern also solves the write-side "restore instead of blind-insert"
+problem below, or only the read-side scope — check this FIRST tomorrow,
+since if `Deal::properties()` already has the same blind-write exposure,
+that's a second, larger pre-existing gap worth knowing about before
+copying its shape uncritically.
+
+**Correction to this section's earlier draft:** `PropertyObserver.php:892`
+is NOT a stage-2 site. Confirmed: it's a `forceDeleted()` cleanup that
+only runs during a genuine, permanent property purge — correctly
+removing every `contact_property` row unconditionally, regardless of
+soft-delete state, because the property itself is gone forever in that
+path. No change needed there. Same finding for
+`ContactController.php:2201`'s `destroyAll()` — a documented,
+super-admin-only hard-purge escape hatch that already knowingly violates
+"no hard deletes" as a deliberate, separate exception; out of scope for
+this fix.
+
+**The write-side risk is bigger than the 7 delete sites — this is the
+single most important thing tonight's sweep found.** Neither
+`Contact::properties()` nor `Property::contacts()` has a `->using()`
+pivot model today, so Laravel's own `attach()`/`syncWithoutDetaching()`
+determine "is this pair already linked" via the relation's own (soon to
+be scoped) query — a soft-deleted row won't read as "linked," so these
+calls fall through to a plain `INSERT` and collide with the unique
+index. This hits nearly every LINK path in the codebase, not just the
+delete/detach sites: confirmed real risk (not just theoretical — each
+is a path where the SAME contact/property pair could plausibly be
+re-linked after having been unlinked) at minimum in
+`ContactPropertyController.php:74`, `PropertyContactController.php:136,
+218,348`, `PropertyController.php:1126,1167`, `ESignWizardController.php:
+861`, `DealRegisterController.php:1133`, `RentalApplicationController.
+php:1117`, `MobilePropertyController.php:163,1253`,
+`Property24/P24LeadService.php:366`, `PrivateProperty/PpLeadService.php:
+401`, `PpWebhookController.php:73`. (A handful of similarly-shaped calls
+immediately following a brand-new `Contact::create()`/`Property::
+duplicate()` are safe in practice — a fresh id can't collide — listed
+in the full investigation transcript, not repeated here.)
+
+**LIST A — read sites needing `deleted_at IS NULL`, by module:**
+- **Core relations** (fixed for free once stage 1's scope lands):
+  `Contact.php:212,1091`, `Property.php:798,986,1620,1666`
+- **CoreX Contacts**: `ContactController.php:232,239,2191`,
+  `ContactExportController.php:198,201`, `ContactPropertyController.php:
+  20,72`, `ComposerController.php:522`
+- **CoreX Properties**: `PropertyContactController.php:60-62,148,217,
+  235,299,347,366,393,411`, `PropertyController.php:1117,1163`,
+  `DealRegisterController.php:919,1117`
+- **Rental Applications**: `RentalApplicationController.php:1115`,
+  `view-readonly.blade.php:19-22`, `_linked-properties.blade.php:16`
+- **Compliance / FICA**: `MarketingReadinessService.php:111,341,414,422`,
+  `WhistleblowComplaintService.php:393`, `PropertyOwnershipGuard.php:106`,
+  `DealPropertyOwnerGate.php:40,128`
+- **Command Center**: `CalendarController.php:2783,2904`,
+  `CalendarEventService.php:738`, `PropertyHealthCalculator.php:73`
+  (raw — the two Calendar sites already filter the contact side's
+  `deleted_at`, not the pivot's)
+- **Prospecting / Seller Outreach**: `EntryPointController.php:349,1267,
+  1420,1573,1598,1623`, `PropertyIntelligenceService.php:947-958`,
+  `ComposeSellerService.php:74-90,145,150`,
+  `PropertyDuplicateMatchEvidence.php:380-384`,
+  `ProspectingListingStateEnricher.php:393-398`,
+  `DeedsCaptureLinkService.php:439`, `TransactionStateService.php:190-193`
+- **Docuperfect / E-Sign**: `ESignWizardController.php:1133-1137,
+  1144-1148,1479` — **pipeline-gate file (CLAUDE.md)**, any change here
+  needs a test diff in `tests/Feature/Docuperfect/SigningView/`
+- **Deeds Capture**: `DeedsCaptureController.php:105,190-192`
+- **Mobile API**: `ClientSellerInsightsController.php:61,117`,
+  `MobilePropertyController.php:988,1150`
+- **Tools / Presentations**: `PdfSplitterController.php:164,1429`,
+  `presentations/show.blade.php:218-220`,
+  `CoreMatchListPdfService.php:209`
+- **Views**: `properties/show.blade.php:5847`,
+  `_header-actions.blade.php:56`
+- **Console / seeders** (lower priority, non-production traffic):
+  `BackfillContactPropertyRoles.php:47,66`,
+  `BuyersBackfillFlagCommand.php:175`, `BuyersBackfillWonCommand.php:63`,
+  the five `Demo*Seeder.php` files listed in the full transcript
+
+**LIST B — write sites, by risk class:**
+- **B1 — `updateOrInsert` keyed correctly but needs `deleted_at =>
+  null` added to the update array** (else it silently restores role on a
+  row that stays invisible-as-linked): `DeedsCaptureController.php:1094`,
+  `EntryPointController.php:161,548`, `ComposeSellerService.php:324`,
+  `OwnerContactResolver.php:118`
+- **B2 — `attach()`/`syncWithoutDetaching()` blind-write risk**, listed
+  above
+- **B3 — `updateExistingPivot`, safe once its guarding `exists()` check
+  is scope-fixed**: `PropertyContactController.php:430`
+- **B4 — hard `detach()`, convert to soft-delete**: the 4 originally
+  named sites
+- **B5 — raw `->delete()`, convert to soft-delete**:
+  `ComposeSellerService.php:339,490,522`
+- **B6 — touches a role/flag without excluding soft-deleted rows**:
+  `BackfillContactPropertyRoles.php:59,83`,
+  `ComposeSellerService.php:335-336` (`markPrimary` — a removed seller
+  could otherwise hold `is_primary=true` invisibly)
+- **B7 — deliberate, correct, out-of-scope hard deletes, no change**:
+  `PropertyObserver.php:892`, `ContactController.php:2201`
+
+**Flagged for manual review, not guessed:** whether
+`ComposeSellerService::resolveOrCreateEntitySellerContact()` returns a
+pre-existing contact often enough to prioritize
+`PropertyContactController.php:347-348`'s risk; ~30 test files that
+`assertDatabaseHas`/`insert` against `contact_property` directly (not
+broken by the column add, but worth a look once the restore design is
+chosen); `BackfillContactPropertyRoles.php` deprioritized as an
+admin-run, dry-run-by-default maintenance command, not live traffic.
 
 **Stage 4 — audit trail.** `ContactPropertyController.php:112`,
 `PropertyContactController.php:388`, and `MobilePropertyController.php:1284`
