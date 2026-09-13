@@ -2069,8 +2069,22 @@
                             <span class="font-medium">To:</span> {{ $declineRecipientEmail }}
                         </p>
                     @else
+                        {{-- 2026-09-15, Johan — "the message tells the agent
+                             WHAT IS WRONG but not WHAT TO DO... add the
+                             remedy in the same sentence... if there is a
+                             sensible link straight to it, better still."
+                             Checked where an email is actually added rather
+                             than guessing: the contact's own Emails section,
+                             corex.contacts.show's main edit form — the exact
+                             field recipientEmail() falls back to when the
+                             application's own email is blank. --}}
                         <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626); border: 1px solid var(--ds-red, #dc2626);">
-                            This application has no email address on file — there is nowhere to send this. Add one to the application before sending.
+                            This application has no email address on file — there is nowhere to send this.
+                            @if($rentalApplication->contact)
+                                Add one under <a href="{{ route('corex.contacts.show', $rentalApplication->contact) }}" target="_blank" rel="noopener" style="text-decoration: underline; font-weight: 600;">{{ $rentalApplication->contact->full_name }}'s contact record</a> (Emails section), then come back here.
+                            @else
+                                Add one to the applicant's contact record before sending.
+                            @endif
                         </p>
                     @endif
                     {{-- 2026-09-15, Johan — native confirm() removed here too,
@@ -2091,7 +2105,8 @@
                         <textarea name="body" x-model="body" rows="16" class="corex-input text-sm w-full mb-4" style="white-space: pre-wrap;" required maxlength="10000"></textarea>
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" @click="declineSendDrawerOpen = false">Cancel</button>
-                            <button type="submit" data-qa="decline-send-confirm" class="corex-btn-primary text-xs" :disabled="sending || !subject.trim() || !body.trim() || {{ $declineRecipientEmail ? 'false' : 'true' }}">Send to applicant</button>
+                            <button type="submit" data-qa="decline-send-confirm" class="corex-btn-primary text-xs" :disabled="sending || !subject.trim() || !body.trim() || {{ $declineRecipientEmail ? 'false' : 'true' }}"
+                                    @if(! $declineRecipientEmail) title="No email address on file for this applicant — add one to their contact record first." @endif>Send to applicant</button>
                         </div>
                     </form>
                 </div>
