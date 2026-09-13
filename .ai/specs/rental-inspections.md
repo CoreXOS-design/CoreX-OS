@@ -1,7 +1,7 @@
 # Rental Inspections — move-in / move-out condition reports, evidence, and deposit consequence
 
 **Status:** Spec — awaiting Johan's sign-off. No code, no migrations written against this spec.
-**Date:** 2026-09-13 (third revision — see §0 for what changed and why)
+**Date:** 2026-09-13 (fourth revision — see §0 for what changed and why)
 **Author:** Claude (cc4)
 **Pillars:** Property (`Property`) and Contact (`Contact`) — reads from both, writes back to both.
 **Commercial context:** this module, together with Rental Applications, is what Johan is pitching to a
@@ -40,35 +40,49 @@ screen or add a confusing new place to look. Specifically:
   new inspection is its own separate record — it doesn't get mixed up with the old tenant's
   photos — but it starts from the same space list, since the rooms haven't changed, only the
   people.
+- **Couples and sharers are named together, not one standing in for the other.** If two people
+  are both renting a property, both are named on the inspection and both sign — the system
+  never has to pick one over the other.
 
-Three things below are marked **OPEN QUESTION** — real judgement calls I'd rather put in front
-of you than guess on, because guessing wrong on the wrong one could weaken a report in an
-actual deposit dispute.
+One thing below is marked **OPEN QUESTION, genuinely reopened by what was learned this round**
+— a real judgement call, not something I've decided quietly, because guessing wrong on it could
+put the wrong person's name on a signed report.
 
 ---
 
 ## 0. What changed in this revision, and why
 
-Third pass at this spec, each correction real and each one making it smaller and more
-accurate, not bigger:
+Fourth pass at this spec. Each correction has made it smaller, more accurate, and closer to
+what actually exists — not bigger:
 
-1. **First correction**: a "Rental" tab already exists for lease terms — read it before
-   inventing a new dependency. Done (§2).
+1. **First correction**: a "Rental" tab already exists for lease terms.
 2. **Second correction**: the "Rental Images" tab already has in-inspection/out-inspection
-   photo upload — this spec extends that tab, it does not add a new one. Done (§1.3, §10.1).
-3. **This revision**: two further, substantial corrections that simplify the data model —
-   - Reading `contact_property` (role='tenant'/'landlord' — the mechanism cc3 is actively
-     building the approved-application→property link against right now, confirmed directly,
-     not guessed) means this spec no longer needs a new blocking table before inspections can
-     start. An inspection can capture its own tenant/landlord/dates directly from what already
-     exists at the moment it's created — see §2, rewritten from the prior draft's
-     `PropertyTenancy` proposal.
-   - Spaces need TWO layers, not one: a **persistent, per-property** list (a geyser doesn't
-     stop existing when a tenant leaves) and a **frozen snapshot** of that list taken by each
-     inspection (so a later edit to the property's list never changes what an already-signed
-     inspection says it inspected). The prior draft only had the second layer. See §4.1.
-   - Meters are now explicitly a TYPED space (a numeric reading field, not a condition
-     checklist) rather than an unexplained ordinary space. See §4.1.3.
+   photo upload — this spec extends that tab, it does not add a new one.
+3. **Third revision**: dropped a proposed new `PropertyTenancy` table entirely, in favour of
+   reading `contact_property` (the mechanism cc3 is actually building against) directly; split
+   spaces into a persistent per-property list plus a frozen per-inspection snapshot; made
+   meters a typed space rather than a bolted-on feature.
+4. **This revision — resolving Johan's answers to the three open questions, plus one genuinely
+   new complication surfaced by coordinating with cc3 directly (not guessed):**
+   - **Tenants are a SET, not a single contact.** `rental_inspections` no longer has a single
+     `tenant_contact_id`/`landlord_contact_id` column — a new `inspection_parties` table
+     records every tenant AND every landlord party, because Johan ruled that co-tenants (a
+     couple, sharers) must all be named, never reduced to one. See §2, §4.2.
+   - **A genuinely reopened problem, not resolved by that ruling on its own**: cc3 confirmed
+     `contact_property` role='tenant' links are ADD-ONLY — nothing ever automatically removes
+     an old tenant when they move out, and there is no way to tell a genuine current co-tenant
+     from a link nobody cleaned up from a previous tenancy. "Include everyone currently
+     linked" (Johan's instinct, and the right one for real co-tenants) could therefore also
+     include a long-departed tenant on a brand-new signed report. See §2.2 — flagged for
+     Johan, not decided here.
+   - E-sign roles now resolve from the `contact_property` link's own `role` column, never from
+     the Contact's `ContactType` — Johan's ruling, with the reasoning recorded. See §7.
+   - A space added mid-inspection persists to the property's permanent list, visibly and
+     reversibly — Johan's ruling. See §4.1.2.
+   - Two new sections added, both requested directly: what happens when a tenancy ends (§2.3),
+     and what an out-inspection with no matching in-inspection looks like (§5.1) — the second
+     is not hypothetical, it will happen on day one for every property an agency already has
+     tenanted when they join CoreX.
 
 ---
 
@@ -127,42 +141,88 @@ inspections" block, visible and downloadable, not counted in the new per-space r
 
 ---
 
-## 2. THE DEPENDENCY — resolved without a new table
+## 2. THE DEPENDENCY — resolved without a new table, with the tenant question reopened by a real finding
 
-### 2.1 What this spec previously proposed, and why it's dropped
+### 2.1 Tenants and landlords are a SET, captured at creation, never re-read
 
-The first two drafts of this spec proposed a new `PropertyTenancy` table (property + landlord
-+ tenant + dates) as a hard prerequisite. Reading what cc3 is actually building removes that
-need: **each inspection captures its own tenant, landlord, and lease dates at the moment it is
-created**, read from what already exists —
+Johan's ruling: *"an inspection is NOT tied to one tenant. It belongs to the property and the
+tenancy period, and ALL contacts currently linked as tenant are parties to it... Do not pick
+one and do not make the agent choose."* Reasoning, in his own words: couples and sharers are
+the normal case, not an edge case, and forcing a choice between two people who both live there
+would be wrong.
 
-- `tenant_contact_id` ← whichever contact currently holds `contact_property.role = 'tenant'`
-  for this property (§1.2).
-- `landlord_contact_id` ← whichever contact currently holds `role = 'landlord'` (or `lessor` —
-  see the naming note in §7).
-- `lease_start_date` / `lease_end_date` ← the property's current Rental-tab values (§1.1) at
-  that moment.
+Design, resolved: `rental_inspections` no longer captures a single `tenant_contact_id` /
+`landlord_contact_id`. At the moment an in-pass (or a no-prior-in-pass out-pass, §5.1) is
+created, EVERY contact currently linked to the property via `contact_property` with
+`role = 'tenant'` becomes a tenant party on that inspection; every contact with
+`role IN ('landlord', 'lessor')` becomes a landlord party (§7 covers why the raw `role` value
+is what's used, not the Contact's own type). This is a full set, not a single pick, stored in
+a new `inspection_parties` table (§4.2) — the report names all of them, and all of them sign
+(§7).
 
-These four values are copied onto the `rental_inspections` row itself (§4.2) once, at
-creation, and never re-read afterward. **No new table is required to unblock this spec.**
+Lease dates (`lease_start_date`/`lease_end_date`) are copied from the property's current
+Rental-tab values (§1.1) at the same moment. All of this is captured ONCE, at creation, and
+never re-read — the same "frozen snapshot" principle already used for spaces (§4.1). **No new
+tenancy table is required** — `contact_property` plus this one-time capture is enough.
 
-### 2.2 What this answers, and what it doesn't — OPEN QUESTION flagged, not guessed
+### 2.2 The problem this reopens — OPEN QUESTION, genuinely uncertain, flagged not guessed
 
-This directly answers "does the previous tenancy's inspection stay attached to the property
-forever, or belong to a tenancy?" — **each inspection belongs to whichever tenant/landlord/
-dates it captured at its own creation**, so a property with three tenants over its life has
-three inspections (well, three in/out pairs) each correctly and permanently labelled with
-their own tenant, never confused with each other, with no separate tenancy table needed at all.
+Coordinated directly with cc3 (who is building the `contact_property` tenant link right now)
+before finalising this, per Johan's own instruction — the answer changes the picture:
 
-**OPEN QUESTION, genuinely uncertain, not decided here**: `contact_property` has no dates on
-the link and does not prevent two contacts holding `role='tenant'` on the same property at
-once. If an agent starts a new tenant's in-pass before removing the old tenant's `contact_
-property` link (a realistic sequencing mistake during a busy handover), which contact does
-"whichever contact currently holds tenant" resolve to — the old one, the new one, or an error?
-This spec does not decide that rule. Recommendation for discussion: require the agent to
-explicitly CONFIRM which tenant contact the new in-pass is for (a simple select, pre-filled
-with the current `contact_property` tenant link if there's exactly one, but never silently
-guessed if there's more than one) — flagged for Johan's decision, not built quietly either way.
+- **Links are add-only.** `linkTenantProperty()` only ever adds a role='tenant' row for the
+  ONE contact being linked; it never touches any other contact's tenant link on the same
+  property. Two genuine co-tenants correctly accumulate side by side — this part is exactly
+  right for Johan's ruling.
+- **Nothing ever automatically removes a tenant link.** The only removal path is a manual,
+  deliberate "unlink" button, per application, clicked by an agent. There is no "tenant moved
+  out" detection anywhere.
+- **There is no grouping key.** `contact_property` is `id, contact_id, property_id, role,
+  timestamps` — nothing ties two links together as "the same tenancy," and nothing
+  distinguishes a genuine current co-tenant from a link nobody ever cleaned up from a tenancy
+  three years ago.
+- **`Property.status` is not a signal of "currently tenanted"** — confirmed with cc3 this is
+  not wired to the tenant link at all; don't key anything off it.
+
+**The consequence, stated plainly**: "include every contact currently linked as role='tenant'"
+— Johan's own correct instinct for the couple/sharer case — could, on a property nobody has
+tidied up, ALSO include a tenant who moved out two tenancies ago, with the system having no
+way to tell the difference. A signed inspection report naming a long-departed tenant is a
+worse outcome than the one Johan's ruling was written to prevent.
+
+**This spec does not resolve this quietly.** Two honest options, neither decided here:
+
+1. **Include everyone, exactly as ruled, and accept the stale-data risk** — correct until an
+   agency has properties with un-cleaned-up old tenant links, which will happen over time
+   without active discipline from agents remembering to unlink on every move-out.
+2. **Show the full current set as a lightweight, visible confirmation before it's frozen onto
+   the inspection** — not a forced single-pick (Johan's objection doesn't apply: this is
+   reviewing a list, not choosing between people), just a "these will be named as tenants on
+   this inspection: [list] — remove anyone who's no longer living here" step, using the SAME
+   unlink action cc3 already built rather than inventing a new one. This directly protects
+   against the confirmed stale-link risk at the cost of one extra glance for the agent, every
+   time.
+
+Recommendation: option 2, because the risk is confirmed real, not hypothetical, and the cost
+is small — but this changes the literal shape of "do not make the agent choose," so it's
+Johan's call, not built quietly either way.
+
+### 2.3 What happens when a tenancy ends and a new one begins — stated plainly, for the record
+
+Because each inspection's tenant/landlord/dates are captured once at creation (§2.1) and never
+re-derived, **a new tenancy's in-pass does not depend on the old tenancy's `contact_property`
+links ever being removed.** The new in-pass captures whichever contacts and dates are current
+(or confirmed, if §2.2's option 2 is adopted) AT THAT MOMENT, and that capture is what the new
+inspection permanently belongs to — regardless of what the old tenant's own now-stale
+`contact_property` row still says. The PREVIOUS tenancy's inspections are entirely unaffected:
+they keep the tenant/landlord/dates they captured at their own creation, forever, whether or
+not anyone ever manually unlinks the old tenant afterward.
+
+**This means tidying up old `contact_property` links is never required for correctness** —
+it's a separate, optional housekeeping action (the existing unlink button) that improves the
+accuracy of future "who's currently linked" lookups, but a property with accumulated stale
+tenant links from years of tenancies still produces correct, uncorrupted historical
+inspections either way, because each one carries its own frozen answer.
 
 ---
 
@@ -170,8 +230,8 @@ guessed if there's more than one) — flagged for Johan's decision, not built qu
 
 - **Property** — an inspection belongs to a property; its space list starts from the
   property's own advertised layout and persists on the property going forward (§4.1).
-- **Contact** — an inspection's landlord/tenant resolve to Contacts via `contact_property`
-  (§2.1); its two signing parties (§7) are the same two people.
+- **Contact** — an inspection's landlord(s)/tenant(s) resolve to Contacts via `contact_property`
+  (§2.1); its signing parties (§7) are the same people, potentially more than two.
 - **Deal** — not directly connected. Out of scope here.
 
 ---
@@ -195,6 +255,7 @@ property_spaces
   type                    -- enum: room | meter | other   (see §4.1.3)
   sort_order
   source                  -- enum: advertised | template | manual  (audit: where this came from)
+  added_via_inspection_id (FK, nullable) -- which inspection first added this, when source=manual
   deleted_at              -- archived, never destroyed (§11)
 ```
 
@@ -268,6 +329,16 @@ remove — remove is **always** a soft-delete/archive (§11), on both layers, si
 already recorded against a space must keep showing that space even after it's archived from
 the active list.
 
+**A space added mid-inspection persists to `property_spaces` — Johan's ruling, resolved.**
+*"The agent standing in the property is the person with the best information about what that
+property actually contains... that is a fact about the property, not about that one visit."*
+`property_spaces.source = 'manual'` (§4.1) already marks exactly this. Johan's one condition:
+**visible and reversible** — the property's own space-list screen shows which spaces came from
+advertising, which from the agency template, and which an agent added on a specific
+inspection (the `source` column plus a reference back to which inspection first added it), and
+any of them can be archived afterward if it was added in error — same soft-delete-only rule as
+everything else in this module (§11), no special case.
+
 #### 4.1.3 Meters — a typed space with a reading, not a bolted-on feature
 
 Johan: *"same as water and electricity meters... a meter reading is captured at in-inspection
@@ -294,9 +365,7 @@ rental_inspections
   property_id (FK)
   type                              -- enum: in | out
   status                            -- enum: draft | in_progress | completed | signed
-  tenant_contact_id (FK, nullable)  -- captured at creation, see §2.1 — never re-read after
-  landlord_contact_id (FK, nullable)-- same
-  lease_start_date, lease_end_date  -- captured at creation, same
+  lease_start_date, lease_end_date  -- captured at creation, see §2.1 — never re-read after
   started_at, completed_at
   created_by_user_id
   signature_template_id (FK, nullable until signing starts)
@@ -304,12 +373,24 @@ rental_inspections
   deleted_at                        -- soft delete only
 ```
 
-One row per PASS (in, out) — not one row holding both. An in-pass and its out-pass are linked
-by sharing the same `inspection_spaces` snapshot (§4.1) and — practically — by being the two
-most recent in/out rows for the same property with the same `tenant_contact_id`; there is no
-separate join table connecting them, since nothing beyond that is needed given §2's
-resolution. **If Johan's OPEN QUESTION in §2.2 is resolved by requiring an explicit tenant
-confirmation at in-pass creation, that confirmation is what reliably pairs an in-pass with its
+```
+inspection_parties
+  id
+  rental_inspection_id (FK)
+  contact_id (FK)
+  role                    -- enum: tenant | landlord  (mirrors contact_property.role values, §2.1)
+  created_at
+```
+
+One `rental_inspections` row per PASS (in, out) — not one row holding both. Every tenant and
+landlord captured at creation (§2.1) is one row in `inspection_parties` — a genuine set, not a
+single column, because Johan's ruling requires ALL co-tenants named, never reduced to one.
+
+An in-pass and its out-pass are linked by sharing the same `inspection_spaces` snapshot (§4.1)
+and — practically — by being the two most recent in/out rows for the same property with the
+SAME set of tenant `inspection_parties`; there is no separate join table connecting them,
+since nothing beyond that is needed given §2's resolution. **If §2.2's option 2 (a visible
+confirmation step) is adopted, that confirmation is what reliably pairs an in-pass with its
 out-pass — flagged as the same open point, not a second one.**
 
 ### 4.3 Per-space record — checklist, notes, photos
@@ -405,6 +486,30 @@ itself is never editable from this screen.
 **Both passes**: mobile-first (§8/§9 — most inspections happen from a phone standing in an
 empty flat), rendering equally on desktop for an agent finishing up at her screen.
 
+### 5.1 When an out-inspection has no matching in-inspection
+
+Requested explicitly, and not hypothetical: every property an agency already has tenanted the
+day they join CoreX will hit this. There is no in-pass to compare against because none was ever
+recorded in this system.
+
+**This must degrade gracefully, not silently.** Starting an out-pass with no matching in-pass
+for this property (checked by: does an in-pass exist sharing this property and the same tenant
+`inspection_parties` set, per §4.2) is a genuine, supported path, not an error state:
+
+- The out-pass seeds its OWN space list directly from `property_spaces` (§4.1) — effectively
+  the same seeding an in-pass would do, since there's no snapshot to inherit from.
+- Every screen involved — the form, and critically the finished report (§6) — shows a plain,
+  unmissable statement: **"No move-in inspection is on file for this tenancy — this report
+  shows move-out condition only."** This is placed once, prominently, not repeated as noise on
+  every row.
+- The report's IN columns (§6) render this same message in place of blank cells — **never a
+  blank IN column**, because a blank cell next to a filled OUT cell could be misread as "no
+  damage was found at move-in" when the true meaning is "we have no idea what move-in looked
+  like." An empty cell and "no record exists" are different facts and must never look the
+  same.
+- Signing still works normally (§7) — an out-only report is still real evidence of the
+  property's condition at that moment, just without a documented baseline to compare it to.
+
 ---
 
 ## 6. THE REPORT
@@ -438,21 +543,30 @@ needs; it does not move or hold money.
 
 `App\Models\Docuperfect\SignatureTemplate.parties_json` — an array of `{role, name, email}`
 signing parties — is the actual reuse point, already used by `SignatureService::
-createLeaseRecord()` for the identical `tenant`/`landlord` role pair. An inspection's two
-parties resolve from `rental_inspections.tenant_contact_id`/`landlord_contact_id` (§2, §4.2).
+createLeaseRecord()` for the identical `tenant`/`landlord` role pair. An inspection's parties
+resolve from `inspection_parties` (§2.1, §4.2) — potentially MORE than two entries, since
+Johan's ruling means co-tenants are both named and both sign. `SignatureTemplate` already
+supports this: its own duplicate-role handling suffixes same-role parties (`tenant`,
+`tenant_2`, ...) rather than requiring exactly one of each role — this spec relies on that
+existing behaviour rather than inventing anything new for the multi-party case.
 
-**Naming note, flagged rather than assumed**: `ContactType`'s canonical set has `Lessor`
-(id 10) and a separately-added `Tenant` (id 11, `esign_role='lessee'`), neither a clean 1:1
-with the English words "landlord"/"tenant." §1.2's `contact_property.role` values (`landlord`,
-`tenant`, `lessor`) are a THIRD vocabulary again, distinct from `ContactType` names. This spec
-resolves the SIGNING role labels (`landlord`/`tenant` in `parties_json`) from whichever
-Contact is linked via `contact_property.role IN ('landlord','lessor')` / `role = 'tenant'`
-respectively — the `ContactType` the Contact itself carries is irrelevant to which signing
-role they get here. **OPEN QUESTION**: is this the right reading, or should the Contact's own
-`ContactType` (Lessor vs Tenant) be the deciding factor instead of the property link's `role`
-column? These could disagree (a Contact could be linked with `role='landlord'` on
-`contact_property` while not carrying the `Lessor` ContactType at all) — flagged for
-confirmation, not silently resolved.
+**Which value decides the signing role — RESOLVED, Johan's ruling.** `ContactType`'s canonical
+set has `Lessor` (id 10) and a separately-added `Tenant` (id 11, `esign_role='lessee'`) —
+neither a clean 1:1 with "landlord"/"tenant," and a Contact's OWN type is never authoritative
+for this, because the same person can genuinely be a landlord on one property and a tenant on
+another (a small investor — common in Johan's market), and contact type is additive, never
+replaced, making it exactly the wrong signal to read for "who are they on THIS property."
+**The `contact_property.role` column on the property link wins, always** — a Contact linked
+`role='landlord'` on property A signs as landlord for an inspection on property A, full stop,
+regardless of what `ContactType`(s) that Contact otherwise carries.
+
+**Where the two disagree, that disagreement is surfaced, never silently resolved** — per
+Johan's own instruction. If a landlord-role-linked Contact does not also carry a `Lessor`
+ContactType (or a tenant-role-linked Contact doesn't carry `Tenant`), the inspection's party
+list/review step (§2.2) shows a plain, visible note (e.g. "Signing as Landlord — this contact
+is not tagged as Lessor in Contacts") rather than hiding the mismatch — informational, not
+blocking; the link's role still wins for signing purposes, the note is so an agent isn't
+confused later about why a contact's badges don't match their signing role.
 
 Both passes are signed independently: the in-pass once `completed` (protects the agency from
 day one, independent of whether an out-pass ever happens), the out-pass/report once ITS
@@ -611,23 +725,43 @@ against; it just stops appearing as an option to add NEW entries under, and can 
   designed here.
 - **Per-space-type checklist customisation** — one shared default checklist to start (§4.3);
   named as a future refinement.
-- **Automatic resolution of the "which tenant" ambiguity in §2.2** — flagged as an open
+- **Automatic resolution of the stale-tenant-link problem in §2.2** — flagged as an open
   question, not decided.
+- **Cleaning up old `contact_property` tenant links** — not required for this module's
+  correctness (§2.3), and not built or enforced here; remains the existing manual unlink
+  action, unchanged.
 - **The legacy-photo manual reclassification tool** (§4.4.1) — named, not built.
 
 ---
 
 ## 13. OPEN QUESTIONS — for Johan, not guessed
 
-1. **§2.2** — if two contacts ever hold `contact_property.role='tenant'` on the same property
-   at once (a handover sequencing mistake), which one does a new in-pass assume, or should the
-   agent be forced to confirm explicitly? Recommendation given, not decided.
-2. **§7** — should an inspection's landlord/tenant signing role be resolved from
-   `contact_property.role` (the property-link column) or from the Contact's own `ContactType`
-   (Lessor/Tenant)? These can disagree. Recommendation given (use the link), not decided.
-3. **§4.1** — a space added mid-inspection is proposed to ALSO persist to the property's
-   permanent `property_spaces` list, not just that one inspection. This is a real design
-   choice (not neutral) — confirm or override.
+Two of the three questions from the prior revision are now resolved by Johan's own ruling —
+recorded here for the audit trail, not re-asked. One is **reopened**, with a materially
+different shape than originally posed, because coordinating with cc3 surfaced a real technical
+fact that changes what's actually being decided.
+
+1. **RESOLVED — §7, signing role.** Use `contact_property.role`, never the Contact's own
+   `ContactType`. Johan's reasoning: the same person can be a landlord on one property and a
+   tenant on another, and contact type is additive/never-replaced, making it the wrong signal
+   for "who are they on THIS property." Disagreement between the two is surfaced to the agent,
+   never silently hidden.
+2. **RESOLVED — §4.1.2, mid-inspection space additions.** Persist to the property's permanent
+   list, visibly (marked where it came from) and reversibly (archivable, never hard-deleted).
+   Johan's reasoning: the agent in the property has the best information about what's actually
+   there, and the space most likely to matter in a dispute is exactly the one most likely to
+   have been missed on the advert.
+3. **REOPENED, DIFFERENT SHAPE — §2.2, which tenants are named.** Johan's original ruling —
+   include every contact currently linked as `role='tenant'`, never force a pick between real
+   co-tenants — stands and is correct for the case it was written for. What's new: cc3 has
+   confirmed `contact_property` links are add-only with no automatic removal and no grouping
+   key, so "everyone currently linked" can include a tenant who moved out tenancies ago, with
+   the system unable to tell the difference from a genuine current co-tenant. This is a
+   **confirmed real risk, not a hypothetical edge case** — it will happen on any property with
+   more than one tenancy's history and imperfect agent housekeeping. Two options laid out in
+   §2.2, a recommendation given (a lightweight, visible review-before-freezing step — not a
+   forced single pick, so it doesn't reopen the thing Johan's original ruling was protecting
+   against), not decided here.
 
 ---
 
@@ -640,15 +774,21 @@ against; it just stops appearing as an option to add NEW entries under, and can 
   addable/renameable/reorderable/archivable from that point on, and stays that way for every
   future tenancy.
 - A space added mid-in-pass appears immediately on that inspection's out-pass AND on the next
-  tenancy's fresh in-pass (per §13 Q3 above, pending confirmation).
+  tenancy's fresh in-pass (per §13 point 2, resolved).
 - A meter-type space asks for a numeric reading + unit + photo, never a condition checklist.
 - Out-pass screen shows each space's in-pass condition/reading/notes/photos directly alongside
   the out-pass's own entry fields for that space, live, not only in a separate report.
+- An out-pass started with no matching in-pass seeds its own space list from `property_spaces`
+  and shows the "no move-in record" statement in place of every blank IN cell, never a bare
+  empty column (§5.1).
+- Two contacts genuinely co-tenanting a property are BOTH named on the inspection and BOTH
+  reach the signing flow — never one standing in for the other (§2.1).
 - The report renders every space with in/out columns side by side (including meter readings),
   downloadable as a filed PDF once both passes exist.
 - Damage items on the out-pass appear under their space with an estimated-deduction total.
-- Both passes independently reach the existing e-sign flow with landlord/tenant as the two
-  resolved parties.
+- Every party in `inspection_parties` independently reaches the existing e-sign flow, with
+  their signing role resolved from `contact_property.role`, never the Contact's own type
+  (§7).
 - Archiving a space, a photo, or a damage item never removes it from an inspection it was
   already recorded against, and never hard-deletes the underlying row.
 - OWN/BRANCH/AGENCY scoping enforced on every list, detail, export, and download — verified by
@@ -661,11 +801,12 @@ against; it just stops appearing as an option to add NEW entries under, and can 
 
 ## 15. Files likely to be created (spec-level list — no code written)
 
-- Migrations: `property_spaces`, `rental_inspections`, `inspection_spaces`,
-  `inspection_space_entries`, `inspection_photos`, `inspection_damage_items`,
-  `rental_inspection_settings`.
-- Models: `PropertySpace`, `RentalInspection`, `InspectionSpace`, `InspectionSpaceEntry`,
-  `InspectionPhoto`, `InspectionDamageItem`, `RentalInspectionSettings`.
+- Migrations: `property_spaces`, `rental_inspections`, `inspection_parties`,
+  `inspection_spaces`, `inspection_space_entries`, `inspection_photos`,
+  `inspection_damage_items`, `rental_inspection_settings`.
+- Models: `PropertySpace`, `RentalInspection`, `InspectionParty`, `InspectionSpace`,
+  `InspectionSpaceEntry`, `InspectionPhoto`, `InspectionDamageItem`,
+  `RentalInspectionSettings`.
 - Controller(s): a new `RentalInspectionController` (agent-facing, mirroring
   `RentalApplicationController`'s scoping/tile pattern) + settings controller additions.
 - Views: `properties/show.blade.php`'s existing Rental Images tab (in/out sections replaced in
