@@ -35,17 +35,46 @@
             <h1 style="font-size: 1.5rem; font-weight: 700; color: var(--text-primary, #111827); margin: 0 0 0.75rem;">FICA Form Submitted</h1>
 
             @if(!empty($returnUrl))
+                @php
+                    // AT-392 round 3, 2026-09-13 — two fixes made together
+                    // since both touch this exact block: (1) an ALREADY
+                    // approved submission (a repeat contact reusing a
+                    // complete FICA) used to see "will be reviewed... once
+                    // approved" regardless of actually being done already —
+                    // wrong for e-sign too, not just rentals, fixed for
+                    // both. (2) $returnContext (optional, empty for every
+                    // existing e-sign caller) lets a rental applicant see
+                    // copy that doesn't say "sign your document" when
+                    // there's no document — they already signed as part of
+                    // submitting.
+                    $isRental = ($returnContext ?? '') === 'rental_application';
+                    $isAlreadyApproved = ($submission->status ?? null) === 'approved';
+                @endphp
                 <p style="color: #64748b; font-size: 0.9375rem; line-height: 1.7; max-width: 400px; margin: 0 auto;">
-                    Thank you for completing your FICA verification. Your submission will be reviewed by your agent. Once approved, you will be able to sign your document.
+                    @if($isRental && $isAlreadyApproved)
+                        Your FICA verification is already complete. Your rental application is with your agent — there's nothing further to do here.
+                    @elseif($isRental)
+                        Thank you — your FICA verification has been submitted along with your rental application. Your agent will review it and be in touch if anything else is needed.
+                    @elseif($isAlreadyApproved)
+                        Your FICA verification is already complete — you're clear to continue.
+                    @else
+                        Thank you for completing your FICA verification. Your submission will be reviewed by your agent. Once approved, you will be able to sign your document.
+                    @endif
                 </p>
 
                 <div style="margin-top: 2rem;">
-                    <a href="{{ $returnUrl }}" class="conf-btn conf-btn-primary">Return to Document</a>
+                    <a href="{{ $returnUrl }}" class="conf-btn conf-btn-primary">{{ $isRental ? 'Return to My Application' : 'Return to Document' }}</a>
                 </div>
 
-                <p style="color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem; line-height: 1.5;">
-                    If your FICA is still being reviewed, you will see a status page. You will receive an email when your document is ready to sign.
-                </p>
+                @unless($isAlreadyApproved)
+                    <p style="color: #94a3b8; font-size: 0.8rem; margin-top: 0.5rem; line-height: 1.5;">
+                        @if($isRental)
+                            If your FICA is still being reviewed, you'll see a status note on your application. Your agent will contact you if anything else is needed.
+                        @else
+                            If your FICA is still being reviewed, you will see a status page. You will receive an email when your document is ready to sign.
+                        @endif
+                    </p>
+                @endunless
             @else
                 <p style="color: #64748b; font-size: 0.9375rem; line-height: 1.7; max-width: 400px; margin: 0 auto;">
                     Thank you for completing your FICA verification form. Your submission has been received and will be reviewed by your agent.

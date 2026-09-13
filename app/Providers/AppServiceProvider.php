@@ -325,6 +325,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\AgencyCreated::class,
             \App\Listeners\Onboarding\SeedDefaultRentalApplicationHighlighters::class,
         );
+        // Decline reason templates, 2026-09-15 — same signal, same
+        // established mechanism, one more independent reaction: seeds the
+        // two starting decline reason templates for a brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalApplicationDeclineReasonTemplates::class,
+        );
         Event::listen(
             \App\Events\Contact\ContactTestimonialSubmitted::class,
             \App\Listeners\Contacts\NotifyAgentOfClientTestimonial::class,
@@ -1086,6 +1093,34 @@ class AppServiceProvider extends ServiceProvider
             return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
                 ->by('rental-application-autosave-request:' . $token)
                 ->response(fn () => response()->json(['saved' => false], 200));
+        });
+
+        // Return gate, AT-392 round 4, 2026-09-13 — Johan: "failed attempts
+        // must be limited and must not leak whether the ID was close... an
+        // applicant who cannot get past the gate must have a way forward
+        // that is not 'give up': a plain sentence naming the agent to
+        // contact." Tight, agency-configurable cap (default 5/15min) —
+        // deliberately NOT a generic 429 message: the person most likely
+        // to trip this is a real applicant who mistyped their own ID, and
+        // "try again later" is the wrong advice when the real fix is
+        // reaching a human. Same token-only key as every other limiter
+        // here — never IP, for the same shared-connection reason.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-gate', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->with('createdBy')->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-gate:' . $token)
+                ->response(function () use ($application) {
+                    return response()->view('rental-applications.public.gate', [
+                        'lockedOut' => true,
+                        'agentName' => $application?->createdBy?->name,
+                        'agentEmail' => $application?->createdBy?->email,
+                        'agentPhone' => $application?->createdBy?->cell ?: $application?->createdBy?->phone,
+                    ], 429);
+                });
         });
     }
 }

@@ -209,6 +209,12 @@ final class RentalApplicationCurrentLivingSituationTest extends TestCase
         ]);
         $this->assertNull($app->current_living_situation);
 
+        // AT-392 round 4, 2026-09-13 — the return gate: isSubmitted() is
+        // true, so a fresh session hits the gate screen, not the
+        // already-submitted content this test is actually about. Seeding
+        // the session flag so this still proves what it claims to.
+        $this->withSession(["rental_application_return_gate_passed:{$app->token}" => true]);
+
         // Public link — already-submitted page, not the editable form, but
         // must not 500.
         $this->get(route('rental-applications.public.show', $app->token))->assertOk();

@@ -42,6 +42,11 @@
         // match every other tile in this array).
         'withdrawn' => 'Applicant Withdrawn',
         'reopened' => 'Reopened',
+        // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "an
+        // application stalled on outstanding FICA must be visible, not
+        // just badged on the record." Same visibility gate as
+        // returned/under_assessment below (needs rental_applications.view_returned).
+        'fica_outstanding' => 'FICA Outstanding',
     ];
     // AT-402 — permission regression guard: 'returned'/'under_assessment'/
     // 'sent_for_authorisation'/'approved'/'declined'/'reopened' were only
@@ -51,7 +56,7 @@
     // also excludes the underlying rows — this is belt-and-braces, not the
     // only guard).
     $primaryTiles = $canViewReturned
-        ? ['all', 'not_yet_submitted', 'returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined']
+        ? ['all', 'not_yet_submitted', 'returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'fica_outstanding']
         : ['all', 'not_yet_submitted'];
     $secondaryTiles = $canViewReturned ? ['withdrawn', 'reopened'] : ['withdrawn'];
 
@@ -67,6 +72,7 @@
         'declined' => 'No declined applications.',
         'withdrawn' => 'No withdrawn applications.',
         'reopened' => 'No reopened applications right now.',
+        'fica_outstanding' => 'Nothing stalled on FICA right now.',
     ][$tile] ?? 'Nothing here yet.';
 @endphp
 

@@ -446,6 +446,7 @@ class Property extends Model
         'listing_type_pending',
         'status',
         'pre_deal_offer_status',
+        'pre_tenant_link_status',
         'status_label',
         'features_json',
         'features_json_meta',

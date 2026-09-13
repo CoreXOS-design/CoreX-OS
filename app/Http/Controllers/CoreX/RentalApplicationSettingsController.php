@@ -82,6 +82,19 @@ class RentalApplicationSettingsController extends Controller
         // no setting — see RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES).
         $documentUploadsOpenAfterApproval = RentalApplicationQualifyingSetting::documentUploadsOpenAfterApprovalFor($agencyId);
 
+        // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "technically
+        // we not allowed to work with anyone if did not fica." Never
+        // blocks the application's own receipt — only this hand-off to
+        // the authoriser (RentalApplicationReviewController::submitForApproval()).
+        $requireFicaBeforeAuthorisation = RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor($agencyId);
+
+        // Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
+        // submission we can gate on ID." Which method, and the attempt
+        // cap that must never become an oracle for guessing an ID.
+        $returnGateMethod = RentalApplicationQualifyingSetting::returnGateMethodFor($agencyId);
+        $returnGateAttemptMax = RentalApplicationQualifyingSetting::returnGateAttemptMaxFor($agencyId);
+        $returnGateAttemptWindowMinutes = RentalApplicationQualifyingSetting::returnGateAttemptWindowMinutesFor($agencyId);
+
         // AT-392 round 2, 2026-09-13 — the conductor's sweep: the five
         // remaining public routes' volume caps, same pattern as the
         // document cap above, each its own agency-configurable pair.
@@ -173,7 +186,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -468,6 +481,55 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Approved-application document setting saved.');
+    }
+
+    /**
+     * FICA-mandatory, AT-392 round 3, 2026-09-13 — checkbox, same
+     * has()-guard reasoning as updateDocumentUploadsOpenAfterApproval()
+     * above. Never gates the application's own receipt — only whether it
+     * can go to the authoriser while FICA is outstanding.
+     */
+    public function updateRequireFicaBeforeAuthorisation(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('require_fica_before_authorisation')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['require_fica_before_authorisation' => 'That did not save — please try again.']);
+        }
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['require_fica_before_authorisation' => $request->boolean('require_fica_before_authorisation')],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'FICA-before-authorisation setting saved.');
+    }
+
+    /**
+     * Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
+     * submission we can gate on ID." min:2 on the attempt cap so it can
+     * never be configured down to a self-inflicted 0/1-attempt lockout for
+     * every real applicant who mistypes their own ID once.
+     */
+    public function updateReturnGate(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'return_gate_method' => ['required', 'string', \Illuminate\Validation\Rule::in(RentalApplicationQualifyingSetting::RETURN_GATE_METHODS)],
+            'return_gate_attempt_max' => ['required', 'integer', 'min:2', 'max:50'],
+            'return_gate_attempt_window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+        ]);
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            $validated,
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Return gate setting saved.');
     }
 
     /**

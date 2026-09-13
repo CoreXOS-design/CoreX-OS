@@ -169,6 +169,10 @@ final class RentalApplicationAsyncUploadTest extends TestCase
     public function test_the_already_submitted_page_renders_and_uploads_via_the_json_endpoint_with_no_redirect(): void
     {
         $application = $this->application(['status' => 'returned', 'submitted_at' => now()]);
+        // AT-392 round 4, 2026-09-13 — the return gate: isSubmitted() is
+        // true, so a fresh session must pass the gate before show()
+        // renders the real content. Not what this test is about.
+        $this->withSession(["rental_application_return_gate_passed:{$application->token}" => true]);
 
         $show = $this->get(route('rental-applications.public.show', $application->token));
         $show->assertOk();
@@ -187,6 +191,8 @@ final class RentalApplicationAsyncUploadTest extends TestCase
     public function test_the_already_submitted_page_lists_existing_documents_as_locked(): void
     {
         $application = $this->application(['status' => 'returned', 'submitted_at' => now()]);
+        // AT-392 round 4, 2026-09-13 — see the identical note above.
+        $this->withSession(["rental_application_return_gate_passed:{$application->token}" => true]);
         $this->postJson(route('rental-applications.public.documents', $application->token), [
             'supporting_files' => [UploadedFile::fake()->create('id-copy.pdf', 100, 'application/pdf')],
         ]);

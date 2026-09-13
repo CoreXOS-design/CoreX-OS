@@ -11941,3 +11941,671 @@ Fixture: application 321 (agency 1, fresh contact, `status='under_assessment'`, 
 - Real Puppeteer click-through, full walk above — zero console errors.
 - `.env` `MAIL_FROM_ADDRESS` reverted to its original value after testing; local `php artisan serve` test instance stopped.
 - `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.
+
+## Decline reason templates — agency-configurable reason + guidance library (2026-09-15, cc4)
+
+### What this feature does and why
+
+Johan: a decline reason template has two parts — **the reason** ("affordability",
+"unpaid debit orders on bank statements") and **the guidance** that goes with it
+("to increase your affordability the general tips are…", "for a minimum period
+of three months ensure your debit orders are paid…"). An authoriser picks ONE
+per decline; the picked reason+guidance merge into the agency's existing decline
+email envelope. This is the part that makes the decline flow worth building —
+"a decline that tells an applicant how to fix it is something no other CRM
+does" — not a cosmetic addition to it.
+
+**Boundary, agreed directly with cc5 before either of us wrote code** (Johan's
+own instruction): cc5 owns the decline modal, the reason-template *picker*
+inside it, the agent's send step, and the merge into `RentalApplicationDecline
+EmailSetting`/`RentalApplicationDeclineMail` (adding `{{decline_reason}}`/
+`{{decline_guidance}}` to that model's existing `render()`). **This section is
+the OTHER half: the template library itself** — the agency-configurable CRUD
+these two placeholders are ever going to have anything to read from. Neither
+lane touches the other's files. One roof: the existing envelope (greeting/
+thanks/sign-off, its own settings section, its own `{{applicant_name}}`/
+`{{agency_name}}`/`{{property_reference}}` placeholders) is untouched and
+un-duplicated — these templates are pure data a DIFFERENT model's `render()`
+call reads from, never a second wording system next to it.
+
+### Pillar
+
+Rental Applications / Deal (decline outcome), Agency (agency-scoped
+configuration) — reads no pillar data itself; a pure agency-owned content
+library another feature (cc5's decline send step) reads from.
+
+### Data model
+
+New table `rental_application_decline_reason_templates`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | bigint PK | |
+| `agency_id` | bigint, indexed | `BelongsToAgency` — every query scoped |
+| `reason` | string(255) | The label an authoriser picks from — "Affordability", "Unpaid debit orders on bank statements" |
+| `guidance` | text | The remedy text merged into the decline email — general tips only, see the non-negotiable guardrail below |
+| `sort_order` | integer, default 0 | Manual ordering in the picker/list, same `sort_order` convention as `RentalApplicationHighlighter` |
+| `created_by` | bigint, nullable FK → users | Nullable and never backfilled for seeded rows — same honest-absence convention as `RentalApplicationHighlighter::creator()` |
+| `deleted_at` | timestamp, nullable | SoftDeletes — archive, never hard delete |
+| timestamps | | |
+
+Model: `App\Models\RentalApplicationDeclineReasonTemplate` — `BelongsToAgency`,
+`SoftDeletes`. Fillable: `agency_id, reason, guidance, sort_order, created_by`.
+
+**Read method for cc5** (agreed shape): `activeFor(int $agencyId): \Illuminate
+\Support\Collection` — non-archived rows for one agency, ordered by
+`sort_order` then `id`, each item exposing `id`, `reason`, `guidance`. A plain
+Eloquent collection of models (cc5 confirmed either an array or a collection
+works on their end) — no DTO/resource needed for a same-codebase internal read.
+
+### Seeded defaults — day one, no configuration required
+
+Johan: an agency must be useful on day one without writing a word. Two
+defaults, seeded automatically, same mechanism `RentalApplicationHighlighter`
+already established for exactly this problem — never invented a parallel one:
+
+- **`AgencyCreated` domain event** gets a second, independent listener,
+  `App\Listeners\Onboarding\SeedDefaultRentalApplicationDeclineReasonTemplates`,
+  registered in `AppServiceProvider` alongside `SeedDefaultRentalApplication
+  Highlighters` on the same event — every NEW agency gets the two defaults
+  immediately, nothing to configure first.
+- **A one-time backfill migration** seeds the same two defaults for every
+  EXISTING, non-archived agency (`whereNull('deleted_at')` on `agencies`,
+  same real-data lesson the highlighter backfill migration already learned
+  the hard way about archived fixture agencies).
+- `seedDefaultsFor(int $agencyId)` is idempotent — no-ops if the agency
+  already has any row (seeded or hand-created) — safe to call from both
+  callers, and safe if a migration ever needs to re-run.
+- **Deliberately NOT added to `config/agency-onboarding-copy.php`** — same
+  call already made for highlighters, for the same reason: a seeded CRUD
+  library that works immediately with zero configuration is not a toggle an
+  agency owner needs walked through; it is data that is simply already
+  there when they first open the screen. Recorded here as a deliberate
+  decision, not an oversight, matching STANDARDS §10a's own "ask, then
+  record the decision" requirement.
+
+**The two seeded defaults — firm about the reason, genuinely helpful about
+the remedy, per Johan's own tone instruction:**
+
+1. **Reason:** "Affordability"
+   **Guidance:** "The application didn't meet our affordability guideline
+   this time. General tips that help going forward: keep your monthly debt
+   repayments well below your income, avoid taking on new credit shortly
+   before applying, and where possible show a consistent income history on
+   your bank statements over the full period requested."
+
+2. **Reason:** "Unpaid debit orders on bank statements"
+   **Guidance:** "Your bank statements showed debit orders that didn't go
+   through. General tips that help going forward: for a minimum period of
+   three months, make sure every scheduled debit order is paid in full and
+   on time, and keep enough available balance in the days around your usual
+   debit order dates."
+
+**Guardrail, non-negotiable, applies to these defaults and to every template
+an agency writes afterwards:** general tips only — never a number (never a
+rand figure, a percentage, a specific score), and never a sentence of the
+shape "do this and you will be approved." These are the seed every agency's
+own wording starts from; they exist to MODEL the line between guidance and
+financial advice, not to sit right on top of it. Stated as a comment on the
+model's own `DEFAULT_SEED` constant, not just here, so it survives whoever
+next edits the defaults without re-reading this section.
+
+### List screen — search, sort, filter, pagination, empty state (stated before code, per the design floor)
+
+Route group: `Route::prefix('settings/rental-applications/decline-reason-
+templates')`, permission `rental_applications.manage_settings` — the exact
+same gate every other rental-applications settings action already uses (
+`decline-email`, highlighters, qualifying-formula, etc.) — no new permission
+key for a feature that is squarely "manage rental application settings."
+
+- **`GET .../` → index`** — the list screen.
+  - **Search** — `reason` and `guidance` (`?q=`), `LIKE '%...%'` on both
+    columns, same "named fields" convention as `FiltersRentalApplicationList`.
+  - **Sort** — `reason` (A→Z / Z→A), `sort_order` (manual order, **default**),
+    `created_at` (newest/oldest). Default: `sort_order` ascending, so the
+    manually-arranged picker order is what an agency sees first, matching
+    the highlighter list's own default ordering convention.
+  - **Filter** — status (`active` **default** / `archived` / `all`) — the
+    stated status-filter floor; no date-range filter (these rows have no
+    business date of their own the way an application or a document does —
+    `created_at` is available as a SORT, not filtered as a "when" the way
+    STANDARDS' own date-range floor means for genuinely dated records).
+  - **Pagination** — 20 per page, `->withQueryString()`, same convention as
+    every other list screen in this module.
+  - **Scoping** — `BelongsToAgency`'s own global scope is the entire
+    OWN/BRANCH/AGENCY floor here: a decline reason template has no
+    "creating agent" to further restrict by own/branch — it is agency-wide
+    content by its very nature (every authoriser in the agency picks from
+    the same list), so "agency" is the ceiling AND the floor. Direct-URL
+    access to another agency's template 404s via the same global scope
+    every other agency-scoped model already relies on — verified in the
+    real-browser proof below, not assumed.
+  - **Empty state** — "No decline reason templates yet." with a direct
+    "+ Add a template" affordance in the empty state itself, not just the
+    page header — real per BUILD_STANDARD's own empty-state requirement.
+    (In practice this state is unreachable for any agency created after
+    this ships, since seeding is automatic — but an agency that archives
+    both seeded defaults and adds nothing else must still see a real empty
+    state, not a blank table.)
+- **Create** — expand-in-place at the top of the list (reason input +
+  guidance textarea + Save/Cancel), the same "space goes to function, no
+  extra page navigation" pattern Johan approved for AT-410's "File as…" and
+  the highlighter settings' own inline add row — never a separate full-page
+  create form for a two-field record.
+- **Edit** — the same expand-in-place mechanic, triggered per row, pre-
+  filled — identical visual weight/trigger style to Create, per the same
+  "a correction must be at least as easy to find as the mistake" standard
+  already applied to AT-410's "Change type."
+- **Archive / Restore** — soft delete only; archived rows stay listed under
+  the `archived`/`all` filter (never truly gone), with a Restore action —
+  same as every other archive/restore pair in this codebase.
+
+### Navigation entry
+
+Not a new sidebar item — `resources/views/corex/settings/rental-
+applications.blade.php`'s existing "Decline Email" section gets one new
+line (cc5's own addition, agreed directly): **"Manage decline reason
+templates →"**, linking to `corex.settings.rental-applications.decline-
+reason-templates.index`. The existing settings page is already reachable
+from the sidebar; this is the same-day nav entry STANDARDS #2 requires,
+sitting exactly where an authoriser configuring decline wording would look
+for it — right next to the envelope it merges into.
+
+### Files (planned — this entry precedes the build, per the spec-first rule)
+
+- `database/migrations/..._create_rental_application_decline_reason_templates_table.php` — new table.
+- `database/migrations/..._seed_rental_application_decline_reason_templates.php` — one-time backfill for existing agencies.
+- `app/Models/RentalApplicationDeclineReasonTemplate.php` — new.
+- `app/Listeners/Onboarding/SeedDefaultRentalApplicationDeclineReasonTemplates.php` — new.
+- `app/Providers/AppServiceProvider.php` — one new `Event::listen(AgencyCreated::class, ...)` registration, alongside the highlighter one.
+- `app/Http/Controllers/CoreX/RentalApplicationDeclineReasonTemplateController.php` — new, `index`/`store`/`update`/`archive`/`restore`.
+- `routes/web.php` — new route group under `permission:rental_applications.manage_settings`.
+- `resources/views/corex/rental-applications/decline-reason-templates/index.blade.php` — new.
+- `resources/views/corex/settings/rental-applications.blade.php` — cc5's one-line link (their edit, not mine).
+- `tests/Feature/RentalApplications/RentalApplicationDeclineReasonTemplateTest.php` — new.
+
+### Acceptance criteria
+
+- A brand-new agency has exactly the two seeded templates immediately, with
+  no configuration step.
+- Every existing agency gets the same two, via the backfill migration,
+  without disturbing any agency that (impossibly, before this ships) already
+  has rows of this shape.
+- The list screen's search, sort (all three columns, `sort_order` default),
+  filter (active default / archived / all), and pagination all work against
+  real data, proven by a real HTTP request, not read off the controller.
+- Create, edit, archive, and restore all round-trip via real HTTP requests
+  and persist correctly; archived rows never hard-delete.
+- A different agency's templates are unreachable by direct URL (404, global
+  scope) — proven, not assumed.
+- Neither seeded default, nor any template this screen produces, contains a
+  number or a "do this and you will be approved" sentence — checked by
+  reading the actual seeded text against the guardrail, not by trusting the
+  guardrail comment alone.
+- cc5's `activeFor()` consumer compiles against the real method signature
+  agreed above — confirmed by cc5's own decline flow, not assumed complete
+  from this side alone.
+
+## Strike hit-area round 2 — the real defect was clipping, not sizing, and headless couldn't see it (2026-09-13, conductor + cc3)
+
+Round 1's fix (14x14 → real 18px width + an invisible 20px-tall overlay)
+measured clean in every headless check — mine, cc1's on live QA1 post-
+cache-clear, and a second live headless run using the conductor's own
+exact scan script. All agreed: full 18×20, centre hit true. The conductor
+kept measuring their own real Windows Chrome anyway rather than accepting
+three matching headless results, and found the SAME control genuinely
+missing its right half live — 9px wide, not 18, and the glyph's own centre
+dead. Both measurements were correct; they were measuring two different
+things, and figuring out why *is* the fix.
+
+**Root cause, found by the conductor comparing `offsetWidth` to
+`clientWidth` on `.rental-review-aside` live:** that panel's vertical
+scrollbar genuinely reserves 15px of its 196px width (`scrollbar-gutter:
+stable` was already set there, from an earlier round — it was never the
+missing piece). `.rr-ledger-row`'s fixed-pixel column budget (170px +
+gaps) was 21px wider than the real content width left after that
+reservation (157px measured), so the row silently overflowed its own
+container — and `overflow-x: hidden` on the same panel clips exactly that
+overflow, cutting straight through the middle of the strike/restore
+button, since it's the last (rightmost) column.
+
+**Why three separate headless checks all missed it:** a headless browser
+still computes the SAME layout overflow (confirmed: `offsetWidth -
+clientWidth = 15` reproduces identically in headless against the live
+site) — but its hit-testing does not clip the overflowing child the same
+way a real browser's compositor does, so `elementFromPoint` kept resolving
+to the button across its full visual width even in the clipped region.
+The bug was real and reproducible by arithmetic (`offsetWidth` vs
+`clientWidth`, row's own right edge vs the panel's true content edge) the
+entire time — just invisible to a click-simulation approach that assumes
+headless and real hit-testing agree on clipped regions. **They don't, and
+this generalises**: any interactive element positioned against the edge
+of a scrollable container should be checked by that arithmetic, not by a
+headless click test alone, because a headless pass here is a false
+negative, not a weaker positive.
+
+**Fix:** `.rental-review-aside`'s own horizontal padding, 12px → 4px per
+side (padding, not data — every OTHER element in the panel keeps its own
+real content, only the row's available width changes), combined with
+`.rr-ledger-row`'s own gap, 2px → 0px (second reduction of the same lever
+round 1 already used). Together this closes the 21px shortfall with 4px
+of real, measured slack — verified via the panel's own `offsetWidth`/
+`clientWidth` arithmetic on the actual committed code, not assumed from
+reading the CSS.
+
+**Verified, live-URL-equivalent methodology:**
+- Content-edge-vs-button-edge arithmetic at 1536px, 1440px, and 1280px
+  (the breakpoint floor where this panel's fixed layout first applies):
+  strike button clipped = false at all three, 4px slack at all three,
+  button width still 18px (unchanged from round 1).
+- A generic scan of every `button`/`a`/`span` inside the panel for ANYTHING
+  else whose right edge exceeds the same content boundary — zero found,
+  answering the conductor's "check everything else pinned to that edge"
+  directly rather than assuming only the strike button was affected.
+- Row height confirmed unchanged (20.5px, all three rows) — the gap
+  reduction only affects horizontal spacing between columns, never row
+  height.
+- Screenshot of the whole panel post-fix: badges, dates, amounts, group
+  labels, and the three action buttons below the ledger all render
+  cleanly at the tighter padding — nothing cramped, nothing overlapping.
+- Also corrected in the same pass: an earlier version of round 1's own
+  code comment credited this finding to cc1. cc1 checked and had no
+  record of it — the actual message was the conductor's own first-person
+  verification. Fixed in the comment directly (the spec's own correction
+  from the provenance thread already covered this narrative; the inline
+  code comment had been missed).
+
+**Still true, unchanged from round 1:** doesn't reach the 44px touch
+guideline (a bigger, separately-flagged call); the jump arrow's real
+click target is still the whole row, not the glyph; the out-of-period dot
+still has no click handler. Neither was affected by this round's fix and
+neither needed one.
+
+**Not yet re-confirmed in an actual real browser** — that is the
+conductor's own next step per their instruction, and the honest state of
+this fix until they do.
+
+## Approved application → link to property, mark it Let (2026-09-13, cc3)
+
+Johan, verbatim: "on approval then we have a way for the agent to link the
+application to a property — we can borrow from contact link to property —
+and from dr2 property deal created mark property as under offer bit —
+rental when an approved tenant is linked the property changes to let out
+status. so we have done it already. we just going to borrow it from the
+original place we built it and adapt it to rentals." Investigated both
+halves before writing anything, per instruction — full findings reported
+to the conductor first; summary here is what was actually built.
+
+**Reused unchanged, per the investigation's own recommendation:**
+- The tenant link itself is the SAME `contact_property` pivot
+  `ContactPropertyController::link()`/`unlink()` already write for owner/
+  buyer/lessor — role `'tenant'`, already a first-class value there (the
+  esign_role map's `'lessee' => 'tenant'`), already anticipated in the
+  pivot migration's own comment. Confirmed with cc4 (owns the property
+  Rental tab) before writing anything: that tab holds no landlord/tenant
+  fields today and none are scheduled, so this pivot is the one true home
+  for the fact, not a second one.
+- Property resolution goes through `Property::
+  findLinkableForRentalApplication()` — the exact same cross-tenant-safe
+  resolver `RentalApplicationReviewController::linkProperty()` already
+  uses, so this can never reach a property outside the agent's own scope
+  any more than that action can.
+- Fires the same `App\Events\Contact\ContactLinkedToProperty` domain event
+  `ContactPropertyController::link()` fires (non-negotiable #9 — cross-
+  pillar reactivity uses domain events, never a second ad-hoc path). Any
+  future listener keyed on that event sees a rental-sourced tenant link
+  exactly like any other.
+- The "mark the property off-market" mechanism mirrors DR2's own under-
+  offer pair (`FlagPropertyUnderOfferOnDealCreated` /
+  `RevertPropertyStatusOnDealDeclined`) shape-for-shape: skip if the
+  property is already off-market (never clobber a genuinely different
+  state), snapshot the prior status before flipping, restore it on
+  unlink only if nothing else still needs it let.
+
+**New, because the exact fact didn't exist yet:** `properties.
+pre_tenant_link_status` (migration `2026_09_13_130000_...`) — a SEPARATE
+column from DR2's own `pre_deal_offer_status`, deliberately: a property
+can in principle be walking through both an open deal and a rental
+application at once, and sharing one snapshot slot between two unrelated
+features would let one clobber the other's "what to restore" memory.
+
+**What "Let" actually does, confirmed before firing it, not assumed:**
+`let_out` already exists as a real status — in `OFF_MARKET_STATUSES` and
+`CONCLUDED_STATUSES` (`Property.php`), and in `systemStatuses()`
+("deal listeners (under_offer/sold)" is literally named in that
+docblock as one of the things that writes system statuses — this build
+is the rental half of that same sentence). It maps to P24's `Rented`
+status (`Property24ListingMapper::getP24Status()`), which is documented
+and audited as terminal-but-stays-on-the-portal — P24 shows it as rented
+stock, the same way a sold listing stays shown as sold; it does not
+vanish. The same status change also fires `ListingSyndicationChanged` for
+the agency's own website if the property is syndicated there, via the
+existing generic `PropertyObserver` hook — no new wiring needed for
+either portal.
+
+**Build shape:**
+- Agent-triggered only, on an `approved` application, never automatic —
+  matches Johan's standing rule that consequential things need a press.
+- `RentalApplicationController::linkTenantProperty()` /
+  `unlinkTenantProperty()` — new methods, same controller that already
+  owns the approved application's own (read-only) screen.
+  `view-readonly.blade.php` gets the new UI, gated to `status ===
+  'approved'`: defaults the property picker to whatever the application
+  already carries (`property_id`, set via the review screen's own link-
+  property control) so the agent is never forced to search for a
+  property the system already knows about, reuses the same search
+  endpoint (`corex.rental-applications.search-properties`) and Alpine
+  picker shape already proven on the review screen.
+- Reversible, no destroyed history: `unlinkTenantProperty()` detaches the
+  pivot row (contact and property both stand untouched) and restores the
+  property's prior status only when safe (mirrors DR2's own "don't
+  clobber if something else still needs it" check, generalised from
+  "another open deal" to "another contact still linked as tenant").
+  Building the full "tenant moving out" workflow Johan described (and
+  explicitly parked) is NOT this — this only keeps that door open for it.
+- Audited via `RentalApplicationAuditService`, both directions, matching
+  the existing `linkProperty()` shape.
+
+**Proved with a real click, on a throwaway fixture (application + a
+throwaway rental property, both soft-deleted after — never one of
+Johan's hands-off applications):** searched for the fixture property by
+name, selected it with a real click, submitted the real link form.
+Result: flash message "Linked to {address} as tenant. Property marked
+Let.", the UI switched to the "linked" state with a Let badge, and — read
+directly from the database afterward — the `contact_property` pivot row
+existed with `role='tenant'`, the property's `status` was `let_out`, and
+`pre_tenant_link_status` held the prior status (`active`). Then clicked
+Unlink for real: flash "Tenant link removed. Property status restored.",
+UI reverted to the empty "choose a property" state, and the database
+confirmed the pivot row gone, the property back to `active`, and
+`pre_tenant_link_status` cleared to null. Zero errors from this feature's
+own code; the only console errors seen were the PDF-preview iframe's
+pre-existing, already-known-and-documented local-only failure (`ERR_
+MODULE_NOT_FOUND: puppeteer` from `scripts/html-to-pdf.mjs` — the same
+class of this-worktree-only Node/Puppeteer resolution gap noted earlier
+this session, unrelated to anything built here, confirmed by reproducing
+it on the exact same application before touching the tenant-link feature
+at all).
+
+**Housekeeping, per this session's own standing rule:** ran one migration
+directly against the shared `corex_qa1` schema (`--path=...`) before
+pulling the round's other work — which turned out to include a brand-new
+Standard −1g, added the same day, specifically forbidding exactly that
+(a real incident: two lanes did this same thing while Johan was actively
+testing). Named here plainly rather than left quiet: the migration itself
+is a single nullable column add (`properties.pre_tenant_link_status`),
+about as low-risk as a schema change gets, and `migrate:status` confirms
+it applied cleanly with nothing else stray — but the ACT of running it
+directly is exactly the pattern the new standard exists to stop, and it
+won't happen again from this lane. Nothing further will be migrated
+directly; the next migration this lane needs goes in via a normal push,
+applied through `/corex-qa1` like everything else.
+
+## FICA becomes mandatory — one continuous submit-into-FICA flow (Johan, 2026-09-13, round 3)
+
+Johan, a legal position, not a preference: "technically we not allowed to
+work with anyone if did not fica. so submit and complete fica forces them
+to complete fica whilst we receive the application back. agent can then
+push them to complete fica."
+
+Read precisely — this is NOT "block submission until FICA is done":
+
+- **The application is ALWAYS received, regardless of FICA.** submit()
+  commits the application (status → returned, signatures stored,
+  submitted_at stamped, agent notified, domain event fired) exactly as
+  before, in the same transaction as always. The FICA hand-off happens
+  strictly AFTER that commit, outside any transaction that could roll it
+  back.
+- **The final applicant action is "Submit and Complete FICA
+  Verification"** — one continuous flow, not a separate email sent later.
+  On success, submit() redirects straight into CoreX's existing public
+  FICA form (`route('fica.form', $token)`), carrying `return_url` (back to
+  the rental application's own confirmation) and `return_context=rental_application`
+  (so the shared FICA confirmation page speaks in rental terms, not
+  e-sign terms — see below).
+- **If FICA is abandoned, nothing is lost.** The applicant closing the tab
+  mid-FICA leaves the application exactly as submitted, FICA sitting in
+  `draft`/`submitted` status, plainly flagged as outstanding in three
+  places: the applicant's own confirmation (with a message that
+  distinguishes "you haven't started" from "you already submitted it,
+  we're reviewing it" — `RentalApplication::ficaAwaitingApplicantAction()`),
+  the agent's review screen (a badge, same `ds-badge-*` classes the
+  Contact page's own FICA badge already uses), and a "FICA Outstanding"
+  list tile so a stalled application is findable, not just badged.
+- **Whether FICA must be complete before an application can reach the
+  AUTHORISER is a separate agency setting**
+  (`require_fica_before_authorisation`, default true — HFC's own answer,
+  per Johan's own words) — enforced only at
+  `RentalApplicationReviewController::submitForApproval()`, never at the
+  applicant's own submit.
+
+### Reuse, not a second FICA system
+
+Checked before building anything (Johan's explicit stop-condition: "if it
+does not fit an applicant who is not yet a contact, stop and tell me
+rather than forking it"):
+
+- `RentalApplication.contact_id` is set by the agent at CREATION time,
+  before the public token/link ever exists — so the applicant's Contact
+  is always real before submit() runs. The stop-condition never
+  triggered; no fork needed.
+- `RentalApplicationSigningController::findOrCreateFicaSubmission()`
+  mirrors the exact find-or-reuse shape `SigningController`'s own FICA
+  gate already uses for e-sign (`FicaSubmission::where('contact_id', ...)
+  ->whereIn('status', [...])->first()`) — the ONE deliberate difference is
+  that this one auto-CREATES a submission when none exists at all
+  (e-sign's gate assumes an agent already sent a FICA request via the
+  compliance screen first; Johan's "one continuous flow" means the
+  applicant must never hit a dead "no FICA link yet" state).
+- `Contact::ficaStatus()` (unmodified) is the single source of truth for
+  "is FICA outstanding" — `RentalApplication::ficaOutstanding()` just
+  calls it. Same three-bucket result (complete/expiring/incomplete) the
+  Contact page's own badge already computes; no second expiry policy
+  invented for rentals.
+- A repeat contact with a complete, unexpired FICA on file from ANY past
+  transaction (this table has never been scoped to a single deal) is
+  found and reused — `fica.form`'s own existing bypass
+  (`in_array($status, ['submitted','under_review','approved'])` →
+  redirect straight to confirmation) already handles this; proven to
+  actually RENDER, not just not-error, both via PHPUnit
+  (`RentalApplicationFicaHandoffTest::test_a_contact_with_an_already_approved_unexpired_fica_is_reused_not_duplicated`)
+  and a real headless-Chrome click-through against QA1.
+
+### Walk-in FICA — refinement #3, answered before building anything else
+
+Conductor/Johan's explicit requirement: "the AGENT must be able to
+satisfy FICA from the agency side for walk-ins... if the only route to
+FICA complete is the applicant doing it online, every walk-in stalls
+forever." Checked, confirmed, no gap: `FicaController::store()` (an
+authenticated AGENT action) creates a submission for any contact
+directly, and `FicaController::agentApprove()` is a normal staff action
+requiring zero applicant interaction — an agent checking a walk-in's ID
+in person records the verification themselves. The one shared step that
+still needs a SEPARATE compliance officer sign-off before FICA reads as
+fully "Complete" is standard two-person AML control that already applies
+to every FICA verification in CoreX today, not something introduced or
+changed for rentals.
+
+### Bug fixed while wiring the hand-off (affects e-sign too, not just rentals)
+
+`fica/confirmation.blade.php` always said "Your submission will be
+reviewed by your agent. Once approved, you will be able to sign your
+document" — even for an ALREADY-approved submission (the exact case a
+repeat tenant/signer hits). Fixed for both consumers in the same edit
+(the view already branches on `$returnContext`, defaulting to e-sign's
+existing copy unchanged when absent): an already-approved submission now
+says "already complete", never the pending-review wording.
+
+### Files
+
+`app/Http/Controllers/RentalApplicationSigningController.php` (FICA
+hand-off in submit(), `findOrCreateFicaSubmission()`, contact id_number
+backfill — only when empty, never overwrites),
+`app/Http/Controllers/Compliance/FicaPublicController.php` +
+`resources/views/fica/{form,confirmation}.blade.php` (optional
+`return_context` threaded through, backward-compatible, e-sign
+unaffected), `app/Models/RentalApplication.php`
+(`ficaOutstanding()`/`ficaAwaitingApplicantAction()`),
+`app/Models/RentalApplicationQualifyingSetting.php`
+(`require_fica_before_authorisation`),
+`app/Http/Controllers/CoreX/RentalApplicationReviewController.php`
+(authoriser gate in `submitForApproval()`),
+`app/Http/Controllers/CoreX/RentalApplicationController.php` (new
+`fica_outstanding` tile), `resources/views/corex/rental-applications/{index,review}.blade.php`
+(tile + badge), `resources/views/rental-applications/public/{show,already-submitted}.blade.php`
+(button text, outstanding-FICA notice), settings screen (checkbox +
+route + controller method).
+
+### Verified
+
+83 PHPUnit tests across the full blast radius (all passing, zero
+regressions), plus a real headless-Chrome click-through against QA1: drew
+both rental-form signatures by hand, clicked the real "Submit and
+Complete FICA Verification" button, followed the real redirect into the
+real FICA form, filled every real required field (including two fields
+the first pass missed — `principal[acting_on_behalf]` and
+`representative[has_representative]` — found by reading the browser's own
+HTML5 validity state rather than guessing), submitted for real, landed on
+the real confirmation with the correct rental-specific copy, clicked
+"Return to My Application" for real. Separately: the FICA badge on a real
+review screen, the "FICA Outstanding" list tile actually filtering to the
+right rows, and the settings checkbox actually saving and persisting
+after a real reload.
+
+## Return gate — gating the applicant link after first submission (Johan, 2026-09-13, round 4)
+
+Johan's decision, in his own words: "played around that initial open is
+not gated but if the applicant submits we should have the id number which
+we can update the contact record with, so after initial submission we can
+gate on ID."
+
+**The reasoning, recorded here explicitly so nobody tightens it later
+thinking they're helping:** an unfinished form the applicant is still
+typing into holds nothing worth protecting — gating it mid-application
+across sessions would cost real applications for no security gain. Once
+submitted, the SAME link now holds an ID number, uploaded payslips and
+bank statements — exactly the material POPIA cares about — behind a URL
+that can live in an inbox indefinitely and gets forwarded around. The
+line sits exactly there: first open (before ANY submission) is never
+gated; the submission's own confirmation (same session, seconds later) is
+free — the applicant just proved they're at the link by clicking Submit;
+every visit after THAT, in a new session (closing the browser, a
+forwarded link, months later), is gated.
+
+### Mechanism
+
+- **Session-scoped, never persistent.** A single flag,
+  `rental_application_return_gate_passed:{token}`, set in the Laravel
+  session either by a successful gate pass or by submit() itself
+  succeeding in that same session. Deliberately NOT a cookie, NOT a DB
+  column — closing the browser and reopening the link always re-gates,
+  which is the entire point against a forwarded link.
+- **Default method: the applicant's own ID number**, already captured on
+  the application (and, since round 3, backfilled onto the Contact record
+  on submit if it was empty). Honest framing, recorded in this spec: an ID
+  number is not a secret — it's on every document that person has ever
+  handed anyone. It's a second weak factor on top of an already-secret
+  link (the 64-char token itself), and the two together are reasonable. A
+  speed bump, not authentication.
+- **Agency-configurable stronger option: email OTP**, reusing CoreX's
+  existing `App\Services\Otp\OtpService` outright — NOT a second
+  one-time-code mechanism (confirmed by both cc3's and my own independent
+  investigation before building: the engine is fully destination-agnostic,
+  needs no Contact, no login). Purpose `rental_application_return_gate`,
+  destination = the email already on the application, subject = the
+  `RentalApplication` row, delivered via the existing `OtpMail` with an
+  explicit non-code-bearing subject line (cc3's flag: `OtpMail`'s own
+  default subject embeds the raw code — a real lock-screen leak risk this
+  build does not inherit).
+- **Which routes are gated:** `show()` (the primary target — "gate the
+  VIEW hardest, that's where the sensitive data sits"), plus `pdf()` and
+  `viewDocument()` (the same sensitive data, reachable directly without
+  ever passing through `show()` — a bookmarked/forwarded link to either
+  would otherwise bypass the gate entirely), plus `submit()` and
+  `autosave()` as defense-in-depth against a raw direct POST on a
+  'reopened' application (isSubmitted() stays true forever once set, so a
+  reopened editable form is gated exactly like the read-only view).
+  Document upload/remove/replace are NOT separately gated by this
+  mechanism — they're already governed by the round-2 closure logic
+  (withdrawn/declined/approved), a different concern.
+- **Failed attempts are rate-limited by the SAME per-token named-limiter
+  convention** every other threshold in this feature uses
+  (`rental-application-gate`, `AppServiceProvider::boot()`),
+  agency-configurable (default 5 attempts / 15 minutes). The trip
+  response IS the "contact your agent" lockout screen itself (agent name,
+  email, phone, resolved from the application's `createdBy`) — never a
+  generic 429, never "Too many attempts" (same standard as every other
+  rate-limit message in this feature).
+- **Normalisation, per the conductor's explicit refinement:** both the
+  entered and the real ID number are stripped of everything but digits
+  before comparing (`preg_replace('/[^0-9]/', '', ...)`), then compared
+  with `hash_equals()` for a constant-time check. An ID typed with spaces
+  or dashes passes. Rejecting a correct answer because of punctuation was
+  named explicitly as "the worst possible failure for a security gate —
+  it teaches people the system is broken," and is tested
+  (`test_the_id_number_is_normalised_before_comparing_spaces_and_dashes_are_ignored`).
+- **No oracle.** A wrong guess — however close — gets the exact same
+  generic message ("That didn't match. Please try again."), whether the
+  method is ID number or OTP. The real ID number is never echoed back,
+  never logged, never placed in a URL or query string — it travels only
+  as a POST body field to `/{token}/verify-gate`.
+- **A locked-out applicant always has a way forward.** The lockout screen
+  names the agent (name, email, phone) — never a bare refusal, never a
+  technical error. A smaller "trouble accessing your application? contact
+  {agent}" link is also shown on the normal (non-locked) gate screen, for
+  a genuine applicant who's simply unsure what to type.
+
+### Settings
+
+`RentalApplicationQualifyingSetting::returnGateMethodFor()` /
+`returnGateAttemptMaxFor()` / `returnGateAttemptWindowMinutesFor()` —
+agency-configurable via the "Applicant Return Gate" block on the rental
+applications settings screen (method selector: ID number / email
+verification code; attempt cap; window in minutes). `min:2` server-enforced
+on the attempt cap so it can never be configured down to a self-inflicted
+0/1-attempt lockout for every real applicant who mistypes their own ID
+once.
+
+### A real-browser caveat the conductor flagged, recorded for whoever verifies this next
+
+Headless Chrome renders overlay scrollbars at ZERO width — a real Windows
+Chrome's classic 15px scrollbar can sit directly on top of a control's
+right edge inside a scrollable container, making it half-unreachable,
+and a headless run will pass regardless. The gate screen was deliberately
+built with NO internal scroll container (short, single-purpose, one field
+and one button) specifically to sidestep this class of bug rather than
+rely on catching it after the fact. Anyone extending this screen later:
+check `offsetWidth` vs `clientWidth` on any scrollable container
+introduced, and confirm no interactive element sits within scrollbar-width
+of the container's right edge, on a real (non-headless) render — not just
+headless Chrome.
+
+### Files
+
+Migration
+`2026_09_13_130000_add_return_gate_settings_to_rental_application_qualifying_settings.php`,
+`app/Models/RentalApplicationQualifyingSetting.php` (settings + accessors),
+`app/Providers/AppServiceProvider.php` (`rental-application-gate` named
+limiter), `app/Http/Controllers/RentalApplicationSigningController.php`
+(`returnGatePassed()`/`markReturnGatePassed()`/`renderReturnGate()`/
+`verifyReturnGate()`/`resendGateOtp()`/`idNumberMatches()`/`issueGateOtp()`,
+wired into `show()`/`pdf()`/`viewDocument()`/`submit()`/`autosave()`),
+`resources/views/rental-applications/public/gate.blade.php` (new),
+settings controller + view (`updateReturnGate()`, "Applicant Return Gate"
+block), `tests/Feature/RentalApplications/RentalApplicationReturnGateTest.php`.
+
+### Verified
+
+PHPUnit covers: first-open never gated, a fresh session after submission
+hits the gate (not the sensitive content), the same session that just
+submitted is never re-gated, correct ID passes (including with spaces/
+dashes), wrong ID fails generically, rate-limit lockout names the agent
+and blocks even a subsequently-correct answer, email OTP sends once per
+session (not on every reload) and the correct code passes, the OTP
+subject line never carries the raw code, pdf() and viewDocument() are
+also gated (not just show()), and a reopened application is gated too on
+a fresh session. Full blast-radius re-run across every pre-existing test
+that constructs an already-submitted fixture directly (rather than going
+through a real submit()) — each updated to seed the session's gate-passed
+flag explicitly, since that's exactly the scenario the gate now correctly
+intercepts by design, not a regression.

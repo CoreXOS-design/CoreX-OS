@@ -2,8 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\OtpMail;
+use App\Models\FicaSubmission;
 use App\Models\RentalApplication;
+use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplicationSignature;
+use App\Services\Otp\OtpService;
 use App\Services\RentalApplications\RentalApplicationNotifier;
 use App\Services\RentalApplications\RentalApplicationPdfService;
 use Illuminate\Http\Request;
@@ -72,7 +76,186 @@ class RentalApplicationSigningController extends Controller
             ->firstOrFail();
     }
 
-    public function show(string $token): View
+    /**
+     * Return gate, AT-392 round 4, 2026-09-13 — one session flag per
+     * token, set either by a successful gate pass or by THIS session's own
+     * submit(). Deliberately session-scoped, never a persistent cookie or
+     * DB flag: a forwarded link opened in a fresh browser must always
+     * re-gate — that is the entire point.
+     */
+    private function gateSessionKey(string $token): string
+    {
+        return "rental_application_return_gate_passed:{$token}";
+    }
+
+    private function returnGatePassed(RentalApplication $application, Request $request): bool
+    {
+        if (! $application->isSubmitted()) {
+            return true;
+        }
+
+        return (bool) $request->session()->get($this->gateSessionKey($application->token));
+    }
+
+    private function markReturnGatePassed(RentalApplication $application, Request $request): void
+    {
+        $request->session()->put($this->gateSessionKey($application->token), true);
+    }
+
+    /**
+     * Failed attempts must not become an oracle for guessing an ID against
+     * a known application (Johan, verbatim) — strips everything but digits
+     * on BOTH sides before comparing (conductor's refinement: "a correct
+     * ID typed with spaces must pass — rejecting a right answer because of
+     * punctuation is the worst possible failure for a security gate"),
+     * then a constant-time comparison so a partial match can never be
+     * timed out of the response.
+     */
+    private function idNumberMatches(RentalApplication $application, string $entered): bool
+    {
+        $enteredDigits = preg_replace('/[^0-9]/', '', $entered) ?? '';
+        $realDigits = preg_replace('/[^0-9]/', '', (string) $application->id_number) ?? '';
+
+        return $realDigits !== '' && $enteredDigits !== '' && hash_equals($realDigits, $enteredDigits);
+    }
+
+    /**
+     * Never stored in clear, never in a URL or query string — OtpService
+     * already hashes at rest and this call only ever receives the code
+     * via a POST body field (see routes/web.php's gate routes). throttle()
+     * is called explicitly (the engine itself doesn't call it) so a
+     * malicious or over-eager resend can't spam the applicant's own inbox.
+     */
+    private function issueGateOtp(RentalApplication $application, string $email): void
+    {
+        $otpService = app(OtpService::class);
+
+        if ($otpService->throttle('rental_application_return_gate', $email) !== null) {
+            return;
+        }
+
+        $otpService->issue('rental_application_return_gate', $email, [
+            'subject' => $application,
+            'expires_minutes' => 10,
+            'mail' => fn ($code) => new OtpMail(
+                $code, 10,
+                "Verify it's you to view your rental application",
+                'Your verification code for your rental application',
+            ),
+        ]);
+    }
+
+    private function maskEmail(string $email): string
+    {
+        [$local, $domain] = array_pad(explode('@', $email, 2), 2, '');
+        $visible = mb_substr($local, 0, 1);
+
+        return $visible . str_repeat('*', max(1, mb_strlen($local) - 1)) . '@' . $domain;
+    }
+
+    /**
+     * Renders the gate itself. For email_otp, sends the code automatically
+     * on first render of a session (never resent on every reload — a
+     * session flag tracks "already sent", the applicant's own "Resend
+     * code" link is the only other trigger, and OtpService's own throttle
+     * caps that too).
+     */
+    private function renderReturnGate(RentalApplication $application): View
+    {
+        $method = RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id);
+
+        if ($method === 'email_otp') {
+            $email = $application->recipientEmail();
+            $sentKey = "rental_application_gate_otp_sent:{$application->token}";
+            if ($email && ! session($sentKey)) {
+                $this->issueGateOtp($application, $email);
+                session([$sentKey => true]);
+            }
+
+            return view('rental-applications.public.gate', [
+                'method' => 'email_otp',
+                'maskedEmail' => $email ? $this->maskEmail($email) : null,
+                'lockedOut' => false,
+                'token' => $application->token,
+                'agentName' => $application->createdBy?->name,
+                'agentEmail' => $application->createdBy?->email,
+                'agentPhone' => $application->createdBy?->cell ?: $application->createdBy?->phone,
+            ]);
+        }
+
+        return view('rental-applications.public.gate', [
+            'method' => 'id_number',
+            'lockedOut' => false,
+            'token' => $application->token,
+            'agentName' => $application->createdBy?->name,
+            'agentEmail' => $application->createdBy?->email,
+            'agentPhone' => $application->createdBy?->cell ?: $application->createdBy?->phone,
+        ]);
+    }
+
+    /**
+     * POST /{token}/verify-gate — throttled by the named
+     * rental-application-gate limiter (see AppServiceProvider::boot()),
+     * which handles the lockout response itself; this method only ever
+     * runs for an attempt still inside budget.
+     */
+    public function verifyReturnGate(Request $request, string $token)
+    {
+        $application = $this->findByToken($token);
+
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            return view('rental-applications.public.unavailable', ['reason' => 'expired']);
+        }
+
+        if (! $application->isSubmitted()) {
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        $method = RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id);
+
+        if ($method === 'email_otp') {
+            $email = $application->recipientEmail();
+            $code = (string) $request->input('otp_code', '');
+            $passed = $email !== null && app(OtpService::class)->verify('rental_application_return_gate', $email, $code) !== null;
+        } else {
+            $passed = $this->idNumberMatches($application, (string) $request->input('id_number', ''));
+        }
+
+        if ($passed) {
+            $this->markReturnGatePassed($application, $request);
+
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        // Deliberately the SAME generic message regardless of method or
+        // how close the guess was — no oracle, no hint.
+        return redirect()->route('rental-applications.public.show', $token)
+            ->withErrors(['gate' => "That didn't match. Please try again."]);
+    }
+
+    /**
+     * POST /{token}/gate/resend-otp — only meaningful when the agency's
+     * gate method is email_otp; a no-op redirect otherwise. Relies
+     * entirely on OtpService's own throttle() for abuse protection (resend
+     * cooldown + hourly cap) rather than a second limiter here.
+     */
+    public function resendGateOtp(Request $request, string $token)
+    {
+        $application = $this->findByToken($token);
+
+        if (! $application->isSubmitted() || RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id) !== 'email_otp') {
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        $email = $application->recipientEmail();
+        if ($email) {
+            $this->issueGateOtp($application, $email);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('gate_status', 'A new code has been sent.');
+    }
+
+    public function show(Request $request, string $token): View
     {
         $application = $this->findByToken($token);
 
@@ -82,6 +265,20 @@ class RentalApplicationSigningController extends Controller
 
         if ($application->status === 'draft') {
             return view('rental-applications.public.unavailable', ['reason' => 'not_sent']);
+        }
+
+        // Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
+        // not gated but if the applicant submits... after initial
+        // submission we can gate on ID." Checked BEFORE the
+        // POST_RETURN_STATUSES branch below so it also covers 'reopened'
+        // (deliberately excluded from that list, but isSubmitted() stays
+        // true forever once set — a reopened editable form holds the same
+        // sensitive data as the read-only view). The session flag is set
+        // once, either by a successful gate pass or by THIS SAME session's
+        // own submit() — never re-asked mid-session, always re-asked the
+        // moment a fresh session opens the link, including a forwarded copy.
+        if (! $this->returnGatePassed($application, $request)) {
+            return $this->renderReturnGate($application);
         }
 
         // Reopen/resubmit, 2026-09-08 — 'reopened' is deliberately NOT in
@@ -99,9 +296,16 @@ class RentalApplicationSigningController extends Controller
             $documentUploadsOpen = $application->documentUploadsOpen();
             $documentUploadsClosedMessage = $application->documentUploadsClosedMessage();
             $isTerminallyClosed = in_array($application->status, RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, true);
+            // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "flagged
+            // ... on the applicant's confirmation" if they abandoned FICA.
+            // ficaAwaitingApplicantAction distinguishes "never started" from
+            // "submitted, we're reviewing it" — telling someone who already
+            // did their part to go contact their agent would be wrong.
+            $ficaOutstanding = $application->ficaOutstanding();
+            $ficaAwaitingApplicantAction = $application->ficaAwaitingApplicantAction();
 
             return view('rental-applications.public.already-submitted', compact(
-                'application', 'documentUploadsOpen', 'documentUploadsClosedMessage', 'isTerminallyClosed'
+                'application', 'documentUploadsOpen', 'documentUploadsClosedMessage', 'isTerminallyClosed', 'ficaOutstanding', 'ficaAwaitingApplicantAction'
             ));
         }
 
@@ -156,6 +360,17 @@ class RentalApplicationSigningController extends Controller
 
         if ($application->status === 'draft'
             || in_array($application->status, RentalApplication::POST_RETURN_STATUSES, true)) {
+            return response()->json(['saved' => false]);
+        }
+
+        // Return gate, AT-392 round 4, 2026-09-13 — 'reopened' isn't in
+        // POST_RETURN_STATUSES above, so it reaches here, but isSubmitted()
+        // is still true (set on the original submission, never cleared) —
+        // a reopened editing session must not autosave without having
+        // passed the gate in this session. Silent, matching this route's
+        // own "always 200, never a visible error" contract — never a
+        // visible failure, just a quiet skip until the next debounce.
+        if (! $this->returnGatePassed($application, $request)) {
             return response()->json(['saved' => false]);
         }
 
@@ -231,6 +446,16 @@ class RentalApplicationSigningController extends Controller
         }
 
         if ($application->status === 'draft') {
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        // Return gate, AT-392 round 4, 2026-09-13 — a resubmit (reopened
+        // status, isSubmitted() already true from the original submission)
+        // must not be reachable via a raw direct POST without ever having
+        // passed the gate in this session. A genuine first-time submit
+        // (isSubmitted() still false) is never gated — matches
+        // returnGatePassed()'s own "never submitted, never gated" rule.
+        if (! $this->returnGatePassed($application, $request)) {
             return redirect()->route('rental-applications.public.show', $token);
         }
 
@@ -332,8 +557,72 @@ class RentalApplicationSigningController extends Controller
         // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
         event(new \App\Events\RentalApplication\RentalApplicationSubmitted($application, $isResubmit));
 
-        return redirect()->route('rental-applications.public.show', $token)
-            ->with('success', 'Thank you — your application has been submitted.');
+        // AT-392 round 3, 2026-09-13 — Johan: "played around that initial
+        // open is not gated but if the applicant submits we should have the
+        // id number which we can update the contact record with." Only
+        // backfills an EMPTY field — never overwrites an id_number already
+        // on file, same guard every other id_number-writing call site in
+        // this codebase uses (see PropertyContactController for the
+        // precedent this follows).
+        if ($application->id_number && $application->contact && ! $application->contact->id_number) {
+            $application->contact->update([
+                'id_number' => $application->id_number,
+                'id_number_captured_at' => now(),
+                'id_number_source' => 'rental_application',
+            ]);
+        }
+
+        // Return gate, AT-392 round 4, 2026-09-13 — this submit (whether
+        // the first-ever one, ungated, or a resubmit that already passed
+        // the gate to get here) unlocks the rest of THIS session — the
+        // FICA hand-off below, and the applicant's own confirmation once
+        // they return from it, must not immediately re-ask something they
+        // just proved seconds ago by the act of submitting.
+        $this->markReturnGatePassed($application, $request);
+
+        // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal
+        // position: "submit and complete fica forces them to complete fica
+        // whilst we receive the application back." The application is
+        // ALREADY fully submitted above, committed and notified — this
+        // hand-off can never lose it, whatever happens next. One
+        // continuous flow straight into CoreX's existing FICA form (not a
+        // second FICA system — see FicaSubmission::firstOrCreate below,
+        // same find-or-reuse shape SigningController's own FICA gate
+        // already uses), which redirects back here via return_url the
+        // moment FICA is done (or is already on file — see
+        // fica.form's own already-submitted bypass).
+        //
+        // Conductor, live on QA1, 2026-09-13 — a real unauthenticated
+        // applicant hit a 500 here: fica_submissions.requested_by is
+        // NOT NULL (every prior FICA request was staff-initiated; an
+        // applicant submitting their own application has no authenticated
+        // user to attribute it to). The application's own submission had
+        // ALREADY committed by this point (proven live: status/signatures
+        // survived the 500 intact), but the exception still propagated to
+        // the applicant as a raw crash — the DATA guarantee held, the
+        // EXPERIENCE guarantee didn't. Never again: this hand-off is now
+        // genuinely non-fatal. Any failure creating/finding the
+        // FicaSubmission is logged and the applicant is sent to their own
+        // confirmation instead — ficaOutstanding() already reads "true"
+        // with no FicaSubmission row, so the outstanding-FICA messaging
+        // there is already correct with zero extra state needed.
+        try {
+            $ficaSubmission = $this->findOrCreateFicaSubmission($application);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('AT-392 FICA hand-off failed after a successful submission', [
+                'rental_application_id' => $application->id,
+                'contact_id' => $application->contact_id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        return redirect()->to(
+            route('fica.form', $ficaSubmission->token)
+            . '?return_url=' . urlencode(route('rental-applications.public.show', $token))
+            . '&return_context=rental_application'
+        );
     }
 
     /**
@@ -467,9 +756,103 @@ class RentalApplicationSigningController extends Controller
                 : "Your {$filed} documents were uploaded.");
     }
 
-    public function pdf(string $token)
+    /**
+     * FICA-mandatory, AT-392 round 3, 2026-09-13 — same find-or-reuse shape
+     * SigningController's own FICA gate already uses for e-sign (checked,
+     * not assumed — see SigningController::show(), the FICA gate block),
+     * with ONE deliberate difference: this one auto-CREATES a submission
+     * when none exists at all, because e-sign's gate assumes an agent has
+     * already sent a FICA request via the compliance screen first, but
+     * Johan's "one continuous flow" instruction means the applicant must
+     * never hit a dead "no FICA link exists yet" state straight off their
+     * own submit button.
+     *
+     * A repeat contact with any submission from ANY prior transaction
+     * (approved, or still in progress) is found and reused as-is — this
+     * table has never been scoped to a single deal, so "have they FICA'd
+     * before" is genuinely a yes/no per contact, not per rental
+     * application (confirmed against the actual query shape, not assumed).
+     */
+    private function findOrCreateFicaSubmission(RentalApplication $application): FicaSubmission
+    {
+        $existing = FicaSubmission::where('contact_id', $application->contact_id)
+            ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved', 'approved'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($existing) {
+            // fica_submissions.token is nullable — a tokenless reused draft
+            // would otherwise throw UrlGenerationException the moment
+            // route('fica.form', ...) is called. Same defensive mint
+            // SigningController's own FICA gate already does.
+            if (empty($existing->token)) {
+                $existing->token = Str::random(64);
+                $existing->token_expires_at = now()->addDays(14);
+                $existing->save();
+            }
+
+            return $existing;
+        }
+
+        return FicaSubmission::create([
+            'contact_id' => $application->contact_id,
+            'agency_id' => $application->agency_id,
+            'branch_id' => $application->branch_id,
+            'requested_by' => $this->resolveFicaRequestedBy($application),
+            'token' => Str::random(64),
+            'token_expires_at' => now()->addDays(14),
+            'status' => 'draft',
+        ]);
+    }
+
+    /**
+     * Conductor, live on QA1, 2026-09-13 — a real 500: fica_submissions.
+     * requested_by is NOT NULL because every prior FICA request was
+     * staff-initiated; an applicant submitting online has no authenticated
+     * user at all. Checked every real consumer of this column before
+     * choosing (not a bare nullable — conductor's explicit instruction):
+     *
+     *   - FicaController's own permission checks
+     *     (`$submission->requested_by === auth()->id() || isOwnerRole() ||
+     *     hasPermission('manage_compliance')`, e.g. FicaController.php:946)
+     *     degrade safely on null — it just never matches a real user, so
+     *     only an owner/compliance-manager could act on it. Fine.
+     *   - FicaSubmission::scopeVisibleTo()'s 'own' scope
+     *     (`where('requested_by', $user->id)`) does NOT degrade safely —
+     *     a null value never matches, so a plain agent scoped to 'own'
+     *     would NEVER see this submission in their own compliance queue.
+     *     That directly breaks Johan's own requirement: "agent can then
+     *     push them to complete fica" — he can't push what he can't see.
+     *     This is why null was rejected in favour of a resolvable user.
+     *
+     * Fallback chain: the agent who owns the application
+     * (created_by_user_id) — but that column is ALSO nullable and, in the
+     * live incident that surfaced this, WAS null (application 334). Falls
+     * back to the agency's own admin (role='admin', scoped by agency_id) —
+     * always resolvable per LastAdminException's own guarantee that no
+     * agency can ever be left without one. If even that somehow returns
+     * null, FicaSubmission::create() throws and the caller's try/catch
+     * (submit()) degrades this to "FICA outstanding, logged" rather than
+     * a 500 — never fatal to the applicant either way.
+     */
+    private function resolveFicaRequestedBy(RentalApplication $application): ?int
+    {
+        return $application->created_by_user_id
+            ?? \App\Models\User::where('agency_id', $application->agency_id)->where('role', 'admin')->value('id');
+    }
+
+    public function pdf(Request $request, string $token)
     {
         $application = $this->findByToken($token);
+
+        // Return gate, AT-392 round 4, 2026-09-13 — the PDF holds the exact
+        // same sensitive fields (ID number, income, bank details) as the
+        // gated view, and a direct/bookmarked link to it would otherwise
+        // bypass the gate entirely.
+        if (! $this->returnGatePassed($application, $request)) {
+            return redirect()->route('rental-applications.public.show', $token);
+        }
 
         $path = app(RentalApplicationPdfService::class)->generate($application);
 
@@ -499,12 +882,21 @@ class RentalApplicationSigningController extends Controller
         return $document;
     }
 
-    public function viewDocument(string $token, int $document)
+    public function viewDocument(Request $request, string $token, int $document)
     {
         $application = $this->findByToken($token);
 
         if ($application->token_expires_at && $application->token_expires_at->isPast()) {
             abort(404);
+        }
+
+        // Return gate, AT-392 round 4, 2026-09-13 — this is the single
+        // most sensitive route the applicant journey has: an uploaded ID
+        // copy, payslip or bank statement, viewable directly. A bookmarked
+        // or forwarded link to a specific document must never bypass the
+        // gate that protects everything else.
+        if (! $this->returnGatePassed($application, $request)) {
+            return redirect()->route('rental-applications.public.show', $token);
         }
 
         $doc = $this->scopedDocument($application, $document);

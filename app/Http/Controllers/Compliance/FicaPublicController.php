@@ -20,16 +20,22 @@ class FicaPublicController extends Controller
         $submission = $this->resolveSubmission($token);
 
         $returnUrl = $request->query('return_url', '');
+        // AT-392 round 3, 2026-09-13 — optional, consumer-agnostic context
+        // string threaded alongside return_url so the shared confirmation
+        // page can speak in the right terms (a rental applicant isn't
+        // "signing a document"). Defaults to null everywhere, which
+        // preserves the existing e-sign copy exactly.
+        $returnContext = $request->query('return_context', '');
 
         // Already submitted — show confirmation
         if (in_array($submission->status, ['submitted', 'under_review', 'approved'])) {
-            return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl]);
+            return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl, 'return_context' => $returnContext]);
         }
 
         $contact = $submission->contact;
         $agency  = $submission->agency;
 
-        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl'));
+        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext'));
     }
 
     /**
@@ -190,8 +196,9 @@ class FicaPublicController extends Controller
         ]);
 
         $returnUrl = $request->input('return_url', '');
+        $returnContext = $request->input('return_context', '');
 
-        return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl]);
+        return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl, 'return_context' => $returnContext]);
     }
 
     /**
@@ -238,8 +245,9 @@ class FicaPublicController extends Controller
         $submission = FicaSubmission::where('token', $token)->firstOrFail();
         $agency     = $submission->agency;
         $returnUrl  = $request->query('return_url', '');
+        $returnContext = $request->query('return_context', '');
 
-        return view('fica.confirmation', compact('submission', 'agency', 'returnUrl'));
+        return view('fica.confirmation', compact('submission', 'agency', 'returnUrl', 'returnContext'));
     }
 
     /**
