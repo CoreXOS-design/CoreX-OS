@@ -1819,8 +1819,23 @@
                         </select>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Note for the agent</label>
                         <textarea x-model="declineReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="Reason for decline (required) — the agent will see this"></textarea>
+                        {{-- 2026-09-15, Johan — native confirm()/alert()/prompt()
+                             removed from this path entirely: "a native dialog is
+                             not acceptable in this product... it behaves
+                             differently in every browser." Investigated as a
+                             candidate for a real-mouse-click failure he found;
+                             ruled out as that specific cause by direct testing,
+                             but it stays removed regardless per his standing
+                             instruction — it's also the confirmed mechanism
+                             behind a separate renderer freeze he hit (a native
+                             JS dialog blocks the whole tab's main thread, which
+                             is also why CDP screenshot/eval calls hang while one
+                             is open). The modal itself — open it, pick a reason,
+                             type a note, click the one red button — is already
+                             the deliberate multi-step action; a browser popup on
+                             top of that is redundant, not an extra safety net. --}}
                         <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}"
-                              @submit="if (!confirm('Decline the application from ' + {{ Js::from($headerContactName) }} + {{ Js::from($propertyLabel ? ' for ' . $propertyLabel : '') }} + '?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason; $refs.declineReasonTemplateIdField.value = declineReasonTemplateId">
+                              @submit="window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason; $refs.declineReasonTemplateIdField.value = declineReasonTemplateId">
                             @csrf
                             <input type="hidden" name="reason" x-ref="declineReasonField">
                             <input type="hidden" name="decline_reason_template_id" x-ref="declineReasonTemplateIdField">
@@ -2002,6 +2017,7 @@
              freely edit both before sending. Submitting posts whatever is
              actually in these two fields, edited or not. --}}
         @if($viewerRole === 'agent' && $rentalApplication->status === 'declined' && !$rentalApplication->applicant_notified_at)
+            @php($declineRecipientEmail = $rentalApplication->recipientEmail())
             <div x-show="declineSendDrawerOpen" x-cloak
                  class="fixed inset-0 z-[100] flex justify-end"
                  style="background: rgba(0,0,0,0.5);"
@@ -2017,9 +2033,36 @@
                     <p class="text-xs mb-4" style="color: var(--text-muted);">
                         This is the exact email the applicant will receive. Edit anything you need to — nothing sends until you click Send below.
                     </p>
+                    {{-- 2026-09-15, Johan — "the agent is never shown who the
+                         email is going to... an applicant mistypes their
+                         email, the agent presses Send in good faith, the
+                         applicant never hears anything, and the agency
+                         believes it has told them." Read-only, right above
+                         Subject — the exact address recipientEmail() (the
+                         same resolution the actual send uses) will send to,
+                         not a re-derived guess. No-email is a real, honest
+                         dead end here: the Send button is disabled with a
+                         reason shown, never a silently-inert control. --}}
+                    @if($declineRecipientEmail)
+                        <p class="text-xs mb-3" style="color: var(--text-secondary);">
+                            <span class="font-medium">To:</span> {{ $declineRecipientEmail }}
+                        </p>
+                    @else
+                        <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626); border: 1px solid var(--ds-red, #dc2626);">
+                            This application has no email address on file — there is nowhere to send this. Add one to the application before sending.
+                        </p>
+                    @endif
+                    {{-- 2026-09-15, Johan — native confirm() removed here too,
+                         same reasoning as the authoriser's Decline modal (see
+                         that modal's own comment). The drawer itself — open
+                         it, read the real final text, optionally edit it,
+                         click the one button — is already the deliberate
+                         action; the applicant's name is already visible in
+                         the letter's own "Dear ..." line, so nothing is lost
+                         by dropping the popup on top of it. --}}
                     <form method="POST" action="{{ route('corex.rental-applications.review.send-decline', $rentalApplication) }}"
                           x-data="{ subject: {{ Js::from($rentalApplication->decline_email_subject ?? '') }}, body: {{ Js::from($rentalApplication->decline_email_body ?? '') }}, sending: false }"
-                          @submit="if (sending) { $event.preventDefault(); return; } if (!confirm('Send this decline email to ' + {{ Js::from($headerContactName) }} + '?')) { $event.preventDefault(); return; } sending = true; window.__raSuppressUnloadGuard = true;">
+                          @submit="if (sending) { $event.preventDefault(); return; } sending = true; window.__raSuppressUnloadGuard = true;">
                         @csrf
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Subject</label>
                         <input type="text" name="subject" x-model="subject" class="corex-input text-sm w-full mb-3" required maxlength="998">
@@ -2027,7 +2070,7 @@
                         <textarea name="body" x-model="body" rows="16" class="corex-input text-sm w-full mb-4" style="white-space: pre-wrap;" required maxlength="10000"></textarea>
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" @click="declineSendDrawerOpen = false">Cancel</button>
-                            <button type="submit" data-qa="decline-send-confirm" class="corex-btn-primary text-xs" :disabled="sending || !subject.trim() || !body.trim()">Send to applicant</button>
+                            <button type="submit" data-qa="decline-send-confirm" class="corex-btn-primary text-xs" :disabled="sending || !subject.trim() || !body.trim() || {{ $declineRecipientEmail ? 'false' : 'true' }}">Send to applicant</button>
                         </div>
                     </form>
                 </div>
