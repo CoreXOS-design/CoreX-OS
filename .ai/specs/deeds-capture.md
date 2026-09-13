@@ -623,9 +623,8 @@ inspector** and asked for the property header to use the full inspector width ("
 otherwise it is very squished").
 
 ```
-┌ header card (contact-page shape, AT-336/AT-393) ─────────────────────────────┐  frozen
-│ Deeds Capture  [N waiting]          Own/Branch/All · search · agent · Search │
-│ Waiting │ New to us │ Possible matches │ Need a look │ VA numbers │ Showing  │  facts strip
+┌ page banner (contacts LIST header, corex-page-banner, full-bleed) ───────────┐  frozen
+│ Deeds Capture + one line         Own/Branch/All · search · agent · Search    │
 ├ flash (success / info) ──────────────────────────────────────────────────────┤  frozen
 ├──────────────┬───────────────────────────────────────────────────────────────┤
 │ QUEUE 380px  │ INSPECTOR (selected capture)                                  │
@@ -649,12 +648,11 @@ otherwise it is very squished").
   across the PRG reload every action causes. Both scroll regions (queue, inspector body) use
   `.corex-brand-scroll` — the sidebar's slim brand-tinted scrollbar (Andre, 2026-09-13).
 - **Header (Andre, 2026-09-13: "match the contact page header, header and filter being one"):**
-  the same surface card as `corex.contacts._header` — `rounded-lg`, hairline shadow, an identity
-  row with the screen name + a "N waiting" badge on the left and the whole filter form
-  (Own/Branch/All, search, agent picker, Search, Clear) on the right, then a six-cell facts strip:
-  Waiting (+ page x of y), New to us, Possible matches, Need a look, Virtual Agent numbers, Showing
-  (scope · agent · search term). The facts are the queue counts, so the output-free capture loops
-  run ABOVE the header in the template; nothing renders until the frame.
+  the contacts LIST page header (`corex.contacts.index`) — the flat, full-bleed `corex-page-banner`
+  with the title + one line of context on the left — and the whole filter form (Own/Branch/All,
+  search, agent picker, Search, Clear) on the right of that same banner, not in its own card. NOT
+  the contact *record* header (`corex.contacts._header`, the surface card with a facts strip) — a
+  first cut used that and was reverted the same day.
 - **Queue row** = headline (sectional headline swap from §6.3 unchanged; wraps, never truncates),
   `first owner [+ N more] · scraped by <name>`, and ONE tag: `Blocked` (take rule `active_blocked`),
   `Owner differs` (open owner conflict), `Same property?` (confident match to stock), `Possible match`
