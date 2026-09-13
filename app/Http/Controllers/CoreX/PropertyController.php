@@ -134,22 +134,26 @@ class PropertyController extends Controller
         // — so a co-listed property appears under both agents' names. A property
         // is a single row, so an `OR` match still returns it exactly once even
         // when both the primary and secondary are in the selected set.
-        if ($search !== '') {
-            // AT-394 — a typed search ALWAYS widens to the whole agency, ahead of ANY agent/
-            // branch filter currently active — including a canPickAgent user's (admin/BM/owner)
-            // "Mine" default or an explicit agent_ids pick. (First cut of this fix only widened
-            // the plain-agent 'own' path below and left canPickAgent users' "Mine" view still
-            // narrowed — that is exactly the case Johan hit testing as an owner on his own
-            // "My Contacts"/listings.) Still bounded by AgencyScope (untouched), so this can
-            // never cross an agency boundary. Rows outside the agent's own/branch/selected-agent
-            // breadth render read-only below (see $restrictedPropertyIds).
-        } elseif ($canPickAgent && ! empty($filterAgentIds)) {
-            // Admin/BM viewing one or more specific agents
+        if ($canPickAgent && ! empty($filterAgentIds)) {
+            // An ACTIVE agent filter (the "My Properties" default, or one or more agents picked
+            // in the agent picker) is honoured until the user removes it — search or no search.
+            // A typed search NARROWS WITHIN the filtered set; it never silently widens past
+            // it (2026-09-13 ruling, reversing the second cut of AT-394 which let a search
+            // discard the agent pick — an admin filtered to one agent then searching a title
+            // saw every other agent's listings too). To search the whole agency, the user
+            // clicks "All Agents" — that removes the filter, and the branch below applies.
             $ids = array_map('intval', $filterAgentIds);
             $query->where(function ($q) use ($ids) {
                 $q->whereIn('agent_id', $ids)
                   ->orWhereIn('pp_second_agent_id', $ids);
             });
+        } elseif ($search !== '') {
+            // AT-394 — with NO agent filter active, a typed search widens to the whole agency
+            // past the user's role breadth (a plain agent's 'own' book, a BM's branch), so an
+            // agent typing a colleague's existing listing finds it instead of re-creating a
+            // duplicate. Still bounded by AgencyScope (untouched), so this can never cross an
+            // agency boundary. Rows outside the agent's own/branch breadth render read-only
+            // below (see $restrictedPropertyIds).
         } else {
             // No explicit agent pick: an admin/BM's role-default breadth (all/branch), or a
             // plain agent's "my listings" / "my branch" toggle. For an ASSISTANT "own" is the
