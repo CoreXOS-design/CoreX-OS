@@ -538,9 +538,11 @@ as a live defect and was escalated as the most dangerous thing on the
 board. It wasn't one. The browser tab doing the "real click" testing
 was not the focused tab (Johan was working in his own tabs in the same
 browser), and Chrome does not deliver synthetic input to a background
-tab at all. Proven conclusively after the fact: a capture-phase
-`mousedown` listener on `document` itself, click at the centre of the
-page, zero events received — the page was never touched.
+tab at all. Confirmed directly, in-tab: `document.visibilityState` read
+`"hidden"`, `document.hasFocus()` read `false`, `document.hidden` read
+`true`. And confirmed behaviourally too: a capture-phase `mousedown`
+listener on `document` itself, click at the centre of the page, zero
+events received — the page was never touched.
 
 Every piece of "evidence" collected for the false diagnosis was equally
 consistent with a background tab, which is exactly why it wasn't caught
@@ -557,12 +559,41 @@ sooner:
 
 **The rule this earns: when a control appears dead to a real click,
 prove the click arrived at the page before concluding anything about the
-code.** The check costs one line — a capture-phase listener on
-`document` (`document.addEventListener('mousedown', () => console.log('landed'), true)`
-or equivalent) confirming the event actually lands before doing anything
-else. Skipping that step is how a tab-focus accident got escalated as a
+code.** Two one-line checks, run in that order, separate the three
+failure modes that got confused today — input never delivered, input
+delivered but mis-aimed, and a genuine dead control:
+
+1. **PRE-FLIGHT — before clicking anything.** Confirm the tab can
+   actually receive input:
+   ```js
+   document.hasFocus() /* must be true */
+   document.visibilityState /* must be "visible" */
+   ```
+   If either fails, stop — get a foreground tab. Any "nothing happened"
+   result from a background/unfocused tab is meaningless, not evidence.
+2. **PROOF — the moment a control appears dead.** Attach a capture-phase
+   listener before clicking again, and read what actually arrived:
+   ```js
+   document.addEventListener('mousedown', e => console.log(e.clientX, e.clientY, e.target), true)
+   ```
+   - Nothing logged → the input never reached the page. The code is not
+     the suspect; go back to check 1.
+   - Logged, but `e.target` isn't the intended control → an aiming
+     problem (wrong coordinates, wrong element, something covering it).
+   - Logged, lands on the intended control, and still nothing happens →
+     only now is it a genuine code defect.
+
+Skipping these is how a tab-focus accident got escalated as a
 production-threatening defect and cost an afternoon chasing a control
 that was never broken.
+
+**Practical consequence for this project, not a bug in anything**: the
+browser used for real-click verification is shared with Johan. When he
+works in his own tabs, the verification tab goes to the background and
+silently stops accepting clicks — that is the normal, expected behaviour
+of a browser with an unfocused tab, not a fault to chase. Run check 1
+before trusting any "the button did nothing" result, every time this
+browser is shared.
 
 This stands alongside the two other things this week that our
 verification must not assume:
@@ -571,8 +602,9 @@ verification must not assume:
 2. Headless Chrome draws overlay scrollbars at zero width — it cannot see
    an element clipped by a real 15px scrollbar.
 3. A real-browser test cannot see anything at all if its input never
-   reached the page — confirm arrival before concluding the control is
-   dead.
+   reached the page — an unfocused/background tab receives no synthetic
+   input, so confirm focus before clicking and confirm arrival before
+   concluding the control is dead.
 
 **On the earlier, now-retracted version of this standard**: it had
 claimed programmatic clicks (including Puppeteer's own `elementHandle.click()`,
