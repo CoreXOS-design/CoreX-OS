@@ -1122,8 +1122,12 @@ class PropertyController extends Controller
         foreach ((array) $request->input('pending_contact_ids', []) as $cid) {
             $cid = (int) $cid;
             if ($cid > 0) {
-                $wasLinked = $property->contacts()->where('contacts.id', $cid)->exists();
-                $property->contacts()->syncWithoutDetaching([$cid => ['role' => $defaultLinkRole]]);
+                // $property is brand new here so this pair can't collide in
+                // practice, but goes through the linker for consistency —
+                // see .ai/specs/rental-applications.md, "The
+                // contact_property hard-delete fix".
+                $linkResult = \App\Services\Property\ContactPropertyLinker::link($cid, $property->id, $defaultLinkRole);
+                $wasLinked = ! $linkResult->isNew;
                 if (!$wasLinked) {
                     $linkedContact = \App\Models\Contact::find($cid);
                     if ($linkedContact) {
@@ -1163,8 +1167,8 @@ class PropertyController extends Controller
             // Auto-link if duplicate found (non-blocking in bulk create context)
             $existing = $dupService->findDuplicates($ncData, $agencyId)->first();
             if ($existing) {
-                $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
-                $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $defaultLinkRole]]);
+                $linkResult = \App\Services\Property\ContactPropertyLinker::link($existing->id, $property->id, $defaultLinkRole);
+                $wasLinked = ! $linkResult->isNew;
                 $match = $dupService->identifyMatch($ncData, $existing, $agencyId);
                 $dupService->logAttempt($agencyId, auth()->id(), 'auto_link', $match['field'], $match['value'], $existing->id, $ncData, 'auto_linked');
                 if (!$wasLinked) {
@@ -1195,7 +1199,7 @@ class PropertyController extends Controller
             }
 
             $contact = \App\Models\Contact::create($ncData);
-            $property->contacts()->attach($contact->id, ['role' => $defaultLinkRole]);
+            \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $defaultLinkRole);
             \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
             event(new \App\Events\Contact\ContactLinkedToProperty(
                 contact: $contact,
@@ -1623,9 +1627,15 @@ class PropertyController extends Controller
                 // AT-262 fix — remap the party role to the clone's listing type so a
                 // rental's landlord becomes the sale's seller (and vice-versa); else the
                 // seller never pulls through on the new listing's deal capture.
-                $clone->contacts()->attach($contact->id, [
-                    'role' => Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
-                ]);
+                // $clone is a brand-new Property here so this pair can't
+                // collide in practice, but goes through the linker for
+                // consistency — see .ai/specs/rental-applications.md, "The
+                // contact_property hard-delete fix".
+                \App\Services\Property\ContactPropertyLinker::link(
+                    $contact->id,
+                    $clone->id,
+                    Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
+                );
             }
         });
 
@@ -1667,9 +1677,15 @@ class PropertyController extends Controller
             $clone->save();
             foreach ($property->contacts as $contact) {
                 // AT-262 fix — remap the party role to the clone's listing type (see duplicate()).
-                $clone->contacts()->attach($contact->id, [
-                    'role' => Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
-                ]);
+                // $clone is a brand-new Property here so this pair can't
+                // collide in practice, but goes through the linker for
+                // consistency — see .ai/specs/rental-applications.md, "The
+                // contact_property hard-delete fix".
+                \App\Services\Property\ContactPropertyLinker::link(
+                    $contact->id,
+                    $clone->id,
+                    Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
+                );
             }
             // Archive the original — de-list syndication (the syndication path withdraws
             // it from the portals) and soft-delete so history is preserved. saveQuietly so
