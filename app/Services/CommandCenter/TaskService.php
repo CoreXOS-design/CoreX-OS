@@ -19,6 +19,17 @@ class TaskService
     }
 
     /**
+     * The Task board's base query: role visibility MINUS auto-generated
+     * property housekeeping (see CommandTask::scopeWithoutPropertyAutomation).
+     * The board, its header counts and its Archived view all read through
+     * this so the page never disagrees with itself.
+     */
+    private function boardQuery(User $user)
+    {
+        return $this->visibleQuery($user)->withoutPropertyAutomation();
+    }
+
+    /**
      * Create a task.
      */
     public function create(array $data, ?User $assignedBy = null): CommandTask
@@ -76,7 +87,7 @@ class TaskService
     public function getTasksByStatus(User $user): array
     {
         $column = function (string $status, bool $recentFirst = false) use ($user) {
-            $query = $this->visibleQuery($user)
+            $query = $this->boardQuery($user)
                 ->where('status', $status)
                 ->with(['property', 'contact', 'assignee']);
 
@@ -105,8 +116,20 @@ class TaskService
      */
     public function getSummary(User $user): array
     {
-        $base = $this->visibleQuery($user);
+        return $this->summarise($this->visibleQuery($user));
+    }
 
+    /**
+     * Header counts for the Task board — same shape as getSummary() but over
+     * boardQuery(), so "N open / N overdue" describes the cards actually shown.
+     */
+    public function getBoardSummary(User $user): array
+    {
+        return $this->summarise($this->boardQuery($user));
+    }
+
+    private function summarise($base): array
+    {
         return [
             'today'    => (clone $base)->dueToday()->count(),
             'overdue'  => (clone $base)->overdue()->count(),

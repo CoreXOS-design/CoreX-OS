@@ -205,6 +205,25 @@ command_tasks table:
 - Sorted by priority then due date
 - Quick-complete checkboxes for simple tasks
 
+#### What the Task board does NOT show (2026-09-13, Andre)
+The Task board is for tasks. Auto-generated **property housekeeping** is
+excluded from the board, its header counts and its Archived view:
+
+- the per-listing document-chase chores `AutoEventService::onPropertyCreated()`
+  mints ("Upload signed mandate / owner ID / proof of ownership — <address>"), and
+- the daily idle prompts `flagIdleProperties()` mints ("Property needs attention —
+  no activity for N days — <address>").
+
+Both are property-health signals keyed to a listing, not to-dos an agent chose;
+on staging they outnumbered real tasks ~16 000 to 4 and every one was overdue.
+The rule is structural (`CommandTask::scopeWithoutPropertyAutomation()`):
+automation-sourced + bound to a property + not a deal task. Deal automation
+(FICA / bond chores, which carry `deal_id`) and contact automation (follow-ups,
+no property) stay on the board. The rows are still created and still feed the
+Today page, the Overdue page, the dashboard and the mobile API unchanged — only
+the Task board page family reads through the exclusion. Guard:
+`TaskBoardExcludesPropertyAutomationTest`.
+
 ### Task Completion → Pillar Write-back
 When a task is marked done:
 - If it's a `document_upload` task → check if the document was actually uploaded to `property_files`. If yes, auto-complete. If no, ask for confirmation.
