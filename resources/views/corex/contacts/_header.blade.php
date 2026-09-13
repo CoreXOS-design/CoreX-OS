@@ -1,43 +1,43 @@
 {{-- ════════════════════════════════════════════════════════════════════════
-     CONTACT HEADER (AT-336, flattened AT-393)
+     CONTACT HEADER (AT-336, segmented strip AT-393)
 
-     A flat banner, not a card: no surrounding panel and no boxed facts well,
-     so the tab bar starts roughly half as far down the page as it used to.
-     Same content as before — nothing was removed, only re-arranged.
+     This is the contact's IDENTITY SECTION, not page chrome — a surface panel
+     that presents the person, so it is deliberately NOT a `corex-page-banner`
+     flat bar like the index/list pages.
 
-     Layout:
-       · Top row    — LEFT: a small "Back to Contacts" link above the name,
-                      then the name with its badges inline.
-                      RIGHT: every action, aligned to the name's baseline.
-       · Facts row  — the six record facts as one labelled row (label above
-                      value), wrapping to a second line only on narrow
-                      screens.
+     Layout — two bands, roughly half the height of the old three:
+       · Identity row — Back (icon) + the name + badges on the LEFT, every
+                        action on the RIGHT, all on one line.
+       · Facts strip  — the six record facts as six equal cells across the
+                        bottom of the card, split by hairline rules, edge to
+                        edge. The rules come from a 1px grid gap over a
+                        --border background, so they stay correct however
+                        the cells wrap on narrower screens.
 
      $commMeta / $commTint / $allPhones / $allEmails / $primaryAgent are all
      resolved once in show.blade.php and read here.
      ════════════════════════════════════════════════════════════════════════ --}}
-<div class="pb-4" style="border-bottom:1px solid var(--border);">
+<div class="rounded-lg overflow-hidden" style="background:var(--surface); border:1px solid var(--border); box-shadow:0 1px 2px rgba(15,23,42,0.06);">
 
-    {{-- Top row — identity LEFT, actions RIGHT. --}}
-    <div class="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-        <div class="min-w-0">
+    {{-- Identity row — Back + name + badges LEFT, actions RIGHT. --}}
+    <div class="px-5 py-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
             @include('corex.contacts._header-back')
-            <div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-2">
-                <h1 class="text-2xl font-bold leading-tight" style="color: var(--text-primary);">{{ $contact->full_name }}</h1>
-                @include('corex.contacts._header-badges')
-            </div>
+            <h1 class="text-2xl font-bold leading-tight" style="color: var(--text-primary);">{{ $contact->full_name }}</h1>
+            @include('corex.contacts._header-badges')
         </div>
         @include('corex.contacts._header-actions', [
-            'wrapClass' => 'flex flex-wrap items-center justify-end gap-2 sm:pt-5',
+            'wrapClass' => 'flex flex-wrap items-center justify-end gap-2',
         ])
     </div>
 
-    {{-- Facts row — one labelled line, no well. --}}
-    <div class="mt-3 flex flex-wrap gap-x-8 gap-y-3">
+    {{-- Facts strip — six cells, hairline-separated, flush to the card edge. --}}
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px"
+         style="background:var(--border); border-top:1px solid var(--border);">
 
-        <div class="min-w-0">
+        <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
             <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Phone</div>
-            <div class="text-sm truncate" style="color:var(--text-primary);">
+            <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">
                 @php $__ph = $allPhones->first(); @endphp
                 @if($__ph)
                     <a href="tel:{{ preg_replace('/\s+/', '', $__ph->phone) }}" class="no-underline hover:underline" style="color:inherit;">{{ $__ph->phone }}</a>
@@ -50,9 +50,9 @@
             </div>
         </div>
 
-        <div class="min-w-0">
+        <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
             <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Email</div>
-            <div class="text-sm truncate" style="color:var(--text-primary);">
+            <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">
                 @php $__em = $allEmails->first(); @endphp
                 @if($__em)
                     <a href="mailto:{{ $__em->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $__em->email }}</a>
@@ -65,19 +65,19 @@
             </div>
         </div>
 
-        <div class="min-w-0">
+        <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
             <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Agent</div>
-            <div class="text-sm truncate" style="color:var(--text-primary);">{{ $primaryAgent?->name ?? 'Unassigned' }}</div>
+            <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">{{ $primaryAgent?->name ?? 'Unassigned' }}</div>
         </div>
 
-        <div class="min-w-0">
+        <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
             <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Co-agent</div>
-            <div class="text-sm truncate" style="color:var(--text-primary);">{{ $contact->secondAgent?->name ?? '—' }}</div>
+            <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">{{ $contact->secondAgent?->name ?? '—' }}</div>
         </div>
 
-        <div class="min-w-0">
+        <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
             <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Created</div>
-            <div class="text-sm" style="color:var(--text-primary);">
+            <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">
                 {{ $contact->created_at->format('d M Y') }}
                 @if($contact->updated_at->ne($contact->created_at))
                 <span style="color:var(--text-muted);">· upd. {{ $contact->updated_at->diffForHumans(null, true) }} ago</span>
@@ -85,9 +85,9 @@
             </div>
         </div>
 
-        <div class="min-w-0">
+        <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
             <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Records</div>
-            <div class="text-sm" style="color:var(--text-primary);">
+            <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">
                 {{ $contact->documents->count() }} file{{ $contact->documents->count() !== 1 ? 's' : '' }}
                 · {{ $contact->contactNotes->count() }} note{{ $contact->contactNotes->count() !== 1 ? 's' : '' }}
             </div>
