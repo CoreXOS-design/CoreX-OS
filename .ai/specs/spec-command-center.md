@@ -1025,7 +1025,10 @@ Below 1024px the three regions stack and the page scrolls normally.
   load.
 - **Rail** renders every other card through the shared `<x-tile :compact="true">`
   shell (same contract as the Calendar Deck: per-row links, invitation buttons,
-  empty/degraded states), sorted critical → high → medium → low.
+  empty/degraded states), sorted critical → high → medium → low. Two page-level
+  exclusions (Andre, 2026-09-13): `recent_activity` is never shown on Today, and
+  `strategic_insights` is shown only when it has items. The service still returns
+  both — the mobile API and the Calendar deck are unchanged.
 - **Strip** takes the figure cards — `website_performance`, `my_compliance`,
   `agency_health`, `branch_lost_value`, `branch_compliance` — as plain
   value + label pairs (max 4 per card, top-listing rows with a `url` excluded),

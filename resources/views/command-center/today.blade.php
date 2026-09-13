@@ -324,8 +324,14 @@ function commandCentre() {
         },
         get railCards() {
             const strip = new Set(this.stripCards.map(c => c.card_id));
+            const hasItems = (c) => Array.isArray(c.items) && c.items.length > 0;
             return this.cards
                 .filter(c => c.card_id !== 'today_appointments' && !strip.has(c.card_id))
+                // Andre, 2026-09-13: Recent Activity is not shown on Today; Strategic
+                // Insights only when it actually has something to say. Page-level only —
+                // the mobile API and the Calendar deck keep receiving both cards.
+                .filter(c => c.card_id !== 'recent_activity')
+                .filter(c => c.card_id !== 'strategic_insights' || hasItems(c))
                 .slice()
                 .sort((a, b) => (URGENCY_RANK[a.urgency] ?? 9) - (URGENCY_RANK[b.urgency] ?? 9));
         },
