@@ -17,7 +17,7 @@
      $commMeta / $commTint / $allPhones / $allEmails / $primaryAgent are all
      resolved once in show.blade.php and read here.
      ════════════════════════════════════════════════════════════════════════ --}}
-<div class="rounded-lg overflow-hidden" style="background:var(--surface); border:1px solid var(--border); box-shadow:0 1px 2px rgba(15,23,42,0.06);">
+<div class="rounded-lg overflow-hidden flex-shrink-0" style="background:var(--surface); border:1px solid var(--border); box-shadow:0 1px 2px rgba(15,23,42,0.06);">
 
     {{-- Identity row — Back + name + badges LEFT, actions RIGHT. --}}
     <div class="px-5 py-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">

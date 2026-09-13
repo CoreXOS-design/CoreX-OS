@@ -13,7 +13,7 @@
     .contact-show-btn-hover { transition: opacity 150ms ease; }
     .contact-show-btn-hover:hover { opacity: 0.85; }
 </style>
-<div class="w-full space-y-4"
+<div class="w-full h-full flex flex-col"
      x-data="contactShowData('{{ route('corex.contacts.properties.search', $contact) }}', '{{ request('tab', 'info') }}')"
      x-init="activeTab = initTab">
 
@@ -50,6 +50,12 @@
     @endphp
 
     @include('corex.contacts._header')
+
+    {{-- AT-393 — frozen header. The page is a full-height flex column: the header above
+         stays put and everything from here down scrolls in this inner region (same
+         pattern as the contacts index). `data-scroll-region` opts this region into the
+         global scroll preserve/restore, so a save/delete reload lands back where you were. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto mt-4 space-y-4" data-scroll-region>
 
     {{-- AT-267 — view-only lock when the current user may not edit this contact (an assistant
          looking at a colleague's contact). An UNOWNED contact stays editable — see canMutateContact. --}}
@@ -1733,6 +1739,8 @@
         </div>
 
     </div>{{-- /tab container --}}
+
+    </div>{{-- /scroll region (AT-393) --}}
 
 </div>
 
