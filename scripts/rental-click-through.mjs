@@ -38,16 +38,19 @@
  *   8. Submit for approval (agent)
  *   9. Send back to applicant — Confirm is LEGITIMATELY disabled with no note typed
  *  10. Send back to applicant — Confirm works once a note is typed
- *  11. Authoriser Approve — Approve is LEGITIMATELY disabled with no amount typed
- *  12. Authoriser Approve — works once an amount is typed AND the in-page
- *      confirmation ("Yes, approve") is clicked (2026-09-16, cc5 — native
- *      confirm() removed here too, but Johan's call was to KEEP a real
- *      confirmation step; this is now a genuine two-stage flow, not one
- *      button whose disabled state changes)
+ *  11. Authoriser Approve — the first-stage button (authoriser-approve-continue)
+ *      is LEGITIMATELY disabled with no amount typed
+ *  12. Authoriser Approve — first-stage button works once an amount is typed,
+ *      reveals the in-page confirmation WITHOUT submitting (no request fires
+ *      yet), then the second-stage button (authoriser-approve-confirm) is
+ *      what actually POSTs. Neither stage uses a native dialog (2026-09-16 —
+ *      removed after one froze a real browser tab; see newPage()'s own
+ *      dialog handler, which now fails loudly instead of auto-accepting if
+ *      either path ever grows a native confirm()/alert()/prompt() again).
  *  13. Authoriser Decline — Decline is LEGITIMATELY disabled with no reason typed
  *  14. Authoriser Decline — works once BOTH a reason AND a reason template are
- *      chosen (AT-410b added the required template select; handles the native
- *      confirm())
+ *      chosen (AT-410b added the required template select). No native dialog
+ *      on this path either (2026-09-15) — same reasoning as #12.
  *  19. Rental applications list — scope toggle actually changes what's on
  *      screen (2026-09-13, AT-402 scope-default fix): switching Own->All
  *      changes the row count AND every tile count together, and a plain
@@ -155,7 +158,23 @@ async function newPage(browser, userId) {
   const domain = new URL(BASE_URL).hostname;
   await page.setCookie({ name: cookie.name, value: cookie.value, domain, path: '/', httpOnly: true, secure: domain !== '127.0.0.1' && domain !== 'localhost' });
   await page.setViewport({ width: 1900, height: 1200 });
-  page.on('dialog', (d) => d.accept()); // Approve/Decline's native confirm() guards
+  // 2026-09-16 — deliberately NOT an auto-accept handler. Approve and
+  // Decline both used to carry a native confirm(); one of them froze a
+  // real browser tab for three minutes (Johan's own walk) before it was
+  // traced to exactly that — a native dialog blocks the whole renderer
+  // until a human dismisses IT specifically, and nothing here was doing
+  // that. Both paths have had their native dialogs removed in favour of
+  // in-page confirmation. An auto-accept here would silently click through
+  // a reintroduced confirm() and let this exact regression back in
+  // invisibly — the gate built to catch it would instead hide it. Any
+  // unexpected native dialog is now a NAMED, LOUD failure instead: this
+  // dismisses it (so the run doesn't hang) and records exactly which
+  // dialog fired and what it said, rather than leaving the caller to
+  // decode a generic timeout.
+  page.on('dialog', async (dialog) => {
+    record('UNEXPECTED NATIVE DIALOG', false, `${dialog.type()} fired: "${dialog.message()}" — a native dialog reappeared on a path that should only ever confirm in-page`);
+    await dialog.dismiss();
+  });
   return page;
 }
 
@@ -423,15 +442,62 @@ async function main() {
     });
     await roPageApprove.type('input[x-model="approveAmount"]', '9500');
     await new Promise((r) => setTimeout(r, 200));
-    await roPageApprove.click('[data-qa="authoriser-approve-continue"]');
-    await new Promise((r) => setTimeout(r, 300));
-    await checkControl(roPageApprove, {
-      name: '12. Authoriser Approve — works once an amount is typed and confirmed',
-      selector: '[data-qa="authoriser-approve-confirm"]',
-      requestPattern: /\/approve$/,
-      requestMethod: 'POST',
-      timeout: 6000,
-    });
+
+    // 12. Bespoke two-stage check, 2026-09-16 — checkControl() can only
+    // express "click one selector, expect one request from that same
+    // click" and has no way to say "click A, confirm nothing fired yet,
+    // then click B and confirm it does". Approve is now a genuine two-stage
+    // in-page confirmation (authoriser-approve-continue reveals the confirm
+    // text; authoriser-approve-confirm is the one that actually POSTs — see
+    // the header docblock's #12 and newPage()'s dialog-handler comment for
+    // why this replaced a native confirm()). Written bespoke, but reports
+    // through record(name, pass, detail) exactly like checkControl() does.
+    {
+      const name = '12. Authoriser Approve — two-stage confirm works once an amount is typed';
+      const continueBtn = await roPageApprove.$('[data-qa="authoriser-approve-continue"]');
+      if (!continueBtn) {
+        record(name, false, 'authoriser-approve-continue not found after typing a valid amount');
+      } else {
+        const stillDisabled = await roPageApprove.evaluate((el) => !!el.disabled, continueBtn);
+        if (stillDisabled) {
+          record(name, false, 'authoriser-approve-continue still disabled after typing a valid amount');
+        } else {
+          let earlyPost = null;
+          const onEarlyReq = (req) => {
+            if (req.method() === 'POST' && /\/approve$/.test(req.url())) earlyPost = { method: req.method(), url: req.url() };
+          };
+          roPageApprove.on('request', onEarlyReq);
+
+          await continueBtn.click();
+          await new Promise((r) => setTimeout(r, 400));
+
+          const confirmBtn = await roPageApprove.$('[data-qa="authoriser-approve-confirm"]');
+          roPageApprove.off('request', onEarlyReq);
+
+          if (earlyPost) {
+            record(name, false, `first-stage click already fired ${earlyPost.method} ${earlyPost.url} — the confirmation step is not blocking submission`);
+          } else if (!confirmBtn) {
+            record(name, false, 'authoriser-approve-confirm did not appear after clicking the first-stage Approve button');
+          } else {
+            let confirmedPost = null;
+            const onConfirmReq = (req) => {
+              if (req.method() === 'POST' && /\/approve$/.test(req.url())) confirmedPost = { method: req.method(), url: req.url() };
+            };
+            roPageApprove.on('request', onConfirmReq);
+            await confirmBtn.click();
+            const deadline = Date.now() + 6000;
+            while (!confirmedPost && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+            roPageApprove.off('request', onConfirmReq);
+
+            if (!confirmedPost) {
+              record(name, false, 'clicked authoriser-approve-confirm, but no POST to /approve fired within 6000ms — dead control');
+            } else {
+              record(name, true, `${confirmedPost.method} ${confirmedPost.url}`);
+            }
+          }
+        }
+      }
+    }
     await roPageApprove.close();
 
     const roPageDecline = await newPage(browser, fx.ro_user_id);
