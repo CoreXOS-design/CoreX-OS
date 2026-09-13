@@ -13180,20 +13180,80 @@ survives past this session:**
    entries, per Johan's ruling that a role change is a real business
    event.
 
-**Honest scope answer, as asked:** the write side (my half) is close but
-not complete — roughly 7 more call sites confirmed and scoped above
-(mechanically simpler than what's done: mostly adding `deleted_at =>
-null` to existing `updateOrInsert` calls and converting a handful of raw
-`->delete()`s, no new architecture needed), plus finishing the
-`PropertyWizardController` conversion in flight, plus either fixing or
-consciously dropping the still-failing ESignWizard test. cc4's read-side
-half is separate and running in parallel. Whether the WHOLE thing —
-both halves, final merge, and the conductor's real-browser walk — lands
-tonight depends on how much of the remaining list goes smoothly; the
-remaining write items themselves are small enough that finishing my half
-tonight looks realistic, but I am not promising the combined,
-conductor-walked landing happens tonight — that also depends on cc4's
-half and the walk itself, neither of which I control.
+**Write side: COMPLETE as of this update.** Every item on the "still on
+the list" table above has been converted: `PropertyWizardController.php`
+(a real risk — resumes/edits an EXISTING draft per AT-210, not just
+safe-in-practice), `OwnerContactResolver.php:118`,
+`EntryPointController.php:161,548`, `DeedsCaptureController.php:1094`
+(all four converted from `updateOrInsert` to `ContactPropertyLinker`),
+`BackfillContactPropertyRoles.php` (deliberately excludes soft-deleted
+rows now, decision written in the code per the conductor's instruction —
+a backfill "helpfully" repairing a deliberately-removed link's role
+would silently resurrect its data with no way to tell which rows were
+touched), and the `ComposeSellerService` cluster (`markPrimary()`'s two
+`is_primary` updates now exclude trashed rows; `linkSellerToProperty()`/
+`unlinkSeller()` through the linker, `unlinkSeller()` now asserting role
+and wired with a catch+log+409 at its one caller; `selectDeed()`'s
+prior-seller drop and `unlinkDeed()`'s whole-set drop both soft-delete).
+The ESignWizard test that was stuck: fixed by extracting the actual
+write into its own method (`linkRecipientToProperty()`) and testing
+that directly, skipping the legacy duplicate-detection matching
+entirely — 2 tests, passing on the first attempt with that shape.
+
+**Completeness proof — the acceptance criterion, run and shown, not
+asserted:**
+
+```
+grep -rn "DB::table('contact_property')" app/ --include='*.php' | grep -E "insert|update|delete|upsert"
+```
+→ 5 hits, all justified: `BackfillContactPropertyRoles.php`'s two
+`update()`s target a row by its own primary key `id`, fetched from a
+query that already excludes trashed rows — cannot touch a soft-deleted
+row by construction. `PropertyObserver.php:892` is the one
+already-documented `forceDeleted()` exception.
+
+```
+grep -rn -- "->contacts()->attach" / "->detach" / "->sync" / "->syncWithoutDetaching" / "->updateExistingPivot" app/
+grep -rn -- "->properties()->attach" / "->detach" / "->sync" / "->syncWithoutDetaching" / "->updateExistingPivot" app/
+```
+→ ~50 hits, every single one on `$document`/`$doc`/`$deal`/`$filedDoc`/
+`$newDoc`/`$contactTag`/`$tag` — Document, Deal, DealV2, or ContactTag's
+own same-named relations on `document_contacts`/`document_properties`/
+`deal_contacts`/`deal_v2_contacts`/`contact_tag`, none of them
+`contact_property`. Zero hits on a `Contact`/`Property`-typed variable.
+
+```
+grep -rnE "\$(contact|existing|dupExisting|newContact|c)->properties\(\)->(attach|detach|sync)" app/
+grep -rnE "\$(property|clone|listing|newProperty)->contacts\(\)->(attach|detach|sync)" app/
+```
+→ zero hits, both.
+
+```
+grep -rn "contact_property" app/ --include='*.php' | grep -iE "insert|upsert"
+```
+→ zero hits.
+
+**Target met: zero unjustified direct writes to `contact_property`
+outside `ContactPropertyLinker.php`.** Two named, individually-justified
+exceptions stand, both already agreed: `PropertyObserver.php:892`
+(permanent property purge, correctly unconditional) and
+`ContactController.php:2201` (documented super-admin hard-purge escape
+hatch, pre-existing and out of scope).
+
+**Combined write-site inventory (mine — cc4 owns the read-side list in
+the earlier "Verified, disambiguated file list" section above), for the
+conductor's walk:** every file named across this checkpoint section,
+in full, with the specific methods/lines converted, is the complete
+list — there is no additional write site beyond what's named above and
+in the earlier LIST B. Nothing held back, nothing summarised away.
+
+**Honest scope answer, updated:** the write side is done, tested where
+the risk was real (webhooks, the exploitable seller-outreach unlink,
+the ESignWizard recipient link), and proven complete by grep, not
+assumed. What remains before this can land: cc4's read-side half, a
+combined merge of the two branches, and the conductor's own
+real-browser walk — none of which I control the timing of. My half is
+no longer the pacing item.
 
 ### Non-negotiable constraints, restated for whoever starts tomorrow
 
