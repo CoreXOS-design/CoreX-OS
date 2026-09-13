@@ -12636,6 +12636,191 @@ so a rental property correctly linked only to its tenant reads as
 critical-attention-needed on that dashboard. Minor, pre-existing,
 unrelated to this feature's own code — flagged, not fixed.
 
+## `contact_property` allows exactly ONE role per contact-property pair — a product question, not a bug, flagged not fixed (2026-09-13, conductor + cc3)
+
+Found while working out how to make `contact_property` soft-delete-safe
+for re-linking (see the hard-delete fix section below). **Named
+separately from that fix on the conductor's explicit instruction — this
+is a product question for Johan, not something to design a fix for
+here.**
+
+**The constraint:** `contact_property`'s unique index is
+`(contact_id, property_id)` only — `role` is not part of it
+(`database/migrations/2026_03_05_200001_create_contact_property_table.php:18`).
+One contact can hold exactly one role on a given property, ever, at the
+database level.
+
+**What happens today when someone tries to add a second role:** verified
+in code, not assumed — `ContactPropertyController::link()` (`app/Http/
+Controllers/CoreX/ContactPropertyController.php:70-72`) calls
+`$contact->properties()->syncWithoutDetaching([$data['property_id'] =>
+['role' => $role]])`. Because the pivot lookup `syncWithoutDetaching`
+uses to decide "does a row already exist for this pair" is keyed purely
+on `(contact_id, property_id)`, linking an already-linked contact with a
+*different* role does not fail and does not create a second row — it
+**silently overwrites the existing role**, in place, with no warning, no
+history, no trace of what the prior role was.
+
+**What this prevents, concretely:** a landlord who later becomes that
+same property's tenant. An owner who is also its buyer's estate agent
+listed as both. A seller who ends up buying their own listing back. Any
+scenario where the SAME real person legitimately holds two relationships
+to the SAME property at once, or holds a second one later without losing
+the record of the first. None of these can be represented today — the
+second link doesn't add to the record, it erases the first one.
+
+**Why it's worth Johan seeing, in his own words' spirit rather than
+ours:** this is exactly the kind of thing that surfaces a year from now
+as "the system changed my contact from owner to tenant and lost the
+owner link" — a support ticket that looks like a bug but is actually
+this documented, current, by-design behaviour. Whether it matters to the
+business is entirely his call — it may be fine as-is. **No fix designed
+here, per instruction — this is a named finding for a later, calmer
+conversation, not part of the hard-delete fix in progress.**
+
+## The `contact_property` hard-delete fix — plan, findings, and where tomorrow starts (2026-09-13, conductor + cc3)
+
+**Status: NOT STARTED tonight, deliberately.** Johan ruled "we have to
+fix it, corex is a no delete system," then, once the scope grew to the
+whole table (not just the 4 originally-named call sites), ruled "always
+all." The conductor then ruled the job ships as one complete piece or
+not at all — no partial/staged landing to QA1 — because the investigation
+below found that a *partial* fix (only the 4 named sites, or the
+foundation without the write-side fix) is actively worse than doing
+nothing: it would make Property/Contact screens correctly hide a removed
+link while Seller Outreach and the Client Seller Insights portal kept
+treating it as live, a silent inconsistency across pillars rather than a
+visible one. With Johan demoing to a rental team and eight agencies on
+Tuesday, this is deliberately a "tomorrow, properly" job, not tonight's.
+This section is what tomorrow starts from — read this before
+re-investigating anything below.
+
+### Why this exists
+
+Johan: "we have to fix it. corex is a no delete system." `contact_property`
+has no `deleted_at` and at least 7 call sites permanently delete rows —
+a tenant, owner, seller, buyer, or landlord link, once removed, cannot
+be recovered and leaves no trace. This matters concretely because a
+tenancy link is the kind of record someone needs back years later (a
+deposit dispute, a reference check, a court matter), and cc4's approved
+inspections spec has agents pressing the rental-application unlink
+button as a routine part of an inspection workflow — this button is
+about to be used far more often than it has been.
+
+### Not a live problem today, independently confirmed
+
+Before scoping the fix, checked whether TODAY's hard-delete already
+causes an access problem — e.g. a removed seller retaining portal
+access because of a cache or stale session. It does not:
+`ClientSellerInsightsController::index()`/`show()`
+(`app/Http/Controllers/Api/V1/ClientSellerInsightsController.php:61,117`)
+and `EntryPointController`'s `isSeller` checks (e.g. `:1420-1423`) all
+query `contact_property` fresh, per request, via `DB::table(...)`. No
+cache, no session-stored role (`ClientAuthService` has no `Cache::`/
+`remember()` calls). Under hard-delete, removing a link correctly and
+immediately revokes anything gated on it. **The access-regression risk
+below is a risk this FIX could introduce if shipped incompletely — it
+is not a pre-existing vulnerability.**
+
+### Check 1 — the unique index, and why the obvious fix is wrong
+
+`(contact_id, property_id)` only, no `role`
+(`create_contact_property_table.php:18`) — stricter than assumed; one
+contact can hold only one role per property at all today (see the
+finding above).
+
+**A tempting, wrong fix:** widen the unique index to
+`(contact_id, property_id, deleted_at)` so soft-deleted rows don't block
+a fresh insert. **This does not work.** MySQL does not enforce
+uniqueness across a composite key when any column in it is NULL — so
+multiple ACTIVE (`deleted_at IS NULL`) rows for the same pair could be
+inserted without the database ever raising a duplicate-key error, since
+each NULL is treated as distinct from every other NULL even within the
+same composite tuple. Widening the index would silently remove the one
+protection the table has today, not add one — this would have shipped
+as a silent duplicate-active-links bug months from now if not caught.
+
+**The actual fix:** leave the unique index exactly as it is. Every write
+path must look up the existing row FIRST — including trashed rows via a
+query that bypasses the new read-side scope — and restore/update it if
+found, rather than blind-inserting. "Restore, never blind-insert" is the
+rule for stage 2 below, not an index change.
+
+### Check 2 — role values / other features
+
+Production data: `owner` (809), `seller` (476), `lead` (349), `landlord`
+(104), `buyer` (27), null (5) — all legitimate property-contact
+relationship roles, nothing repurposing the table for something
+unrelated. The wide blast radius comes from HOW MANY features read/write
+those same roles (Prospecting, Seller Outreach, Compliance, Command
+Center all depend on owner/seller/landlord data in this exact table),
+not from role diversity.
+
+### The stages, in landing order — build all of them before any of them ships
+
+**Stage 1 — foundation.** Migration: add `deleted_at` (nullable
+timestamp) to `contact_property`. No index change (see Check 1). No
+data migration — existing rows are untouched, all get `deleted_at =
+NULL` by column default. Relationship-level scope: add
+`->wherePivotNull('deleted_at')` to both `Contact::properties()`
+(`app/Models/Contact.php:688-693`) and `Property::contacts()`
+(`app/Models/Property.php:777-782`) so every consumer going through
+these two named relations is automatically deleted_at-safe with no
+per-file change. Migration runs only via `/corex-qa1` (cc1 owns moving
+HEAD there, per this session's standing rule) — never applied directly
+from a worktree.
+
+**Stage 2 — every write site.** The 4 originally-named detach sites
+(`RentalApplicationController.php:1083`, `ContactPropertyController.php:112`,
+`PropertyContactController.php:388`, `MobilePropertyController.php:1284`)
+plus `PropertyObserver.php:892` (bulk-deletes every `contact_property`
+row for a property — needs careful handling, described as the one most
+likely to behave differently under soft-delete; not yet analysed in
+detail, that's tomorrow's first job in this stage) plus
+`ComposeSellerService.php:490,522`. ALL become soft-deletes (set
+`deleted_at`), never a real `DELETE`. Additionally — this is the
+scope-widening found tonight — every LINK/attach/sync/`updateOrInsert`
+write path for this pivot must apply "restore, never blind-insert":
+check for an existing row (trashed or not) before writing; if trashed,
+clear `deleted_at` and update role/timestamps; if active, update in
+place as today; only insert fresh when genuinely nothing exists for that
+pair. Without this, re-linking a previously-unlinked contact would throw
+a duplicate-key error the instant a soft-deleted row already occupies
+that `(contact_id, property_id)` slot.
+
+**Stage 3 — every raw read site.** Every `DB::table('contact_property')`
+query and every join by that table name needs its own
+`whereNull('deleted_at')` — these bypass the stage-1 relationship scope
+entirely, so they are NOT covered for free. The verified, disambiguated
+file list (with false positives from unrelated same-named
+`contacts()`/`properties()` relations on other models — Deal, Document,
+ContactTag etc. — stripped out) is being produced tonight as
+investigation-only prep so tomorrow starts clean; see the follow-up note
+below once that lands.
+
+**Stage 4 — audit trail.** `ContactPropertyController.php:112`,
+`PropertyContactController.php:388`, and `MobilePropertyController.php:1284`
+currently log nothing at all before deleting — matching pattern already
+proven in `RentalApplicationController::unlinkTenantProperty()`'s own
+audit call.
+
+### Non-negotiable constraints, restated for whoever starts tomorrow
+
+- Nothing in Prospecting, Seller Outreach, or Command Center may break —
+  Johan demos those modules Tuesday.
+- No data migration touching existing row values — column add only.
+- Re-linking a previously-unlinked contact must work cleanly: no
+  duplicate row, no unique-index failure.
+- Ships as ONE complete, verified piece — no partial landing to QA1.
+  The investigation above is exactly why: a partial fix is worse than no
+  fix, because it makes pillars silently disagree instead of visibly
+  agreeing (see "not a live problem today" above for the mechanism).
+- Report progress at the end of each stage, not only at the end.
+- State plainly, every time, by what means something was tested —
+  headless Puppeteer with real `ElementHandle.click()` is acceptable and
+  disclosed as such; a real browser click by the conductor is still the
+  final verification step before anything is called done.
+
 ## FICA becomes mandatory — one continuous submit-into-FICA flow (Johan, 2026-09-13, round 3)
 
 Johan, a legal position, not a preference: "technically we not allowed to
