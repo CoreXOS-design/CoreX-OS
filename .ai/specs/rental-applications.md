@@ -13381,6 +13381,23 @@ screen (names the agent's name, email and phone):
   `resendIdentityGateOtp()` shows the cooldown or hourly message above
   instead of a false "sent" whenever nothing actually went out.
 
+**A load-bearing dependency, flagged by the conductor for the record —
+this gate's attempt cap is only strong because the token is:** 5
+attempts per 15 minutes (the default) is a sensible limit *specifically
+because an attacker must already hold the tokenised link to reach this
+gate at all* — the 64-character random token is the real barrier;
+the attempt cap only has to stop someone who has already cleared that
+bar from then brute-forcing a 6-digit code or a known ID number against
+one already-compromised link. If the token ever gets shorter, more
+predictable, or otherwise easier to guess or enumerate, this throttle
+silently becomes the ONLY thing standing between a stranger and an
+applicant's file, and 5/15min stops being an adequate number on its
+own. Anyone touching either the token generation
+(`RentalApplicationController::generateToken()`, currently
+`Str::random(64)`) or this gate's attempt limits must read the other
+half first — the two are not independent settings, whatever the config
+screen makes them look like.
+
 ### (d) Abandon safety — nothing already captured is ever at risk
 
 The gate sits strictly *after* data capture, never instead of it or
