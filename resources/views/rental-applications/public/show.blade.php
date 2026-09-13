@@ -376,12 +376,19 @@
             instruction) and associated via the HTML5 form= attribute —
             the browser treats it exactly as if it were still inside.
         --}}
+        {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, verbatim:
+             "the final action becomes 'Submit and complete FICA
+             verification' — one continuous flow." Submitting now redirects
+             straight into CoreX's existing FICA form (see submit()'s FICA
+             hand-off) — the button says so up front, not as a surprise
+             after clicking "Submit". --}}
         <button type="submit" form="rentalApplicationSubmitForm" class="w-full rounded-lg text-white font-semibold py-3 text-sm"
                 style="background: var(--brand-default, #0b2a4a);"
                 :disabled="submitting">
-            <span x-show="!submitting">Submit Application</span>
+            <span x-show="!submitting">Submit and Complete FICA Verification</span>
             <span x-show="submitting" x-cloak>Submitting…</span>
         </button>
+        <p class="text-xs text-slate-500 mt-2">Your application is received as soon as you submit — FICA verification is the last step before your agent can act on it.</p>
         <p class="text-xs text-red-600 mt-2" x-show="error" x-text="error" x-cloak></p>
     </div>
 

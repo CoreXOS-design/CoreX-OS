@@ -306,6 +306,31 @@
         </form>
     </div>
 
+    {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal
+         position: "technically we not allowed to work with anyone if did
+         not fica." The application itself is ALWAYS received regardless
+         of this setting — it only controls whether FICA must be complete
+         before the application can be sent to the authoriser. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">FICA Before Authorisation</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            The application is always received and the agent notified, whether or not FICA is finished.
+            This setting only controls whether the application can be sent to the authoriser while FICA
+            is still outstanding for the applicant.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.require-fica-before-authorisation') }}" class="flex items-center gap-3">
+            @csrf
+            <input type="hidden" name="require_fica_before_authorisation" value="0">
+            <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                <input type="checkbox" name="require_fica_before_authorisation" value="1"
+                       @checked(old('require_fica_before_authorisation', $requireFicaBeforeAuthorisation))>
+                Require FICA to be complete before an application can go to the authoriser
+            </label>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- Public link volume caps, AT-392 round 2, 2026-09-13 — conductor's
          sweep of the remaining public applicant-journey routes, all of
          which still carried Laravel's stock per-IP throttle (the exact

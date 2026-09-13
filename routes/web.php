@@ -2852,6 +2852,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // AT-392 round 2, 2026-09-13 — the five remaining public-route volume caps.
     Route::post('/settings/rental-applications/route-rate-limits', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRouteRateLimits'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.route-rate-limits');
+    // FICA-mandatory, AT-392 round 3, 2026-09-13 — whether FICA must be complete before authorisation.
+    Route::post('/settings/rental-applications/require-fica-before-authorisation', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireFicaBeforeAuthorisation'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.require-fica-before-authorisation');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');

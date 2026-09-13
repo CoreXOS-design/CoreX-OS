@@ -242,6 +242,25 @@
                     <span class="text-xs font-normal flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);">
                         &middot; {{ $headerPropertyFact }}@if($headerExtraFact) &middot; {{ $headerExtraFact }}@endif
                     </span>
+                    {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — SAME
+                         badge classes/labels the Contact page already uses
+                         for this exact fact, so an agent reads it the same
+                         way in both places rather than learning a second
+                         visual language for it. --}}
+                    @php
+                        $ficaStatus = $rentalApplication->contact?->ficaStatus() ?? 'incomplete';
+                        $ficaBadgeClass = match($ficaStatus) {
+                            'complete' => 'ds-badge-success',
+                            'expiring' => 'ds-badge-warning',
+                            default => 'ds-badge-danger',
+                        };
+                        $ficaBadgeLabel = match($ficaStatus) {
+                            'complete' => 'FICA Complete',
+                            'expiring' => 'FICA Expiring',
+                            default => 'FICA Outstanding',
+                        };
+                    @endphp
+                    <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="FICA status for {{ $rentalApplication->contact?->full_name }}">{{ $ficaBadgeLabel }}</span>
                 </h1>
 
                 @if($viewerRole === 'agent')

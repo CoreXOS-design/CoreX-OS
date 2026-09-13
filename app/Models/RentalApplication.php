@@ -590,6 +590,20 @@ class RentalApplication extends Model
     }
 
     /**
+     * FICA-mandatory, AT-392 round 3, 2026-09-13 — reads the SAME status
+     * `Contact::ficaStatus()` already computes and the SAME badge the
+     * Contact page already shows (Complete/Expiring/Incomplete) — no new
+     * expiry policy invented for rentals, no second FICA anything. A
+     * repeat tenant with a complete, unexpired FICA on file from any past
+     * transaction reads as already done here too (that table has never
+     * been scoped to a single deal/transaction — checked, not assumed).
+     */
+    public function ficaOutstanding(): bool
+    {
+        return $this->contact?->ficaStatus() !== 'complete';
+    }
+
+    /**
      * Reopen/resubmit — Johan: "agent has review screen open, applicant
      * resubmits mid-review... reuse the exact 409-conflict pattern you
      * already built and shipped for document marks." A review screen loads

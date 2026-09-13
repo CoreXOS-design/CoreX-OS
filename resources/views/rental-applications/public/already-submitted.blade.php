@@ -56,6 +56,20 @@
         @endif
     </div>
 
+    @if($ficaOutstanding ?? false)
+        {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "flagged
+             ... on the applicant's confirmation" if FICA was abandoned.
+             Plain, actionable, no jargon — the applicant may not know what
+             "FICA" means, so this spells out what's actually needed. --}}
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-4 text-left">
+            <p class="text-sm font-semibold text-amber-800 mb-1">One more step needed</p>
+            <p class="text-sm text-amber-700">
+                Your application has been received, but we still need to verify your identity documents (FICA)
+                before it can move forward. Please contact your agent to finish this step.
+            </p>
+        </div>
+    @endif
+
     {{--
         AT-392, Johan 2026-09-07 — spec §5: supporting documents are
         uploadable "both BEFORE signing... and AFTER signing" (matching the
