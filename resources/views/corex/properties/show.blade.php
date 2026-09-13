@@ -4934,7 +4934,7 @@
                 @php
                     $isPurchaser = in_array((int) $c->id, $purchaserIds, true);
                 @endphp
-                <div x-data="{ editing: false, role: @js($c->pivot->role ?: $defaultLinkRole) }"
+                <div x-data="{ editing: false, role: @js($c->pivot->role ?: $defaultLinkRole), confirmingUnlink: false }"
                      class="px-4 py-3 rounded-md mb-2"
                      style="background:var(--surface-2); border:1px solid {{ $isPurchaser ? 'var(--ds-green, #059669)' : 'var(--border)' }};"
                      data-contact-row="{{ $c->id }}" @if($isPurchaser) data-purchaser="1" @endif>
@@ -4957,15 +4957,39 @@
                                 @if($c->pivot->role)<span class="font-semibold" style="color:var(--brand-icon);" data-contact-role>{{ ucfirst($c->pivot->role) }}</span>@endif
                             </div>
                         </div>
-                        <div class="flex items-center gap-2 flex-shrink-0">
-                            <button type="button" @click="editing = !editing"
-                                    class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--brand-icon,#0ea5e9);">
-                                <span x-text="editing ? 'Close' : 'Edit role'"></span>
-                            </button>
-                            <button type="button"
-                                    @click="unlinkContact({{ $c->id }}, @js($c->full_name))"
-                                    class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
-                        </div>
+                        {{-- 2026-09-13 — native confirm() removed, same reasoning and
+                             pattern as review.blade.php's Approve/Decline and
+                             view-readonly.blade.php's tenant Unlink: a native dialog
+                             blocks the whole tab's renderer until dismissed, and this
+                             is the general contacts↔properties unlink — used to remove
+                             an owner/seller/landlord/lessor, the highest-consequence
+                             link this panel manages. Two-stage in-page confirmation
+                             instead, naming the contact, their role, AND the property
+                             — role matters here specifically because this one panel
+                             handles owner/seller/buyer/lessor alike. --}}
+                        <template x-if="!confirmingUnlink">
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                                <button type="button" @click="editing = !editing"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--brand-icon,#0ea5e9);">
+                                    <span x-text="editing ? 'Close' : 'Edit role'"></span>
+                                </button>
+                                <button type="button" data-qa="contact-unlink-continue"
+                                        @click="confirmingUnlink = true"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>
+                            </div>
+                        </template>
+                        <template x-if="confirmingUnlink">
+                            <div class="flex items-center gap-2 flex-wrap flex-shrink-0 justify-end">
+                                <span class="text-xs" style="color:var(--ds-crimson);">
+                                    Remove {{ $c->full_name }} as {{ $c->pivot->role ? strtolower($c->pivot->role) : 'contact' }} of {{ $property->buildDisplayAddress() ?: ($property->title ?: 'this property') }}?
+                                </span>
+                                <button type="button" @click="confirmingUnlink = false"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--text-muted);">Go back</button>
+                                <button type="button" data-qa="contact-unlink-confirm"
+                                        @click="unlinkContact({{ $c->id }}, @js($c->full_name)); confirmingUnlink = false"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Yes, unlink</button>
+                            </div>
+                        </template>
                     </div>
                     {{-- Inline role edit (full CRUD on the link role — no unlink/relink) --}}
                     <div x-show="editing" x-cloak class="mt-3 pt-3 flex items-center gap-2 flex-wrap" style="border-top:1px solid var(--border);">
@@ -6699,7 +6723,11 @@ function propertyContactsManager(searchUrl, defaultRole) {
             }
         },
         async unlinkContact(id, name) {
-            if (!confirm('Unlink ' + name + ' from this property?')) return;
+            // 2026-09-13 — no native confirm() here any more; the caller
+            // (the two-stage in-page confirmation on the contact row, or
+            // the equivalent inline confirmation coreXAppendLinkedContact
+            // builds for an AJAX-appended row below) has already confirmed
+            // before this runs. This function assumes confirmation happened.
             try {
                 const urlTpl = @js($property->exists ? route('corex.properties.contacts.unlink', [$property->id, 0]) : '');
                 const res = await fetch(urlTpl.replace(/\/0$/, '/' + id), {
@@ -6752,14 +6780,60 @@ window.coreXAppendLinkedContact = function (c) {
             '<a href="' + escapeHtml(c.show_url) + '" class="text-sm font-semibold no-underline hover:underline" style="color:var(--text-primary);">' + escapeHtml(c.full_name) + '</a>' + purchaserBadge +
             '<div class="text-xs mt-0.5 flex gap-3" style="color:var(--text-muted);">' + meta.join('') + '</div>' +
         '</div>' +
-        '<button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80" style="color:var(--ds-crimson);">Unlink</button>';
-    row.querySelector('button').addEventListener('click', function () {
-        // Defer to Alpine manager so we go through the same unlink flow.
-        const wrap = document.querySelector('[x-data^="propertyContactsManager"]');
-        if (wrap && wrap._x_dataStack && wrap._x_dataStack[0]) {
-            wrap._x_dataStack[0].unlinkContact(c.id, c.full_name);
-        }
-    });
+        '<div class="flex items-center gap-2 flex-wrap flex-shrink-0 justify-end" data-unlink-actions></div>';
+    // 2026-09-13 — same two-stage in-page confirmation as the server-rendered
+    // row above, built with plain DOM here (no Alpine scope on a node injected
+    // outside Alpine's tree) rather than a native confirm(). Kept as named
+    // functions so "Go back" can rebuild the same starting state it left.
+    const actionsEl = row.querySelector('[data-unlink-actions]');
+    const roleLabel = c.role ? c.role.toLowerCase() : 'contact';
+    const propertyLabel = @js($property->buildDisplayAddress() ?: ($property->title ?: 'this property'));
+    function renderUnlinkContinue() {
+        actionsEl.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.qa = 'contact-unlink-continue';
+        btn.className = 'text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80';
+        btn.style.color = 'var(--ds-crimson)';
+        btn.textContent = 'Unlink';
+        btn.addEventListener('click', renderUnlinkConfirm);
+        actionsEl.appendChild(btn);
+    }
+    function renderUnlinkConfirm() {
+        actionsEl.innerHTML = '';
+        const msg = document.createElement('span');
+        msg.className = 'text-xs';
+        msg.style.color = 'var(--ds-crimson)';
+        msg.textContent = 'Remove ' + c.full_name + ' as ' + roleLabel + ' of ' + propertyLabel + '?';
+        const goBack = document.createElement('button');
+        goBack.type = 'button';
+        goBack.className = 'text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80';
+        goBack.style.color = 'var(--text-muted)';
+        goBack.textContent = 'Go back';
+        goBack.addEventListener('click', renderUnlinkContinue);
+        const confirmBtn = document.createElement('button');
+        confirmBtn.type = 'button';
+        confirmBtn.dataset.qa = 'contact-unlink-confirm';
+        confirmBtn.className = 'text-xs font-semibold px-3 py-1.5 rounded-md transition-colors hover:opacity-80';
+        confirmBtn.style.color = 'var(--ds-crimson)';
+        confirmBtn.textContent = 'Yes, unlink';
+        confirmBtn.addEventListener('click', function () {
+            // Public accessor (Alpine.$data), never the private _x_dataStack
+            // internal — this file already uses this exact pattern elsewhere
+            // (see the activeTab reads above). A private-API break on an
+            // Alpine upgrade would silently no-op this button with no error,
+            // which is the one failure mode a control must never have: dead,
+            // and silent about it.
+            const wrap = document.querySelector('[x-data^="propertyContactsManager"]');
+            if (wrap && window.Alpine && typeof window.Alpine.$data === 'function') {
+                window.Alpine.$data(wrap).unlinkContact(c.id, c.full_name);
+            }
+        });
+        actionsEl.appendChild(msg);
+        actionsEl.appendChild(goBack);
+        actionsEl.appendChild(confirmBtn);
+    }
+    renderUnlinkContinue();
     list.appendChild(row);
     if (empty) empty.style.display = 'none';
     // Update count badge + main-form data-contact-count
