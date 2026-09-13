@@ -72,6 +72,11 @@ class RentalApplicationSettingsController extends Controller
         $autosaveRateLimitMax = RentalApplicationQualifyingSetting::autosaveRateLimitMaxFor($agencyId);
         $autosaveRateLimitWindowMinutes = RentalApplicationQualifyingSetting::autosaveRateLimitWindowMinutesFor($agencyId);
 
+        // Document upload/replace/remove volume cap, 2026-09-13 — how many
+        // document changes one applicant link can make in a rolling window.
+        $documentRateLimitMax = RentalApplicationQualifyingSetting::documentRateLimitMaxFor($agencyId);
+        $documentRateLimitWindowMinutes = RentalApplicationQualifyingSetting::documentRateLimitWindowMinutesFor($agencyId);
+
         // AT-392 approval-leg — Johan's standing rule: "any threshold, window
         // or business rule must be an agency-configurable setting with a
         // sensible default, never hardcoded." How many matched properties
@@ -149,7 +154,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -391,6 +396,35 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Autosave volume cap saved.');
+    }
+
+    /**
+     * Document upload/replace/remove volume cap, 2026-09-13 — separate
+     * route/method, same reasoning as updateAutosaveRateLimit() above.
+     * min:20 server-enforced so this can never be configured tighter than
+     * a single realistic multi-file phone upload with one retry could
+     * plausibly need — see RentalApplicationQualifyingSetting::
+     * DEFAULT_DOCUMENT_RATE_LIMIT_MAX's own docblock for the sizing.
+     */
+    public function updateDocumentRateLimit(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'document_rate_limit_max' => ['required', 'integer', 'min:20', 'max:10000'],
+            'document_rate_limit_window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+        ]);
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            [
+                'document_rate_limit_max' => $validated['document_rate_limit_max'],
+                'document_rate_limit_window_minutes' => $validated['document_rate_limit_window_minutes'],
+            ],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Document upload volume cap saved.');
     }
 
     /**

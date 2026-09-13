@@ -244,6 +244,41 @@
         </form>
     </div>
 
+    {{-- Document upload volume cap, 2026-09-13 — AT-392. Johan was blocked
+         live on QA1 by the PRE-EXISTING per-IP throttle on the public
+         document upload/replace/remove routes: a real applicant's file
+         picker fires one POST per file, concurrently, so a full document
+         set plus one retry can legitimately run past a tight generic cap.
+         Re-keyed to the application token (so one applicant can never
+         exhaust another's allowance) and made agency-configurable here,
+         same pattern as the autosave cap above — never hardcoded. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Document Upload Volume Cap</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            A safety limit on the public application form's document upload, replace, and remove
+            actions — caps how many of these an individual application can perform in a rolling
+            window. The default is sized for a real applicant uploading a full document set with
+            retries; this exists to stop abuse of the public link, not to limit genuine use.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.document-rate-limit') }}" class="flex items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Maximum uploads</label>
+                <input type="number" name="document_rate_limit_max" step="1" min="20" max="10000"
+                       value="{{ old('document_rate_limit_max', $documentRateLimitMax) }}"
+                       class="corex-input text-sm" style="width: 120px;">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Per this many minutes</label>
+                <input type="number" name="document_rate_limit_window_minutes" step="1" min="1" max="1440"
+                       value="{{ old('document_rate_limit_window_minutes', $documentRateLimitWindowMinutes) }}"
+                       class="corex-input text-sm" style="width: 100px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- Item 2 follow-up, 2026-09-10 — Johan: "any threshold, window or
          business rule an agency-configurable setting with a sensible
          default, never hardcoded." Reproduced on a real, fully-approved

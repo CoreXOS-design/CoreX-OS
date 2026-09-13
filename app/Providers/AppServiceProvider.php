@@ -946,5 +946,47 @@ class AppServiceProvider extends ServiceProvider
                 \Illuminate\Cache\RateLimiting\Limit::perMinute(5)->by('ip:' . $request->ip()),
             ];
         });
+
+        // Rental application document uploads, 2026-09-13 — Johan, live on
+        // QA1, blocked before golf by the stock `throttle:10,1` this
+        // replaces on uploadDocuments()/removeDocument()/replaceDocument().
+        // That default keys by IP (Laravel's ThrottleRequests default
+        // unauthenticated signature) — an entire shared office connection
+        // or carrier-grade-NAT mobile line is ONE applicant as far as it's
+        // concerned, and ten was too tight for a real multi-file phone
+        // upload with a retry in it regardless of who it's keyed by.
+        // Keyed on the APPLICATION TOKEN instead — deliberately no IP
+        // component at all (unlike reengage-shared-link's belt-and-braces
+        // second limit): the whole point here is that one applicant's
+        // uploads must never be able to exhaust a DIFFERENT applicant's
+        // allowance just because they happen to share a connection, and an
+        // IP-keyed second limit would silently reintroduce exactly that.
+        // Agency-configurable, never hardcoded, same as every other
+        // threshold this feature carries — see
+        // RentalApplicationQualifyingSetting::DEFAULT_DOCUMENT_RATE_LIMIT_MAX's
+        // own docblock for how the default is sized. A malformed/unknown
+        // token still gets its own isolated bucket (keyed by that literal
+        // string) at the agency default — harmless, never unlimited.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-documents', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::documentRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::documentRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-documents:' . $token)
+                ->response(function () {
+                    // The applicant-facing message this whole fix exists
+                    // for — Johan: "'Too many attempts' told our own CEO
+                    // nothing; it tells an applicant less." Read by the
+                    // SAME frontend error-handling show.blade.php/
+                    // already-submitted.blade.php already have
+                    // (`data.message`) — no frontend change needed for
+                    // this to surface correctly.
+                    return response()->json([
+                        'message' => "You've made a lot of document changes in a short time, so uploads are paused for a moment. Everything you've already uploaded is safe — please wait a minute and try again.",
+                    ], 429);
+                });
+        });
     }
 }
