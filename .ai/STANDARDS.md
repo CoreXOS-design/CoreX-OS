@@ -153,6 +153,18 @@ This is orthogonal to the schema-snapshot bootstrap (non-negotiable #12a) —
 that makes ONE lane's bootstrap fast; this stops lanes from corrupting or
 blocking EACH OTHER. Both matter; neither substitutes for the other.
 
+**Correction, 2026-09-13 — this standard covers TEST RUNS ONLY, never
+migrations.** `TEST_DB_DATABASE` is read exclusively by `tests/bootstrap.php`,
+which is wired in solely via `phpunit.xml`'s own `bootstrap=` attribute — a
+bare `php artisan migrate` never loads that file and is completely
+unaffected by anything on this page. Every worktree's real `DB_DATABASE`
+(the one `migrate` actually uses) has always been `corex_qa1` — the live,
+shared, Johan-tests-in-it database — regardless of what `TEST_DB_DATABASE`
+is set to. If you read this standard and concluded per-lane isolation
+covers migrations too, that was a reasonable read of an incomplete
+document, not an error on your part — see Standard −1g for what actually
+guards `migrate` now, and why this needed its own separate answer.
+
 ---
 
 ## Standard −1b — Refresh `database/schema/mysql-schema.sql` when you add a migration
@@ -398,6 +410,122 @@ fixed by this standard (it touches a file mid-rework by another lane) —
 the same discipline BUILD_STANDARD already applies to the pre-existing
 Round10/Round11 test debt: one tracked, explained exception that prints
 loudly on every run, never a silent, growing pile of them.
+
+---
+
+## Standard −1g — No worktree migrates the shared QA1 database directly (ENFORCED, not a paragraph)
+
+Real incident, 2026-09-13: two lanes (independently) ran `php artisan
+migrate` directly in their own worktrees, against `corex_qa1` — the exact
+live database `/corex-qa1` serves to `qatesting1.corexos.co.za`, that
+Johan was testing in at the time. One created a genuine table collision
+(a provisional stand-in table for code the other lane hadn't pushed yet)
+and caught it live, by luck, because the two lanes happened to be talking
+to each other. It could just as easily have landed silently, or mid-test.
+
+**Root cause: every worktree's `DB_DATABASE` has always been `corex_qa1`.**
+Standard −1a's per-lane `TEST_DB_DATABASE` isolation was never the
+protection anyone assumed it was here — see the correction added to that
+standard. Nothing before this stopped a bare `migrate` from hitting the
+shared schema from any worktree, at any time. This has been true since
+the first worktree on this box was created, not something new — the only
+reason it hadn't caused visible damage before is that most migrations
+run this way were ALSO ones that were going to be pulled and applied
+through `/corex-qa1` anyway, so the redundant early application just
+showed up later as an unremarkable "Nothing to migrate."
+
+**Fix — enforced in code, not documented as a rule to remember.** The
+`artisan` entrypoint itself now refuses `migrate`, `migrate:fresh`,
+`migrate:refresh`, `migrate:reset`, `migrate:rollback`, and `db:wipe`
+outright — before Laravel's own container boots, before a single query
+runs — whenever `DB_DATABASE` resolves to `corex_qa1` (or any future name
+added to that same blocklist) UNLESS `QA1_DEPLOY_CHECKOUT=true` is set in
+that checkout's own `.env`. That flag is set in exactly one place:
+`/corex-qa1`'s own `.env` (gitignored, not committed) — the one
+checkout that is actually the sanctioned deploy target. A brand-new
+worktree that has never heard of this rule is safe by default: the
+blocklist is deny-by-default, not an opt-out a new worktree could
+accidentally miss.
+
+**What to do instead, in any other worktree:** write and commit your
+migration as normal, push it, and it gets pulled + applied through
+`/corex-qa1` the same way every other change on this box already lands —
+nothing about your own workflow changes except that `migrate` itself now
+refuses locally with a clear message telling you exactly that, instead of
+silently succeeding against the shared schema.
+
+**Known limits, stated plainly rather than left implicit:** this guard
+reads `DB_DATABASE` from the environment/`.env` the same way
+`tests/bootstrap.php` reads `TEST_DB_DATABASE` — a command-line
+`--database=` override pointing at a *different* connection name that
+still happens to resolve to the same physical `corex_qa1` schema in
+`config/database.php` would not be caught by this check. Same category of
+limitation the existing test-DB guard already has; noted here rather than
+pretending the guard is airtight against deliberate circumvention. It
+stops the accidental case — which is the one that actually happened,
+twice, in one afternoon — not a determined bypass.
+
+---
+
+## Standard −1h — Six-lane MySQL contention is a known, accepted cost (RULED, 2026-09-13 — do not build a fix without Johan's go-ahead)
+
+Real evidence, 2026-09-13: a single, unrelated `information_schema` query
+sat blocked for **125+ seconds**, caught live via `SHOW FULL PROCESSLIST`
+at the exact moment — the blocker was a concurrent `migrate:fresh`
+actively mid-`CREATE TABLE` on a DIFFERENT lane's `hfc_dash_test_N`
+schema. This is genuine, not anecdotal.
+
+**Why schema isolation (Standard −1a) doesn't prevent this**: it fixes
+*correctness* (no cross-lane data collisions) but not *contention* — DDL
+locks and MySQL's shared redo log aren't scoped per-schema. Every fresh
+PHPUnit process re-runs a full snapshot-restore-then-replay on its first
+test (the schema-snapshot mechanism, non-negotiable #12a, working exactly
+as designed); six lanes each doing that periodically compounds on one
+shared `mysqld` regardless of how separate the schemas are. The snapshot
+load itself was measured taking 2.5–4 minutes this session, against a
+documented ~25s target (see Standard −1b) — that gap is the concrete
+sign something is worse than baseline, not just "six lanes exist."
+
+**Ruling (Johan, via the conductor): do not build a fix today.**
+Re-architecting how six lanes' tests get their databases while all six
+are mid-build on work he needs tonight is how the evening gets lost. This
+is recorded as a known, accepted cost for now, not a solved or ignored
+problem. When the board is quieter, the real choice — serializing heavy
+suites vs. a MySQL instance per lane — is Johan's to make, with these
+numbers in hand.
+
+**Two cheap mitigations every lane can follow meanwhile, no rebuild
+required:**
+- **Prefer a plain `php artisan migrate` over `migrate:fresh` wherever
+  it will do.** `migrate:fresh` always drops and fully replays; a plain
+  `migrate` only applies what's actually new, far less DDL load on a
+  schema that's already current.
+- **Never kill a test run mid-DDL.** This is exactly what corrupted
+  cc2's isolated test database this session — a `migrate:fresh` running
+  minutes instead of seconds under load is far more likely to get killed
+  by an impatient timeout while genuinely mid-drop, leaving the schema
+  half-migrated. If a run is taking a long time, wait it out or let it
+  fail on its own; don't Ctrl-C a schema operation in flight.
+
+**The migration guard (Standard −1g) has no bearing on this** — it only
+ever touches `migrate*` against `corex_qa1` specifically, never
+`hfc_dash_test_N`, which is what PHPUnit actually uses. Stated here
+plainly so the two aren't conflated later.
+
+## Standard −1i — Disk headroom, tracked as a data point (not yet a decision)
+
+Measured 2026-09-13: `/mnt/HC_Volume_103099143` at **86% full — 161G of
+197G used, 27G free** — of which MySQL's own datadir accounts for **38G**.
+Not today's problem. Six lanes continuously creating and dropping test
+databases (Standard −1h) is not a shrinking workload, so this is worth
+watching rather than filing away.
+
+This is a tracked data point, not a call to act — re-measure
+(`df -h /mnt/HC_Volume_103099143`, `du -sh
+/mnt/HC_Volume_103099143/mysql-data/`) whenever touching this area of the
+box, and update the numbers here. Report to the conductor if the free
+space drops materially from 27G — that's the trigger for it becoming a
+decision for Johan, not before.
 
 ---
 

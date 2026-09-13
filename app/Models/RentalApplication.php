@@ -590,6 +590,46 @@ class RentalApplication extends Model
     }
 
     /**
+     * FICA-mandatory, AT-392 round 3, 2026-09-13 — reads the SAME status
+     * `Contact::ficaStatus()` already computes and the SAME badge the
+     * Contact page already shows (Complete/Expiring/Incomplete) — no new
+     * expiry policy invented for rentals, no second FICA anything. A
+     * repeat tenant with a complete, unexpired FICA on file from any past
+     * transaction reads as already done here too (that table has never
+     * been scoped to a single deal/transaction — checked, not assumed).
+     */
+    public function ficaOutstanding(): bool
+    {
+        return $this->contact?->ficaStatus() !== 'complete';
+    }
+
+    /**
+     * ficaOutstanding() alone can't tell "never started" from "submitted,
+     * waiting on our own staff to review it" — Contact::ficaStatus() only
+     * has three buckets (complete/expiring/incomplete) and every
+     * not-yet-approved FicaSubmission status falls into 'incomplete', by
+     * design, everywhere else in the app too (checked, not assumed — this
+     * is not a rentals-specific gap). For the APPLICANT-facing message
+     * specifically, telling someone who already submitted their FICA form
+     * to "contact your agent" would be actively wrong — the ball is in
+     * OUR court at that point, not theirs. This reads the actual
+     * FicaSubmission row (not just the collapsed badge) to tell those two
+     * cases apart in the one place it actually changes what an applicant
+     * should be told to do.
+     */
+    public function ficaAwaitingApplicantAction(): bool
+    {
+        if (! $this->ficaOutstanding()) {
+            return false;
+        }
+
+        $latest = \App\Models\FicaSubmission::where('contact_id', $this->contact_id)
+            ->orderByDesc('created_at')->orderByDesc('id')->first();
+
+        return $latest === null || in_array($latest->status, ['draft', 'rejected', 'corrections_requested'], true);
+    }
+
+    /**
      * Reopen/resubmit — Johan: "agent has review screen open, applicant
      * resubmits mid-review... reuse the exact 409-conflict pattern you
      * already built and shipped for document marks." A review screen loads

@@ -56,6 +56,31 @@
         @endif
     </div>
 
+    @if($ficaOutstanding ?? false)
+        {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "flagged
+             ... on the applicant's confirmation" if FICA was abandoned.
+             Plain, actionable, no jargon. Two distinct cases, not one:
+             ficaAwaitingApplicantAction tells apart "you haven't started"
+             from "you already submitted it, we're reviewing it" — telling
+             someone who did their part to go contact their agent would be
+             actively wrong, not just unhelpful. --}}
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-4 text-left">
+            @if($ficaAwaitingApplicantAction ?? true)
+                <p class="text-sm font-semibold text-amber-800 mb-1">One more step needed</p>
+                <p class="text-sm text-amber-700">
+                    Your application has been received, but we still need to verify your identity documents (FICA)
+                    before it can move forward. Please contact your agent to finish this step.
+                </p>
+            @else
+                <p class="text-sm font-semibold text-amber-800 mb-1">Verification in progress</p>
+                <p class="text-sm text-amber-700">
+                    Thank you — your identity verification (FICA) has been submitted and is being reviewed.
+                    No action is needed from you right now; your agent will be in touch if anything else is required.
+                </p>
+            @endif
+        </div>
+    @endif
+
     {{--
         AT-392, Johan 2026-09-07 — spec §5: supporting documents are
         uploadable "both BEFORE signing... and AFTER signing" (matching the

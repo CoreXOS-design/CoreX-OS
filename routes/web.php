@@ -2852,6 +2852,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // AT-392 round 2, 2026-09-13 — the five remaining public-route volume caps.
     Route::post('/settings/rental-applications/route-rate-limits', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRouteRateLimits'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.route-rate-limits');
+    // FICA-mandatory, AT-392 round 3, 2026-09-13 — whether FICA must be complete before authorisation.
+    Route::post('/settings/rental-applications/require-fica-before-authorisation', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireFicaBeforeAuthorisation'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.require-fica-before-authorisation');
+    // Return gate, AT-392 round 4, 2026-09-13 — gate method + attempt cap.
+    Route::post('/settings/rental-applications/return-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReturnGate'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.return-gate');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
@@ -2999,6 +3005,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.archive')->name('corex.rental-applications.restore');
         Route::post('/{rentalApplication}/status', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'updateStatus'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.update-status');
+        // Johan — "on approval then we have a way for the agent to link the
+        // application to a property... rental - when an approved tenant is
+        // linked the property changes to let out status." See
+        // RentalApplicationController::linkTenantProperty()'s own docblock.
+        Route::post('/{rentalApplication}/link-tenant-property', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'linkTenantProperty'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.link-tenant-property');
+        Route::delete('/{rentalApplication}/link-tenant-property', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'unlinkTenantProperty'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.unlink-tenant-property');
     });
 
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,
@@ -5003,6 +5017,13 @@ Route::prefix('rental-application')->group(function () {
     // IP-keyed budget across every applicant reloading their own form.
     // Re-keyed to the APPLICATION TOKEN — see AppServiceProvider::boot().
     Route::get('/{token}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'show'])->middleware('throttle:rental-application-show')->name('rental-applications.public.show');
+    // Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
+    // submission we can gate on ID." Throttled by its own named limiter
+    // (rental-application-gate) — tight, agency-configurable, and its
+    // trip response IS the "contact your agent" lockout page, not a
+    // generic 429 — see AppServiceProvider::boot().
+    Route::post('/{token}/verify-gate', [\App\Http\Controllers\RentalApplicationSigningController::class, 'verifyReturnGate'])->middleware('throttle:rental-application-gate')->name('rental-applications.public.verify-gate');
+    Route::post('/{token}/gate/resend-otp', [\App\Http\Controllers\RentalApplicationSigningController::class, 'resendGateOtp'])->name('rental-applications.public.gate.resend-otp');
     // Applicant-side autosave, 2026-09-12 — debounced client-side (agency-
     // configurable, default 5s), so this fires far less than once per
     // keystroke. 2026-09-13 round 2 — was throttle:40,1 per-IP; re-keyed

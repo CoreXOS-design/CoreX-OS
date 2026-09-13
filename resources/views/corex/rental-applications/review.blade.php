@@ -242,6 +242,25 @@
                     <span class="text-xs font-normal flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);">
                         &middot; {{ $headerPropertyFact }}@if($headerExtraFact) &middot; {{ $headerExtraFact }}@endif
                     </span>
+                    {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — SAME
+                         badge classes/labels the Contact page already uses
+                         for this exact fact, so an agent reads it the same
+                         way in both places rather than learning a second
+                         visual language for it. --}}
+                    @php
+                        $ficaStatus = $rentalApplication->contact?->ficaStatus() ?? 'incomplete';
+                        $ficaBadgeClass = match($ficaStatus) {
+                            'complete' => 'ds-badge-success',
+                            'expiring' => 'ds-badge-warning',
+                            default => 'ds-badge-danger',
+                        };
+                        $ficaBadgeLabel = match($ficaStatus) {
+                            'complete' => 'FICA Complete',
+                            'expiring' => 'FICA Expiring',
+                            default => 'FICA Outstanding',
+                        };
+                    @endphp
+                    <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="FICA status for {{ $rentalApplication->contact?->full_name }}">{{ $ficaBadgeLabel }}</span>
                 </h1>
 
                 @if($viewerRole === 'agent')
@@ -451,7 +470,26 @@
                 position: sticky; top: 72px;
                 height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px));
                 overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
-                padding: 10px 12px;
+                /* HIT-AREA FIX, round 2 (conductor's own live-browser find,
+                   2026-09-13) — scrollbar-gutter: stable was ALREADY set
+                   here (it's not the fix; it was already reserving the
+                   real 15px this panel's own vertical scrollbar needs,
+                   confirmed via offsetWidth-clientWidth=15 on live QA1).
+                   The actual defect: .rr-ledger-row's fixed-pixel column
+                   budget (170px + gaps) genuinely exceeded the available
+                   content width AFTER that reservation (measured 157px),
+                   so the row silently overflowed its own container by
+                   21px — and overflow-x: hidden right above clips exactly
+                   that overflow, cutting straight through the middle of
+                   the strike/restore button. A headless browser's hit-
+                   testing doesn't reproduce the clip the same way a real
+                   one does (see this file's own verification note below),
+                   which is why this shipped looking clean. Horizontal
+                   padding 12px -> 4px (8px freed per side, 16px total) —
+                   vertical unchanged. Padding, not data, so every OTHER
+                   element in this panel keeps its own real content; only
+                   the row's available width changes. */
+                padding: 10px 4px;
             }
         }
         /* @tailwindcss/forms' own global default (12px/8px) tightened to
@@ -494,9 +532,13 @@
            (89px -> 103px, see the 2026-09-13 comment above for that math) —
            taken as its own column, not from the amount column's own
            hard-won floor. */
-        /* HIT-AREA FIX, 2026-09-13 (cc1's own-hand find, verifying cc2's
-           strike fix: "aimed a real mouse click at the centre of that
-           control and nothing happened... 14 by 14 pixels"). Measured
+        /* HIT-AREA FIX, 2026-09-13 (the conductor's own hands-on find,
+           verifying cc2's strike fix — correction: an earlier version of
+           this comment credited cc1; cc1 checked and had no record of it,
+           the actual message was the conductor's own first-person
+           verification. See .ai/specs/rental-applications.md's own
+           correction note): "aimed a real mouse click at the centre of
+           that control and nothing happened... 14 by 14 pixels". Measured
            in-situ, not assumed: .rr-ledger-strike really was exactly
            14x14 with zero padding — no invisible padding was hiding a
            bigger real target. Rows are only 20.5px tall with ZERO gap
@@ -520,16 +562,36 @@
            confirmed after: 18x20 (from 14x14), safely within the row's
            own 20.5px height, row height itself unchanged. This does not
            reach the 44px touch
-           guideline Johan cited — that would need loosening the whole
-           panel's row density, a bigger, costlier call flagged
+           guideline the conductor cited — that would need loosening the
+           whole panel's row density, a bigger, costlier call flagged
            separately rather than assumed here. The jump arrow (visually
            12px) and the out-of-period dot were checked too and need no
            fix: the arrow's REAL click target is this whole row
            (@click="jumpToMark(row)" below, not the glyph itself), and the
            dot has no click handler at all — hover-only, so a hit-area
-           guideline doesn't apply to it the same way. */
+           guideline doesn't apply to it the same way.
+
+           ROUND 2, same day — the fix above passed every headless check
+           but the conductor's own real Windows Chrome still missed the
+           right half of the button. Root cause, found by the conductor
+           measuring offsetWidth vs clientWidth on .rental-review-aside
+           live: this row's fixed-pixel column budget (170px + gaps)
+           genuinely exceeded the panel's real available content width
+           (157px, AFTER its already-existing scrollbar-gutter: stable
+           reservation) — the row silently overflowed its own container
+           by 21px, and overflow-x: hidden on that panel clips exactly
+           that overflow, cutting through the middle of THIS button since
+           it's the last (rightmost) column. Headless Chrome's hit-testing
+           doesn't reproduce that clip the same way a real browser's does,
+           which is how this shipped looking clean — see the aside rule's
+           own comment for the generalised lesson. Gap shrunk again,
+           2px -> 0px (frees another 8px), combined with the aside's own
+           padding shrinking 12px -> 4px each side (see that rule), closes
+           the 21px shortfall with a few px of real, measured slack —
+           verified against LIVE QA1's actual offsetWidth/clientWidth
+           arithmetic, not assumed from the CSS alone. */
         .rr-ledger-row {
-            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px 18px; gap: 2px; align-items: center;
+            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px 18px; gap: 0px; align-items: center;
             padding: 2px 0;
         }
         .rr-ledger-badge {

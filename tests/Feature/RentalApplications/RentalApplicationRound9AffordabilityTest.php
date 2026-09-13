@@ -244,7 +244,13 @@ final class RentalApplicationRound9AffordabilityTest extends TestCase
 
     public function test_public_applicant_form_labels_income_as_gross(): void
     {
-        $app = $this->application(['status' => 'sent', 'token' => 'test-token-' . uniqid(), 'token_expires_at' => now()->addDays(14)]);
+        // AT-392 round 4, 2026-09-13 — the base application() fixture
+        // defaults submitted_at to a real timestamp; this test is
+        // specifically about the FIRST-open editable form, so submitted_at
+        // must be null to match status:'sent' — otherwise the new return
+        // gate (which keys on submitted_at, not status) intercepts before
+        // the editable form ever renders.
+        $app = $this->application(['status' => 'sent', 'submitted_at' => null, 'token' => 'test-token-' . uniqid(), 'token_expires_at' => now()->addDays(14)]);
 
         $response = $this->get(route('rental-applications.public.show', $app->token));
 

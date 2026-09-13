@@ -200,6 +200,42 @@ class RentalApplicationQualifyingSetting extends Model
 
     public const DEFAULT_AUTOSAVE_REQUEST_RATE_LIMIT_WINDOW_MINUTES = 1;
 
+    /**
+     * FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal position:
+     * "technically we not allowed to work with anyone if did not fica."
+     * This gates only the AUTHORISER hand-off, never the application's own
+     * receipt — see RentalApplication::ficaOutstanding() and
+     * RentalApplicationSigningController::submit()'s FICA hand-off, which
+     * always accepts the application regardless of this setting. Default
+     * true: HFC's own answer is yes, per Johan's own words; another agency
+     * may turn it off.
+     */
+    public const DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION = true;
+
+    /**
+     * Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
+     * not gated but if the applicant submits... after initial submission
+     * we can gate on ID." Default is the applicant's own ID number
+     * (already captured on the application) — a speed bump, not
+     * authentication (an ID number is not a secret; it's on every
+     * document that person has ever handed anyone). 'email_otp' is the
+     * agency-configurable stronger option for agencies that want the gate
+     * to actually hold, reusing CoreX's existing OtpService.
+     */
+    public const DEFAULT_RETURN_GATE_METHOD = 'id_number';
+
+    public const RETURN_GATE_METHODS = ['id_number', 'email_otp'];
+
+    /**
+     * Failed attempts must be limited and must not become an oracle for
+     * guessing an ID against a known application — capped tight, same
+     * per-token limiter convention as every other rate limit this feature
+     * carries (see AppServiceProvider::boot()'s rental-application-gate).
+     */
+    public const DEFAULT_RETURN_GATE_ATTEMPT_MAX = 5;
+
+    public const DEFAULT_RETURN_GATE_ATTEMPT_WINDOW_MINUTES = 15;
+
     protected $fillable = [
         'agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days',
         'lock_property_after_submission', 'tag_contact_as_tenant_on_approval',
@@ -211,6 +247,8 @@ class RentalApplicationQualifyingSetting extends Model
         'pdf_rate_limit_max', 'pdf_rate_limit_window_minutes',
         'document_view_rate_limit_max', 'document_view_rate_limit_window_minutes',
         'autosave_request_rate_limit_max', 'autosave_request_rate_limit_window_minutes',
+        'require_fica_before_authorisation',
+        'return_gate_method', 'return_gate_attempt_max', 'return_gate_attempt_window_minutes',
     ];
 
     protected $casts = [
@@ -224,6 +262,9 @@ class RentalApplicationQualifyingSetting extends Model
         'document_rate_limit_max' => 'integer',
         'document_rate_limit_window_minutes' => 'integer',
         'document_uploads_open_after_approval' => 'boolean',
+        'require_fica_before_authorisation' => 'boolean',
+        'return_gate_attempt_max' => 'integer',
+        'return_gate_attempt_window_minutes' => 'integer',
         'show_rate_limit_max' => 'integer',
         'show_rate_limit_window_minutes' => 'integer',
         'submit_rate_limit_max' => 'integer',
@@ -505,5 +546,57 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->autosave_request_rate_limit_window_minutes !== null
             ? (int) $row->autosave_request_rate_limit_window_minutes
             : self::DEFAULT_AUTOSAVE_REQUEST_RATE_LIMIT_WINDOW_MINUTES;
+    }
+
+    public static function requireFicaBeforeAuthorisationFor(?int $agencyId): bool
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->require_fica_before_authorisation !== null
+            ? (bool) $row->require_fica_before_authorisation
+            : self::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION;
+    }
+
+    public static function returnGateMethodFor(?int $agencyId): string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_RETURN_GATE_METHOD;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->return_gate_method !== null && in_array($row->return_gate_method, self::RETURN_GATE_METHODS, true)
+            ? $row->return_gate_method
+            : self::DEFAULT_RETURN_GATE_METHOD;
+    }
+
+    public static function returnGateAttemptMaxFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_RETURN_GATE_ATTEMPT_MAX;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->return_gate_attempt_max !== null
+            ? (int) $row->return_gate_attempt_max
+            : self::DEFAULT_RETURN_GATE_ATTEMPT_MAX;
+    }
+
+    public static function returnGateAttemptWindowMinutesFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_RETURN_GATE_ATTEMPT_WINDOW_MINUTES;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->return_gate_attempt_window_minutes !== null
+            ? (int) $row->return_gate_attempt_window_minutes
+            : self::DEFAULT_RETURN_GATE_ATTEMPT_WINDOW_MINUTES;
     }
 }
