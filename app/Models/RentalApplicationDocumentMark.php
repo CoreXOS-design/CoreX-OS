@@ -111,6 +111,40 @@ class RentalApplicationDocumentMark extends Model
     }
 
     /**
+     * AT-410, 2026-09-13 — the live-capture-mark guard, extracted from
+     * PdfSplitterController::linkForRentalApplication() so the new
+     * "file directly" action (RentalApplicationReviewController::
+     * fileDocumentDirectly()) refuses on the exact same condition as the
+     * splitter, not a re-derived lookalike. Reasoning unchanged from the
+     * splitter's own original comment: splitting/refiling a document does
+     * not, by construction, preserve which resulting piece a given page's
+     * marks now belong to — a wrong guess would silently move evidence to
+     * a plausible-but-wrong page, which is worse than blocking. Returns
+     * null when the document is clear to split/file; otherwise the exact
+     * user-facing message both callers show.
+     */
+    public static function blockingMarksMessageFor(int $documentId): ?string
+    {
+        $existingMarks = self::where('document_id', $documentId)->get();
+        if ($existingMarks->isEmpty()) {
+            return null;
+        }
+
+        $captureMarks = $existingMarks->whereIn('entry_type', self::LEDGER_ENTRY_TYPES);
+        $parts = [];
+        if ($captureMarks->isNotEmpty()) {
+            $amounts = $captureMarks->map(fn (self $m) => 'R' . number_format((float) $m->entry_amount, 2))->implode(', ');
+            $parts[] = $captureMarks->count() . ' captured ledger ' . ($captureMarks->count() === 1 ? 'entry' : 'entries') . ' (' . $amounts . ')';
+        }
+        $plainCount = $existingMarks->count() - $captureMarks->count();
+        if ($plainCount > 0) {
+            $parts[] = $plainCount . ' highlight/note ' . ($plainCount === 1 ? 'mark' : 'marks');
+        }
+
+        return 'This document has ' . implode(' and ', $parts) . ' drawn on it. Splitting or re-filing it would break the link between that evidence and its figures. Remove those marks first if you need to re-file this document.';
+    }
+
+    /**
      * The exact snake_case array shape marks_json has always used —
      * unchanged, so firstPagePreview()/remainingPagePreviews()'s JSON
      * response, and the burn/legend rendering that already consumes this

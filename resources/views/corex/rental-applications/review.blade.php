@@ -149,6 +149,7 @@
          expectedGeneration: {{ Js::from($rentalApplication->current_generation) }},
          canReopenNow: {{ Js::from($canReopenNow) }},
          documentChecklist: {{ Js::from($documentChecklist) }},
+         documentTypeOptions: {{ Js::from($documentTypeOptions) }},
          reviewLocked: {{ Js::from($reviewLocked) }},
      })"
      @else
@@ -809,6 +810,60 @@
                                             @csrf
                                             <button type="submit" style="color: var(--ds-amber, #b45309); font-weight: 600; cursor: pointer; border: none; background: none; padding: 0;" title="This document hasn't been sorted into document types yet — split it into separate, filed documents before submitting for authorisation.">Split &amp; File</button>
                                         </form>
+                                    @endif
+                                    {{-- AT-410 — Johan: "this applicant sent split docs.
+                                         so I know what they are. dont need to run them
+                                         through the splitter... allow selecting document
+                                         type and click file." Sits right next to Split
+                                         & File on the same row, deliberately: an agent who
+                                         opens the type picker and realises this is actually
+                                         a mixed bundle reaches the splitter without
+                                         navigating anywhere. "Change type" (already-typed
+                                         documents) is given the SAME visual weight as
+                                         "File as…" per Johan's explicit instruction — a
+                                         correction must be at least as easy to find as the
+                                         mistake it fixes. --}}
+                                    @if($viewerRole === 'agent' && !$row['pulled_from_contact'])
+                                        @php
+                                            $isUntypedDoc = $document->document_type_id === null;
+                                            $fileActionUrl = $isUntypedDoc
+                                                ? route('corex.rental-applications.documents.file-direct', [$rentalApplication, $document])
+                                                : route('corex.rental-applications.documents.retype', [$rentalApplication, $document]);
+                                            $fileActionColor = $isUntypedDoc ? 'var(--ds-green, #15803d)' : 'var(--ds-blue, #2563eb)';
+                                            $fileActionLabel = $isUntypedDoc ? 'File as…' : 'Change type';
+                                            $fileActionSubmitLabel = $isUntypedDoc ? 'File' : 'Save';
+                                            $fileActionTitle = $isUntypedDoc
+                                                ? "This applicant already sent this as its own separate file — file it as a document type directly, without the splitter."
+                                                : 'Filed as the wrong type? Change it here — nothing is deleted or re-uploaded.';
+                                        @endphp
+                                        <span x-data="fileDocumentAction()" style="display:inline-flex; align-items:center; gap:4px;">
+                                            <template x-if="!open">
+                                                <button type="button" @click="startPick()"
+                                                        style="color: {{ $fileActionColor }}; font-weight: 600; cursor: pointer; border: none; background: none; padding: 0;"
+                                                        title="{{ $fileActionTitle }}">{{ $fileActionLabel }}</button>
+                                            </template>
+                                            <template x-if="open">
+                                                <span style="display:inline-flex; align-items:center; gap:4px;">
+                                                    <select x-model="typeId" style="font-size: 11px; max-width: 130px;">
+                                                        <option value="">Type&hellip;</option>
+                                                        <optgroup label="For this application" x-show="documentTypeOptionsPrimary.length">
+                                                            <template x-for="dt in documentTypeOptionsPrimary" :key="dt.id">
+                                                                <option :value="dt.id" x-text="dt.label"></option>
+                                                            </template>
+                                                        </optgroup>
+                                                        <optgroup label="Other document types">
+                                                            <template x-for="dt in documentTypeOptionsOther" :key="dt.id">
+                                                                <option :value="dt.id" x-text="dt.label"></option>
+                                                            </template>
+                                                        </optgroup>
+                                                    </select>
+                                                    <button type="button" :disabled="!typeId || busy" @click="submit('{{ $fileActionUrl }}')"
+                                                            style="color: {{ $fileActionColor }}; font-weight: 600;">{{ $fileActionSubmitLabel }}</button>
+                                                    <button type="button" @click="cancelPick()" style="color: var(--text-muted);">Cancel</button>
+                                                </span>
+                                            </template>
+                                            <span x-show="error" x-text="error" x-cloak style="color: var(--ds-red, #dc2626); font-weight: 600;"></span>
+                                        </span>
                                     @endif
                                 </span>
                             </div>
@@ -2114,7 +2169,7 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
     };
 }
 
-function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, reviewLocked }) {
+function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, documentTypeOptions, reviewLocked }) {
     return {
         // 2026-09-12 — Johan-approved read-only lock while the application
         // is with the authoriser (isPendingAuthorisation()). Set once, from
@@ -2168,6 +2223,15 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         sendBackNote: '',
         sendBackSending: false,
         documentChecklist: (documentChecklist || []).map(d => ({ ...d, checked: false })),
+        // AT-410 — "File as…" / "Change type" picker source, agency-
+        // configured (see RentalApplicationReviewController::show()'s own
+        // comment on $documentTypeOptions for why this is the FULL active
+        // list, not the narrower per-employment-type documentChecklist
+        // above). Split once here into "for this application" (slugs also
+        // in documentChecklist) vs everything else, so the per-row picker
+        // below never re-derives the split on every keystroke.
+        documentTypeOptionsPrimary: (documentTypeOptions || []).filter(o => (documentChecklist || []).some(c => c.slug === o.slug)),
+        documentTypeOptionsOther: (documentTypeOptions || []).filter(o => !(documentChecklist || []).some(c => c.slug === o.slug)),
         canReopenNow: !!canReopenNow,
         async sendBackToApplicant() {
             if (this.sendBackSending || !this.sendBackNote.trim()) return;
@@ -2775,6 +2839,50 @@ function attachExistingDocument() {
                 this.status = 'Could not attach — check your connection.';
             }
             this.submittingId = null;
+        },
+    };
+}
+
+// AT-410, 2026-09-13 — "file a document directly, without going through the
+// splitter" / "change type" (Johan's correctable requirement). One factory,
+// instantiated per document row, mirroring attachExistingDocument()'s own
+// reload-on-success shape immediately above so the row re-renders from the
+// server with whatever it was actually filed/retyped as — no client-side
+// guess at what the new row should say.
+function fileDocumentAction() {
+    return {
+        open: false,
+        typeId: '',
+        busy: false,
+        error: '',
+        csrfToken() { return document.querySelector('meta[name="csrf-token"]')?.content ?? ''; },
+        startPick() { this.open = true; this.typeId = ''; this.error = ''; },
+        cancelPick() { this.open = false; this.typeId = ''; this.error = ''; },
+        async submit(url) {
+            if (!this.typeId || this.busy) return;
+            this.busy = true;
+            this.error = '';
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': this.csrfToken(),
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ document_type_id: this.typeId }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.ok) {
+                    try { sessionStorage.setItem('rentalReviewJustUploadedDocIds', JSON.stringify(data.document ? [data.document.id] : [])); } catch (_) {}
+                    window.location.reload();
+                    return;
+                }
+                this.error = data.error || 'Could not save — try again.';
+            } catch (e) {
+                this.error = 'Could not save — check your connection.';
+            }
+            this.busy = false;
         },
     };
 }
