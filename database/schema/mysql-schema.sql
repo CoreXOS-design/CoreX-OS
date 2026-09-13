@@ -12264,6 +12264,12 @@ CREATE TABLE `rental_application_qualifying_settings` (
   `return_gate_method` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `return_gate_attempt_max` tinyint unsigned DEFAULT NULL,
   `return_gate_attempt_window_minutes` smallint unsigned DEFAULT NULL,
+  `identity_gate_enabled` tinyint(1) DEFAULT NULL,
+  `identity_gate_otp_length` tinyint unsigned DEFAULT NULL,
+  `identity_gate_otp_expiry_minutes` int unsigned DEFAULT NULL,
+  `identity_gate_attempt_max` int unsigned DEFAULT NULL,
+  `identity_gate_attempt_window_minutes` int unsigned DEFAULT NULL,
+  `identity_gate_resend_cooldown_seconds` int unsigned DEFAULT NULL,
   `lock_property_after_submission` tinyint(1) DEFAULT NULL,
   `tag_contact_as_tenant_on_approval` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -12341,6 +12347,8 @@ CREATE TABLE `rental_applications` (
   `token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `token_expires_at` timestamp NULL DEFAULT NULL,
   `submitted_at` timestamp NULL DEFAULT NULL,
+  `identity_verified_at` timestamp NULL DEFAULT NULL,
+  `identity_gate_unreachable` tinyint(1) NOT NULL DEFAULT '0',
   `draft_saved_at` timestamp NULL DEFAULT NULL,
   `property_address_override` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `full_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -16513,3 +16521,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1334,'2026_09_13_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1335,'2026_09_13_110000_add_require_fica_before_authorisation_to_rental_application_qualifying_settings',312);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1336,'2026_09_13_130000_add_return_gate_settings_to_rental_application_qualifying_settings',313);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1337,'2026_09_16_090000_add_approved_subject_to_fica_at_to_rental_applications',314);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1338,'2026_09_15_100000_add_identity_gate_settings_to_rental_application_qualifying_settings',315);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1339,'2026_09_15_100100_add_identity_gate_to_rental_applications',315);
