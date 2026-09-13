@@ -12,23 +12,24 @@
          still needed and how, never an unconditional "congratulations"
          that may have to be walked back. --}}
     <div style="background-color: {{ $isSubjectToFica ? '#b45309' : '#059669' }}; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
-        <h1 style="color: #ffffff; margin: 0; font-size: 22px;">{{ $isSubjectToFica ? "You're approved — one step left" : 'Congratulations!' }}</h1>
+        <h1 style="color: #ffffff; margin: 0; font-size: 22px;">{{ $isSubjectToFica ? 'Almost there — one thing left to do' : 'Congratulations!' }}</h1>
     </div>
 
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Dear {{ $applicantName }},</p>
 
         @if($isSubjectToFica)
-            <p>Good news — your rental application through {{ $agencyName }} has been approved, for a monthly rental amount of <strong>R{{ $amount }}</strong>, subject to completing your FICA verification.</p>
+            <p>Your rental application through {{ $agencyName }} has been approved for a monthly rental amount of <strong>R{{ $amount }}</strong>.</p>
 
-            <p>This approval is real, but it can't be finalised until FICA is done — it's a legal requirement we have to meet before we can proceed. It only takes a few minutes.</p>
+            <p><strong>Before this can be finalised, we still need to verify your identity documents (this is called "FICA" — it's a legal requirement for every South African rental, not something specific to your application).</strong> Until that's done, this approval isn't final yet and the property isn't confirmed as yours.</p>
 
             @if($ficaContinueUrl)
                 <p style="text-align: center; margin: 24px 0;">
-                    <a href="{{ $ficaContinueUrl }}" style="background-color: #b45309; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">Complete FICA verification</a>
+                    <a href="{{ $ficaContinueUrl }}" style="background-color: #b45309; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">Verify my identity now</a>
                 </p>
+                <p>This link is yours alone — it only takes a few minutes, and once it's done there's nothing further for you to do; we'll take it from there.</p>
             @else
-                <p>Your agent will be in touch shortly with the link to complete this.</p>
+                <p>Your agent will be in touch shortly with the link to do this.</p>
             @endif
         @else
             <p>Great news — your rental application through {{ $agencyName }} has been approved, for a monthly rental amount of <strong>R{{ $amount }}</strong>.</p>
