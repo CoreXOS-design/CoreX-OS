@@ -3017,6 +3017,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // documents only, in RentalApplicationController — not edited here,
         // owned by another lane).
         Route::get('/{rentalApplication}/documents/{document}/referenced-download', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'downloadReferencedDocument'])->name('corex.rental-applications.documents.referenced-download');
+        // AT-410, 2026-09-13 — "File a document directly, without going
+        // through the splitter." See RentalApplicationReviewController::
+        // fileDocumentDirectly()/retypeDocument() for the full reasoning.
+        Route::post('/{rentalApplication}/documents/{document}/file-direct', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'fileDocumentDirectly'])->name('corex.rental-applications.documents.file-direct');
+        Route::post('/{rentalApplication}/documents/{document}/retype', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'retypeDocument'])->name('corex.rental-applications.documents.retype');
         // Authoriser flow, 2026-09-08 — agent-side actions only (request more
         // info from the applicant, submit to the authoriser). The authoriser's
         // own actions live under a separate prefix below, gated to authorisers.

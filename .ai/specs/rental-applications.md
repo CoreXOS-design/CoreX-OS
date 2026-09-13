@@ -11464,3 +11464,207 @@ wording, correctly unchanged), the control disappeared, Reopen appeared in
 its place. Detail page afterward: header, pill, and audit-trail line
 ("returned → Applicant withdrawn") all agree. Zero console errors, render
 gate PASS throughout.
+
+## AT-410 — "File a document directly, without going through the splitter" (2026-09-13, cc5)
+
+Johan, on application 230's review screen, verbatim: *"this applicant sent
+split docs. so I know what they are. dont need to run them through the
+splitter. can we give the option right here to file directly as well. so
+you keep the splitter but allow selecting document type and click file and
+its files it without going via the splitter?"*
+
+### Investigation, before any code — per instruction
+
+Read `PdfSplitterController::intakeRentalApplicationDocument()`/
+`linkForRentalApplication()` in full to find the splitter's real output
+shape. Confirmed it is NOT a simple "set document_type_id" — even the
+single-type case copies the source bytes to a new storage path, creates a
+brand-new `Document` row, attaches the same `contacts()`/`properties()`
+pivots, and soft-deletes the original. "Indistinguishable afterwards"
+(Johan's own requirement) can only be satisfied by reproducing that exact
+sequence, not a lighter lookalike.
+
+Located the live-mark guard verbatim (`linkForRentalApplication()`,
+originally inline, ~15 lines) so it could be reused rather than
+re-derived — reusing a re-derived copy risks the two guards silently
+drifting apart the way this exact codebase has already been bitten by
+(the AT-392 pipeline-gate rule exists for precisely that reason).
+
+Found `DocumentType` has NO `agency_id` — it is a global catalogue, not
+per-agency. `RentalApplicationDocumentRequirement::checklistFor()` is the
+actual agency-configurable mechanism on this screen, but scoped per
+employment type — too narrow for "an applicant sent something the default
+checklist didn't anticipate," which is exactly the case direct-filing
+exists for.
+
+### Two things proposed, and the conductor's ruling (verbatim GO)
+
+**1. Control placement — APPROVED.** Reuses the exact minimal-footprint
+pattern "Split & File" already uses on this row — a plain-text, bold,
+coloured trigger, no new column, no row-height change. "File as…"
+(untyped documents) expands in place into a `<select>` + File/Cancel;
+"Change type" (already-typed documents) is the SAME control, same visual
+weight, same expand-in-place mechanic, sitting where the type badge is.
+Split & File is untouched, same row, same place.
+
+**2. Bulk filing — DECLINED, single-document only, per instruction.**
+Recorded here so it is never revisited as an oversight: five separate
+uploaded files are five independently-chosen types by construction — a
+bulk control would still need five type-picks, and would add partial-
+failure handling, batch guards, and batch audit entries with no real
+reduction in agent effort. What Johan actually named as tedious was going
+through the splitter at all, not clicking a few times.
+
+### The build
+
+**`RentalApplicationDocumentMark::blockingMarksMessageFor(int $documentId): ?string`**
+(new, `app/Models/RentalApplicationDocumentMark.php`) — the live-mark
+guard, extracted verbatim from `linkForRentalApplication()`'s own inline
+block so both the splitter and the new action call the exact same check.
+`PdfSplitterController::linkForRentalApplication()` now calls this method
+instead of carrying its own copy — zero behaviour change, proven by the
+existing `PdfSplitterRentalApplicationMarkGuardTest` still passing after
+the refactor (both its assertions, unchanged).
+
+**`RentalApplicationReviewController::fileDocumentDirectly()`** (new) —
+POST `/{rentalApplication}/documents/{document}/file-direct`. Guards, in
+order: `guardRentalApplication()` (own/branch/agency scope),
+`guardDocumentBelongsToApplication()` (document must belong to THIS
+application), `guardScreenNotLockedForAuthoriser()` (423 while the
+application is with the authoriser — the exact same guard every other
+write on this screen uses), owned-only (a pulled-from-contact document is
+never filable here, matching Split & File's own scoping), untyped-only,
+then `blockingMarksMessageFor()`. On success: copies the source file's
+bytes to a new storage path, creates a new `Document` row (any mime type,
+not PDF-only — see the routing spec below for why), attaches contacts/
+properties, soft-deletes the source, writes an audit-log entry
+(`event_category: 'document'`, `event_type: 'filed_direct'`), returns the
+new document's id/name/type.
+
+**`RentalApplicationReviewController::retypeDocument()`** (new) — POST
+`/{rentalApplication}/documents/{document}/retype`. The "correctable"
+requirement — Johan: *"if she picks the wrong type she can change it
+without deleting anything and without re-uploading."* Same guards as
+above, EXCEPT deliberately does NOT run the live-mark guard: nothing here
+moves the document, its storage path, or its id — every mark's
+`document_id` stays exactly what it was, so the guard's actual concern (a
+page's marks silently following the wrong resulting piece) cannot arise
+from a same-row type-tag change. Updates `document_type_id` and
+`original_name` in place on the SAME row — no new row, no delete. Works
+on any already-typed owned document on this screen, not only ones filed
+by the new action, per the standing full-CRUD "correctable" design floor.
+Writes its own audit entry (`event_type: 'retyped'`, old and new type in
+`oldValues`/`newValues`).
+
+**Type list** — `$documentTypeOptions` (new, `RentalApplicationReviewController::show()`):
+every active `DocumentType`, not the narrower per-employment-type
+`$documentChecklist`. The Blade groups the same list into "For this
+application" (types also in `$documentChecklist`) vs "Other document
+types" client-side — the agency-configured checklist surfaces first, nothing
+is ever unreachable.
+
+**UI** (`resources/views/corex/rental-applications/review.blade.php`) —
+one `fileDocumentAction()` Alpine factory (`open`/`typeId`/`busy`/`error`
++ `startPick()`/`cancelPick()`/`submit()`), instantiated per document row,
+mirroring `attachExistingDocument()`'s own reload-on-success shape so the
+row always re-renders from the server with whatever it was actually
+filed/retyped as — no client-side guess at what to show. Per Johan's two
+follow-up conditions: "Change type" uses the identical trigger style,
+weight, and expand mechanic as "File as…" (never a fainter/muted
+treatment — a correction must be at least as easy to find as the mistake
+it fixes), and the collapse-on-success reload means the very next thing
+the agent sees is the row's own type label in plain text, no hover
+required.
+
+### Proof — real browser click-through, per the conductor's explicit
+### instruction not to hand over an endpoint test alone
+
+Fixture built fresh in the dev DB (`corex_qa1`), never touching
+application 230: application 240 (agency 1, `status='returned'`) with
+four documents — an untyped PDF (doc 3028), an untyped PDF carrying a live
+capture-ledger mark (doc 3029), an untyped JPG (doc 3030), and an
+already-typed PDF (doc 3031, "Bank Statement"). Application 241
+(`status='under_assessment'`, `submitted_for_approval_at` set — pending
+authorisation) with one untyped document (doc 3032), for the lock guard.
+Application 245 in agency 42 (`ScopeCheck Co A`) with one document
+(3034), for the cross-agency guard. Real headless Chromium via Puppeteer,
+logged in as the existing `qa-cc5-authoriser-test@example.invalid`
+fixture user, real clicks, real network requests observed, zero console
+errors throughout:
+
+- **File as… → File, doc 3028 (plain untyped PDF):** clicked the trigger,
+  the `<select>` appeared, picked "Payslip," clicked File. Real
+  `POST .../3028/file-direct` → 200. Page reloaded; doc 3028's row was
+  gone, a new row (doc 3035) appeared reading "Payslip.pdf · Payslip"
+  with a "Change type" trigger now available.
+- **Any mime type, not just PDF — doc 3030 (JPG):** same click-through,
+  picked "IDs / Identity." `POST .../3030/file-direct` → 200. New row
+  3037: "IDs - Identity.jpg · IDs / Identity", `mime_type` confirmed
+  unchanged (`image/jpeg`) via DB check.
+- **Live-mark guard fires, doc 3029 (has a captured mark):** same
+  click-through, picked "Bank Statement," clicked File. `POST
+  .../3029/file-direct` → **422**, body: *"This document has 1 captured
+  ledger entry (R5,000.00) drawn on it. Splitting or re-filing it would
+  break the link between that evidence and its figures. Remove those
+  marks first if you need to re-file this document."* — the identical
+  wording the splitter itself would show, because it's the same method.
+  Doc 3029's row was untouched afterward (still "Untyped", still present,
+  `deleted_at` still null) — confirmed via DB.
+- **Correctable, doc 3031 (already "Bank Statement") → "Levy Statement":**
+  clicked "Change type," picked the new type, clicked Save. `POST
+  .../3031/retype` → 200, page reloaded, SAME row id (3031) now reads
+  "Levy Statement.pdf · Levy Statement" with "Change type" still
+  available. DB confirmed: same `id`, `deleted_at` still null, exactly
+  one `Document` row for that original upload (no second row created).
+- **Review-lock guard, application 241 (pending authorisation):** direct
+  `fetch()` POST to `.../241/documents/3032/file-direct` while
+  authenticated as the agent → **423**, the same *"read-only until it
+  comes back to you"* message every other write on this screen returns.
+  Confirmed the screen's own `reviewLocked` Alpine flag is `true` and the
+  page text shows the same message — the server enforces it independently
+  of what the UI happens to hide.
+- **Cross-agency guard:** `fetch()` POST from an agency-1 session against
+  agency-42's document (3034), attached to application 240 (agency 1) →
+  **404** — Laravel's own route-model binding can't even resolve the
+  foreign-agency `Document`/`RentalApplication` rows (the existing
+  `BelongsToAgency`/`AgencyScope` global scopes make them invisible to a
+  different agency's query before the controller's own guards run at
+  all). Opening agency-42's application review route directly as the
+  agency-1 user → 404, same mechanism.
+- **Audit trail:** `RentalApplicationAuditLog` rows confirmed for both
+  actions — `document/filed_direct`: *"QA CC5 Authoriser Test filed
+  '...' directly as Payslip, without the splitter."*; `document/retyped`:
+  *"QA CC5 Authoriser Test changed document #3031 from 'Bank Statement'
+  to 'Levy Statement'."* — both carrying the real acting user's id.
+- **No hard deletes:** every soft-deleted original (`Document::withTrashed()`)
+  still exists on disk and in the DB with `deleted_at` set, never actually
+  removed.
+
+### Written test coverage
+
+`tests/Feature/RentalApplications/FileDocumentDirectlyTest.php` (new) —
+covers the same ground as the manual walk above as a permanent regression
+check: successful direct filing reproduces the splitter's shape (new row,
+old soft-deleted, contacts pivot, correct storage/type), non-PDF mime
+type succeeds, the live-mark guard blocks with the exact message and
+touches nothing, the review-lock guard refuses (423) without processing,
+a cross-agency document 403/404s, retyping updates the SAME row in place
+(no new row, no delete), and both actions write an audit-log entry.
+
+### Files
+
+- `app/Models/RentalApplicationDocumentMark.php` — `blockingMarksMessageFor()` added.
+- `app/Http/Controllers/Tools/PdfSplitterController.php` — its inline guard block replaced with a call to the method above; zero behaviour change.
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — `fileDocumentDirectly()`, `retypeDocument()`, `$documentTypeOptions` added to `show()`.
+- `routes/web.php` — two new POST routes under the existing `permission:rental_applications.view` group.
+- `resources/views/corex/rental-applications/review.blade.php` — `fileDocumentAction()` Alpine factory, per-row "File as…"/"Change type" control, `documentTypeOptionsPrimary`/`documentTypeOptionsOther` computed in `rentalReview()`.
+- `tests/Feature/RentalApplications/FileDocumentDirectlyTest.php` — new.
+- This file and `.ai/specs/pdf-splitter-routing.md` — this section and its "AT-410 — an alternate path INTO this same routing story" counterpart.
+
+### Gates run before push
+
+- `php -l` on every changed PHP file — clean.
+- `php artisan view:clear` / `route:clear` / `cache:clear` — clean.
+- `php artisan test tests/Feature/RentalApplications/FileDocumentDirectlyTest.php` and the pre-existing `tests/Feature/Tools/PdfSplitterRentalApplicationMarkGuardTest.php` (proving the guard refactor didn't regress the splitter itself) — see results recorded at push time below.
+- Real Puppeteer click-through against a local `php artisan serve` instance on the actual worktree, per the conductor's explicit instruction not to hand over an endpoint test alone — full walk above, zero console errors throughout.
+- `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.
