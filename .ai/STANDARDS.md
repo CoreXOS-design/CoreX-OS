@@ -627,6 +627,35 @@ today.
 
 ---
 
+## Standard −1k — A lane must never run two test processes against its own worktree database concurrently (2026-09-16)
+
+cc6 re-checked two deadlock incident logs and found both name
+`hfc_dash_test_6` — cc6's OWN worktree database, not another lane's. The
+conductor's earlier diagnosis of these two incidents as cross-lane
+contention was wrong, and has been retracted directly to cc2, cc3, and
+cc4. The real cause is self-collision: a foreground `php artisan test`
+running while a fork or background agent the SAME lane dispatched is
+also testing against the same database. Symptoms seen: two `ERROR 1213`
+deadlocks, and one unbounded metadata-lock wait on schema-load DDL (the
+schema load is itself DDL, so it waits forever behind the other
+process's own open transaction rather than timing out promptly).
+
+**The rule: one test process per worktree database at a time.** If a
+lane dispatches a subagent or fork to run tests, that lane does not ALSO
+run tests in the foreground until the dispatched one finishes, and vice
+versa. Per-lane test databases (`hfc_dash_test_1`..`hfc_dash_test_6`,
+Standard −1a) already isolate lanes from EACH OTHER — they do nothing to
+isolate a lane from ITSELF running two things at once against the one
+database it owns.
+
+This is a distinct mechanism from Standard −1h (shared-`mysqld`-resource
+contention ACROSS different lanes' schemas, directly observed via a
+different lane's `migrate:fresh` blocking an unrelated query) — that
+finding stands on its own evidence and is not what this retraction
+concerns. This standard is about a single lane colliding with itself.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
