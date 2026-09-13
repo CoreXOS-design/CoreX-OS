@@ -331,6 +331,45 @@
         </form>
     </div>
 
+    {{-- Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
+         not gated but if the applicant submits... after initial submission
+         we can gate on ID." The ID number is a speed bump (it is on every
+         document that person has ever handed anyone), not authentication —
+         email OTP is the stronger option for agencies that want the gate
+         to actually hold. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Applicant Return Gate</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            The first time an applicant opens their link is never gated. Every visit AFTER they submit
+            is — that link now holds an ID number and uploaded documents. The ID number check is a
+            speed bump against a forwarded link; email verification is stronger, for agencies that want it.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.return-gate') }}" class="flex flex-wrap items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Verification method</label>
+                <select name="return_gate_method" class="corex-input text-sm">
+                    <option value="id_number" @selected(old('return_gate_method', $returnGateMethod) === 'id_number')>ID number</option>
+                    <option value="email_otp" @selected(old('return_gate_method', $returnGateMethod) === 'email_otp')>Email verification code</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Maximum attempts</label>
+                <input type="number" name="return_gate_attempt_max" step="1" min="2" max="50"
+                       value="{{ old('return_gate_attempt_max', $returnGateAttemptMax) }}"
+                       class="corex-input text-sm" style="width: 100px;">
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Per this many minutes</label>
+                <input type="number" name="return_gate_attempt_window_minutes" step="1" min="1" max="1440"
+                       value="{{ old('return_gate_attempt_window_minutes', $returnGateAttemptWindowMinutes) }}"
+                       class="corex-input text-sm" style="width: 90px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- Public link volume caps, AT-392 round 2, 2026-09-13 — conductor's
          sweep of the remaining public applicant-journey routes, all of
          which still carried Laravel's stock per-IP throttle (the exact

@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\OtpMail;
 use App\Models\FicaSubmission;
 use App\Models\RentalApplication;
+use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplicationSignature;
+use App\Services\Otp\OtpService;
 use App\Services\RentalApplications\RentalApplicationNotifier;
 use App\Services\RentalApplications\RentalApplicationPdfService;
 use Illuminate\Http\Request;
@@ -73,7 +76,186 @@ class RentalApplicationSigningController extends Controller
             ->firstOrFail();
     }
 
-    public function show(string $token): View
+    /**
+     * Return gate, AT-392 round 4, 2026-09-13 — one session flag per
+     * token, set either by a successful gate pass or by THIS session's own
+     * submit(). Deliberately session-scoped, never a persistent cookie or
+     * DB flag: a forwarded link opened in a fresh browser must always
+     * re-gate — that is the entire point.
+     */
+    private function gateSessionKey(string $token): string
+    {
+        return "rental_application_return_gate_passed:{$token}";
+    }
+
+    private function returnGatePassed(RentalApplication $application, Request $request): bool
+    {
+        if (! $application->isSubmitted()) {
+            return true;
+        }
+
+        return (bool) $request->session()->get($this->gateSessionKey($application->token));
+    }
+
+    private function markReturnGatePassed(RentalApplication $application, Request $request): void
+    {
+        $request->session()->put($this->gateSessionKey($application->token), true);
+    }
+
+    /**
+     * Failed attempts must not become an oracle for guessing an ID against
+     * a known application (Johan, verbatim) — strips everything but digits
+     * on BOTH sides before comparing (conductor's refinement: "a correct
+     * ID typed with spaces must pass — rejecting a right answer because of
+     * punctuation is the worst possible failure for a security gate"),
+     * then a constant-time comparison so a partial match can never be
+     * timed out of the response.
+     */
+    private function idNumberMatches(RentalApplication $application, string $entered): bool
+    {
+        $enteredDigits = preg_replace('/[^0-9]/', '', $entered) ?? '';
+        $realDigits = preg_replace('/[^0-9]/', '', (string) $application->id_number) ?? '';
+
+        return $realDigits !== '' && $enteredDigits !== '' && hash_equals($realDigits, $enteredDigits);
+    }
+
+    /**
+     * Never stored in clear, never in a URL or query string — OtpService
+     * already hashes at rest and this call only ever receives the code
+     * via a POST body field (see routes/web.php's gate routes). throttle()
+     * is called explicitly (the engine itself doesn't call it) so a
+     * malicious or over-eager resend can't spam the applicant's own inbox.
+     */
+    private function issueGateOtp(RentalApplication $application, string $email): void
+    {
+        $otpService = app(OtpService::class);
+
+        if ($otpService->throttle('rental_application_return_gate', $email) !== null) {
+            return;
+        }
+
+        $otpService->issue('rental_application_return_gate', $email, [
+            'subject' => $application,
+            'expires_minutes' => 10,
+            'mail' => fn ($code) => new OtpMail(
+                $code, 10,
+                "Verify it's you to view your rental application",
+                'Your verification code for your rental application',
+            ),
+        ]);
+    }
+
+    private function maskEmail(string $email): string
+    {
+        [$local, $domain] = array_pad(explode('@', $email, 2), 2, '');
+        $visible = mb_substr($local, 0, 1);
+
+        return $visible . str_repeat('*', max(1, mb_strlen($local) - 1)) . '@' . $domain;
+    }
+
+    /**
+     * Renders the gate itself. For email_otp, sends the code automatically
+     * on first render of a session (never resent on every reload — a
+     * session flag tracks "already sent", the applicant's own "Resend
+     * code" link is the only other trigger, and OtpService's own throttle
+     * caps that too).
+     */
+    private function renderReturnGate(RentalApplication $application): View
+    {
+        $method = RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id);
+
+        if ($method === 'email_otp') {
+            $email = $application->recipientEmail();
+            $sentKey = "rental_application_gate_otp_sent:{$application->token}";
+            if ($email && ! session($sentKey)) {
+                $this->issueGateOtp($application, $email);
+                session([$sentKey => true]);
+            }
+
+            return view('rental-applications.public.gate', [
+                'method' => 'email_otp',
+                'maskedEmail' => $email ? $this->maskEmail($email) : null,
+                'lockedOut' => false,
+                'token' => $application->token,
+                'agentName' => $application->createdBy?->name,
+                'agentEmail' => $application->createdBy?->email,
+                'agentPhone' => $application->createdBy?->cell ?: $application->createdBy?->phone,
+            ]);
+        }
+
+        return view('rental-applications.public.gate', [
+            'method' => 'id_number',
+            'lockedOut' => false,
+            'token' => $application->token,
+            'agentName' => $application->createdBy?->name,
+            'agentEmail' => $application->createdBy?->email,
+            'agentPhone' => $application->createdBy?->cell ?: $application->createdBy?->phone,
+        ]);
+    }
+
+    /**
+     * POST /{token}/verify-gate — throttled by the named
+     * rental-application-gate limiter (see AppServiceProvider::boot()),
+     * which handles the lockout response itself; this method only ever
+     * runs for an attempt still inside budget.
+     */
+    public function verifyReturnGate(Request $request, string $token)
+    {
+        $application = $this->findByToken($token);
+
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            return view('rental-applications.public.unavailable', ['reason' => 'expired']);
+        }
+
+        if (! $application->isSubmitted()) {
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        $method = RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id);
+
+        if ($method === 'email_otp') {
+            $email = $application->recipientEmail();
+            $code = (string) $request->input('otp_code', '');
+            $passed = $email !== null && app(OtpService::class)->verify('rental_application_return_gate', $email, $code) !== null;
+        } else {
+            $passed = $this->idNumberMatches($application, (string) $request->input('id_number', ''));
+        }
+
+        if ($passed) {
+            $this->markReturnGatePassed($application, $request);
+
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        // Deliberately the SAME generic message regardless of method or
+        // how close the guess was — no oracle, no hint.
+        return redirect()->route('rental-applications.public.show', $token)
+            ->withErrors(['gate' => "That didn't match. Please try again."]);
+    }
+
+    /**
+     * POST /{token}/gate/resend-otp — only meaningful when the agency's
+     * gate method is email_otp; a no-op redirect otherwise. Relies
+     * entirely on OtpService's own throttle() for abuse protection (resend
+     * cooldown + hourly cap) rather than a second limiter here.
+     */
+    public function resendGateOtp(Request $request, string $token)
+    {
+        $application = $this->findByToken($token);
+
+        if (! $application->isSubmitted() || RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id) !== 'email_otp') {
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        $email = $application->recipientEmail();
+        if ($email) {
+            $this->issueGateOtp($application, $email);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('gate_status', 'A new code has been sent.');
+    }
+
+    public function show(Request $request, string $token): View
     {
         $application = $this->findByToken($token);
 
@@ -83,6 +265,20 @@ class RentalApplicationSigningController extends Controller
 
         if ($application->status === 'draft') {
             return view('rental-applications.public.unavailable', ['reason' => 'not_sent']);
+        }
+
+        // Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
+        // not gated but if the applicant submits... after initial
+        // submission we can gate on ID." Checked BEFORE the
+        // POST_RETURN_STATUSES branch below so it also covers 'reopened'
+        // (deliberately excluded from that list, but isSubmitted() stays
+        // true forever once set — a reopened editable form holds the same
+        // sensitive data as the read-only view). The session flag is set
+        // once, either by a successful gate pass or by THIS SAME session's
+        // own submit() — never re-asked mid-session, always re-asked the
+        // moment a fresh session opens the link, including a forwarded copy.
+        if (! $this->returnGatePassed($application, $request)) {
+            return $this->renderReturnGate($application);
         }
 
         // Reopen/resubmit, 2026-09-08 — 'reopened' is deliberately NOT in
@@ -167,6 +363,17 @@ class RentalApplicationSigningController extends Controller
             return response()->json(['saved' => false]);
         }
 
+        // Return gate, AT-392 round 4, 2026-09-13 — 'reopened' isn't in
+        // POST_RETURN_STATUSES above, so it reaches here, but isSubmitted()
+        // is still true (set on the original submission, never cleared) —
+        // a reopened editing session must not autosave without having
+        // passed the gate in this session. Silent, matching this route's
+        // own "always 200, never a visible error" contract — never a
+        // visible failure, just a quiet skip until the next debounce.
+        if (! $this->returnGatePassed($application, $request)) {
+            return response()->json(['saved' => false]);
+        }
+
         // Volume cap, per APPLICATION (not per IP) — 2026-09-12, Johan's own
         // audit question: the route's `throttle:40,1` middleware is per-IP,
         // which stops a naive single-source script but does nothing against
@@ -239,6 +446,16 @@ class RentalApplicationSigningController extends Controller
         }
 
         if ($application->status === 'draft') {
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        // Return gate, AT-392 round 4, 2026-09-13 — a resubmit (reopened
+        // status, isSubmitted() already true from the original submission)
+        // must not be reachable via a raw direct POST without ever having
+        // passed the gate in this session. A genuine first-time submit
+        // (isSubmitted() still false) is never gated — matches
+        // returnGatePassed()'s own "never submitted, never gated" rule.
+        if (! $this->returnGatePassed($application, $request)) {
             return redirect()->route('rental-applications.public.show', $token);
         }
 
@@ -354,6 +571,14 @@ class RentalApplicationSigningController extends Controller
                 'id_number_source' => 'rental_application',
             ]);
         }
+
+        // Return gate, AT-392 round 4, 2026-09-13 — this submit (whether
+        // the first-ever one, ungated, or a resubmit that already passed
+        // the gate to get here) unlocks the rest of THIS session — the
+        // FICA hand-off below, and the applicant's own confirmation once
+        // they return from it, must not immediately re-ask something they
+        // just proved seconds ago by the act of submitting.
+        $this->markReturnGatePassed($application, $request);
 
         // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal
         // position: "submit and complete fica forces them to complete fica
@@ -556,9 +781,17 @@ class RentalApplicationSigningController extends Controller
         ]);
     }
 
-    public function pdf(string $token)
+    public function pdf(Request $request, string $token)
     {
         $application = $this->findByToken($token);
+
+        // Return gate, AT-392 round 4, 2026-09-13 — the PDF holds the exact
+        // same sensitive fields (ID number, income, bank details) as the
+        // gated view, and a direct/bookmarked link to it would otherwise
+        // bypass the gate entirely.
+        if (! $this->returnGatePassed($application, $request)) {
+            return redirect()->route('rental-applications.public.show', $token);
+        }
 
         $path = app(RentalApplicationPdfService::class)->generate($application);
 
@@ -588,12 +821,21 @@ class RentalApplicationSigningController extends Controller
         return $document;
     }
 
-    public function viewDocument(string $token, int $document)
+    public function viewDocument(Request $request, string $token, int $document)
     {
         $application = $this->findByToken($token);
 
         if ($application->token_expires_at && $application->token_expires_at->isPast()) {
             abort(404);
+        }
+
+        // Return gate, AT-392 round 4, 2026-09-13 — this is the single
+        // most sensitive route the applicant journey has: an uploaded ID
+        // copy, payslip or bank statement, viewable directly. A bookmarked
+        // or forwarded link to a specific document must never bypass the
+        // gate that protects everything else.
+        if (! $this->returnGatePassed($application, $request)) {
+            return redirect()->route('rental-applications.public.show', $token);
         }
 
         $doc = $this->scopedDocument($application, $document);

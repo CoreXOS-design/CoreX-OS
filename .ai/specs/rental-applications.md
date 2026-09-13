@@ -12066,3 +12066,272 @@ directly is exactly the pattern the new standard exists to stop, and it
 won't happen again from this lane. Nothing further will be migrated
 directly; the next migration this lane needs goes in via a normal push,
 applied through `/corex-qa1` like everything else.
+
+## FICA becomes mandatory — one continuous submit-into-FICA flow (Johan, 2026-09-13, round 3)
+
+Johan, a legal position, not a preference: "technically we not allowed to
+work with anyone if did not fica. so submit and complete fica forces them
+to complete fica whilst we receive the application back. agent can then
+push them to complete fica."
+
+Read precisely — this is NOT "block submission until FICA is done":
+
+- **The application is ALWAYS received, regardless of FICA.** submit()
+  commits the application (status → returned, signatures stored,
+  submitted_at stamped, agent notified, domain event fired) exactly as
+  before, in the same transaction as always. The FICA hand-off happens
+  strictly AFTER that commit, outside any transaction that could roll it
+  back.
+- **The final applicant action is "Submit and Complete FICA
+  Verification"** — one continuous flow, not a separate email sent later.
+  On success, submit() redirects straight into CoreX's existing public
+  FICA form (`route('fica.form', $token)`), carrying `return_url` (back to
+  the rental application's own confirmation) and `return_context=rental_application`
+  (so the shared FICA confirmation page speaks in rental terms, not
+  e-sign terms — see below).
+- **If FICA is abandoned, nothing is lost.** The applicant closing the tab
+  mid-FICA leaves the application exactly as submitted, FICA sitting in
+  `draft`/`submitted` status, plainly flagged as outstanding in three
+  places: the applicant's own confirmation (with a message that
+  distinguishes "you haven't started" from "you already submitted it,
+  we're reviewing it" — `RentalApplication::ficaAwaitingApplicantAction()`),
+  the agent's review screen (a badge, same `ds-badge-*` classes the
+  Contact page's own FICA badge already uses), and a "FICA Outstanding"
+  list tile so a stalled application is findable, not just badged.
+- **Whether FICA must be complete before an application can reach the
+  AUTHORISER is a separate agency setting**
+  (`require_fica_before_authorisation`, default true — HFC's own answer,
+  per Johan's own words) — enforced only at
+  `RentalApplicationReviewController::submitForApproval()`, never at the
+  applicant's own submit.
+
+### Reuse, not a second FICA system
+
+Checked before building anything (Johan's explicit stop-condition: "if it
+does not fit an applicant who is not yet a contact, stop and tell me
+rather than forking it"):
+
+- `RentalApplication.contact_id` is set by the agent at CREATION time,
+  before the public token/link ever exists — so the applicant's Contact
+  is always real before submit() runs. The stop-condition never
+  triggered; no fork needed.
+- `RentalApplicationSigningController::findOrCreateFicaSubmission()`
+  mirrors the exact find-or-reuse shape `SigningController`'s own FICA
+  gate already uses for e-sign (`FicaSubmission::where('contact_id', ...)
+  ->whereIn('status', [...])->first()`) — the ONE deliberate difference is
+  that this one auto-CREATES a submission when none exists at all
+  (e-sign's gate assumes an agent already sent a FICA request via the
+  compliance screen first; Johan's "one continuous flow" means the
+  applicant must never hit a dead "no FICA link yet" state).
+- `Contact::ficaStatus()` (unmodified) is the single source of truth for
+  "is FICA outstanding" — `RentalApplication::ficaOutstanding()` just
+  calls it. Same three-bucket result (complete/expiring/incomplete) the
+  Contact page's own badge already computes; no second expiry policy
+  invented for rentals.
+- A repeat contact with a complete, unexpired FICA on file from ANY past
+  transaction (this table has never been scoped to a single deal) is
+  found and reused — `fica.form`'s own existing bypass
+  (`in_array($status, ['submitted','under_review','approved'])` →
+  redirect straight to confirmation) already handles this; proven to
+  actually RENDER, not just not-error, both via PHPUnit
+  (`RentalApplicationFicaHandoffTest::test_a_contact_with_an_already_approved_unexpired_fica_is_reused_not_duplicated`)
+  and a real headless-Chrome click-through against QA1.
+
+### Walk-in FICA — refinement #3, answered before building anything else
+
+Conductor/Johan's explicit requirement: "the AGENT must be able to
+satisfy FICA from the agency side for walk-ins... if the only route to
+FICA complete is the applicant doing it online, every walk-in stalls
+forever." Checked, confirmed, no gap: `FicaController::store()` (an
+authenticated AGENT action) creates a submission for any contact
+directly, and `FicaController::agentApprove()` is a normal staff action
+requiring zero applicant interaction — an agent checking a walk-in's ID
+in person records the verification themselves. The one shared step that
+still needs a SEPARATE compliance officer sign-off before FICA reads as
+fully "Complete" is standard two-person AML control that already applies
+to every FICA verification in CoreX today, not something introduced or
+changed for rentals.
+
+### Bug fixed while wiring the hand-off (affects e-sign too, not just rentals)
+
+`fica/confirmation.blade.php` always said "Your submission will be
+reviewed by your agent. Once approved, you will be able to sign your
+document" — even for an ALREADY-approved submission (the exact case a
+repeat tenant/signer hits). Fixed for both consumers in the same edit
+(the view already branches on `$returnContext`, defaulting to e-sign's
+existing copy unchanged when absent): an already-approved submission now
+says "already complete", never the pending-review wording.
+
+### Files
+
+`app/Http/Controllers/RentalApplicationSigningController.php` (FICA
+hand-off in submit(), `findOrCreateFicaSubmission()`, contact id_number
+backfill — only when empty, never overwrites),
+`app/Http/Controllers/Compliance/FicaPublicController.php` +
+`resources/views/fica/{form,confirmation}.blade.php` (optional
+`return_context` threaded through, backward-compatible, e-sign
+unaffected), `app/Models/RentalApplication.php`
+(`ficaOutstanding()`/`ficaAwaitingApplicantAction()`),
+`app/Models/RentalApplicationQualifyingSetting.php`
+(`require_fica_before_authorisation`),
+`app/Http/Controllers/CoreX/RentalApplicationReviewController.php`
+(authoriser gate in `submitForApproval()`),
+`app/Http/Controllers/CoreX/RentalApplicationController.php` (new
+`fica_outstanding` tile), `resources/views/corex/rental-applications/{index,review}.blade.php`
+(tile + badge), `resources/views/rental-applications/public/{show,already-submitted}.blade.php`
+(button text, outstanding-FICA notice), settings screen (checkbox +
+route + controller method).
+
+### Verified
+
+83 PHPUnit tests across the full blast radius (all passing, zero
+regressions), plus a real headless-Chrome click-through against QA1: drew
+both rental-form signatures by hand, clicked the real "Submit and
+Complete FICA Verification" button, followed the real redirect into the
+real FICA form, filled every real required field (including two fields
+the first pass missed — `principal[acting_on_behalf]` and
+`representative[has_representative]` — found by reading the browser's own
+HTML5 validity state rather than guessing), submitted for real, landed on
+the real confirmation with the correct rental-specific copy, clicked
+"Return to My Application" for real. Separately: the FICA badge on a real
+review screen, the "FICA Outstanding" list tile actually filtering to the
+right rows, and the settings checkbox actually saving and persisting
+after a real reload.
+
+## Return gate — gating the applicant link after first submission (Johan, 2026-09-13, round 4)
+
+Johan's decision, in his own words: "played around that initial open is
+not gated but if the applicant submits we should have the id number which
+we can update the contact record with, so after initial submission we can
+gate on ID."
+
+**The reasoning, recorded here explicitly so nobody tightens it later
+thinking they're helping:** an unfinished form the applicant is still
+typing into holds nothing worth protecting — gating it mid-application
+across sessions would cost real applications for no security gain. Once
+submitted, the SAME link now holds an ID number, uploaded payslips and
+bank statements — exactly the material POPIA cares about — behind a URL
+that can live in an inbox indefinitely and gets forwarded around. The
+line sits exactly there: first open (before ANY submission) is never
+gated; the submission's own confirmation (same session, seconds later) is
+free — the applicant just proved they're at the link by clicking Submit;
+every visit after THAT, in a new session (closing the browser, a
+forwarded link, months later), is gated.
+
+### Mechanism
+
+- **Session-scoped, never persistent.** A single flag,
+  `rental_application_return_gate_passed:{token}`, set in the Laravel
+  session either by a successful gate pass or by submit() itself
+  succeeding in that same session. Deliberately NOT a cookie, NOT a DB
+  column — closing the browser and reopening the link always re-gates,
+  which is the entire point against a forwarded link.
+- **Default method: the applicant's own ID number**, already captured on
+  the application (and, since round 3, backfilled onto the Contact record
+  on submit if it was empty). Honest framing, recorded in this spec: an ID
+  number is not a secret — it's on every document that person has ever
+  handed anyone. It's a second weak factor on top of an already-secret
+  link (the 64-char token itself), and the two together are reasonable. A
+  speed bump, not authentication.
+- **Agency-configurable stronger option: email OTP**, reusing CoreX's
+  existing `App\Services\Otp\OtpService` outright — NOT a second
+  one-time-code mechanism (confirmed by both cc3's and my own independent
+  investigation before building: the engine is fully destination-agnostic,
+  needs no Contact, no login). Purpose `rental_application_return_gate`,
+  destination = the email already on the application, subject = the
+  `RentalApplication` row, delivered via the existing `OtpMail` with an
+  explicit non-code-bearing subject line (cc3's flag: `OtpMail`'s own
+  default subject embeds the raw code — a real lock-screen leak risk this
+  build does not inherit).
+- **Which routes are gated:** `show()` (the primary target — "gate the
+  VIEW hardest, that's where the sensitive data sits"), plus `pdf()` and
+  `viewDocument()` (the same sensitive data, reachable directly without
+  ever passing through `show()` — a bookmarked/forwarded link to either
+  would otherwise bypass the gate entirely), plus `submit()` and
+  `autosave()` as defense-in-depth against a raw direct POST on a
+  'reopened' application (isSubmitted() stays true forever once set, so a
+  reopened editable form is gated exactly like the read-only view).
+  Document upload/remove/replace are NOT separately gated by this
+  mechanism — they're already governed by the round-2 closure logic
+  (withdrawn/declined/approved), a different concern.
+- **Failed attempts are rate-limited by the SAME per-token named-limiter
+  convention** every other threshold in this feature uses
+  (`rental-application-gate`, `AppServiceProvider::boot()`),
+  agency-configurable (default 5 attempts / 15 minutes). The trip
+  response IS the "contact your agent" lockout screen itself (agent name,
+  email, phone, resolved from the application's `createdBy`) — never a
+  generic 429, never "Too many attempts" (same standard as every other
+  rate-limit message in this feature).
+- **Normalisation, per the conductor's explicit refinement:** both the
+  entered and the real ID number are stripped of everything but digits
+  before comparing (`preg_replace('/[^0-9]/', '', ...)`), then compared
+  with `hash_equals()` for a constant-time check. An ID typed with spaces
+  or dashes passes. Rejecting a correct answer because of punctuation was
+  named explicitly as "the worst possible failure for a security gate —
+  it teaches people the system is broken," and is tested
+  (`test_the_id_number_is_normalised_before_comparing_spaces_and_dashes_are_ignored`).
+- **No oracle.** A wrong guess — however close — gets the exact same
+  generic message ("That didn't match. Please try again."), whether the
+  method is ID number or OTP. The real ID number is never echoed back,
+  never logged, never placed in a URL or query string — it travels only
+  as a POST body field to `/{token}/verify-gate`.
+- **A locked-out applicant always has a way forward.** The lockout screen
+  names the agent (name, email, phone) — never a bare refusal, never a
+  technical error. A smaller "trouble accessing your application? contact
+  {agent}" link is also shown on the normal (non-locked) gate screen, for
+  a genuine applicant who's simply unsure what to type.
+
+### Settings
+
+`RentalApplicationQualifyingSetting::returnGateMethodFor()` /
+`returnGateAttemptMaxFor()` / `returnGateAttemptWindowMinutesFor()` —
+agency-configurable via the "Applicant Return Gate" block on the rental
+applications settings screen (method selector: ID number / email
+verification code; attempt cap; window in minutes). `min:2` server-enforced
+on the attempt cap so it can never be configured down to a self-inflicted
+0/1-attempt lockout for every real applicant who mistypes their own ID
+once.
+
+### A real-browser caveat the conductor flagged, recorded for whoever verifies this next
+
+Headless Chrome renders overlay scrollbars at ZERO width — a real Windows
+Chrome's classic 15px scrollbar can sit directly on top of a control's
+right edge inside a scrollable container, making it half-unreachable,
+and a headless run will pass regardless. The gate screen was deliberately
+built with NO internal scroll container (short, single-purpose, one field
+and one button) specifically to sidestep this class of bug rather than
+rely on catching it after the fact. Anyone extending this screen later:
+check `offsetWidth` vs `clientWidth` on any scrollable container
+introduced, and confirm no interactive element sits within scrollbar-width
+of the container's right edge, on a real (non-headless) render — not just
+headless Chrome.
+
+### Files
+
+Migration
+`2026_09_13_130000_add_return_gate_settings_to_rental_application_qualifying_settings.php`,
+`app/Models/RentalApplicationQualifyingSetting.php` (settings + accessors),
+`app/Providers/AppServiceProvider.php` (`rental-application-gate` named
+limiter), `app/Http/Controllers/RentalApplicationSigningController.php`
+(`returnGatePassed()`/`markReturnGatePassed()`/`renderReturnGate()`/
+`verifyReturnGate()`/`resendGateOtp()`/`idNumberMatches()`/`issueGateOtp()`,
+wired into `show()`/`pdf()`/`viewDocument()`/`submit()`/`autosave()`),
+`resources/views/rental-applications/public/gate.blade.php` (new),
+settings controller + view (`updateReturnGate()`, "Applicant Return Gate"
+block), `tests/Feature/RentalApplications/RentalApplicationReturnGateTest.php`.
+
+### Verified
+
+PHPUnit covers: first-open never gated, a fresh session after submission
+hits the gate (not the sensitive content), the same session that just
+submitted is never re-gated, correct ID passes (including with spaces/
+dashes), wrong ID fails generically, rate-limit lockout names the agent
+and blocks even a subsequently-correct answer, email OTP sends once per
+session (not on every reload) and the correct code passes, the OTP
+subject line never carries the raw code, pdf() and viewDocument() are
+also gated (not just show()), and a reopened application is gated too on
+a fresh session. Full blast-radius re-run across every pre-existing test
+that constructs an already-submitted fixture directly (rather than going
+through a real submit()) — each updated to seed the session's gate-passed
+flag explicitly, since that's exactly the scenario the gate now correctly
+intercepts by design, not a regression.

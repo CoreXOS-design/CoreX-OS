@@ -2855,6 +2855,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // FICA-mandatory, AT-392 round 3, 2026-09-13 — whether FICA must be complete before authorisation.
     Route::post('/settings/rental-applications/require-fica-before-authorisation', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireFicaBeforeAuthorisation'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.require-fica-before-authorisation');
+    // Return gate, AT-392 round 4, 2026-09-13 — gate method + attempt cap.
+    Route::post('/settings/rental-applications/return-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReturnGate'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.return-gate');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
@@ -4998,6 +5001,13 @@ Route::prefix('rental-application')->group(function () {
     // IP-keyed budget across every applicant reloading their own form.
     // Re-keyed to the APPLICATION TOKEN — see AppServiceProvider::boot().
     Route::get('/{token}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'show'])->middleware('throttle:rental-application-show')->name('rental-applications.public.show');
+    // Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
+    // submission we can gate on ID." Throttled by its own named limiter
+    // (rental-application-gate) — tight, agency-configurable, and its
+    // trip response IS the "contact your agent" lockout page, not a
+    // generic 429 — see AppServiceProvider::boot().
+    Route::post('/{token}/verify-gate', [\App\Http\Controllers\RentalApplicationSigningController::class, 'verifyReturnGate'])->middleware('throttle:rental-application-gate')->name('rental-applications.public.verify-gate');
+    Route::post('/{token}/gate/resend-otp', [\App\Http\Controllers\RentalApplicationSigningController::class, 'resendGateOtp'])->name('rental-applications.public.gate.resend-otp');
     // Applicant-side autosave, 2026-09-12 — debounced client-side (agency-
     // configurable, default 5s), so this fires far less than once per
     // keystroke. 2026-09-13 round 2 — was throttle:40,1 per-IP; re-keyed
