@@ -11411,3 +11411,56 @@ All five remain per-IP as shipped. Flagging per the conductor's
 instruction that "the same shared-office problem applies to them" is a
 possibility worth a ruling, not a claim that any of them has actually
 caused an incident — only the document upload route has.
+
+## Withdraw control — round 2: the rename above was wrong, corrected same day (2026-09-13, cc3)
+
+Johan, testing the round-1 rename live: "the button now says applicant
+withdrawn. almost worst. just fix it to say withdraw application... a user
+will know its not withdrawn - click it to withdraw." His own diagnosis,
+worth keeping on record: round 1 fixed WHO but broke WHAT. "Applicant
+withdrawn" reads as a description of the record's current state, so an
+agent scanning the row could read the button itself as "this application
+already IS withdrawn" rather than "click here to record that." **A
+control must read as an instruction — what happens when you press it —
+never as a description of the record's state; that's what a status pill
+is for.**
+
+The split this round, applied on that rule rather than forcing one string
+everywhere:
+
+| Surface | What kind of text | Wording |
+|---|---|---|
+| The control (`_record-withdrawn.blade.php`'s button) | Instruction | **"Withdraw application"** |
+| The popover's confirm button | Instruction (same action) | **"Confirm — withdraw application"** |
+| Status pill (`RentalApplication::WITHDRAWN_LABEL`) | Description | "Applicant withdrawn" — **unchanged from round 1** |
+| List tile | Description | "Applicant Withdrawn" — **unchanged from round 1** |
+| Audit trail | Description (records what already happened) | "Applicant withdrawn" — **unchanged from round 1** |
+| Reopen tooltip | Description (of the application's current state) | "...reopen an application the applicant withdrew" — **unchanged from round 1** |
+
+**Closing the loop this reopened:** making the button an imperative again
+means the always-visible button text no longer says "applicant" — the same
+gap round 1 was built to close. Rather than re-widen the button to fit
+both an instruction AND an actor, per Johan's own instruction the actor now
+lives in one plain sentence inside the popover, the one place left where an
+agent actually decides to click Confirm: *"This records that the applicant
+has decided to withdraw — not something the agency is deciding for them."*
+Confirmed present and correctly worded via a real Puppeteer click, not
+read off the source.
+
+**Row-width re-check, same method as round 1:** "Withdraw application"
+(20 characters) measured within one character of "Applicant withdrawn"
+(19) — single line (30px button height) at 1440px, 1280px, and 390px,
+across every row that renders it; overall table width at 1280px unchanged
+(1083.7px, byte-identical to round 1's measurement). No new wrap, no new
+scroll, confirmed by screenshot.
+
+**Real click-through proof, a second throwaway fixture (application 276,
+soft-deleted after):** clicked "Withdraw application" for real, confirmed
+the new plain sentence renders exactly as written, confirmed empty-note
+native validation still blocks submission, typed a real note, clicked
+"Confirm — withdraw application", followed the real page reload. Result:
+flash message and status pill both read "Applicant withdrawn" (status
+wording, correctly unchanged), the control disappeared, Reopen appeared in
+its place. Detail page afterward: header, pill, and audit-trail line
+("returned → Applicant withdrawn") all agree. Zero console errors, render
+gate PASS throughout.
