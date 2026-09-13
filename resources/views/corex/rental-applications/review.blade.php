@@ -1317,7 +1317,7 @@
                              toggle is the same call both ways. .stop so
                              clicking it never also fires the row's own
                              jumpToMark(). --}}
-                        <button type="button" class="rr-ledger-strike" :disabled="row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
+                        <button type="button" class="rr-ledger-strike" :disabled="!!row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
                     </div>
                 </template>
             </div>
@@ -1348,7 +1348,7 @@
                         <span class="rr-ledger-amount text-xs" :style="{ color: row.struck_out ? 'var(--text-muted)' : 'var(--text-primary)', 'text-decoration': row.struck_out ? 'line-through' : 'none' }" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                         <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
-                        <button type="button" class="rr-ledger-strike" :disabled="row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
+                        <button type="button" class="rr-ledger-strike" :disabled="!!row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
                     </div>
                 </template>
             </div>
@@ -1795,7 +1795,30 @@
  */
 function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate } = {}) {
     return {
-        captureEntries: initialCaptureEntries || [],
+        // BUG FIX, 2026-09-15 — Johan, live on QA1: the strike/restore
+        // button never fired for anyone. Root cause: `strikingBusy` was
+        // never given an initial value, so `:disabled="row.strikingBusy"`
+        // bound `undefined` rather than `false`. A DOM boolean attribute
+        // binding backed by `undefined` (as opposed to an explicit `false`)
+        // resolves through `Element.toggleAttribute(name, force)`, and per
+        // the DOM spec, `force === undefined` is treated as THE ARGUMENT
+        // BEING OMITTED — toggleAttribute then flips whatever the
+        // attribute's CURRENT presence happens to be, instead of forcing it
+        // false. Confirmed directly in a real headless Chromium: calling
+        // `el.toggleAttribute('disabled', undefined)` on a fresh element
+        // turns `disabled` ON, not off. Every row's button rendered
+        // permanently disabled from first paint, before a human ever
+        // touched it — no error, nothing to catch in a test that only hits
+        // the endpoint directly (see the spec's own write-up of this
+        // incident for the fuller answer to "what would have caught this").
+        // Fixed two ways, not one: `!!row.strikingBusy` at every binding
+        // site (a real boolean can never trigger the omitted-argument
+        // ambiguity, regardless of where the row object came from), AND
+        // `strikingBusy: false` given explicitly here and everywhere a row
+        // enters captureEntries below — belt-and-braces, since the field
+        // existing as a real value from the moment a row is created is the
+        // fix that actually matches its own name.
+        captureEntries: (initialCaptureEntries || []).map(e => ({ strikingBusy: false, ...e })),
         captureStrikeUrlTemplate: captureStrikeUrlTemplate || '',
         // Johan's decision, 2026-09-14 — a brief, row-agnostic error surface
         // for the strike/restore toggle (locked screen, wrong author, etc.)
@@ -1986,11 +2009,17 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
             return parts[2] + '/' + parts[1] + '/' + parts[0].slice(2);
         },
         addCaptureEntry(entry) {
-            this.captureEntries.push(entry);
+            this.captureEntries.push({ strikingBusy: false, ...entry });
         },
         updateCaptureEntry(entry) {
             const idx = this.captureEntries.findIndex(e => e.id === entry.id);
-            if (idx !== -1) this.captureEntries.splice(idx, 1, entry);
+            // strikingBusy: false here too — this replaces the WHOLE row
+            // object (including after a strike/restore's own optimistic
+            // update), and the server's response never carries this
+            // client-only transient field. Without it, the very toggle
+            // that finishes clearing the busy state would immediately
+            // reintroduce the undefined-vs-false bug this fix exists for.
+            if (idx !== -1) this.captureEntries.splice(idx, 1, { strikingBusy: false, ...entry });
         },
         removeCaptureEntry(markUid) {
             const idx = this.captureEntries.findIndex(e => e.id === markUid);
