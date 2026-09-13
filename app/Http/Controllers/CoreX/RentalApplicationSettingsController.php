@@ -77,6 +77,31 @@ class RentalApplicationSettingsController extends Controller
         $documentRateLimitMax = RentalApplicationQualifyingSetting::documentRateLimitMaxFor($agencyId);
         $documentRateLimitWindowMinutes = RentalApplicationQualifyingSetting::documentRateLimitWindowMinutesFor($agencyId);
 
+        // AT-392 round 2, 2026-09-13 — whether an APPROVED application can
+        // still receive documents (withdrawn/declined are always closed,
+        // no setting — see RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES).
+        $documentUploadsOpenAfterApproval = RentalApplicationQualifyingSetting::documentUploadsOpenAfterApprovalFor($agencyId);
+
+        // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "technically
+        // we not allowed to work with anyone if did not fica." Never
+        // blocks the application's own receipt — only this hand-off to
+        // the authoriser (RentalApplicationReviewController::submitForApproval()).
+        $requireFicaBeforeAuthorisation = RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor($agencyId);
+
+        // AT-392 round 2, 2026-09-13 — the conductor's sweep: the five
+        // remaining public routes' volume caps, same pattern as the
+        // document cap above, each its own agency-configurable pair.
+        $showRateLimitMax = RentalApplicationQualifyingSetting::showRateLimitMaxFor($agencyId);
+        $showRateLimitWindowMinutes = RentalApplicationQualifyingSetting::showRateLimitWindowMinutesFor($agencyId);
+        $submitRateLimitMax = RentalApplicationQualifyingSetting::submitRateLimitMaxFor($agencyId);
+        $submitRateLimitWindowMinutes = RentalApplicationQualifyingSetting::submitRateLimitWindowMinutesFor($agencyId);
+        $pdfRateLimitMax = RentalApplicationQualifyingSetting::pdfRateLimitMaxFor($agencyId);
+        $pdfRateLimitWindowMinutes = RentalApplicationQualifyingSetting::pdfRateLimitWindowMinutesFor($agencyId);
+        $documentViewRateLimitMax = RentalApplicationQualifyingSetting::documentViewRateLimitMaxFor($agencyId);
+        $documentViewRateLimitWindowMinutes = RentalApplicationQualifyingSetting::documentViewRateLimitWindowMinutesFor($agencyId);
+        $autosaveRequestRateLimitMax = RentalApplicationQualifyingSetting::autosaveRequestRateLimitMaxFor($agencyId);
+        $autosaveRequestRateLimitWindowMinutes = RentalApplicationQualifyingSetting::autosaveRequestRateLimitWindowMinutesFor($agencyId);
+
         // AT-392 approval-leg — Johan's standing rule: "any threshold, window
         // or business rule must be an agency-configurable setting with a
         // sensible default, never hardcoded." How many matched properties
@@ -154,7 +179,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -425,6 +450,89 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Document upload volume cap saved.');
+    }
+
+    /**
+     * AT-392 round 2, 2026-09-13 — checkbox, same has()-guard reasoning as
+     * updatePropertyLock()/updateTenantTagging() above. Withdrawn/declined
+     * are never configurable here — always closed, no setting exists for
+     * them (see RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES).
+     */
+    public function updateDocumentUploadsOpenAfterApproval(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('document_uploads_open_after_approval')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['document_uploads_open_after_approval' => 'That did not save — please try again.']);
+        }
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['document_uploads_open_after_approval' => $request->boolean('document_uploads_open_after_approval')],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Approved-application document setting saved.');
+    }
+
+    /**
+     * FICA-mandatory, AT-392 round 3, 2026-09-13 — checkbox, same
+     * has()-guard reasoning as updateDocumentUploadsOpenAfterApproval()
+     * above. Never gates the application's own receipt — only whether it
+     * can go to the authoriser while FICA is outstanding.
+     */
+    public function updateRequireFicaBeforeAuthorisation(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('require_fica_before_authorisation')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['require_fica_before_authorisation' => 'That did not save — please try again.']);
+        }
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['require_fica_before_authorisation' => $request->boolean('require_fica_before_authorisation')],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'FICA-before-authorisation setting saved.');
+    }
+
+    /**
+     * AT-392 round 2, 2026-09-13 — the conductor's sweep: one combined
+     * save for the five remaining public-route volume caps (show, submit,
+     * pdf, document-view, autosave-request), same min-floor reasoning as
+     * updateDocumentRateLimit() above — each floor is deliberately set
+     * low enough to never block server-enforced legitimate use, but high
+     * enough that "0" or "1" can't be configured by mistake into a
+     * self-inflicted lockout.
+     */
+    public function updateRouteRateLimits(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'show_rate_limit_max' => ['required', 'integer', 'min:10', 'max:10000'],
+            'show_rate_limit_window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            'submit_rate_limit_max' => ['required', 'integer', 'min:3', 'max:10000'],
+            'submit_rate_limit_window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            'pdf_rate_limit_max' => ['required', 'integer', 'min:10', 'max:10000'],
+            'pdf_rate_limit_window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            'document_view_rate_limit_max' => ['required', 'integer', 'min:10', 'max:10000'],
+            'document_view_rate_limit_window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            'autosave_request_rate_limit_max' => ['required', 'integer', 'min:10', 'max:10000'],
+            'autosave_request_rate_limit_window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+        ]);
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            $validated,
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Public link volume caps saved.');
     }
 
     /**

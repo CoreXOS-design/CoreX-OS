@@ -35,17 +35,51 @@
     @endif
 
     <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 text-center">
-        <h1 class="text-xl font-bold text-slate-800 mb-2">Application already received</h1>
-        <p class="text-sm text-slate-500">
-            Your rental application is already being processed
-            @if($application->submitted_at)
-                (submitted {{ $application->submitted_at->format('d M Y') }}).
-            @else
-                .
-            @endif
-        </p>
-        <p class="text-sm text-slate-500 mt-2">Please contact your agent if you need to change anything.</p>
+        @if($isTerminallyClosed ?? false)
+            {{-- AT-392 round 2, 2026-09-13 — Johan, verbatim: "it must not
+                 read as a dead end... does not imply they have done
+                 something wrong." Same honest message for withdrawn and
+                 declined, names the way back (the agent can reopen it). --}}
+            <h1 class="text-xl font-bold text-slate-800 mb-2">This application is closed</h1>
+            <p class="text-sm text-slate-500">{{ $documentUploadsClosedMessage }}</p>
+        @else
+            <h1 class="text-xl font-bold text-slate-800 mb-2">Application already received</h1>
+            <p class="text-sm text-slate-500">
+                Your rental application is already being processed
+                @if($application->submitted_at)
+                    (submitted {{ $application->submitted_at->format('d M Y') }}).
+                @else
+                    .
+                @endif
+            </p>
+            <p class="text-sm text-slate-500 mt-2">Please contact your agent if you need to change anything.</p>
+        @endif
     </div>
+
+    @if($ficaOutstanding ?? false)
+        {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "flagged
+             ... on the applicant's confirmation" if FICA was abandoned.
+             Plain, actionable, no jargon. Two distinct cases, not one:
+             ficaAwaitingApplicantAction tells apart "you haven't started"
+             from "you already submitted it, we're reviewing it" — telling
+             someone who did their part to go contact their agent would be
+             actively wrong, not just unhelpful. --}}
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-4 text-left">
+            @if($ficaAwaitingApplicantAction ?? true)
+                <p class="text-sm font-semibold text-amber-800 mb-1">One more step needed</p>
+                <p class="text-sm text-amber-700">
+                    Your application has been received, but we still need to verify your identity documents (FICA)
+                    before it can move forward. Please contact your agent to finish this step.
+                </p>
+            @else
+                <p class="text-sm font-semibold text-amber-800 mb-1">Verification in progress</p>
+                <p class="text-sm text-amber-700">
+                    Thank you — your identity verification (FICA) has been submitted and is being reviewed.
+                    No action is needed from you right now; your agent will be in touch if anything else is required.
+                </p>
+            @endif
+        </div>
+    @endif
 
     {{--
         AT-392, Johan 2026-09-07 — spec §5: supporting documents are
@@ -57,7 +91,9 @@
     --}}
     <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mt-4 text-left">
         <h2 class="font-semibold text-slate-700 mb-2">Supporting Documents</h2>
-        <p class="text-xs text-slate-500 mb-3">Upload payslips, bank statements, ID or proof of residence — whatever you have.</p>
+        @if($documentUploadsOpen ?? true)
+            <p class="text-xs text-slate-500 mb-3">Upload payslips, bank statements, ID or proof of residence — whatever you have.</p>
+        @endif
 
         <ul class="text-sm text-slate-600 mb-3 space-y-2" x-show="documents.length">
             <template x-for="doc in documents" :key="doc.id">
@@ -67,21 +103,40 @@
                 </li>
             </template>
         </ul>
-        <p class="text-xs text-slate-500 mb-3" x-show="documents.length" x-cloak>
-            The documents above were submitted with your application and can't be changed. Need to send something else? Add it below — your agent will see it as a new document.
-        </p>
 
-        <template x-for="u in uploading" :key="u.tempId">
-            <p class="text-xs mb-2" :class="u.error ? 'text-red-600' : 'text-slate-500'">
-                <span x-show="!u.error" x-text="'Uploading ' + u.name + '…'"></span>
-                <span x-show="u.error" x-text="u.name + ': ' + u.error"></span>
+        @if($documentUploadsOpen ?? true)
+            <p class="text-xs text-slate-500 mb-3" x-show="documents.length" x-cloak>
+                The documents above were submitted with your application and can't be changed. Need to send something else? Add it below — your agent will see it as a new document.
             </p>
-        </template>
 
-        <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-               class="block w-full text-sm text-slate-600 mb-1"
-               @change="onFilesSelected($event.target.files); $event.target.value = ''">
-        <p class="text-[11px] text-slate-400">Files attach automatically — no separate upload button needed. Documents submitted with your application are locked; anything added here shows up as a new document for your agent.</p>
+            <template x-for="u in uploading" :key="u.tempId">
+                <p class="text-xs mb-2" :class="u.error ? 'text-red-600' : 'text-slate-500'">
+                    <span x-show="!u.error" x-text="'Uploading ' + u.name + '…'"></span>
+                    <span x-show="u.error" x-text="u.name + ': ' + u.error"></span>
+                </p>
+            </template>
+
+            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                   class="block w-full text-sm text-slate-600 mb-1"
+                   @change="onFilesSelected($event.target.files); $event.target.value = ''">
+            <p class="text-[11px] text-slate-400">Files attach automatically — no separate upload button needed. Documents submitted with your application are locked; anything added here shows up as a new document for your agent.</p>
+        @elseif($isTerminallyClosed ?? false)
+            {{-- AT-392 round 2, 2026-09-13 — withdrawn/declined: the top
+                 message already explains the closure and the way back, so
+                 this box only needs to note documents specifically without
+                 repeating the whole paragraph. --}}
+            <p class="text-xs text-slate-500" x-show="documents.length" x-cloak>
+                The documents above were submitted with your application. No new documents can be added while this application is closed.
+            </p>
+            <p class="text-xs text-slate-500" x-show="!documents.length">
+                No new documents can be added while this application is closed.
+            </p>
+        @else
+            {{-- Approved, agency has turned uploads off for this stage —
+                 the page above still reads as "already received", not
+                 "closed", so this box carries the reason on its own. --}}
+            <p class="text-xs text-slate-500">{{ $documentUploadsClosedMessage }}</p>
+        @endif
     </div>
 
 </div>

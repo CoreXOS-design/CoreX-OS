@@ -195,6 +195,14 @@ class RentalApplicationController extends Controller
         'declined' => ['label' => 'Declined', 'statuses' => ['declined'], 'submitted_for_approval' => null],
         'withdrawn' => ['label' => 'Withdrawn', 'statuses' => ['withdrawn'], 'submitted_for_approval' => null],
         'reopened' => ['label' => 'Reopened', 'statuses' => ['reopened'], 'submitted_for_approval' => null],
+        // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "an
+        // application stalled on outstanding FICA must be visible, not
+        // just badged on the record... the agent needs to find these."
+        // Scoped to REVIEWABLE_STATUSES — the same "an agent has real work
+        // to do on this file" set already established in this class —
+        // rather than every status, since a terminal approved/declined/
+        // withdrawn application isn't something FICA-chasing helps any more.
+        'fica_outstanding' => ['label' => 'FICA Outstanding', 'statuses' => ['in_progress', 'returned', 'reopened', 'under_assessment'], 'submitted_for_approval' => null, 'fica_outstanding' => true],
     ];
 
     /** Rendered as small, muted links below the main tile row — reachable, not prominent (Johan's ruling). */
@@ -209,7 +217,7 @@ class RentalApplicationController extends Controller
     public const RETURNED_STATUSES = ['returned', 'reopened', 'under_assessment', 'approved', 'declined'];
 
     /** Tile keys that surface any of RETURNED_STATUSES — hidden/redirected away for a user lacking view_returned. */
-    public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'reopened'];
+    public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'reopened', 'fica_outstanding'];
 
     /**
      * REGRESSION FIX (2026-09-11) — merging index()/returned() into one list
@@ -245,6 +253,20 @@ class RentalApplicationController extends Controller
             $query->whereNotNull('rental_applications.submitted_for_approval_at');
         } elseif ($def['submitted_for_approval'] === false) {
             $query->whereNull('rental_applications.submitted_for_approval_at');
+        }
+        // FICA-mandatory, AT-392 round 3, 2026-09-13 — matches the
+        // FicaSubmission-based branch of Contact::ficaStatus()'s own
+        // "complete" check (approved + verified within 11 months). The
+        // per-record badge (review.blade.php) still calls the full
+        // ficaStatus() accessor, including its legacy fica_documents
+        // fallback — deliberately not replicated here: this list filter
+        // only needs to be a fast, correct-for-current-data SQL condition,
+        // and a rental applicant with an OLD legacy-only FICA record
+        // predating this table is not a realistic overlap.
+        if (! empty($def['fica_outstanding'])) {
+            $query->whereDoesntHave('contact.ficaSubmissions', function ($q) {
+                $q->where('status', 'approved')->where('verified_at', '>=', now()->subMonths(11));
+            });
         }
     }
 

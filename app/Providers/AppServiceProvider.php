@@ -988,5 +988,104 @@ class AppServiceProvider extends ServiceProvider
                     ], 429);
                 });
         });
+
+        // AT-392 round 2, 2026-09-13 — the conductor's sweep from the
+        // document-upload incident: five more public routes carried
+        // Laravel's stock per-IP `throttle:N,1`, the exact defect that
+        // incident closed for documents. Same token-only key (no IP
+        // component — see rental-application-documents above for why),
+        // each with its own agency-configurable default. Conductor's
+        // priority order by real-world risk: submit, show, pdf,
+        // document-view, autosave.
+        //
+        // SUBMIT — Johan: "several agents helping several applicants
+        // submit in the same minute" from the one HFC office IP was the
+        // actual risk; per-token removes that collision entirely.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-submit', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::submitRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::submitRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-submit:' . $token)
+                ->response(fn () => response()->json([
+                    'message' => "You've submitted a lot in a short time, so submitting is paused for a moment. Nothing has been lost — please wait a minute and try again.",
+                ], 429));
+        });
+
+        // SHOW — a real applicant reloading a slow page repeatedly on bad
+        // mobile data (Johan's named scenario) needs more headroom than a
+        // single-minute window; per-token removes the shared-carrier risk
+        // entirely regardless.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-show', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::showRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::showRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-show:' . $token)
+                ->response(fn () => response()->view('rental-applications.public.unavailable', [
+                    'reason' => 'rate_limited',
+                ], 429));
+        });
+
+        // PDF — read-only render, generous default, same window as
+        // documents for one consistent rule.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-pdf', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::pdfRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::pdfRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-pdf:' . $token)
+                ->response(fn () => response()->json([
+                    'message' => "This is being requested a lot right now, so it's paused for a moment. Please wait a minute and try again.",
+                ], 429));
+        });
+
+        // DOCUMENT VIEW — read-only render, same category and sizing as pdf above.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-document-view', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::documentViewRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::documentViewRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-document-view:' . $token)
+                ->response(fn () => response()->json([
+                    'message' => "Documents are being viewed a lot right now, so this is paused for a moment. Please wait a minute and try again.",
+                ], 429));
+        });
+
+        // AUTOSAVE (outer request-level throttle only) — kept last in the
+        // conductor's priority order since the existing per-application
+        // draft-save counter (autosave_rate_limit_max/window_minutes,
+        // already token-scoped inside the controller itself) already
+        // protects this route; moved anyway "so there is one consistent
+        // rule rather than a special case somebody has to remember"
+        // (Johan, verbatim). Deliberately a SEPARATE setting
+        // (autosave_request_rate_limit_max/window_minutes, NOT the
+        // existing autosave_rate_limit_max pair) — sharing one number
+        // between this outer middleware and the inner per-app counter
+        // would make the middleware intercept every request at the exact
+        // count the inner counter is meant to catch, silently replacing
+        // its distinct `{saved:false, rate_limited:true}` signal with a
+        // generic 429 the frontend doesn't expect on this route. Always
+        // 200 + {saved:false} when tripped, matching autosave()'s own
+        // contract ("Always returns 200 — never a visible error... the
+        // frontend treats non-2xx the same as network failure").
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-autosave-request', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::autosaveRequestRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::autosaveRequestRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-autosave-request:' . $token)
+                ->response(fn () => response()->json(['saved' => false], 200));
+        });
     }
 }

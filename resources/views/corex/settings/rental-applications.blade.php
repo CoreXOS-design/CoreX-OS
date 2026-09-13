@@ -279,6 +279,113 @@
         </form>
     </div>
 
+    {{-- Document closure on withdrawn/declined/approved, AT-392 round 2,
+         2026-09-13 — cc3's finding: the document routes never checked
+         status, so a withdrawn or declined applicant's link kept
+         accepting files indefinitely. Withdrawn and declined are ALWAYS
+         closed (no setting, Johan's ruling) — the only door back in is
+         reopening the application. Approved stays open by default, but
+         an agency may want to close it once a tenant is approved. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Documents After Approval</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Withdrawn and declined applications always stop accepting new documents — an agent can
+            reopen the application if the applicant needs to send something more. For an APPROVED
+            application, choose whether documents can still be added.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.document-uploads-after-approval') }}" class="flex items-center gap-3">
+            @csrf
+            <input type="hidden" name="document_uploads_open_after_approval" value="0">
+            <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                <input type="checkbox" name="document_uploads_open_after_approval" value="1"
+                       @checked(old('document_uploads_open_after_approval', $documentUploadsOpenAfterApproval))>
+                Allow document uploads after an application is approved
+            </label>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
+    {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal
+         position: "technically we not allowed to work with anyone if did
+         not fica." The application itself is ALWAYS received regardless
+         of this setting — it only controls whether FICA must be complete
+         before the application can be sent to the authoriser. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">FICA Before Authorisation</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            The application is always received and the agent notified, whether or not FICA is finished.
+            This setting only controls whether the application can be sent to the authoriser while FICA
+            is still outstanding for the applicant.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.require-fica-before-authorisation') }}" class="flex items-center gap-3">
+            @csrf
+            <input type="hidden" name="require_fica_before_authorisation" value="0">
+            <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                <input type="checkbox" name="require_fica_before_authorisation" value="1"
+                       @checked(old('require_fica_before_authorisation', $requireFicaBeforeAuthorisation))>
+                Require FICA to be complete before an application can go to the authoriser
+            </label>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
+    {{-- Public link volume caps, AT-392 round 2, 2026-09-13 — conductor's
+         sweep of the remaining public applicant-journey routes, all of
+         which still carried Laravel's stock per-IP throttle (the exact
+         defect the document-upload fix closed). All five re-keyed to the
+         application token; grouped into one panel rather than five
+         separate boxes since they're the same class of setting. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Public Link Volume Caps</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Safety limits on the rest of the public application link — each caps how many of that
+            action an individual application can trigger in a rolling window, independent of every
+            other applicant sharing a connection. Defaults are set generously above real use.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.route-rate-limits') }}" class="space-y-3">
+            @csrf
+            <div class="grid gap-2" style="grid-template-columns: 1fr auto auto;">
+                <div class="text-xs font-medium" style="color: var(--text-muted);"></div>
+                <div class="text-xs font-medium text-center" style="color: var(--text-muted);">Maximum</div>
+                <div class="text-xs font-medium text-center" style="color: var(--text-muted);">Per minutes</div>
+
+                <label class="text-sm self-center" style="color: var(--text-secondary);">Page views (Show)</label>
+                <input type="number" name="show_rate_limit_max" step="1" min="10" max="10000"
+                       value="{{ old('show_rate_limit_max', $showRateLimitMax) }}" class="corex-input text-sm" style="width: 100px;">
+                <input type="number" name="show_rate_limit_window_minutes" step="1" min="1" max="1440"
+                       value="{{ old('show_rate_limit_window_minutes', $showRateLimitWindowMinutes) }}" class="corex-input text-sm" style="width: 90px;">
+
+                <label class="text-sm self-center" style="color: var(--text-secondary);">Submissions</label>
+                <input type="number" name="submit_rate_limit_max" step="1" min="3" max="10000"
+                       value="{{ old('submit_rate_limit_max', $submitRateLimitMax) }}" class="corex-input text-sm" style="width: 100px;">
+                <input type="number" name="submit_rate_limit_window_minutes" step="1" min="1" max="1440"
+                       value="{{ old('submit_rate_limit_window_minutes', $submitRateLimitWindowMinutes) }}" class="corex-input text-sm" style="width: 90px;">
+
+                <label class="text-sm self-center" style="color: var(--text-secondary);">PDF downloads</label>
+                <input type="number" name="pdf_rate_limit_max" step="1" min="10" max="10000"
+                       value="{{ old('pdf_rate_limit_max', $pdfRateLimitMax) }}" class="corex-input text-sm" style="width: 100px;">
+                <input type="number" name="pdf_rate_limit_window_minutes" step="1" min="1" max="1440"
+                       value="{{ old('pdf_rate_limit_window_minutes', $pdfRateLimitWindowMinutes) }}" class="corex-input text-sm" style="width: 90px;">
+
+                <label class="text-sm self-center" style="color: var(--text-secondary);">Document views</label>
+                <input type="number" name="document_view_rate_limit_max" step="1" min="10" max="10000"
+                       value="{{ old('document_view_rate_limit_max', $documentViewRateLimitMax) }}" class="corex-input text-sm" style="width: 100px;">
+                <input type="number" name="document_view_rate_limit_window_minutes" step="1" min="1" max="1440"
+                       value="{{ old('document_view_rate_limit_window_minutes', $documentViewRateLimitWindowMinutes) }}" class="corex-input text-sm" style="width: 90px;">
+
+                <label class="text-sm self-center" style="color: var(--text-secondary);">Background saves (Autosave)</label>
+                <input type="number" name="autosave_request_rate_limit_max" step="1" min="10" max="10000"
+                       value="{{ old('autosave_request_rate_limit_max', $autosaveRequestRateLimitMax) }}" class="corex-input text-sm" style="width: 100px;">
+                <input type="number" name="autosave_request_rate_limit_window_minutes" step="1" min="1" max="1440"
+                       value="{{ old('autosave_request_rate_limit_window_minutes', $autosaveRequestRateLimitWindowMinutes) }}" class="corex-input text-sm" style="width: 90px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save all</button>
+        </form>
+    </div>
+
     {{-- Item 2 follow-up, 2026-09-10 — Johan: "any threshold, window or
          business rule an agency-configurable setting with a sensible
          default, never hardcoded." Reproduced on a real, fully-approved

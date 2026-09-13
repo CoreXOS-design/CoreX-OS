@@ -94,6 +94,9 @@
             @if(!empty($returnUrl))
                 <input type="hidden" name="return_url" value="{{ $returnUrl }}">
             @endif
+            @if(!empty($returnContext))
+                <input type="hidden" name="return_context" value="{{ $returnContext }}">
+            @endif
 
             {{-- ═══════════ SECTION 1 — ENTITY TYPE ═══════════ --}}
             <div class="fica-card">

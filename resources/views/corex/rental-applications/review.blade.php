@@ -115,13 +115,29 @@
     // and Zone 4's own button visibility (further down the page) read the
     // exact same gate — see RentalApplicationReviewController::reopen()/
     // requestMoreInfoFromApplicant() for what each path actually does.
+    // AT-392 round 2, 2026-09-13 — parity fix: this gate used to check the
+    // override tier ONLY for 'declined', so a non-override agent viewing a
+    // WITHDRAWN application saw the full Reopen button enabled, clicked it,
+    // and hit the controller's own override-tier 403 (which correctly
+    // requires it for BOTH declined and withdrawn — see reopen()'s
+    // $isOverrideReopen). Matches the backend now: both terminal statuses
+    // require the same override tier to reopen.
     $canReopenNow = $viewerRole === 'agent'
         && in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true)
-        && ($rentalApplication->status !== 'declined' || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
+        && (! in_array($rentalApplication->status, ['declined', 'withdrawn'], true) || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
     // $reviewLocked already computed above, near $initialMarkedUpDocIds —
     // this screen's header text needs it before this second @php block runs.
+    //
+    // AT-392 round 2, 2026-09-13 — companion parity fix: 'withdrawn' was
+    // missing from this exclusion list, so a non-override agent could
+    // always trigger the LESSER requestMoreInfoFromApplicant() action on a
+    // withdrawn application. That endpoint has no status guard at all — it
+    // sends the applicant an email but never touches status or
+    // token_expires_at, so the applicant's link stays genuinely dead. An
+    // agent without reopen permission must see no button at all here,
+    // exactly like declined already worked.
     $canSendBackToApplicant = $viewerRole === 'agent'
-        && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined'], true));
+        && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined', 'withdrawn'], true));
 @endphp
 <div class="w-full"
      @if($viewerRole === 'agent')
@@ -226,6 +242,25 @@
                     <span class="text-xs font-normal flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);">
                         &middot; {{ $headerPropertyFact }}@if($headerExtraFact) &middot; {{ $headerExtraFact }}@endif
                     </span>
+                    {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — SAME
+                         badge classes/labels the Contact page already uses
+                         for this exact fact, so an agent reads it the same
+                         way in both places rather than learning a second
+                         visual language for it. --}}
+                    @php
+                        $ficaStatus = $rentalApplication->contact?->ficaStatus() ?? 'incomplete';
+                        $ficaBadgeClass = match($ficaStatus) {
+                            'complete' => 'ds-badge-success',
+                            'expiring' => 'ds-badge-warning',
+                            default => 'ds-badge-danger',
+                        };
+                        $ficaBadgeLabel = match($ficaStatus) {
+                            'complete' => 'FICA Complete',
+                            'expiring' => 'FICA Expiring',
+                            default => 'FICA Outstanding',
+                        };
+                    @endphp
+                    <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="FICA status for {{ $rentalApplication->contact?->full_name }}">{{ $ficaBadgeLabel }}</span>
                 </h1>
 
                 @if($viewerRole === 'agent')
@@ -770,7 +805,7 @@
                  } }"
                  x-init="restoreJustUploadedDocRow()">
                 <div class="flex items-center justify-between">
-                    <button type="button" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
+                    <button type="button" data-qa="docs-toggle" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
                         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">
                             Supporting Documents
                             <span class="ds-badge ds-badge-default">{{ $documents->count() }}</span>
@@ -829,7 +864,7 @@
                                 </span>
                                 <span class="flex items-center gap-2 flex-shrink-0 ml-2">
                                     @if($row['inline_viewable'])
-                                        <button type="button" style="color: var(--ds-blue, #2563eb); font-weight: 600;"
+                                        <button type="button" data-qa="doc-view-markup" style="color: var(--ds-blue, #2563eb); font-weight: 600;"
                                                 @click="openContinuousView({{ $document->id }})">View &amp; Mark Up</button>
                                     @else
                                         <span class="ds-badge ds-badge-default" title="This file type cannot be previewed on screen — download it to view it.">No preview</span>
@@ -1533,10 +1568,10 @@
                          add a NEW line, and there is nothing partial about
                          "add" the way there is about, say, a date field the
                          agent might still want to glance at. --}}
-                    <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" x-show="!reviewLocked" @click="openManualEntry()">Add line manually</button>
+                    <button type="button" data-qa="ledger-add-manual-open" class="corex-btn-outline text-xs w-full mb-1.5" x-show="!reviewLocked" @click="openManualEntry()">Add line manually</button>
                     <div x-show="manualEntryOpen && !reviewLocked" x-cloak class="rounded-md p-2 mb-1.5" style="border: 1px solid var(--border); background: var(--surface-2, #f9fafb);">
                         <div class="grid grid-cols-2 gap-1 mb-1">
-                            <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'income' ? 'var(--ds-purple-soft, #f3e8ff)' : 'transparent', color: manualEntry.entry_type === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'income'">Income</button>
+                            <button type="button" data-qa="ledger-add-manual-type-income" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'income' ? 'var(--ds-purple-soft, #f3e8ff)' : 'transparent', color: manualEntry.entry_type === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'income'">Income</button>
                             <button type="button" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'expense' ? 'var(--ds-amber-soft, #fffbeb)' : 'transparent', color: manualEntry.entry_type === 'expense' ? 'var(--ds-amber, #b45309)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'expense'">Expense</button>
                         </div>
                         {{-- .lazy — see the statement-period date fields' own comment above. --}}
@@ -1555,16 +1590,16 @@
                                  just this button via :style, so "you have
                                  not chosen a type yet" reads at a glance,
                                  not just on click. --}}
-                            <button type="button" class="corex-btn-primary text-xs"
+                            <button type="button" data-qa="ledger-add-manual-save" class="corex-btn-primary text-xs"
                                     :style="{ padding: '0.2rem 0.6rem', opacity: (!manualEntry.entry_type && !manualEntrySaving) ? '0.45' : '1', cursor: (!manualEntry.entry_type && !manualEntrySaving) ? 'not-allowed' : 'pointer' }"
                                     :disabled="manualEntrySaving || !manualEntry.entry_type" :title="!manualEntry.entry_type ? 'Choose Income or Expense first' : ''" @click="saveManualEntry()" x-text="manualEntrySaving ? 'Saving…' : 'Save'"></button>
                         </div>
                     </div>
                     @if($canSendBackToApplicant)
-                        <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
+                        <button type="button" data-qa="send-back-to-applicant-open" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
                     @endif
                     @unless(in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true) || $isPendingAuthorisation)
-                        <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                        <button type="button" data-qa="submit-for-approval" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
                     @endunless
                     @if($rentalApplication->generations->count() > 1)
                         <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-blue, #2563eb);" @click="submissionHistoryOpen = true">Submission history</button>
@@ -1573,8 +1608,8 @@
                     @if($blockedBySelfApproval)
                         <p class="text-[11px]" style="color: var(--text-muted);">You created this application — only another authoriser may act on it.</p>
                     @else
-                        <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
-                        <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true">Approve &amp; continue</button>
+                        <button type="button" data-qa="authoriser-send-back-open" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
+                        <button type="button" data-qa="authoriser-approve-open" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true">Approve &amp; continue</button>
                         {{-- Equal weight with Approve, 2026-09-14 (cc4's walk,
                              Johan GO): "declining is the unusual, awkward
                              path" was a real, visible bias — a full-width
@@ -1586,7 +1621,7 @@
                              visually agree) — distinct from Approve's solid
                              primary treatment on purpose, per instruction:
                              equal weight, not equal invitation. --}}
-                        <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline</button>
+                        <button type="button" data-qa="authoriser-decline-open" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline</button>
                     @endif
                 @endif
             </div>
@@ -1645,7 +1680,7 @@
                               placeholder="What do they need to fix or provide? e.g. ID number was typed incorrectly"></textarea>
                     <div class="flex justify-end gap-2">
                         <button type="button" class="corex-btn-outline text-xs" @click="sendBackModalOpen = false">Cancel</button>
-                        <button type="button" class="corex-btn-primary text-xs" :disabled="sendBackSending || !sendBackNote.trim()" @click="sendBackToApplicant()" x-text="sendBackSending ? 'Sending…' : 'Confirm and send'"></button>
+                        <button type="button" data-qa="send-back-to-applicant-confirm" class="corex-btn-primary text-xs" :disabled="sendBackSending || !sendBackNote.trim()" @click="sendBackToApplicant()" x-text="sendBackSending ? 'Sending…' : 'Confirm and send'"></button>
                     </div>
                 </div>
             </div>
@@ -1717,7 +1752,7 @@
                             <input type="hidden" name="reason" x-ref="approveReasonField">
                             <div class="flex justify-end gap-2">
                                 <button type="button" class="corex-btn-outline text-xs" @click="approveModalOpen = false">Cancel</button>
-                                <button type="submit" class="corex-btn-primary text-xs" :disabled="!approveAmount">Approve</button>
+                                <button type="submit" data-qa="authoriser-approve-confirm" class="corex-btn-primary text-xs" :disabled="!approveAmount">Approve</button>
                             </div>
                         </form>
                     </div>
@@ -1752,7 +1787,7 @@
                             <input type="hidden" name="reason" x-ref="declineReasonField">
                             <div class="flex justify-end gap-2">
                                 <button type="button" class="corex-btn-outline text-xs" @click="declineModalOpen = false">Cancel</button>
-                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim()">Decline</button>
+                                <button type="submit" data-qa="authoriser-decline-confirm" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim()">Decline</button>
                             </div>
                         </form>
                     </div>

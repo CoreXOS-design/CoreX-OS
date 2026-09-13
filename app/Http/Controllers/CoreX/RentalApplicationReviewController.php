@@ -778,6 +778,23 @@ class RentalApplicationReviewController extends Controller
             ], 422);
         }
 
+        // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal
+        // position: "technically we not allowed to work with anyone if did
+        // not fica." Agency-configurable (default required, matching
+        // Johan's own stated answer for HFC) — never blocks the
+        // application's own receipt, only this hand-off to the authoriser.
+        // Reads the SAME status the Contact page's own FICA badge already
+        // shows (RentalApplication::ficaOutstanding()) — an agent walk-in
+        // verification (FicaController::agentApprove()) moves this exactly
+        // like an online one would, since both write to the same table.
+        if (RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor((int) $rentalApplication->agency_id)
+            && $rentalApplication->ficaOutstanding()) {
+            return response()->json([
+                'error' => 'FICA verification is still outstanding for this applicant — it must be complete before this can go to the authoriser.',
+                'reason' => 'fica_outstanding',
+            ], 422);
+        }
+
         $rentalApplication->status = 'under_assessment';
         $rentalApplication->submitted_for_approval_at = now();
         $rentalApplication->save();

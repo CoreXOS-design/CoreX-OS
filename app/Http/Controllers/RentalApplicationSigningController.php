@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\FicaSubmission;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationSignature;
 use App\Services\RentalApplications\RentalApplicationNotifier;
@@ -91,7 +92,25 @@ class RentalApplicationSigningController extends Controller
         // OWN attributes ($application->full_name etc, unchanged since the
         // last submission) — Johan: "prefilled - its a reopen, not new."
         if (in_array($application->status, RentalApplication::POST_RETURN_STATUSES, true)) {
-            return view('rental-applications.public.already-submitted', compact('application'));
+            // AT-392 round 2, 2026-09-13 — the view needs to know whether
+            // documents are open (see RentalApplication::documentUploadsOpen())
+            // to decide whether to render the upload widget or the honest
+            // closed message, and whether the WHOLE page should read as
+            // closed (withdrawn/declined) rather than "already received".
+            $documentUploadsOpen = $application->documentUploadsOpen();
+            $documentUploadsClosedMessage = $application->documentUploadsClosedMessage();
+            $isTerminallyClosed = in_array($application->status, RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, true);
+            // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "flagged
+            // ... on the applicant's confirmation" if they abandoned FICA.
+            // ficaAwaitingApplicantAction distinguishes "never started" from
+            // "submitted, we're reviewing it" — telling someone who already
+            // did their part to go contact their agent would be wrong.
+            $ficaOutstanding = $application->ficaOutstanding();
+            $ficaAwaitingApplicantAction = $application->ficaAwaitingApplicantAction();
+
+            return view('rental-applications.public.already-submitted', compact(
+                'application', 'documentUploadsOpen', 'documentUploadsClosedMessage', 'isTerminallyClosed', 'ficaOutstanding', 'ficaAwaitingApplicantAction'
+            ));
         }
 
         // Applicant-side autosave, 2026-09-12 — agency-configurable debounce,
@@ -321,8 +340,39 @@ class RentalApplicationSigningController extends Controller
         // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
         event(new \App\Events\RentalApplication\RentalApplicationSubmitted($application, $isResubmit));
 
-        return redirect()->route('rental-applications.public.show', $token)
-            ->with('success', 'Thank you — your application has been submitted.');
+        // AT-392 round 3, 2026-09-13 — Johan: "played around that initial
+        // open is not gated but if the applicant submits we should have the
+        // id number which we can update the contact record with." Only
+        // backfills an EMPTY field — never overwrites an id_number already
+        // on file, same guard every other id_number-writing call site in
+        // this codebase uses (see PropertyContactController for the
+        // precedent this follows).
+        if ($application->id_number && $application->contact && ! $application->contact->id_number) {
+            $application->contact->update([
+                'id_number' => $application->id_number,
+                'id_number_captured_at' => now(),
+                'id_number_source' => 'rental_application',
+            ]);
+        }
+
+        // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal
+        // position: "submit and complete fica forces them to complete fica
+        // whilst we receive the application back." The application is
+        // ALREADY fully submitted above, committed and notified — this
+        // hand-off can never lose it, whatever happens next. One
+        // continuous flow straight into CoreX's existing FICA form (not a
+        // second FICA system — see FicaSubmission::firstOrCreate below,
+        // same find-or-reuse shape SigningController's own FICA gate
+        // already uses), which redirects back here via return_url the
+        // moment FICA is done (or is already on file — see
+        // fica.form's own already-submitted bypass).
+        $ficaSubmission = $this->findOrCreateFicaSubmission($application);
+
+        return redirect()->to(
+            route('fica.form', $ficaSubmission->token)
+            . '?return_url=' . urlencode(route('rental-applications.public.show', $token))
+            . '&return_context=rental_application'
+        );
     }
 
     /**
@@ -345,6 +395,33 @@ class RentalApplicationSigningController extends Controller
      * intact for any caller that still wants it (e.g. a no-JS fallback),
      * unchanged in behaviour.
      */
+    /**
+     * AT-392 round 2, 2026-09-13 — cc3's finding while investigating the
+     * withdraw control: this route (and remove/replace below) never
+     * checked status at all, so a withdrawn or declined application's
+     * public link kept accepting files indefinitely. Shared here so
+     * upload/remove/replace can never drift out of sync on WHEN uploads
+     * are closed, same reasoning as assertDocumentsNotLocked() below for
+     * WHETHER already-submitted documents are locked. See
+     * RentalApplication::documentUploadsOpen()/documentUploadsClosedMessage()
+     * for the actual rule (withdrawn/declined always closed; approved is
+     * an agency setting, default open).
+     */
+    private function assertDocumentUploadsOpen(RentalApplication $application, string $token, Request $request)
+    {
+        if ($application->documentUploadsOpen()) {
+            return null;
+        }
+
+        $message = $application->documentUploadsClosedMessage();
+
+        if ($request->wantsJson()) {
+            return response()->json(['message' => $message], 403);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('error', $message);
+    }
+
     public function uploadDocuments(Request $request, string $token)
     {
         $application = $this->findByToken($token);
@@ -356,6 +433,10 @@ class RentalApplicationSigningController extends Controller
 
             return redirect()->route('rental-applications.public.show', $token)
                 ->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
         }
 
         if ($application->status === 'draft') {
@@ -423,6 +504,56 @@ class RentalApplicationSigningController extends Controller
             ->with('success', $filed === 1
                 ? 'Your document was uploaded.'
                 : "Your {$filed} documents were uploaded.");
+    }
+
+    /**
+     * FICA-mandatory, AT-392 round 3, 2026-09-13 — same find-or-reuse shape
+     * SigningController's own FICA gate already uses for e-sign (checked,
+     * not assumed — see SigningController::show(), the FICA gate block),
+     * with ONE deliberate difference: this one auto-CREATES a submission
+     * when none exists at all, because e-sign's gate assumes an agent has
+     * already sent a FICA request via the compliance screen first, but
+     * Johan's "one continuous flow" instruction means the applicant must
+     * never hit a dead "no FICA link exists yet" state straight off their
+     * own submit button.
+     *
+     * A repeat contact with any submission from ANY prior transaction
+     * (approved, or still in progress) is found and reused as-is — this
+     * table has never been scoped to a single deal, so "have they FICA'd
+     * before" is genuinely a yes/no per contact, not per rental
+     * application (confirmed against the actual query shape, not assumed).
+     */
+    private function findOrCreateFicaSubmission(RentalApplication $application): FicaSubmission
+    {
+        $existing = FicaSubmission::where('contact_id', $application->contact_id)
+            ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved', 'approved'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($existing) {
+            // fica_submissions.token is nullable — a tokenless reused draft
+            // would otherwise throw UrlGenerationException the moment
+            // route('fica.form', ...) is called. Same defensive mint
+            // SigningController's own FICA gate already does.
+            if (empty($existing->token)) {
+                $existing->token = Str::random(64);
+                $existing->token_expires_at = now()->addDays(14);
+                $existing->save();
+            }
+
+            return $existing;
+        }
+
+        return FicaSubmission::create([
+            'contact_id' => $application->contact_id,
+            'agency_id' => $application->agency_id,
+            'branch_id' => $application->branch_id,
+            'requested_by' => $application->created_by_user_id,
+            'token' => Str::random(64),
+            'token_expires_at' => now()->addDays(14),
+            'status' => 'draft',
+        ]);
     }
 
     public function pdf(string $token)
@@ -510,6 +641,10 @@ class RentalApplicationSigningController extends Controller
                 ->with('error', 'This link has expired.');
         }
 
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
+        }
+
         $doc = $this->scopedDocument($application, $document);
 
         if ($locked = $this->assertDocumentsNotLocked($application, $token)) {
@@ -546,6 +681,10 @@ class RentalApplicationSigningController extends Controller
 
             return redirect()->route('rental-applications.public.show', $token)
                 ->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
         }
 
         $oldDoc = $this->scopedDocument($application, $document);

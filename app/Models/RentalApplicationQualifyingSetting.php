@@ -125,11 +125,105 @@ class RentalApplicationQualifyingSetting extends Model
     /** Rolling window the cap above applies over. */
     public const DEFAULT_DOCUMENT_RATE_LIMIT_WINDOW_MINUTES = 10;
 
+    /**
+     * AT-392 round 2, 2026-09-13 — cc3's finding while investigating the
+     * withdraw control: the public document upload/replace/remove routes
+     * never checked application status at all, so a withdrawn or declined
+     * application's link kept accepting files indefinitely — a public,
+     * unauthenticated write into agency storage with no closing condition.
+     * Johan's ruling: withdrawn/declined are ALWAYS closed (no setting —
+     * see RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES),
+     * but approved stays open BY DEFAULT because an agency may
+     * legitimately want one more document from an approved tenant. This
+     * is the one setting that governs that case.
+     */
+    public const DEFAULT_DOCUMENT_UPLOADS_OPEN_AFTER_APPROVAL = true;
+
+    /**
+     * Route rate limits, AT-392 round 2, 2026-09-13 — the conductor's
+     * sweep from the document-upload incident: five more public routes
+     * carried Laravel's stock per-IP `throttle:N,1`, the exact defect
+     * that incident closed for documents. Each moved to the same
+     * per-application-token key (AppServiceProvider::boot()), each with
+     * its own agency-configurable default here — never hardcoded, same
+     * standing rule as every other threshold in this model. Conductor's
+     * priority order (highest real-world risk first) preserved in this
+     * file's own ordering: submit, show, pdf, document-view, autosave.
+     *
+     * SUBMIT — the single most expensive request in the whole journey to
+     * lose (Johan: "several agents helping several applicants submit in
+     * the same minute" from the one HFC office IP was the actual
+     * incident this route was at risk of). Per-token removes that
+     * collision entirely; sized for one real submission plus retries
+     * within a session, not concurrent applicants.
+     */
+    public const DEFAULT_SUBMIT_RATE_LIMIT_MAX = 10;
+
+    public const DEFAULT_SUBMIT_RATE_LIMIT_WINDOW_MINUTES = 10;
+
+    /**
+     * SHOW — a real applicant on bad mobile data reloading a slow page
+     * repeatedly (the scenario Johan named) needs more headroom than a
+     * single-minute window gives; sized generously above realistic
+     * manual-reload behaviour.
+     */
+    public const DEFAULT_SHOW_RATE_LIMIT_MAX = 60;
+
+    public const DEFAULT_SHOW_RATE_LIMIT_WINDOW_MINUTES = 5;
+
+    /** PDF — read-only render, generous default, same window as documents for one consistent rule. */
+    public const DEFAULT_PDF_RATE_LIMIT_MAX = 60;
+
+    public const DEFAULT_PDF_RATE_LIMIT_WINDOW_MINUTES = 10;
+
+    /** DOCUMENT VIEW — read-only render, same category and sizing as pdf above. */
+    public const DEFAULT_DOCUMENT_VIEW_RATE_LIMIT_MAX = 60;
+
+    public const DEFAULT_DOCUMENT_VIEW_RATE_LIMIT_WINDOW_MINUTES = 10;
+
+    /**
+     * AUTOSAVE (the outer request-level throttle, not the existing
+     * autosave_rate_limit_max/window_minutes above — that pair governs a
+     * SEPARATE, already-token-keyed per-application draft-save counter
+     * inside the controller itself, sized for an hour-long typing
+     * session. This pair governs only the outer middleware that used to
+     * be `throttle:40,1` per-IP; kept last in the conductor's priority
+     * order since the inner layer already protects this route — moved
+     * anyway "so there is one consistent rule rather than a special case
+     * somebody has to remember" (Johan, verbatim). Sized above the
+     * inner layer's own worst-case-typing-rate math (30/min at the
+     * settings screen's floor debounce of 2s) so this outer layer never
+     * trips ahead of, or instead of, the inner one's own distinct
+     * `{saved:false, rate_limited:true}` signal.
+     */
+    public const DEFAULT_AUTOSAVE_REQUEST_RATE_LIMIT_MAX = 60;
+
+    public const DEFAULT_AUTOSAVE_REQUEST_RATE_LIMIT_WINDOW_MINUTES = 1;
+
+    /**
+     * FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal position:
+     * "technically we not allowed to work with anyone if did not fica."
+     * This gates only the AUTHORISER hand-off, never the application's own
+     * receipt — see RentalApplication::ficaOutstanding() and
+     * RentalApplicationSigningController::submit()'s FICA hand-off, which
+     * always accepts the application regardless of this setting. Default
+     * true: HFC's own answer is yes, per Johan's own words; another agency
+     * may turn it off.
+     */
+    public const DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION = true;
+
     protected $fillable = [
         'agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days',
         'lock_property_after_submission', 'tag_contact_as_tenant_on_approval',
         'autosave_debounce_seconds', 'autosave_rate_limit_max', 'autosave_rate_limit_window_minutes',
         'document_rate_limit_max', 'document_rate_limit_window_minutes',
+        'document_uploads_open_after_approval',
+        'show_rate_limit_max', 'show_rate_limit_window_minutes',
+        'submit_rate_limit_max', 'submit_rate_limit_window_minutes',
+        'pdf_rate_limit_max', 'pdf_rate_limit_window_minutes',
+        'document_view_rate_limit_max', 'document_view_rate_limit_window_minutes',
+        'autosave_request_rate_limit_max', 'autosave_request_rate_limit_window_minutes',
+        'require_fica_before_authorisation',
     ];
 
     protected $casts = [
@@ -142,6 +236,18 @@ class RentalApplicationQualifyingSetting extends Model
         'autosave_rate_limit_window_minutes' => 'integer',
         'document_rate_limit_max' => 'integer',
         'document_rate_limit_window_minutes' => 'integer',
+        'document_uploads_open_after_approval' => 'boolean',
+        'require_fica_before_authorisation' => 'boolean',
+        'show_rate_limit_max' => 'integer',
+        'show_rate_limit_window_minutes' => 'integer',
+        'submit_rate_limit_max' => 'integer',
+        'submit_rate_limit_window_minutes' => 'integer',
+        'pdf_rate_limit_max' => 'integer',
+        'pdf_rate_limit_window_minutes' => 'integer',
+        'document_view_rate_limit_max' => 'integer',
+        'document_view_rate_limit_window_minutes' => 'integer',
+        'autosave_request_rate_limit_max' => 'integer',
+        'autosave_request_rate_limit_window_minutes' => 'integer',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -270,5 +376,161 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->document_rate_limit_window_minutes !== null
             ? (int) $row->document_rate_limit_window_minutes
             : self::DEFAULT_DOCUMENT_RATE_LIMIT_WINDOW_MINUTES;
+    }
+
+    public static function documentUploadsOpenAfterApprovalFor(?int $agencyId): bool
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_DOCUMENT_UPLOADS_OPEN_AFTER_APPROVAL;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->document_uploads_open_after_approval !== null
+            ? (bool) $row->document_uploads_open_after_approval
+            : self::DEFAULT_DOCUMENT_UPLOADS_OPEN_AFTER_APPROVAL;
+    }
+
+    public static function showRateLimitMaxFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_SHOW_RATE_LIMIT_MAX;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->show_rate_limit_max !== null
+            ? (int) $row->show_rate_limit_max
+            : self::DEFAULT_SHOW_RATE_LIMIT_MAX;
+    }
+
+    public static function showRateLimitWindowMinutesFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_SHOW_RATE_LIMIT_WINDOW_MINUTES;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->show_rate_limit_window_minutes !== null
+            ? (int) $row->show_rate_limit_window_minutes
+            : self::DEFAULT_SHOW_RATE_LIMIT_WINDOW_MINUTES;
+    }
+
+    public static function submitRateLimitMaxFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_SUBMIT_RATE_LIMIT_MAX;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->submit_rate_limit_max !== null
+            ? (int) $row->submit_rate_limit_max
+            : self::DEFAULT_SUBMIT_RATE_LIMIT_MAX;
+    }
+
+    public static function submitRateLimitWindowMinutesFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_SUBMIT_RATE_LIMIT_WINDOW_MINUTES;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->submit_rate_limit_window_minutes !== null
+            ? (int) $row->submit_rate_limit_window_minutes
+            : self::DEFAULT_SUBMIT_RATE_LIMIT_WINDOW_MINUTES;
+    }
+
+    public static function pdfRateLimitMaxFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_PDF_RATE_LIMIT_MAX;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->pdf_rate_limit_max !== null
+            ? (int) $row->pdf_rate_limit_max
+            : self::DEFAULT_PDF_RATE_LIMIT_MAX;
+    }
+
+    public static function pdfRateLimitWindowMinutesFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_PDF_RATE_LIMIT_WINDOW_MINUTES;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->pdf_rate_limit_window_minutes !== null
+            ? (int) $row->pdf_rate_limit_window_minutes
+            : self::DEFAULT_PDF_RATE_LIMIT_WINDOW_MINUTES;
+    }
+
+    public static function documentViewRateLimitMaxFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_DOCUMENT_VIEW_RATE_LIMIT_MAX;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->document_view_rate_limit_max !== null
+            ? (int) $row->document_view_rate_limit_max
+            : self::DEFAULT_DOCUMENT_VIEW_RATE_LIMIT_MAX;
+    }
+
+    public static function documentViewRateLimitWindowMinutesFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_DOCUMENT_VIEW_RATE_LIMIT_WINDOW_MINUTES;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->document_view_rate_limit_window_minutes !== null
+            ? (int) $row->document_view_rate_limit_window_minutes
+            : self::DEFAULT_DOCUMENT_VIEW_RATE_LIMIT_WINDOW_MINUTES;
+    }
+
+    public static function autosaveRequestRateLimitMaxFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_AUTOSAVE_REQUEST_RATE_LIMIT_MAX;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->autosave_request_rate_limit_max !== null
+            ? (int) $row->autosave_request_rate_limit_max
+            : self::DEFAULT_AUTOSAVE_REQUEST_RATE_LIMIT_MAX;
+    }
+
+    public static function autosaveRequestRateLimitWindowMinutesFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_AUTOSAVE_REQUEST_RATE_LIMIT_WINDOW_MINUTES;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->autosave_request_rate_limit_window_minutes !== null
+            ? (int) $row->autosave_request_rate_limit_window_minutes
+            : self::DEFAULT_AUTOSAVE_REQUEST_RATE_LIMIT_WINDOW_MINUTES;
+    }
+
+    public static function requireFicaBeforeAuthorisationFor(?int $agencyId): bool
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->require_fica_before_authorisation !== null
+            ? (bool) $row->require_fica_before_authorisation
+            : self::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION;
     }
 }
