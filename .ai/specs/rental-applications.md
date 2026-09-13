@@ -11872,6 +11872,76 @@ a cross-agency document 403/404s, retyping updates the SAME row in place
 - Real Puppeteer click-through against a local `php artisan serve` instance on the actual worktree, per the conductor's explicit instruction not to hand over an endpoint test alone — full walk above, zero console errors throughout.
 - `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.
 
+## AT-410b — Decline flow: agent-sent, with reason and guidance templates (2026-09-15, cc5 + cc2 split)
+
+Johan, verbatim: *"the flow should be auth sends back to agent who receives it back. so the agent needs a deliberate action to send the email out to the applicant. opens approved / declined. inspects and then has to action - send email to client. approved not the biggest issue, but on declined an outright declined email will anger some people. so a soft message and reasoning is the right way to approach this."* Highest-value item on the board this round — commercial, Johan selling CoreX to a rental agency this week with this flow as part of the pitch.
+
+### The headline finding, restated for the record
+
+Before this build, `RentalApplicationAuthorisationController::decline()` sent the applicant-facing decline email IMMEDIATELY, unconditionally, on every decline, with zero agent gate — live on QA1. A stale docblock on `RentalApplicationDeclineMail` claimed the opposite ("NOT yet wired into an actual decline() action... held pending the RO/CO tier confirmation") — false; it fired end to end. Comment deleted; the immediate send is exactly the behaviour this build removes.
+
+### Split, agreed directly with cc2 before either lane wrote code
+
+**cc5 (this build):** the agent send step, the email merge into the existing agency envelope, idempotent send, recording what actually went out.
+**cc2:** the reason-template CRUD — model/migration, full-CRUD settings list screen (search/sort/filter/pagination/soft-delete/restore), seeded defaults, a read method (`RentalApplicationDeclineReasonTemplate::activeFor(int $agencyId)`).
+
+Boundary held cleanly: cc2 never touched the decline modal, `review.blade.php`, or any send/merge code; cc5 never touched the template CRUD screen/controller. One coordination point on the shared settings page (`resources/views/corex/settings/rental-applications.blade.php`) — cc5 added exactly one link line ("Manage decline reason templates →", to `corex.settings.rental-applications.decline-reason-templates.index`) under cc2's existing "Decline Email" envelope section; nothing else on that page touched.
+
+Both lanes' migrations ran against the SAME shared `corex_qa1` DB (not isolated per-lane databases, discovered mid-build via a real table-name collision — cc5 had built a provisional stub table to test against, cc2's real migration then failed against it; resolved live, cross-session, no data lost, cc5's stub dropped in favour of cc2's real table). Final template shape: `id, agency_id, reason, guidance, sort_order, created_by, timestamps, deleted_at` — `reason` a short label (e.g. "Affordability"), `guidance` a full self-contained paragraph already covering both "why" and "what helps," per cc2's own content design.
+
+### Johan's two explicit conditions on cc5's half
+
+1. **The authoriser's template pick never triggers anything outbound.** `decline()` only drafts and stores; `RentalApplicationDeclineMail`/`RentalApplicationMailer::sendDecline()` are never called from it.
+2. **The agent sees the real, final text, with the applicant's real name in it, and can edit it.** No placeholders survive to the agent's screen — the draft is fully resolved before she ever sees it.
+
+### The build
+
+**Migration** (`2026_09_15_090000_add_decline_email_draft_to_rental_applications.php`) — three new columns on `rental_applications`: `decline_reason_template_id` (nullable, deliberately NOT a DB foreign key — cc2's table is a sibling lane's build landing in parallel, a hard FK would couple migration run order across lanes), `decline_email_subject`, `decline_email_body` (the full merged draft; once `applicant_notified_at` is set, these ARE the permanent record of what went out — no separate draft/sent copies).
+
+**`RentalApplicationDeclineEmailSetting`** (existing agency-wide envelope — greeting/thanks/sign-off, subject/body, agency-editable) gains:
+- `render()` — two new optional params, `$declineReason`/`$declineGuidance`, mapped to `{{decline_reason}}`/`{{decline_guidance}}`.
+- `draftFor(RentalApplication $application, string $declineReason, string $declineGuidance): array{subject,body}` — the single place the full merged draft is built, called once, at decline() time.
+- `DEFAULT_BODY` updated to splice in `{{decline_guidance}}` between the "sorry" line and the "welcome again" close — the exact spot Johan's own example ("on affordability - to increase your affordability the general tips are...") reads as a natural paragraph. `{{decline_reason}}` deliberately NOT in the default prose — cc2's `reason` field is a short label ("Affordability"), and a short label read mid-sentence doesn't parse as English; it stays available in `render()` for any agency that wants it in their own custom wording.
+
+**`RentalApplicationAuthorisationController::decline()`** — now requires TWO separate fields: `reason` (unchanged — the authoriser's own free-text note *to the agent*, recorded in status history/audit/notification exactly as before) and `decline_reason_template_id` (new — which applicant-facing template applies, resolved via cc2's model, agency-scoped `findOrFail`). Builds the draft via `draftFor()`, stores it on the application, records status/audit/agent-notification exactly as before. The `$mailer->sendDecline()` call is REMOVED entirely from this method — nothing outbound happens here any more.
+
+**`RentalApplicationReviewController::sendDecline()`** (new) — the agent's own send action, identical shape to `send()` (the existing Approve send step): `guardRentalApplication()`, status must be `declined`, idempotent guard on `applicant_notified_at` (422 if already sent — a one-shot action, doubled clicks can't double-send). Accepts POSTED `subject`/`body` — NOT re-derived from settings — because the agent may have edited the draft, and what she approved by clicking Send must be exactly what goes out and exactly what gets permanently recorded. Overwrites `decline_email_subject`/`decline_email_body` with whatever was actually submitted, sends via `RentalApplicationMailer::sendDecline($application, $subject, $body)` (now takes literal final text, no longer re-resolves wording itself), sets `applicant_notified_at`, writes an audit entry (`eventCategory: 'agent'`, `eventType: 'decline_sent'`, `metadata.mail_sent`/`metadata.body`).
+
+**UI** (`review.blade.php`) — the agent-side banner now mirrors Approve's own two-state shape exactly: `declined && applicant_notified_at` → red "Declined. Sent to the applicant on {datetime}."; `declined && !applicant_notified_at` → amber "Declined — not yet sent." with one button, "Review & send to applicant," opening the SAME fixed right-side drawer component Approve's own Tenant Wishlist step already uses (`declineSendDrawerOpen`, lifted into `rentalReviewLayout()` next to `wishlistDrawerOpen` for the identical reason). Drawer contains an editable Subject input and Body textarea, pre-filled from the stored draft, a native `confirm()` naming the applicant before submit, posting to `review.send-decline`. The authoriser's own Decline modal gains one new required field above the existing free-text reason box: a `<select>` sourced from `RentalApplicationDeclineReasonTemplate::activeFor($agencyId)`, clearly labelled "Reason to give the applicant" (vs the existing box's "Note for the agent") — two different audiences, two different fields, both required, Submit disabled until both are filled.
+
+### Proof — real Puppeteer click-through, per the conductor's explicit instruction
+
+Fixture: application 321 (agency 1, fresh contact, `status='under_assessment'`, `submitted_for_approval_at` set, `email` set directly to `can.assurance@gmail.com`) — never touching 70/76/107/204/205/230/300. `.env`'s `MAIL_FROM_ADDRESS` temporarily set to `johan@hfcoastal.co.za` for this session's test send only, reverted after. Mail never leaves the box regardless — this environment runs a local Mailpit catcher (`127.0.0.1:1025`, admin UI `127.0.0.1:8025`) PLUS its own outbound-mail guard that intercepts and reroutes every send to `outbound-guard@localhost.test`, noting the real intended envelope in the body — belt and braces, confirmed live.
+
+- **Authoriser declines** (`qa-cc5-authoriser-test@example.invalid`, RO+CO tier): picked "Affordability" from the dropdown (options confirmed: "Affordability", "Unpaid debit orders on bank statements" — cc2's real seeded rows), typed an internal note, submitted. Redirected to the queue; audit trail shows `authorisation/declined (co), reason template: Affordability`.
+- **Nothing sent at decline time** — confirmed via Mailpit (no matching message at that timestamp) and via the very next step's banner correctly reading "not yet sent."
+- **Agent opens the review screen**, sees "Declined — not yet sent," clicks "Review & send to applicant." Drawer opens with the REAL final text — confirmed via DOM read of the actual input/textarea values: subject `"Your rental application — Home Finders Coastal"`, body a fully-resolved letter with the applicant's real name, agency name, and the Affordability template's full guidance paragraph already merged in — zero raw `{{...}}` placeholders anywhere in either field.
+- **Edited the body** (appended a marker string), clicked Send, confirmed via native `confirm()` dialog. `POST .../review/send-decline` → 302. Success flash "Decline sent to the applicant." shown.
+- **Exactly one email landed**, caught by the environment's outbound guard: `From: Home Finders Coastal <johan@hfcoastal.co.za>` (matches the test override), body: *"It would have gone to: To: can.assurance@gmail.com"* — the only recipient, exactly as required, mail.hfcoastal.co.za never touched (this box's mailer only ever points at `127.0.0.1:1025`). The audit log's stored `metadata.body` ends with the agent's edit marker, verbatim — confirming what she edited is exactly what was recorded as sent, not the original unsent draft.
+- **Banner flips** to "Declined. Sent to the applicant on {datetime}." and the send button/drawer disappear from the DOM entirely (`$rentalApplication->applicant_notified_at` now set, so the `@if(!$rentalApplication->applicant_notified_at)` gate around the whole drawer block stops rendering it).
+- **Idempotency, both ends:** re-POSTing `review/send-decline` with different subject/body returns the "already been sent this decision" error (confirmed in the followed-redirect response body) and the DB's `decline_email_subject`/`applicant_notified_at` are UNCHANGED from the first send — no second row, no second email, no overwritten record.
+- **Zero console/page errors** throughout the entire walk (login, decline, review load, drawer, send, reload, idempotency check).
+
+### Files
+
+- `database/migrations/2026_09_15_090000_add_decline_email_draft_to_rental_applications.php` — new.
+- `app/Models/RentalApplicationDeclineEmailSetting.php` — `render()`/`draftFor()`/`DEFAULT_BODY`.
+- `app/Mail/RentalApplicationDeclineMail.php` — now takes literal final subject/body; stale "not yet wired" docblock deleted.
+- `app/Services/RentalApplications/RentalApplicationMailer.php` — `sendDecline()` signature change (subject/body params, no longer resolves wording itself).
+- `app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php` — `decline()` rebuilt (template pick, draft, no send); `show()` passes `$declineReasonTemplates`.
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — `sendDecline()` new.
+- `routes/web.php` — `corex.rental-applications.review.send-decline`.
+- `resources/views/corex/rental-applications/review.blade.php` — agent banner, send drawer, authoriser modal's reason-template `<select>`.
+- `resources/views/corex/settings/rental-applications.blade.php` — one link line to cc2's CRUD page; comment above it updated to stop describing the now-superseded "no invented guidance" state.
+- `app/Models/RentalApplicationDeclineReasonTemplate.php` — NOT cc5's to ship; cc2's real model. A provisional stand-in existed here mid-build for testing and is removed/reconciled with cc2's actual file before this branch merges (see the split section above).
+
+### Gates run before push
+
+- `php -l` on every changed PHP file — clean.
+- Real Puppeteer click-through, full walk above — zero console errors.
+- `.env` `MAIL_FROM_ADDRESS` reverted to its original value after testing; local `php artisan serve` test instance stopped.
+- `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.
+
 ## Decline reason templates — agency-configurable reason + guidance library (2026-09-15, cc4)
 
 ### What this feature does and why

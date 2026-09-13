@@ -3073,6 +3073,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-392 — the agent's own send action, once approved. One-shot,
         // guarded by applicant_notified_at (see the method's own docblock).
         Route::post('/{rentalApplication}/review/send', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'send'])->name('corex.rental-applications.review.send');
+        // AT-410b — decline's own send action, identical shape to the one
+        // above (see the method's own docblock).
+        Route::post('/{rentalApplication}/review/send-decline', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'sendDecline'])->name('corex.rental-applications.review.send-decline');
         Route::put('/{rentalApplication}/review/wishlist/{match}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateWishlist'])->name('corex.rental-applications.review.wishlist.update');
         // Read-only "what was signed at each point" — one immutable
         // snapshot per submission round (see RentalApplicationGeneration).
