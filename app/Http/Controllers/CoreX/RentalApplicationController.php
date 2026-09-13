@@ -227,7 +227,20 @@ class RentalApplicationController extends Controller
         // to do on this file" set already established in this class —
         // rather than every status, since a terminal approved/declined/
         // withdrawn application isn't something FICA-chasing helps any more.
-        'fica_outstanding' => ['label' => 'FICA Outstanding', 'statuses' => ['in_progress', 'returned', 'reopened', 'under_assessment'], 'submitted_for_approval' => null, 'fica_outstanding' => true],
+        //
+        // Split into two, 2026-09-15 — Johan: "yes on fica" (.ai/specs/
+        // rental-applications.md, "FICA Outstanding tile split"). One
+        // number covered both "the applicant hasn't done their part" and
+        // "the applicant is done, it's sitting unlooked-at with our own
+        // staff" — an agent chasing the applicant on a file that's
+        // actually stalled with the RO/CO is exactly the wasted,
+        // embarrassing phone call this rebuild exists to remove.
+        // applyFicaBucketFilter() below keys off the CONTACT's LATEST
+        // FicaSubmission.status (never Contact::ficaStatus(), which
+        // collapses every not-yet-approved state into one 'incomplete'
+        // bucket and structurally cannot make this distinction).
+        'fica_waiting_applicant' => ['label' => 'Waiting on applicant', 'statuses' => ['in_progress', 'returned', 'reopened', 'under_assessment'], 'submitted_for_approval' => null, 'fica_bucket' => 'applicant'],
+        'fica_waiting_us' => ['label' => 'Waiting on us', 'statuses' => ['in_progress', 'returned', 'reopened', 'under_assessment'], 'submitted_for_approval' => null, 'fica_bucket' => 'us'],
     ];
 
     /** Rendered as small, muted links below the main tile row — reachable, not prominent (Johan's ruling). */
@@ -242,7 +255,7 @@ class RentalApplicationController extends Controller
     public const RETURNED_STATUSES = ['returned', 'reopened', 'under_assessment', 'approved', 'declined'];
 
     /** Tile keys that surface any of RETURNED_STATUSES — hidden/redirected away for a user lacking view_returned. */
-    public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'reopened', 'fica_outstanding'];
+    public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'reopened', 'fica_waiting_applicant', 'fica_waiting_us'];
 
     /**
      * REGRESSION FIX (2026-09-11) — merging index()/returned() into one list
@@ -279,19 +292,78 @@ class RentalApplicationController extends Controller
         } elseif ($def['submitted_for_approval'] === false) {
             $query->whereNull('rental_applications.submitted_for_approval_at');
         }
-        // FICA-mandatory, AT-392 round 3, 2026-09-13 — matches the
-        // FicaSubmission-based branch of Contact::ficaStatus()'s own
-        // "complete" check (approved + verified within 11 months). The
-        // per-record badge (review.blade.php) still calls the full
-        // ficaStatus() accessor, including its legacy fica_documents
-        // fallback — deliberately not replicated here: this list filter
-        // only needs to be a fast, correct-for-current-data SQL condition,
-        // and a rental applicant with an OLD legacy-only FICA record
-        // predating this table is not a realistic overlap.
-        if (! empty($def['fica_outstanding'])) {
-            $query->whereDoesntHave('contact.ficaSubmissions', function ($q) {
-                $q->where('status', 'approved')->where('verified_at', '>=', now()->subMonths(11));
+        if (! empty($def['fica_bucket'])) {
+            $this->applyFicaBucketFilter($query, $def['fica_bucket']);
+        }
+    }
+
+    /**
+     * FICA Outstanding tile split, 2026-09-15 — Johan: "yes on fica."
+     * .ai/specs/rental-applications.md, "FICA Outstanding tile split".
+     *
+     * The outer condition (no valid, unexpired approved FicaSubmission)
+     * is unchanged from the original single fica_outstanding tile —
+     * AT-392 round 3, 2026-09-13 — matches the FicaSubmission-based
+     * branch of Contact::ficaStatus()'s own "complete" check (approved +
+     * verified within 11 months). The per-record badge (review.blade.php)
+     * still calls the full ficaStatus() accessor, including its legacy
+     * fica_documents fallback — deliberately not replicated here: this
+     * list filter only needs to be a fast, correct-for-current-data SQL
+     * condition, and a rental applicant with an OLD legacy-only FICA
+     * record predating this table is not a realistic overlap.
+     *
+     * Within that population, 'applicant'/'us' splits by the contact's
+     * LATEST FicaSubmission (by created_at, then id) — never "does any
+     * submission with this status exist", which would let an old
+     * rejected submission and a newer live draft both match and blur the
+     * two buckets. A raw correlated subquery, not whereHas()/orderBy(),
+     * because Eloquent has no built-in "latest related row's column"
+     * comparison — deliberately excludes soft-deleted submissions
+     * (fs.deleted_at IS NULL) since FicaSubmission uses SoftDeletes and a
+     * plain query wouldn't get that exclusion for free the way a
+     * relation-based whereHas() does.
+     *
+     * 'applicant' = no submission at all, or the latest one is 'draft' or
+     * 'corrections_requested'. 'us' = everything else not-yet-approved
+     * (submitted, under_review, agent_approved, referred_to_co, rejected,
+     * cancelled, or approved-but-expired). 'rejected' and 'cancelled'
+     * deliberately sit on 'us', not 'applicant' — checked directly against
+     * FicaController::resend() (only allows draft/corrections_requested):
+     * neither has a live self-service path back into the form, so a staff
+     * member has to decide to re-request before the applicant can do
+     * anything at all. This is a DELIBERATE divergence from
+     * RentalApplication::ficaAwaitingApplicantAction() (built for the
+     * applicant's own confirmation page, a different audience answering a
+     * different question) — not a rewrite of that method, a separate one.
+     *
+     * Conditional approval ("approved subject to FICA verification", cc5,
+     * separate build) is NOT wired in yet — rental_applications.
+     * approved_subject_to_fica_at doesn't exist in the schema yet. Once it
+     * lands, these two tiles' $def['statuses'] need to also match
+     * status='approved' AND approved_subject_to_fica_at IS NOT NULL (see
+     * the spec's section (g)) — building against a column that doesn't
+     * exist yet would break this query today.
+     */
+    private function applyFicaBucketFilter($query, string $bucket): void
+    {
+        $query->whereDoesntHave('contact.ficaSubmissions', function ($q) {
+            $q->where('status', 'approved')->where('verified_at', '>=', now()->subMonths(11));
+        });
+
+        $applicantStatuses = ['draft', 'corrections_requested'];
+        $placeholders = implode(',', array_fill(0, count($applicantStatuses), '?'));
+        $latestStatusSql = '(SELECT fs.status FROM fica_submissions fs '
+            .'WHERE fs.contact_id = rental_applications.contact_id AND fs.deleted_at IS NULL '
+            .'ORDER BY fs.created_at DESC, fs.id DESC LIMIT 1)';
+
+        if ($bucket === 'applicant') {
+            $query->where(function ($q) use ($latestStatusSql, $placeholders, $applicantStatuses) {
+                $q->whereRaw("$latestStatusSql IS NULL")
+                    ->orWhereRaw("$latestStatusSql IN ($placeholders)", $applicantStatuses);
             });
+        } else {
+            $query->whereRaw("$latestStatusSql IS NOT NULL")
+                ->whereRaw("$latestStatusSql NOT IN ($placeholders)", $applicantStatuses);
         }
     }
 
