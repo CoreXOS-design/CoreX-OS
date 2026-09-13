@@ -591,7 +591,32 @@ class RentalApplicationSigningController extends Controller
         // already uses), which redirects back here via return_url the
         // moment FICA is done (or is already on file — see
         // fica.form's own already-submitted bypass).
-        $ficaSubmission = $this->findOrCreateFicaSubmission($application);
+        //
+        // Conductor, live on QA1, 2026-09-13 — a real unauthenticated
+        // applicant hit a 500 here: fica_submissions.requested_by is
+        // NOT NULL (every prior FICA request was staff-initiated; an
+        // applicant submitting their own application has no authenticated
+        // user to attribute it to). The application's own submission had
+        // ALREADY committed by this point (proven live: status/signatures
+        // survived the 500 intact), but the exception still propagated to
+        // the applicant as a raw crash — the DATA guarantee held, the
+        // EXPERIENCE guarantee didn't. Never again: this hand-off is now
+        // genuinely non-fatal. Any failure creating/finding the
+        // FicaSubmission is logged and the applicant is sent to their own
+        // confirmation instead — ficaOutstanding() already reads "true"
+        // with no FicaSubmission row, so the outstanding-FICA messaging
+        // there is already correct with zero extra state needed.
+        try {
+            $ficaSubmission = $this->findOrCreateFicaSubmission($application);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('AT-392 FICA hand-off failed after a successful submission', [
+                'rental_application_id' => $application->id,
+                'contact_id' => $application->contact_id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return redirect()->route('rental-applications.public.show', $token);
+        }
 
         return redirect()->to(
             route('fica.form', $ficaSubmission->token)
@@ -774,11 +799,47 @@ class RentalApplicationSigningController extends Controller
             'contact_id' => $application->contact_id,
             'agency_id' => $application->agency_id,
             'branch_id' => $application->branch_id,
-            'requested_by' => $application->created_by_user_id,
+            'requested_by' => $this->resolveFicaRequestedBy($application),
             'token' => Str::random(64),
             'token_expires_at' => now()->addDays(14),
             'status' => 'draft',
         ]);
+    }
+
+    /**
+     * Conductor, live on QA1, 2026-09-13 — a real 500: fica_submissions.
+     * requested_by is NOT NULL because every prior FICA request was
+     * staff-initiated; an applicant submitting online has no authenticated
+     * user at all. Checked every real consumer of this column before
+     * choosing (not a bare nullable — conductor's explicit instruction):
+     *
+     *   - FicaController's own permission checks
+     *     (`$submission->requested_by === auth()->id() || isOwnerRole() ||
+     *     hasPermission('manage_compliance')`, e.g. FicaController.php:946)
+     *     degrade safely on null — it just never matches a real user, so
+     *     only an owner/compliance-manager could act on it. Fine.
+     *   - FicaSubmission::scopeVisibleTo()'s 'own' scope
+     *     (`where('requested_by', $user->id)`) does NOT degrade safely —
+     *     a null value never matches, so a plain agent scoped to 'own'
+     *     would NEVER see this submission in their own compliance queue.
+     *     That directly breaks Johan's own requirement: "agent can then
+     *     push them to complete fica" — he can't push what he can't see.
+     *     This is why null was rejected in favour of a resolvable user.
+     *
+     * Fallback chain: the agent who owns the application
+     * (created_by_user_id) — but that column is ALSO nullable and, in the
+     * live incident that surfaced this, WAS null (application 334). Falls
+     * back to the agency's own admin (role='admin', scoped by agency_id) —
+     * always resolvable per LastAdminException's own guarantee that no
+     * agency can ever be left without one. If even that somehow returns
+     * null, FicaSubmission::create() throws and the caller's try/catch
+     * (submit()) degrades this to "FICA outstanding, logged" rather than
+     * a 500 — never fatal to the applicant either way.
+     */
+    private function resolveFicaRequestedBy(RentalApplication $application): ?int
+    {
+        return $application->created_by_user_id
+            ?? \App\Models\User::where('agency_id', $application->agency_id)->where('role', 'admin')->value('id');
     }
 
     public function pdf(Request $request, string $token)
