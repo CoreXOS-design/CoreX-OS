@@ -11199,3 +11199,124 @@ both pass with 0 console errors; the one failure is the same pre-existing
 markup_view/fixture-data issue documented multiple times above, unrelated,
 not touched. `dev-check.ps1` cannot run on this box (no `pwsh`) — stated
 plainly.
+
+## Document upload throttle incident (Johan, live on QA1, 2026-09-13)
+
+Johan was blocked mid-application ("too many attempts") uploading
+documents on a real rental application (id 230). Root-caused via nginx
+access logs + the QA1 database cache table (not assumption): the culprit
+was a **pre-existing, unrelated** `throttle:10,1` on the public document
+upload/replace/remove routes — Laravel's stock unauthenticated per-IP
+throttle, keyed on `sha1($domain.'|'.$ip)` — not the applicant-side
+autosave rate limiter built earlier this session (that limiter's own
+counter for this application had only taken 22 of its 3,000 budget; it
+was never close to tripping). His own incident had already self-resolved
+(the 60-second window expired) by the time it was investigated; his
+autosave limiter key was also cleared as an immediate precaution before
+the real cause was confirmed.
+
+Conductor's ruling (this is a plain defect, not a business decision —
+Johan did not need to be consulted): re-key to the application token,
+raise + agency-configure the limit sized against the worst realistic
+case, and replace the message with a human one. Same pattern as the
+autosave rate limit built earlier this session.
+
+### The fix
+
+- **`app/Providers/AppServiceProvider.php`** — new named limiter
+  `rental-application-documents`, resolves the application from the
+  `{token}` route parameter and keys purely on
+  `'rental-application-documents:' . $token` — **no IP component at
+  all**, unlike the `reengage-shared-link` limiter's two-part
+  token+IP pattern elsewhere in this file, which would have reintroduced
+  the exact shared-connection bug this fix exists to close. On trip,
+  returns `{"message": "You've made a lot of document changes in a short
+  time, so uploads are paused for a moment. Everything you've already
+  uploaded is safe — please wait a minute and try again."}` (429) — read
+  by the same `data.message` handling `show.blade.php` already has from
+  the AT-392 async-upload work, no frontend change needed.
+- **`routes/web.php`** — `POST /{token}/documents`,
+  `POST /{token}/documents/{document}/remove`,
+  `POST /{token}/documents/{document}/replace` re-keyed from
+  `throttle:10,1` to `throttle:rental-application-documents`.
+- **`RentalApplicationQualifyingSetting`** — new
+  `document_rate_limit_max` / `document_rate_limit_window_minutes`
+  columns (nullable, same "never write on read" pattern as every other
+  setting in this model), default **60 per 10 minutes**. Sizing
+  rationale: the applicant's own file picker fires one POST per file,
+  concurrently (`Promise.all`), and `supporting_files` already hard-caps
+  a multi-select at 10 files — so a full document set (ID, payslips,
+  bank statements, FICA proof) plus one full retry because the first
+  attempt stalled (exactly what happened to Johan) is 20 requests. 60
+  leaves headroom for that burst plus a second batch later in the same
+  session (bank statements added after the ID), with real margin to
+  spare, the same worst-case-not-typical-case sizing already used for
+  `DEFAULT_AUTOSAVE_RATE_LIMIT_MAX`.
+- **Settings screen** — `corex.settings.rental-applications.document-
+  rate-limit` (new route + controller method +
+  `resources/views/corex/settings/rental-applications.blade.php` block),
+  mirroring the existing "Applicant Autosave Volume Cap" block exactly.
+- **Migration**:
+  `2026_09_13_000000_add_document_rate_limit_to_rental_application_qualifying_settings.php`.
+- **Tests**:
+  `tests/Feature/RentalApplications/RentalApplicationDocumentUploadRateLimitTest.php`
+  — 4 tests, 41 assertions, all passing: realistic 20-request burst at
+  the real default never trips; two tokens never share a budget; tripping
+  it returns the human message and damages nothing already uploaded;
+  the setting has a sensible default and is agency-configurable.
+
+### Three proofs required by the conductor, run live against QA1 (qatesting1.corexos.co.za)
+
+Using throwaway fixtures (agencies 44/45, applications 231/232/233 —
+all soft-deleted after; applications 70, 76, 107, 204, 205, and Johan's
+own 230 confirmed untouched before and after):
+
+1. **Realistic burst never trips** — application 231, real shipped
+   default (60/10min): 2 batches of 10 concurrent-shaped uploads each
+   (20 total, the exact worst-case the default was sized against) — all
+   20 returned HTTP 200.
+2. **Two tokens never share a budget** — applications 232/233, agency
+   setting temporarily lowered to 2/10min for this throwaway agency only:
+   application 232 was driven to its cap (3rd upload → HTTP 429) from the
+   same box/IP that application 233 then uploaded 2 files from
+   successfully (HTTP 200, HTTP 200) — proving the key is the token, not
+   the IP, exactly the defect this fix closes.
+3. **Tripping it shows the human message and loses nothing** —
+   application 233's own 3rd upload (its own cap, not 232's) returned
+   HTTP 429 with the exact human message above (no "Too many attempts"
+   anywhere in the body); a direct DB check afterward confirmed both of
+   233's pre-trip documents (`c-preB-1.pdf`, `c-preB-2.pdf`) were present,
+   unduplicated, and untouched.
+
+### Gates
+
+`scripts/verify-alpine-render.mjs` against a real authenticated fetch of
+the settings screen (`scripts/fetch-authenticated-page.php`, user 22) —
+PASS, 209 Alpine expressions compile clean, zero leaked attribute text,
+zero execution errors (only pre-existing WARN-only scope-gap notices on
+unrelated components: sidebar/markup, document-type search, validity
+overrides — none touching this change). `scripts/rental-smoke.mjs` — all
+8 screens PASS, 0 console errors.
+
+### Sweep — other per-IP throttles on the public applicant journey (report only, none changed)
+
+Per the conductor's explicit instruction, the rest of the public
+applicant-facing routes were swept for the same shared-connection
+problem. **None of these were touched — reported for a decision, not
+fixed**, since re-keying each is a distinct judgment call about what
+"real" volume looks like on that specific action (view/read routes carry
+materially different risk than a mutating action like document upload
+did):
+
+| Route | Method | Middleware | Notes |
+|---|---|---|---|
+| `/{token}` (show) | GET | `throttle:30,1` | Page load — a shared office/NAT connection with multiple applicants sharing one link-family could plausibly hit 30/min on a bad connection with aggressive retries, though far less likely than the concurrent-multi-POST shape that caused the document incident. |
+| `/{token}/autosave` | POST | `throttle:40,1` | Per-IP AND supplemented by the existing per-application layer built earlier this session (`autosave_rate_limit_max`/`window_minutes`, default 3,000/60min) — the app-level layer already gives this route real headroom independent of IP, unlike documents before today's fix. |
+| `/{token}/submit` | POST | `throttle:10,1` | Fires once per genuine submission attempt; a shared IP would need 10 real people submitting different applications in the same minute to collide — low likelihood, still per-IP. |
+| `/{token}/pdf` | GET | `throttle:30,1` | Read-only render, no state mutation risk if capped. |
+| `/{token}/documents/{document}` (view) | GET | `throttle:30,1` | Read-only render, same category as pdf above. |
+
+All five remain per-IP as shipped. Flagging per the conductor's
+instruction that "the same shared-office problem applies to them" is a
+possibility worth a ruling, not a claim that any of them has actually
+caused an incident — only the document upload route has.
