@@ -11947,9 +11947,57 @@ click target is still the whole row, not the glyph; the out-of-period dot
 still has no click handler. Neither was affected by this round's fix and
 neither needed one.
 
-**Not yet re-confirmed in an actual real browser** — that is the
-conductor's own next step per their instruction, and the honest state of
-this fix until they do.
+**Round C — width/clip axis confirmed in real Chrome; a second, distinct
+defect found on the height axis (2026-09-13, conductor + cc3).** The
+conductor re-measured live in real Windows Chrome after a genuine cache
+bust: the width/clip fix above is CLOSED — 18px wide, fully inside the
+content edge, 4px of real clearance, hit map contiguous. That is the
+first sub-part of this saga independently confirmed outside headless.
+
+Separately, the conductor found the button's effective height had
+regressed to ~16px live, against a CSS-declared 20px `::before` overlay
+that headless consistently (and wrongly, for the same structural reason
+as the width bug) measured as a clean, unclipped 20-21px.
+
+**Root cause: a second knife-edge, this time vertical.** The `::before`
+was sized to consume the *entire* 6.5px of vertical slack in the row
+(20.5px row pitch − 14px real button box = 6.5px, split 20px overlay =
+100% of it, zero margin). Because the row pitch itself is a non-integer
+(20.5px), each row's overlay touches its neighbour's at an exact,
+contested sub-pixel boundary. Headless's integer-rounded hit-testing
+resolves that touch as clean; real Chrome resolves it by actual
+sub-pixel geometry and DOM paint order, and was measured shaving the
+contested edge down on the earlier row. Mechanistically distinct from
+the horizontal clip (that one was a genuine `overflow-x: hidden` cutting
+through a button; this one is two adjacent absolutely-positioned overlays
+contesting a shared edge with no margin) — but the same *lesson*: an
+element sized to exactly, zero-margin, exactly match an adjacent boundary
+is a headless-blind risk, not just this one.
+
+**Fix:** `::before` height reduced 20px → 18px. Leaves ~1.25px of real
+clearance on each side instead of 0px, so no row's overlay can ever
+contest its neighbour's. Real box (14px) and width (18px) untouched.
+
+**Verified (headless — arithmetic, not click-simulation) on TWO
+fixtures:**
+- App 300 (3 rows, hands-off, read-only measurement — no clicks): row
+  pitch unchanged at 20.5/49.5px; clickable rect now 18×19px (18px
+  design + 1px integer-scan rounding), right edge exactly 1475+18=1493
+  on all three rows (unchanged from round 2 — the height fix never
+  touched width).
+- New throwaway fixture **application 341** ("THROWAWAY Ledger Test
+  Fixture (cc3 hit-area verify)", 12 ledger lines, status `in_progress`,
+  never touches 70/76/107/204/205/230/300): row pitch uniformly 20.5px
+  across all 11 gaps — no drift on a longer ledger. Same 18×19px
+  clickable rect, same exact-1493 right edge, on every one of the 12
+  rows. Overlay-to-neighbour clearance now ~3px measured (previously 0).
+
+**Not yet re-confirmed in an actual real browser** — same rule as every
+round: headless numbers are the diagnosis, not the proof. The conductor's
+own real-Chrome re-measurement is still the closing step. Application
+341 (`/corex/rental-applications/341/review`) is offered as a disposable,
+12-row fixture for that real click-test — never touches any hands-off
+fixture, safe to strike/restore/delete freely.
 
 ## Approved application → link to property, mark it Let (2026-09-13, cc3)
 

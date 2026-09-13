@@ -611,14 +611,23 @@
            would become the new tallest thing and grow every row (measured:
            it did, by 1.5px, before this was caught and fixed). ::before is
            position:absolute, so it's removed from layout entirely — free to
-           be taller than the button's own box, using exactly the row's own
-           already-measured 6.5px of vertical slack (20.5px row - 14px
-           button), without ever touching the next row (gap between rows is
-           0, confirmed by measurement — going even 1px past this row's own
-           boundary risks landing on the NEXT row's own strike button). */
+           be taller than the button's own box, using the row's own
+           6.5px of vertical slack (20.5px row - 14px button).
+
+           Deliberately 18px, not the full 20px: a flat 20px consumes 100%
+           of that slack with ZERO margin either side, so this row's overlay
+           and the next row's overlay exactly TOUCH at a shared, non-integer
+           boundary (row pitch is 20.5px, not a whole number). Headless
+           Chromium's integer-rounded hit-testing reported that as a clean
+           touch, but real Chrome resolves the contested sub-pixel edge by
+           DOM paint order and was measured shaving it down to ~16px in
+           practice — the same class of headless/real-Chrome divergence as
+           the horizontal scrollbar-clip bug above, this time on the
+           vertical axis. 18px keeps ~1.25px of real clearance on both
+           sides so no row's hit area can ever contest its neighbour's. */
         .rr-ledger-strike::before {
             content: ''; position: absolute; top: 50%; left: 0; transform: translateY(-50%);
-            width: 100%; height: 20px;
+            width: 100%; height: 18px;
         }
         .rr-ledger-strike:hover { color: var(--text-primary); }
         .rr-ledger-strike:disabled { cursor: default; opacity: 0.5; }
