@@ -147,9 +147,20 @@ final class RentalApplicationFicaHandoffTest extends TestCase
         $this->assertSame(2, \App\Models\RentalApplicationSignature::where('rental_application_id', $application->id)->count());
         $this->assertTrue($application->ficaOutstanding(), 'FICA must show outstanding when it could never be created');
 
-        // And it's genuinely findable, not just badged — the same list
-        // tile a stalled application surfaces on.
         $this->assertSame(0, FicaSubmission::where('contact_id', $this->contact->id)->count(), 'no FicaSubmission row exists at all — the failure never partially wrote one');
+
+        // Conductor: "does anything tell them the FICA step did not
+        // happen, or do they leave believing they completed it?" —
+        // checked, not assumed. A failed creation and an abandoned FICA
+        // are indistinguishable at the data layer (no FicaSubmission row
+        // either way), so the SAME honest "one more step needed" notice
+        // — already built for the abandoned case — applies here too, with
+        // no silent-success path.
+        $show = $this->get(route('rental-applications.public.show', $application->token));
+        $show->assertOk();
+        $show->assertSee('One more step needed', false);
+        $show->assertSee("we still need to verify your identity documents (FICA)", false);
+        $show->assertDontSee('Verification in progress', false);
     }
 
     public function test_abandoning_fica_leaves_the_application_submitted_with_fica_flagged_outstanding(): void
