@@ -153,6 +153,18 @@ This is orthogonal to the schema-snapshot bootstrap (non-negotiable #12a) —
 that makes ONE lane's bootstrap fast; this stops lanes from corrupting or
 blocking EACH OTHER. Both matter; neither substitutes for the other.
 
+**Correction, 2026-09-13 — this standard covers TEST RUNS ONLY, never
+migrations.** `TEST_DB_DATABASE` is read exclusively by `tests/bootstrap.php`,
+which is wired in solely via `phpunit.xml`'s own `bootstrap=` attribute — a
+bare `php artisan migrate` never loads that file and is completely
+unaffected by anything on this page. Every worktree's real `DB_DATABASE`
+(the one `migrate` actually uses) has always been `corex_qa1` — the live,
+shared, Johan-tests-in-it database — regardless of what `TEST_DB_DATABASE`
+is set to. If you read this standard and concluded per-lane isolation
+covers migrations too, that was a reasonable read of an incomplete
+document, not an error on your part — see Standard −1g for what actually
+guards `migrate` now, and why this needed its own separate answer.
+
 ---
 
 ## Standard −1b — Refresh `database/schema/mysql-schema.sql` when you add a migration
@@ -398,6 +410,60 @@ fixed by this standard (it touches a file mid-rework by another lane) —
 the same discipline BUILD_STANDARD already applies to the pre-existing
 Round10/Round11 test debt: one tracked, explained exception that prints
 loudly on every run, never a silent, growing pile of them.
+
+---
+
+## Standard −1g — No worktree migrates the shared QA1 database directly (ENFORCED, not a paragraph)
+
+Real incident, 2026-09-13: two lanes (independently) ran `php artisan
+migrate` directly in their own worktrees, against `corex_qa1` — the exact
+live database `/corex-qa1` serves to `qatesting1.corexos.co.za`, that
+Johan was testing in at the time. One created a genuine table collision
+(a provisional stand-in table for code the other lane hadn't pushed yet)
+and caught it live, by luck, because the two lanes happened to be talking
+to each other. It could just as easily have landed silently, or mid-test.
+
+**Root cause: every worktree's `DB_DATABASE` has always been `corex_qa1`.**
+Standard −1a's per-lane `TEST_DB_DATABASE` isolation was never the
+protection anyone assumed it was here — see the correction added to that
+standard. Nothing before this stopped a bare `migrate` from hitting the
+shared schema from any worktree, at any time. This has been true since
+the first worktree on this box was created, not something new — the only
+reason it hadn't caused visible damage before is that most migrations
+run this way were ALSO ones that were going to be pulled and applied
+through `/corex-qa1` anyway, so the redundant early application just
+showed up later as an unremarkable "Nothing to migrate."
+
+**Fix — enforced in code, not documented as a rule to remember.** The
+`artisan` entrypoint itself now refuses `migrate`, `migrate:fresh`,
+`migrate:refresh`, `migrate:reset`, `migrate:rollback`, and `db:wipe`
+outright — before Laravel's own container boots, before a single query
+runs — whenever `DB_DATABASE` resolves to `corex_qa1` (or any future name
+added to that same blocklist) UNLESS `QA1_DEPLOY_CHECKOUT=true` is set in
+that checkout's own `.env`. That flag is set in exactly one place:
+`/corex-qa1`'s own `.env` (gitignored, not committed) — the one
+checkout that is actually the sanctioned deploy target. A brand-new
+worktree that has never heard of this rule is safe by default: the
+blocklist is deny-by-default, not an opt-out a new worktree could
+accidentally miss.
+
+**What to do instead, in any other worktree:** write and commit your
+migration as normal, push it, and it gets pulled + applied through
+`/corex-qa1` the same way every other change on this box already lands —
+nothing about your own workflow changes except that `migrate` itself now
+refuses locally with a clear message telling you exactly that, instead of
+silently succeeding against the shared schema.
+
+**Known limits, stated plainly rather than left implicit:** this guard
+reads `DB_DATABASE` from the environment/`.env` the same way
+`tests/bootstrap.php` reads `TEST_DB_DATABASE` — a command-line
+`--database=` override pointing at a *different* connection name that
+still happens to resolve to the same physical `corex_qa1` schema in
+`config/database.php` would not be caught by this check. Same category of
+limitation the existing test-DB guard already has; noted here rather than
+pretending the guard is airtight against deliberate circumvention. It
+stops the accidental case — which is the one that actually happened,
+twice, in one afternoon — not a determined bypass.
 
 ---
 

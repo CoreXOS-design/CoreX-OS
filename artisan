@@ -6,6 +6,63 @@ use Symfony\Component\Console\Input\ArgvInput;
 
 define('LARAVEL_START', microtime(true));
 
+// Migration safety guard — see .ai/STANDARDS.md Standard -1a.
+//
+// Real incident, 2026-09-13: EVERY worktree on this box has always had
+// DB_DATABASE=corex_qa1 in its own .env — the exact same live database
+// /corex-qa1 itself serves to qatesting1.corexos.co.za. The per-lane
+// TEST_DB_DATABASE isolation (tests/bootstrap.php) only ever runs when
+// PHPUnit boots (wired in via phpunit.xml's own bootstrap= attribute) --
+// a bare `php artisan migrate` never loads that file at all, so it has
+// never protected a migration command, only a test run. Two lanes ran
+// migrations directly against the shared schema this way in the same
+// afternoon Johan was testing in it — caught and resolved cleanly this
+// time, by luck (they happened to be talking to each other), not by any
+// guard. This closes that gap the same way tests/bootstrap.php closes
+// its own: refuse before a single query runs, checked by hand-parsing
+// .env here since this runs BEFORE Laravel's own container boots.
+(static function (): void {
+    $command = $_SERVER['argv'][1] ?? '';
+    $guardedCommands = ['migrate', 'migrate:fresh', 'migrate:refresh', 'migrate:reset', 'migrate:rollback', 'db:wipe'];
+    if (! in_array($command, $guardedCommands, true)) {
+        return;
+    }
+
+    $envFile = __DIR__.'/.env';
+    $vars = [];
+    if (is_file($envFile)) {
+        foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+            if (preg_match('/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)$/', $line, $m)) {
+                $vars[$m[1]] = trim(trim($m[2]), "\"'"); // last assignment wins
+            }
+        }
+    }
+    $database = getenv('DB_DATABASE') ?: ($vars['DB_DATABASE'] ?? '');
+    $isDeployCheckout = (getenv('QA1_DEPLOY_CHECKOUT') ?: ($vars['QA1_DEPLOY_CHECKOUT'] ?? '')) === 'true';
+
+    // The live, shared schema(s) no worktree may migrate against directly.
+    // Add a name here if another shared environment gets the same problem
+    // -- this list is deliberately an allow-nothing-by-default blocklist,
+    // not the other way round, so a NEW worktree that has never heard of
+    // this rule is still safe by default.
+    $sharedDatabases = ['corex_qa1'];
+
+    if (in_array($database, $sharedDatabases, true) && ! $isDeployCheckout) {
+        fwrite(STDERR, PHP_EOL
+            .'  [MIGRATION SAFETY GUARD] Refusing to run "'.$command.'" — DB_DATABASE="'.$database.'"'.PHP_EOL
+            .'  is the live, shared QA1 database every worktree currently points at by'.PHP_EOL
+            .'  default. Running a migration command here applies it directly to the'.PHP_EOL
+            .'  environment Johan tests in, from whichever worktree happens to run it,'.PHP_EOL
+            .'  with no review and no gate.'.PHP_EOL.PHP_EOL
+            .'  Push your migration and let it be pulled + applied through /corex-qa1 --'.PHP_EOL
+            .'  the one sanctioned deploy checkout. See .ai/STANDARDS.md Standard -1a.'.PHP_EOL.PHP_EOL
+            .'  If this genuinely is /corex-qa1 and you are the deploy hand, this checkout'.PHP_EOL
+            .'  needs QA1_DEPLOY_CHECKOUT=true in its own .env (gitignored, not committed)'.PHP_EOL
+            .'  to allow it.'.PHP_EOL.PHP_EOL);
+        exit(1);
+    }
+})();
+
 // Register the Composer autoloader...
 require __DIR__.'/vendor/autoload.php';
 
