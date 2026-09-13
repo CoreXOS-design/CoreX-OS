@@ -46,7 +46,21 @@
         // application stalled on outstanding FICA must be visible, not
         // just badged on the record." Same visibility gate as
         // returned/under_assessment below (needs rental_applications.view_returned).
-        'fica_outstanding' => 'FICA Outstanding',
+        //
+        // Split into two, 2026-09-15 (Johan: "yes on fica") — one number
+        // covered "the applicant hasn't done their part" and "it's done,
+        // sitting unlooked-at with our own staff" alike, and an agent
+        // can't tell which from a single tile. Labels are a deliberate
+        // rewrite, not a first draft: "FICA — Applicant" / "FICA — Us"
+        // was tried and rejected (Johan/conductor — "does not read as
+        // English... 'FICA — Us' especially: us who?"). The tile exists
+        // to answer exactly one question — who does the agent chase —
+        // so the label says that directly, same test the scope toggle's
+        // "Yours only / Your branch / Whole agency" wording already
+        // passed: each one a complete plain-English answer to the
+        // question the control exists to answer.
+        'fica_waiting_applicant' => 'Waiting on applicant',
+        'fica_waiting_us' => 'Waiting on us',
     ];
     // AT-402 — permission regression guard: 'returned'/'under_assessment'/
     // 'sent_for_authorisation'/'approved'/'declined'/'reopened' were only
@@ -56,9 +70,16 @@
     // also excludes the underlying rows — this is belt-and-braces, not the
     // only guard).
     $primaryTiles = $canViewReturned
-        ? ['all', 'not_yet_submitted', 'returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'fica_outstanding']
+        ? ['all', 'not_yet_submitted', 'returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'fica_waiting_applicant', 'fica_waiting_us']
         : ['all', 'not_yet_submitted'];
     $secondaryTiles = $canViewReturned ? ['withdrawn', 'reopened'] : ['withdrawn'];
+    // The two FICA tiles are a pair, not a random pair of adjacent
+    // labels — a small, non-clickable "FICA" group marker renders
+    // immediately before the first of the two in the tile row below, so
+    // "Waiting on applicant"/"Waiting on us" (deliberately FICA-free
+    // wording — see $tileLabels above) don't read as ungrounded once
+    // separated from the word "FICA" itself.
+    $ficaGroupBeforeTile = 'fica_waiting_applicant';
 
     // Empty-state copy per tile — "what the agent is looking at and what to
     // do," not a blank panel (Johan's design standard).
@@ -72,7 +93,8 @@
         'declined' => 'No declined applications.',
         'withdrawn' => 'No withdrawn applications.',
         'reopened' => 'No reopened applications right now.',
-        'fica_outstanding' => 'Nothing stalled on FICA right now.',
+        'fica_waiting_applicant' => 'Nothing stalled on FICA with the applicant right now.',
+        'fica_waiting_us' => 'Nothing stalled on FICA with us right now.',
     ][$tile] ?? 'Nothing here yet.';
 @endphp
 
@@ -149,8 +171,29 @@
          misleading number actually was — the toggle above already shows
          which scope is active; this is the plain-language reading of it. --}}
     <p class="text-xs mb-0" style="color: var(--text-muted);">{{ ['own' => 'Yours only', 'branch' => 'Your branch', 'all' => 'Whole agency'][$resolvedScope] ?? '' }}</p>
+    {{-- AT-410d, 2026-09-16 — same screen-honesty standard as the scope
+         caption above: since conditional approval, a row can legitimately
+         sit in BOTH the Approved tile and one of the two FICA tiles at
+         once (spec section (g)) — stated plainly rather than left for the
+         numbers to silently not add up. Rendered whenever the FICA tiles
+         have anything in them at all, since that's exactly the
+         population conditional approval draws from — not a live overlap
+         count of its own, which would be one more thing to keep in sync
+         for a one-line caption. --}}
+    @if(($counts['fica_waiting_applicant'] ?? 0) + ($counts['fica_waiting_us'] ?? 0) > 0)
+        <p class="text-xs mb-0" style="color: var(--text-muted);">FICA tiles can overlap with Approved — an application can be both.</p>
+    @endif
     <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
         @foreach($primaryTiles as $key)
+            @if($key === $ficaGroupBeforeTile)
+                {{-- Small, non-clickable group marker — "Waiting on
+                     applicant"/"Waiting on us" are deliberately FICA-free
+                     wording (Johan/conductor: the tile must answer "who do
+                     I chase", not restate what it's about), so the pair
+                     needs a visible anchor back to what they're both
+                     about, without stuffing "FICA" into both tile names. --}}
+                <span class="px-2 py-2 text-xs font-semibold self-center" style="color: var(--text-muted);">FICA:</span>
+            @endif
             @php $active = $tile === $key; @endphp
             <a href="{{ $tileLink($key) }}"
                class="px-4 py-2 transition-colors"
@@ -286,6 +329,19 @@
                         @if($application->status === 'under_assessment')
                             <div class="text-[10px] mt-0.5" style="color: var(--text-muted);">
                                 {{ $application->submitted_for_approval_at ? '→ with authoriser' : '→ with agent' }}
+                            </div>
+                        @endif
+                        {{-- AT-410d, 2026-09-16 — one clear marker, reusing cc5's
+                             exact review-screen phrase ("subject to FICA
+                             verification") rather than inventing a second
+                             wording for the same fact (.ai/specs/rental-
+                             applications.md, FICA tile split, section (g)).
+                             This is the row's own visible link back to why a
+                             conditionally-approved application also appears in
+                             one of the FICA tiles below. --}}
+                        @if($application->approved_subject_to_fica_at)
+                            <div class="text-[10px] mt-0.5" style="color: var(--ds-amber, #f59e0b); font-weight:600;">
+                                Subject to FICA verification
                             </div>
                         @endif
                     </td>
