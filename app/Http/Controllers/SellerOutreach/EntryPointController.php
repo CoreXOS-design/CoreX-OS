@@ -1539,7 +1539,18 @@ final class EntryPointController extends Controller
         if (! empty($listing->matched_property_id)) {
             $idNumber = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
                 ->where('agency_id', $agencyId)->where('id', (int) $data['contact_id'])->value('id_number');
-            $svc->unlinkSeller((int) $data['contact_id'], (int) $listing->matched_property_id);
+            try {
+                $svc->unlinkSeller((int) $data['contact_id'], (int) $listing->matched_property_id);
+            } catch (\App\Exceptions\Property\ContactPropertyRoleMismatchException $e) {
+                \Illuminate\Support\Facades\Log::warning('Seller unlink: role mismatch, refusing to unlink silently', [
+                    'prospecting_listing_id' => $prospectingListingId,
+                    'contact_id' => $e->contactId,
+                    'property_id' => $e->propertyId,
+                    'expected_role' => $e->expectedRole,
+                    'actual_role' => $e->actualRole,
+                ]);
+                return response()->json(['message' => 'This contact\'s role on this property has changed (now "' . $e->actualRole . '") — refresh and try again.'], 409);
+            }
             $svc->recordRemoval($agencyId, (int) $listing->id, $idNumber ? (string) $idNumber : null, (int) $request->user()->id);
         }
 
