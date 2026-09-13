@@ -41,7 +41,9 @@
  *  11. Authoriser Approve — Approve is LEGITIMATELY disabled with no amount typed
  *  12. Authoriser Approve — works once an amount is typed (handles the native confirm())
  *  13. Authoriser Decline — Decline is LEGITIMATELY disabled with no reason typed
- *  14. Authoriser Decline — works once a reason is typed (handles the native confirm())
+ *  14. Authoriser Decline — works once BOTH a reason AND a reason template are
+ *      chosen (AT-410b added the required template select; handles the native
+ *      confirm())
  *
  *  NOT covered (named so this stays an honest list, not a silent gap):
  *   - The document-highlighter's CREATE flow (drag a new highlight on the
@@ -424,10 +426,26 @@ async function main() {
       selector: '[data-qa="authoriser-decline-confirm"]',
       expectDisabledBefore: true,
     });
+    // AT-410b, 2026-09-13 — Decline now needs BOTH the free-text note AND a
+    // reason-template selection (review.blade.php:1829's :disabled checks
+    // both declineReason and declineReasonTemplateId). Selecting only the
+    // first field correctly leaves the button disabled — that used to read
+    // as a gate failure here because this check never picked a template.
+    // Picks the first real (non-empty) option rather than a hardcoded id,
+    // since the exact template id differs per fixture agency.
+    const templateOptionValue = await roPageDecline.evaluate(() => {
+      const select = document.querySelector('select[x-model="declineReasonTemplateId"]');
+      const opt = select ? Array.from(select.options).find((o) => o.value) : null;
+      return opt ? opt.value : null;
+    });
+    if (!templateOptionValue) {
+      throw new Error('No decline reason template option found for this fixture agency — cannot exercise the real two-field precondition.');
+    }
+    await roPageDecline.select('select[x-model="declineReasonTemplateId"]', templateOptionValue);
     await roPageDecline.type('textarea[x-model="declineReason"]', 'Gate check reason');
     await new Promise((r) => setTimeout(r, 200));
     await checkControl(roPageDecline, {
-      name: '14. Authoriser Decline — works once a reason is typed',
+      name: '14. Authoriser Decline — works once a reason AND a reason template are chosen',
       selector: '[data-qa="authoriser-decline-confirm"]',
       expectDisabledBefore: false,
       requestPattern: /\/decline$/,

@@ -50,6 +50,7 @@ use App\Models\Contact;
 use App\Models\Document;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
+use App\Models\RentalApplicationDeclineReasonTemplate;
 use App\Models\RentalApplicationDocumentMark;
 use App\Models\User;
 use Illuminate\Support\Facades\Storage;
@@ -66,6 +67,17 @@ if (isset($opts['create'])) {
 
     $contactA = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'first_name' => 'Gate', 'last_name' => 'ApplicantA', 'email' => $stamp . '-a@example.test']);
     $contactB = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'first_name' => 'Gate', 'last_name' => 'ApplicantB', 'email' => $stamp . '-b@example.test']);
+
+    // AT-410b, 2026-09-13 — a brand-new agency has zero decline-reason
+    // templates (they're agency-configured via cc2's template CRUD), and
+    // the authoriser's Decline confirm button now requires one to be
+    // chosen alongside the free-text note (review.blade.php:1829). Without
+    // this, check 14 in rental-click-through.mjs finds an empty <select>
+    // and can never exercise the real precondition.
+    RentalApplicationDeclineReasonTemplate::create([
+        'agency_id' => $agency->id, 'reason' => 'Affordability', 'guidance' => 'Gate check guidance text.',
+        'sort_order' => 0, 'created_by' => $ro->id,
+    ]);
 
     // ── App A — agent-owned controls ──
     $appA = RentalApplication::create([
