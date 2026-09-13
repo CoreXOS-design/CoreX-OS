@@ -623,10 +623,26 @@ class RentalApplication extends Model
             return false;
         }
 
-        $latest = \App\Models\FicaSubmission::where('contact_id', $this->contact_id)
-            ->orderByDesc('created_at')->orderByDesc('id')->first();
+        $latest = $this->latestFicaSubmission();
 
         return $latest === null || in_array($latest->status, ['draft', 'rejected', 'corrections_requested'], true);
+    }
+
+    /**
+     * Return leg, AT-392 round 5, 2026-09-13 — the applicant's own
+     * already-submitted page needs the actual FicaSubmission (not just a
+     * bool) to hand back a working "continue FICA" link — the same lookup
+     * ficaAwaitingApplicantAction() already does, exposed so the controller
+     * doesn't run it twice.
+     */
+    public function latestFicaSubmission(): ?\App\Models\FicaSubmission
+    {
+        if ($this->contact_id === null) {
+            return null;
+        }
+
+        return \App\Models\FicaSubmission::where('contact_id', $this->contact_id)
+            ->orderByDesc('created_at')->orderByDesc('id')->first();
     }
 
     /**
