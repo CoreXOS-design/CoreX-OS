@@ -529,6 +529,103 @@ decision for Johan, not before.
 
 ---
 
+## Standard −1j — Our tools cannot see what they cannot physically do (2026-09-13)
+
+Found live on the rental authorisation screen: the Decline confirm button
+was completely inert to a real physical mouse click — no request, no JS
+error, no dialog, nothing — while a programmatic click on the identical
+element, seconds later, worked immediately and recorded the decline
+correctly. `.disabled` was `false`, `elementFromPoint` returned the
+button, position was measured twice and identical. The click-through gate
+(`scripts/rental-click-through.mjs`) had passed that exact control clean.
+This is the third distinct failure mode this week our own tooling
+structurally cannot see:
+
+1. PHPUnit cannot see a disabled button — it never opens a browser.
+2. Headless Chrome draws overlay scrollbars at zero width — it cannot see
+   an element clipped by a real 15px scrollbar.
+3. A programmatic click cannot see a button a physical click never reaches.
+
+**The rule, same shape every time: our tools cannot see what they cannot
+physically do.** Any lane claiming a UI control works must say by what
+means it was clicked — programmatic (`page.evaluate(el => el.click())` /
+`dispatchEvent`), Puppeteer's own `.click()` (CDP `Input.dispatchMouseEvent`
+— closer to real, still not the same thing, see below), or a real physical
+click in a real browser. "The gate passed" is not the same claim as "I
+clicked it."
+
+**Where this stands technically, checked against this codebase's own gate
+(`scripts/rental-click-through.mjs`) and Alpine's source
+(`node_modules/alpinejs/src/utils/on.js`), not assumed:**
+
+- The gate's `checkControl()` helper (used for the Decline confirm button
+  and almost every other check) already calls Puppeteer's
+  `elementHandle.click()`, not a raw DOM `.click()`/`dispatchEvent`. That
+  goes through the DevTools Protocol's `Input.dispatchMouseEvent`, which
+  genuinely dispatches mousedown → mouseup → click at real coordinates
+  with real hit-testing — it is not the naive, fully-synthetic kind. (One
+  check — #6, the capture-chip mark overlay, already flagged
+  `[KNOWN ISSUE, not gating]` — uses `page.evaluate(el =>
+  el.dispatchEvent(new MouseEvent('click', {bubbles:true})))`, which is
+  the naive kind: no mousedown/mouseup at all, `isTrusted: false`. That
+  one check is blind to this class by construction; the rest are not,
+  and the Decline button still slipped through anyway.)
+- That is the sobering part: even Puppeteer's better click primitive —
+  already in use — passed a control a real hand could not operate. CDP's
+  `dispatchMouseEvent` is injected directly into Blink, bypassing the
+  OS/window-server input path entirely. A real mousedown-to-mouseup
+  gesture takes on the order of 50–150ms and gives the browser's own
+  reactivity (Alpine's tick, a blur handler, a re-render) room to run
+  *between* the two events; CDP's dispatch does not reproduce that
+  timing. The textbook version of this gap: per the HTML spec, if a
+  button becomes `disabled` at any point between its `mousedown` and
+  `mouseup`, the browser suppresses the `click` event outright — a
+  reactive `:disabled` expression that flickers true for one tick during
+  a real click's longer window (from a blur/focus shift, a debounce, a
+  re-render) can eat the click entirely, in a way a fast synthetic
+  dispatch never gives the flicker time to occur. This is the leading
+  hypothesis for the Decline button, not a confirmed root cause — cc5
+  owns that fix.
+- **Honest answer on gate coverage**: no, this gate cannot see this class
+  of bug, even using its best available click method. Closing that gap
+  for real would mean a materially different automation stack — a headed
+  browser under a virtual display, driving input through an OS-level tool
+  (`xdotool`/similar) instead of CDP — and even that is not proven to
+  reproduce real hardware/driver timing. Until that is built and proven,
+  treat every `[PASS]` from this gate as "the control responds to a
+  correctly-targeted click," not "a human's hand can operate it."
+
+**Blast radius, checked against this codebase, not assumed** — every
+control sharing the Decline button's exact shape (a native `<button>`,
+inside a `<form>` with a `confirm()`-gated `@submit`, inside a modal torn
+down by Alpine's `@click.outside`, with a *reactive* `:disabled`
+expression — the ingredient the flicker theory above needs) was
+enumerated by grep across every rental-applications view, not sampled:
+
+| Control | File:line | Real-click status |
+|---|---|---|
+| Decline confirm | `review.blade.php:1850` | **Confirmed broken** — cc5 owns the fix |
+| Approve confirm | `review.blade.php:1796` | **Not yet tested with a real click** |
+| Send back to agent ("more info") | `review.blade.php:1873` | **Not yet tested with a real click** |
+| Create Rental Application ("Create") | `create.blade.php:59` | **Not yet tested with a real click** |
+| Reopen ("Confirm reopen") | `_reopen-terminal.blade.php:87` | **Not yet tested with a real click** — `type="button"` + JS `@click`, not a native submit, but the disabled-during-mousedown suppression is a property of the `<button>` element generally, not specific to `type="submit"`, so the same shape applies |
+
+Two controls confirmed safe by the conductor's own physical clicks are
+NOT the same shape as the above and don't need re-testing on this
+account: the authoriser's "Send back to applicant" button
+(`sendBackToApplicant()`, plain `type="button"` + Alpine method call, no
+native form submission at all) and the decline-send drawer's "Send to
+applicant" (`review.blade.php:2043` — same `@submit`+`confirm()` shape as
+Decline, and DID pass a real click, which is itself evidence the shape
+alone isn't sufficient — something more specific to Decline's fields is
+also in play, which is exactly why this is cc5's diagnosis to finish, not
+a conclusion to draw from this table).
+
+`_record-withdrawn.blade.php:75`'s submit button has no reactive
+`:disabled` at all — nothing to flicker — so it is not on this list.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
