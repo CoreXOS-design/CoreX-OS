@@ -11950,3 +11950,119 @@ neither needed one.
 **Not yet re-confirmed in an actual real browser** — that is the
 conductor's own next step per their instruction, and the honest state of
 this fix until they do.
+
+## Approved application → link to property, mark it Let (2026-09-13, cc3)
+
+Johan, verbatim: "on approval then we have a way for the agent to link the
+application to a property — we can borrow from contact link to property —
+and from dr2 property deal created mark property as under offer bit —
+rental when an approved tenant is linked the property changes to let out
+status. so we have done it already. we just going to borrow it from the
+original place we built it and adapt it to rentals." Investigated both
+halves before writing anything, per instruction — full findings reported
+to the conductor first; summary here is what was actually built.
+
+**Reused unchanged, per the investigation's own recommendation:**
+- The tenant link itself is the SAME `contact_property` pivot
+  `ContactPropertyController::link()`/`unlink()` already write for owner/
+  buyer/lessor — role `'tenant'`, already a first-class value there (the
+  esign_role map's `'lessee' => 'tenant'`), already anticipated in the
+  pivot migration's own comment. Confirmed with cc4 (owns the property
+  Rental tab) before writing anything: that tab holds no landlord/tenant
+  fields today and none are scheduled, so this pivot is the one true home
+  for the fact, not a second one.
+- Property resolution goes through `Property::
+  findLinkableForRentalApplication()` — the exact same cross-tenant-safe
+  resolver `RentalApplicationReviewController::linkProperty()` already
+  uses, so this can never reach a property outside the agent's own scope
+  any more than that action can.
+- Fires the same `App\Events\Contact\ContactLinkedToProperty` domain event
+  `ContactPropertyController::link()` fires (non-negotiable #9 — cross-
+  pillar reactivity uses domain events, never a second ad-hoc path). Any
+  future listener keyed on that event sees a rental-sourced tenant link
+  exactly like any other.
+- The "mark the property off-market" mechanism mirrors DR2's own under-
+  offer pair (`FlagPropertyUnderOfferOnDealCreated` /
+  `RevertPropertyStatusOnDealDeclined`) shape-for-shape: skip if the
+  property is already off-market (never clobber a genuinely different
+  state), snapshot the prior status before flipping, restore it on
+  unlink only if nothing else still needs it let.
+
+**New, because the exact fact didn't exist yet:** `properties.
+pre_tenant_link_status` (migration `2026_09_13_130000_...`) — a SEPARATE
+column from DR2's own `pre_deal_offer_status`, deliberately: a property
+can in principle be walking through both an open deal and a rental
+application at once, and sharing one snapshot slot between two unrelated
+features would let one clobber the other's "what to restore" memory.
+
+**What "Let" actually does, confirmed before firing it, not assumed:**
+`let_out` already exists as a real status — in `OFF_MARKET_STATUSES` and
+`CONCLUDED_STATUSES` (`Property.php`), and in `systemStatuses()`
+("deal listeners (under_offer/sold)" is literally named in that
+docblock as one of the things that writes system statuses — this build
+is the rental half of that same sentence). It maps to P24's `Rented`
+status (`Property24ListingMapper::getP24Status()`), which is documented
+and audited as terminal-but-stays-on-the-portal — P24 shows it as rented
+stock, the same way a sold listing stays shown as sold; it does not
+vanish. The same status change also fires `ListingSyndicationChanged` for
+the agency's own website if the property is syndicated there, via the
+existing generic `PropertyObserver` hook — no new wiring needed for
+either portal.
+
+**Build shape:**
+- Agent-triggered only, on an `approved` application, never automatic —
+  matches Johan's standing rule that consequential things need a press.
+- `RentalApplicationController::linkTenantProperty()` /
+  `unlinkTenantProperty()` — new methods, same controller that already
+  owns the approved application's own (read-only) screen.
+  `view-readonly.blade.php` gets the new UI, gated to `status ===
+  'approved'`: defaults the property picker to whatever the application
+  already carries (`property_id`, set via the review screen's own link-
+  property control) so the agent is never forced to search for a
+  property the system already knows about, reuses the same search
+  endpoint (`corex.rental-applications.search-properties`) and Alpine
+  picker shape already proven on the review screen.
+- Reversible, no destroyed history: `unlinkTenantProperty()` detaches the
+  pivot row (contact and property both stand untouched) and restores the
+  property's prior status only when safe (mirrors DR2's own "don't
+  clobber if something else still needs it" check, generalised from
+  "another open deal" to "another contact still linked as tenant").
+  Building the full "tenant moving out" workflow Johan described (and
+  explicitly parked) is NOT this — this only keeps that door open for it.
+- Audited via `RentalApplicationAuditService`, both directions, matching
+  the existing `linkProperty()` shape.
+
+**Proved with a real click, on a throwaway fixture (application + a
+throwaway rental property, both soft-deleted after — never one of
+Johan's hands-off applications):** searched for the fixture property by
+name, selected it with a real click, submitted the real link form.
+Result: flash message "Linked to {address} as tenant. Property marked
+Let.", the UI switched to the "linked" state with a Let badge, and — read
+directly from the database afterward — the `contact_property` pivot row
+existed with `role='tenant'`, the property's `status` was `let_out`, and
+`pre_tenant_link_status` held the prior status (`active`). Then clicked
+Unlink for real: flash "Tenant link removed. Property status restored.",
+UI reverted to the empty "choose a property" state, and the database
+confirmed the pivot row gone, the property back to `active`, and
+`pre_tenant_link_status` cleared to null. Zero errors from this feature's
+own code; the only console errors seen were the PDF-preview iframe's
+pre-existing, already-known-and-documented local-only failure (`ERR_
+MODULE_NOT_FOUND: puppeteer` from `scripts/html-to-pdf.mjs` — the same
+class of this-worktree-only Node/Puppeteer resolution gap noted earlier
+this session, unrelated to anything built here, confirmed by reproducing
+it on the exact same application before touching the tenant-link feature
+at all).
+
+**Housekeeping, per this session's own standing rule:** ran one migration
+directly against the shared `corex_qa1` schema (`--path=...`) before
+pulling the round's other work — which turned out to include a brand-new
+Standard −1g, added the same day, specifically forbidding exactly that
+(a real incident: two lanes did this same thing while Johan was actively
+testing). Named here plainly rather than left quiet: the migration itself
+is a single nullable column add (`properties.pre_tenant_link_status`),
+about as low-risk as a schema change gets, and `migrate:status` confirms
+it applied cleanly with nothing else stray — but the ACT of running it
+directly is exactly the pattern the new standard exists to stop, and it
+won't happen again from this lane. Nothing further will be migrated
+directly; the next migration this lane needs goes in via a normal push,
+applied through `/corex-qa1` like everything else.

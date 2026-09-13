@@ -6,6 +6,21 @@
         ? \App\Models\RentalApplicationDocumentRequirement::checklistFor($rentalApplication->agency_id, $rentalApplication->employment_type)
         : collect();
     $onFileTypeIds = $rentalApplication->documents->pluck('document_type_id')->filter()->all();
+
+    // Johan — "on approval then we have a way for the agent to link the
+    // application to a property... when an approved tenant is linked the
+    // property changes to let out status." See
+    // RentalApplicationController::linkTenantProperty()'s own docblock for
+    // the full reasoning. Read here from the SAME contact_property pivot
+    // ContactPropertyController already writes for owner/buyer/lessor —
+    // never a second place to ask "is this contact this property's tenant".
+    $tenantLinkedProperty = null;
+    if ($rentalApplication->status === 'approved' && $rentalApplication->contact && $rentalApplication->property_id) {
+        $tenantLinkedProperty = $rentalApplication->contact->properties()
+            ->wherePivot('role', 'tenant')
+            ->where('properties.id', $rentalApplication->property_id)
+            ->first();
+    }
 @endphp
 
 @section('corex-content')
@@ -145,6 +160,86 @@
         @include('corex.rental-applications._record-withdrawn', ['application' => $rentalApplication])
         @else
             <span class="ds-badge ds-badge-info">{{ \App\Models\RentalApplication::displayStatusLabel($rentalApplication->status) }}</span>
+        @endif
+
+        @if($rentalApplication->status === 'approved')
+        {{--
+            Johan — "on approval then we have a way for the agent to link
+            the application to a property... when an approved tenant is
+            linked the property changes to let out status." Deliberate
+            press, not automatic on approval (Johan's standing rule for
+            consequential things). Defaults the picker to whatever property
+            this application already carries (property_id, set via the
+            review screen's own link-property control) — the agent is never
+            forced to search for a property the system already knows about,
+            but can choose a different one. See RentalApplicationController::
+            linkTenantProperty()/unlinkTenantProperty() for the reasoning on
+            why this reuses contact_property + the DR2 under-offer pattern
+            rather than building either again.
+        --}}
+        <div class="mt-3 pt-3" style="border-top: 1px solid var(--border);"
+             x-data="{
+                searching: false,
+                query: '',
+                results: [],
+                propertyId: {{ Js::from($rentalApplication->property_id) }},
+                propertyLabel: {{ Js::from($rentalApplication->property ? ($rentalApplication->property->title ?: $rentalApplication->property->buildDisplayAddress()) : null) }},
+                async search() {
+                    if (this.query.length < 2) { this.results = []; return; }
+                    const res = await fetch({{ Js::from(route('corex.rental-applications.search-properties')) }} + '?q=' + encodeURIComponent(this.query));
+                    this.results = await res.json();
+                },
+                select(p) {
+                    this.propertyId = p.id;
+                    this.propertyLabel = p.label;
+                    this.searching = false;
+                    this.query = '';
+                    this.results = [];
+                },
+             }">
+            @if($tenantLinkedProperty)
+                <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Tenant linked to property</p>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="ds-badge ds-badge-success">{{ $tenantLinkedProperty->buildDisplayAddress() }} — marked Let</span>
+                    <form method="POST" action="{{ route('corex.rental-applications.unlink-tenant-property', $rentalApplication) }}"
+                          onsubmit="return confirm('Remove this tenant link? If nothing else needs the property let, its status will be restored to what it was before.');" class="inline">
+                        @csrf
+                        @method('DELETE')
+                        <button type="submit" class="text-xs underline" style="color: var(--ds-red, #dc2626);">Unlink</button>
+                    </form>
+                </div>
+            @else
+                <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Link this tenant to a property</p>
+                <form method="POST" action="{{ route('corex.rental-applications.link-tenant-property', $rentalApplication) }}" class="flex flex-wrap items-end gap-2">
+                    @csrf
+                    <input type="hidden" name="property_id" :value="propertyId">
+                    <template x-if="!searching">
+                        <span class="inline-flex items-center gap-2">
+                            <span class="text-xs" x-show="propertyLabel" x-text="propertyLabel"></span>
+                            <span class="text-xs" style="color: var(--text-muted);" x-show="!propertyLabel">No property chosen.</span>
+                            <button type="button" class="corex-btn-outline text-xs" @click="searching = true">
+                                <span x-text="propertyLabel ? 'Choose a different property' : 'Choose a property'"></span>
+                            </button>
+                        </span>
+                    </template>
+                    <template x-if="searching">
+                        <div class="relative" style="max-width: 22rem;">
+                            <input type="text" x-model="query" @input.debounce.300ms="search()" @keydown.escape="searching = false"
+                                   placeholder="Search rental properties…" autofocus
+                                   class="w-full rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+                            <button type="button" class="text-xs underline ml-1" style="color: var(--text-muted);" @click="searching = false">Cancel</button>
+                            <div class="absolute z-10 mt-1 w-full rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
+                                <template x-for="p in results" :key="p.id">
+                                    <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1 text-xs hover:bg-slate-50" x-text="p.label"></button>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                    <button type="submit" class="corex-btn-primary text-xs" :disabled="!propertyId">Link as tenant &amp; mark Let</button>
+                </form>
+                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Sets {{ $rentalApplication->contact->full_name ?? 'this applicant' }} as the tenant and flips the property to Let.</p>
+            @endif
+        </div>
         @endif
 
         @if($rentalApplication->statusHistory->isNotEmpty())

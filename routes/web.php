@@ -2986,6 +2986,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.archive')->name('corex.rental-applications.restore');
         Route::post('/{rentalApplication}/status', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'updateStatus'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.update-status');
+        // Johan — "on approval then we have a way for the agent to link the
+        // application to a property... rental - when an approved tenant is
+        // linked the property changes to let out status." See
+        // RentalApplicationController::linkTenantProperty()'s own docblock.
+        Route::post('/{rentalApplication}/link-tenant-property', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'linkTenantProperty'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.link-tenant-property');
+        Route::delete('/{rentalApplication}/link-tenant-property', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'unlinkTenantProperty'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.unlink-tenant-property');
     });
 
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,

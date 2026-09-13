@@ -915,6 +915,170 @@ class RentalApplicationController extends Controller
     }
 
     /**
+     * Johan, verbatim: "on approval then we have a way for the agent to
+     * link the application to a property - we can borrow from contact
+     * link to property - and from dr2 property deal created mark property
+     * as under offer bit - rental when an approved tenant is linked the
+     * property changes to let out status. so we have done it already. we
+     * just going to borrow it from the original place we built it and
+     * adapt it to rentals."
+     *
+     * Deliberate agent action, not automatic on approval — Johan has been
+     * consistent all weekend that consequential things need a press.
+     * Reuses two mechanisms verbatim rather than building either again:
+     *   - The contact/property link itself is the SAME contact_property
+     *     pivot ContactPropertyController::link() already writes, role
+     *     'tenant' — already a first-class value there (the esign_role
+     *     map's 'lessee' => 'tenant'), and already anticipated in the
+     *     pivot migration's own comment ("e.g. owner, buyer, tenant").
+     *     Confirmed with cc4 (owns the property Rental tab) before this
+     *     was written: that tab holds no landlord/tenant fields today and
+     *     none are scheduled, so contact_property is the one true home for
+     *     this fact, not a second one.
+     *   - The property is resolved through Property::
+     *     findLinkableForRentalApplication() — the SAME cross-tenant-safe
+     *     resolver RentalApplicationReviewController::linkProperty() already
+     *     uses, so this can never reach a property outside the agent's own
+     *     scope any more than that action can.
+     *   - Fires the SAME App\Events\Contact\ContactLinkedToProperty domain
+     *     event ContactPropertyController::link() fires, per non-negotiable
+     *     #9 (cross-pillar reactivity uses domain events, never a second
+     *     ad-hoc path) — any future listener keyed on that event (the way
+     *     MarkBuyerWonOnPropertyLink already reacts to 'buyer'/'purchaser')
+     *     sees a rental-sourced tenant link exactly like any other.
+     *
+     * Reversible, per instruction — "no one-way state changes, no
+     * destroyed history": unlinkTenantProperty() below detaches the pivot
+     * row (nothing deleted) and, mirroring DR2's own revert-on-decline
+     * companion (RevertPropertyStatusOnDealDeclined), restores the
+     * property's prior status from pre_tenant_link_status if this link is
+     * what set it and nothing else on the property still needs it let.
+     * Building the full "tenant moving out" workflow is explicitly NOT
+     * today's job (Johan has parked it) — this only keeps that door open.
+     */
+    public function linkTenantProperty(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        abort_unless($rentalApplication->status === 'approved', 422, 'Only an approved application can be linked to a property as a tenant.');
+
+        $validated = $request->validate([
+            'property_id' => ['required', 'integer'],
+        ]);
+
+        $contact = $rentalApplication->contact;
+        abort_unless($contact !== null, 422, 'This application has no contact to link.');
+
+        // Same cross-tenant-safe resolver linkProperty() already uses — an
+        // id outside this agent's own agency/branch/own scope, or a
+        // non-rental listing, resolves to null exactly like a bad id does.
+        $property = Property::findLinkableForRentalApplication((int) $validated['property_id'], $request->user());
+        if ($property === null) {
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'tenant_link',
+                eventType: 'link_refused',
+                user: $request->user(),
+                newValues: ['requested_property_id' => (int) $validated['property_id']],
+                humanSummary: "Refused: property #{$validated['property_id']} isn't visible to this agent as a rental listing.",
+            );
+
+            abort(403, "You don't have access to that property, or it isn't a rental listing, so it can't be linked. Search for it above rather than entering an id directly.");
+        }
+
+        $alreadyLinked = $contact->properties()->where('properties.id', $property->id)->wherePivot('role', 'tenant')->exists();
+
+        $contact->properties()->syncWithoutDetaching([
+            $property->id => ['role' => 'tenant'],
+        ]);
+
+        // Keep the application's own linked property in step with whatever
+        // the agent just confirmed — the same field linkProperty() already
+        // maintains, never a second "which property is this actually about" answer.
+        $oldPropertyId = $rentalApplication->property_id;
+        if ($oldPropertyId !== $property->id) {
+            $rentalApplication->property_id = $property->id;
+            $rentalApplication->save();
+        }
+
+        if (! $alreadyLinked) {
+            event(new \App\Events\Contact\ContactLinkedToProperty(
+                contact: $contact,
+                property: $property,
+                role: 'tenant',
+                actorUserId: $request->user()?->id,
+            ));
+        }
+
+        // Flip to Let — mirrors FlagPropertyUnderOfferOnDealCreated's own
+        // guard exactly: never touch a property that's already off-market
+        // (sold/withdrawn/already let out/…) or the snapshot below would
+        // overwrite a status this action didn't itself set aside.
+        $oldPropertyStatus = $property->status;
+        if (! in_array((string) $oldPropertyStatus, Property::OFF_MARKET_STATUSES, true)) {
+            $property->pre_tenant_link_status = $oldPropertyStatus !== '' ? $oldPropertyStatus : null;
+            $property->status = 'let_out';
+            $property->save(); // PropertyObserver: audit + P24/website syndication fire on the status change.
+        }
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'tenant_link',
+            eventType: 'linked',
+            user: $request->user(),
+            oldValues: ['property_id' => $oldPropertyId, 'property_status' => $oldPropertyStatus],
+            newValues: ['property_id' => $property->id, 'property_status' => $property->status],
+            humanSummary: 'Linked ' . $contact->full_name . ' to ' . $property->buildDisplayAddress() . ' as tenant' . ($property->status === 'let_out' ? ' — property marked Let' : ''),
+        );
+
+        return back()->with('success', 'Linked to ' . $property->buildDisplayAddress() . ' as tenant.' . ($property->status === 'let_out' ? ' Property marked Let.' : ''));
+    }
+
+    /**
+     * The reversal — see linkTenantProperty()'s own docblock for why this
+     * exists even though the fuller "tenant moving out" workflow is parked.
+     * Detaches the tenant link (nothing deleted — the contact and property
+     * both stand untouched) and, only when safe, restores the property's
+     * prior status.
+     */
+    public function unlinkTenantProperty(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $property = $rentalApplication->property;
+        $contact = $rentalApplication->contact;
+        abort_unless($property !== null && $contact !== null, 422, 'This application has no linked tenant/property to unlink.');
+
+        $contact->properties()->wherePivot('role', 'tenant')->detach($property->id);
+
+        $oldStatus = $property->status;
+        // Only revert a status THIS link set aside, and only when no other
+        // contact is still linked as tenant to the same property — mirrors
+        // RevertPropertyStatusOnDealDeclined's own "don't clobber if
+        // something else still needs it" check exactly.
+        if ($oldStatus === 'let_out' && $property->pre_tenant_link_status !== null) {
+            $stillTenanted = $property->contacts()->wherePivot('role', 'tenant')->exists();
+            if (! $stillTenanted) {
+                $property->status = $property->pre_tenant_link_status;
+                $property->pre_tenant_link_status = null;
+                $property->save(); // PropertyObserver: audit + re-syndication.
+            }
+        }
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'tenant_link',
+            eventType: 'unlinked',
+            user: $request->user(),
+            oldValues: ['property_id' => $property->id, 'property_status' => $oldStatus],
+            newValues: ['property_id' => null, 'property_status' => $property->status],
+            humanSummary: 'Unlinked ' . $contact->full_name . ' from ' . $property->buildDisplayAddress() . ' as tenant' . ($oldStatus !== $property->status ? ' — property status restored' : ''),
+        );
+
+        return back()->with('success', 'Tenant link removed.' . ($oldStatus !== $property->status ? ' Property status restored.' : ''));
+    }
+
+    /**
      * AT-392 spec §4 — one send, two return routes, applicant's choice.
      * Token/link generation now happens in store() for anything created
      * through the normal flow — but this action must not assume that: a
