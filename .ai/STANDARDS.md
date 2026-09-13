@@ -529,6 +529,72 @@ decision for Johan, not before.
 
 ---
 
+## Standard −1j — When a control appears dead, prove the input arrived before blaming the code (2026-09-13, corrected same day)
+
+The rental Decline confirm button was reported completely inert to a real
+physical mouse click — no request, no JS error, no dialog — while a
+programmatic click on the identical element worked immediately. It read
+as a live defect and was escalated as the most dangerous thing on the
+board. It wasn't one. The browser tab doing the "real click" testing
+was not the focused tab (Johan was working in his own tabs in the same
+browser), and Chrome does not deliver synthetic input to a background
+tab at all. Proven conclusively after the fact: a capture-phase
+`mousedown` listener on `document` itself, click at the centre of the
+page, zero events received — the page was never touched.
+
+Every piece of "evidence" collected for the false diagnosis was equally
+consistent with a background tab, which is exactly why it wasn't caught
+sooner:
+
+- No network request, no error, no dialog — because no click arrived at
+  the page at all.
+- `elementFromPoint` returning the right button, `.disabled` reading
+  `false` — both are DOM queries, unaffected by tab focus, and prove
+  nothing about whether input was delivered.
+- "Programmatic click works, real click doesn't" — this is precisely
+  what a background tab looks like, since JS execution doesn't care
+  which tab is focused, only the browser's real input delivery does.
+
+**The rule this earns: when a control appears dead to a real click,
+prove the click arrived at the page before concluding anything about the
+code.** The check costs one line — a capture-phase listener on
+`document` (`document.addEventListener('mousedown', () => console.log('landed'), true)`
+or equivalent) confirming the event actually lands before doing anything
+else. Skipping that step is how a tab-focus accident got escalated as a
+production-threatening defect and cost an afternoon chasing a control
+that was never broken.
+
+This stands alongside the two other things this week that our
+verification must not assume:
+
+1. PHPUnit cannot see a disabled button — it never opens a browser.
+2. Headless Chrome draws overlay scrollbars at zero width — it cannot see
+   an element clipped by a real 15px scrollbar.
+3. A real-browser test cannot see anything at all if its input never
+   reached the page — confirm arrival before concluding the control is
+   dead.
+
+**On the earlier, now-retracted version of this standard**: it had
+claimed programmatic clicks (including Puppeteer's own `elementHandle.click()`,
+which genuinely dispatches mousedown → mouseup → click via CDP
+`Input.dispatchMouseEvent`, not a raw synthetic `el.click()`) could pass a
+control a real hand could not operate, and it named several other rental
+controls as unverified against that risk. There is no evidence any
+control anywhere swallows a real click, and that blast-radius claim is
+withdrawn along with it. The one part of that investigation that still
+stands, asked out of genuine curiosity rather than urgency: can our
+click-through gate dispatch a real mousedown/mouseup/click sequence, or
+only the fully synthetic kind? Checked against `scripts/rental-click-through.mjs`
+directly — `checkControl()` already calls Puppeteer's `elementHandle.click()`
+(CDP `Input.dispatchMouseEvent`, real coordinates, real hit-testing, not
+`page.evaluate(el => el.click())`) for every check except #6 (the
+capture-chip mark overlay, already flagged `[KNOWN ISSUE, not gating]`),
+which does use the fully synthetic `dispatchEvent` form. Answered for the
+record — not a gap that needs closing on the strength of anything found
+today.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.

@@ -640,6 +640,21 @@ class RentalApplicationReviewController extends Controller
                 ->with('error', 'The applicant has already been sent this decision.');
         }
 
+        // 2026-09-15, Johan — "an applicant mistypes their email, the agent
+        // presses Send in good faith, the applicant never hears anything,
+        // and the agency believes it has told them." Before this check,
+        // mailer->sendDecline() already refused silently (its own
+        // ! $recipientEmail guard, returning false) but this action still
+        // marked applicant_notified_at and flashed "Decline sent to the
+        // applicant" regardless — a false success on the exact failure this
+        // business cannot afford. Refused BEFORE anything is written, same
+        // recipientEmail() resolution the drawer's own read-only "To:" line
+        // and the mailer both use, so all three can never disagree.
+        if (! $rentalApplication->recipientEmail()) {
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)
+                ->with('error', 'This application has no email address on file — there is nowhere to send this. Add one to the application before sending.');
+        }
+
         $validated = $request->validate([
             'subject' => ['required', 'string', 'max:998'],
             'body' => ['required', 'string', 'max:10000'],
