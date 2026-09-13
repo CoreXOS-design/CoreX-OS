@@ -575,6 +575,18 @@ class AppServiceProvider extends ServiceProvider
             \App\Listeners\Property\DismissComplianceClearedChores::class,
         );
 
+        // AT-410d, 2026-09-16 — a rental application approved subject to
+        // FICA verification resolves itself the moment FICA actually gets
+        // verified, from the exact place that already happens. Second
+        // listener on FicaApproved (LogFicaEvent, registered above via
+        // handleFicaApprovedReview/spineCredits, is the first) — this event
+        // already supports more than one subscriber, so this is the
+        // established pattern here, not a new one.
+        Event::listen(
+            \App\Events\Fica\FicaApproved::class,
+            \App\Listeners\RentalApplications\ResolveConditionalApprovalOnFicaVerified::class,
+        );
+
         // SPINE-3 — model observers that dispatch the missing domain events
         // (ProspectingClaim::created → ClaimCreated; updated released_at
         // NULL→set → ClaimReleased; PropertyMarketingPost::updated

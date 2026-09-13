@@ -56,10 +56,34 @@ class RentalApplicationController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user();
-        $requestedScope = $request->get('scope', 'own');
+        // 2026-09-13 — real incident: this used to hardcode 'own' as the
+        // default before the user's own ceiling was ever consulted, so an
+        // Owner/admin (ceiling 'all') landed on a list — AND tiles reading
+        // "All 14"/"Declined 0"/"FICA Outstanding 6" — that silently showed
+        // only their own 14 of the agency's real 112, with no control on
+        // screen to reach the rest. `scopeVisibleTo()` below already
+        // resolves a null requested scope to the user's real ceiling via
+        // PermissionService::clampScope() (the exact mechanism
+        // ContactController::index()'s own $dataScope relies on) — the bug
+        // was overriding that with a literal before it ever got the
+        // chance. No requested scope now means "use my ceiling", not
+        // "assume own".
+        $requestedScope = $request->get('scope');
         $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_applications');
+        $resolvedScope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
         $canSeeBranch = in_array($maxScope, ['branch', 'all'], true);
         $canSeeAgency = $maxScope === 'all';
+        // Mirrors DeedsCaptureController's own $deedsScopeOptions exactly
+        // (Johan's named reference implementation for this control) — the
+        // toggle only ever offers what this user's ceiling actually
+        // permits; a wider option never renders, and a hand-crafted
+        // ?scope= beyond the ceiling is independently clamped above
+        // regardless of what the button set shows.
+        $scopeOptions = match ($maxScope) {
+            'all' => ['own', 'branch', 'all'],
+            'branch' => ['own', 'branch'],
+            default => ['own'],
+        };
 
         $perPage = $this->resolvePerPage($request);
 
@@ -161,6 +185,7 @@ class RentalApplicationController extends Controller
         return view('corex.rental-applications.index', compact(
             'applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage',
             'tile', 'counts', 'isAuthoriser', 'authorisationQueueCount', 'canViewReturned',
+            'resolvedScope', 'scopeOptions',
         ));
     }
 
@@ -202,7 +227,20 @@ class RentalApplicationController extends Controller
         // to do on this file" set already established in this class —
         // rather than every status, since a terminal approved/declined/
         // withdrawn application isn't something FICA-chasing helps any more.
-        'fica_outstanding' => ['label' => 'FICA Outstanding', 'statuses' => ['in_progress', 'returned', 'reopened', 'under_assessment'], 'submitted_for_approval' => null, 'fica_outstanding' => true],
+        //
+        // Split into two, 2026-09-15 — Johan: "yes on fica" (.ai/specs/
+        // rental-applications.md, "FICA Outstanding tile split"). One
+        // number covered both "the applicant hasn't done their part" and
+        // "the applicant is done, it's sitting unlooked-at with our own
+        // staff" — an agent chasing the applicant on a file that's
+        // actually stalled with the RO/CO is exactly the wasted,
+        // embarrassing phone call this rebuild exists to remove.
+        // applyFicaBucketFilter() below keys off the CONTACT's LATEST
+        // FicaSubmission.status (never Contact::ficaStatus(), which
+        // collapses every not-yet-approved state into one 'incomplete'
+        // bucket and structurally cannot make this distinction).
+        'fica_waiting_applicant' => ['label' => 'Waiting on applicant', 'statuses' => ['in_progress', 'returned', 'reopened', 'under_assessment'], 'submitted_for_approval' => null, 'fica_bucket' => 'applicant'],
+        'fica_waiting_us' => ['label' => 'Waiting on us', 'statuses' => ['in_progress', 'returned', 'reopened', 'under_assessment'], 'submitted_for_approval' => null, 'fica_bucket' => 'us'],
     ];
 
     /** Rendered as small, muted links below the main tile row — reachable, not prominent (Johan's ruling). */
@@ -217,7 +255,7 @@ class RentalApplicationController extends Controller
     public const RETURNED_STATUSES = ['returned', 'reopened', 'under_assessment', 'approved', 'declined'];
 
     /** Tile keys that surface any of RETURNED_STATUSES — hidden/redirected away for a user lacking view_returned. */
-    public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'reopened', 'fica_outstanding'];
+    public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'reopened', 'fica_waiting_applicant', 'fica_waiting_us'];
 
     /**
      * REGRESSION FIX (2026-09-11) — merging index()/returned() into one list
@@ -246,6 +284,21 @@ class RentalApplicationController extends Controller
     private function applyTileFilter($query, string $tile): void
     {
         $def = self::TILES[$tile] ?? self::TILES['all'];
+        if (! empty($def['fica_bucket'])) {
+            // FICA tiles have their own status-eligibility rule, not the
+            // generic whereIn below — see applyFicaBucketFilter()'s
+            // docblock for why 'approved' rows need a way back in.
+            $query->where(function ($q) use ($def) {
+                $q->whereIn('rental_applications.status', $def['statuses'])
+                    ->orWhere(function ($q2) {
+                        $q2->where('rental_applications.status', 'approved')
+                            ->whereNotNull('rental_applications.approved_subject_to_fica_at');
+                    });
+            });
+            $this->applyFicaBucketFilter($query, $def['fica_bucket']);
+
+            return;
+        }
         if ($def['statuses'] !== null) {
             $query->whereIn('rental_applications.status', $def['statuses']);
         }
@@ -254,19 +307,89 @@ class RentalApplicationController extends Controller
         } elseif ($def['submitted_for_approval'] === false) {
             $query->whereNull('rental_applications.submitted_for_approval_at');
         }
-        // FICA-mandatory, AT-392 round 3, 2026-09-13 — matches the
-        // FicaSubmission-based branch of Contact::ficaStatus()'s own
-        // "complete" check (approved + verified within 11 months). The
-        // per-record badge (review.blade.php) still calls the full
-        // ficaStatus() accessor, including its legacy fica_documents
-        // fallback — deliberately not replicated here: this list filter
-        // only needs to be a fast, correct-for-current-data SQL condition,
-        // and a rental applicant with an OLD legacy-only FICA record
-        // predating this table is not a realistic overlap.
-        if (! empty($def['fica_outstanding'])) {
-            $query->whereDoesntHave('contact.ficaSubmissions', function ($q) {
-                $q->where('status', 'approved')->where('verified_at', '>=', now()->subMonths(11));
+    }
+
+    /**
+     * FICA Outstanding tile split, 2026-09-15 — Johan: "yes on fica."
+     * .ai/specs/rental-applications.md, "FICA Outstanding tile split".
+     *
+     * The outer condition (no valid, unexpired approved FicaSubmission)
+     * is unchanged from the original single fica_outstanding tile —
+     * AT-392 round 3, 2026-09-13 — matches the FicaSubmission-based
+     * branch of Contact::ficaStatus()'s own "complete" check (approved +
+     * verified within 11 months). The per-record badge (review.blade.php)
+     * still calls the full ficaStatus() accessor, including its legacy
+     * fica_documents fallback — deliberately not replicated here: this
+     * list filter only needs to be a fast, correct-for-current-data SQL
+     * condition, and a rental applicant with an OLD legacy-only FICA
+     * record predating this table is not a realistic overlap.
+     *
+     * Within that population, 'applicant'/'us' splits by the contact's
+     * LATEST FicaSubmission (by created_at, then id) — never "does any
+     * submission with this status exist", which would let an old
+     * rejected submission and a newer live draft both match and blur the
+     * two buckets. A raw correlated subquery, not whereHas()/orderBy(),
+     * because Eloquent has no built-in "latest related row's column"
+     * comparison — deliberately excludes soft-deleted submissions
+     * (fs.deleted_at IS NULL) since FicaSubmission uses SoftDeletes and a
+     * plain query wouldn't get that exclusion for free the way a
+     * relation-based whereHas() does.
+     *
+     * 'applicant' = no submission at all, or the latest one is 'draft' or
+     * 'corrections_requested'. 'us' = everything else not-yet-approved
+     * (submitted, under_review, agent_approved, referred_to_co, rejected,
+     * cancelled, or approved-but-expired). 'rejected' and 'cancelled'
+     * deliberately sit on 'us', not 'applicant' — checked directly against
+     * FicaController::resend() (only allows draft/corrections_requested):
+     * neither has a live self-service path back into the form, so a staff
+     * member has to decide to re-request before the applicant can do
+     * anything at all. This is a DELIBERATE divergence from
+     * RentalApplication::ficaAwaitingApplicantAction() (built for the
+     * applicant's own confirmation page, a different audience answering a
+     * different question) — not a rewrite of that method, a separate one.
+     *
+     * Conditional approval (AT-410d, "approved subject to FICA
+     * verification", cc5) widens the outer status eligibility in
+     * applyTileFilter() above: an 'approved' row with a non-null
+     * approved_subject_to_fica_at is eligible for these two tiles despite
+     * 'approved' being excluded from REVIEWABLE_STATUSES — spec section
+     * (g). It does NOT change the bucket logic below: a conditionally-
+     * approved row is still classified into 'applicant'/'us' by its
+     * underlying FicaSubmission status exactly like any other row.
+     * Confirmed with cc5 directly (2026-09-15) rather than assumed: no
+     * third status value, the column is a nullable timestamp that clears
+     * itself automatically once FICA verifies, so the outer
+     * whereDoesntHave(approved && valid) below stays correct — a
+     * conditionally-approved row's FICA is, by construction, always
+     * still outstanding at the moment its condition is set.
+     *
+     * A row surfacing in both the Approved tile and one of these two is
+     * intentional double membership, not a bug — Johan/conductor: these
+     * are a work queue, not a mutually-exclusive status breakdown, once
+     * conditional approval exists. It must still be exactly ONE row in
+     * "All" (a plain WHERE, not a JOIN, so no duplication risk) — covered
+     * by RentalApplicationFicaTileSplitTest::test_conditionally_approved_application_is_still_one_row_in_all_and_approved().
+     */
+    private function applyFicaBucketFilter($query, string $bucket): void
+    {
+        $query->whereDoesntHave('contact.ficaSubmissions', function ($q) {
+            $q->where('status', 'approved')->where('verified_at', '>=', now()->subMonths(11));
+        });
+
+        $applicantStatuses = ['draft', 'corrections_requested'];
+        $placeholders = implode(',', array_fill(0, count($applicantStatuses), '?'));
+        $latestStatusSql = '(SELECT fs.status FROM fica_submissions fs '
+            .'WHERE fs.contact_id = rental_applications.contact_id AND fs.deleted_at IS NULL '
+            .'ORDER BY fs.created_at DESC, fs.id DESC LIMIT 1)';
+
+        if ($bucket === 'applicant') {
+            $query->where(function ($q) use ($latestStatusSql, $placeholders, $applicantStatuses) {
+                $q->whereRaw("$latestStatusSql IS NULL")
+                    ->orWhereRaw("$latestStatusSql IN ($placeholders)", $applicantStatuses);
             });
+        } else {
+            $query->whereRaw("$latestStatusSql IS NOT NULL")
+                ->whereRaw("$latestStatusSql NOT IN ($placeholders)", $applicantStatuses);
         }
     }
 
@@ -925,7 +1048,7 @@ class RentalApplicationController extends Controller
      *
      * Deliberate agent action, not automatic on approval — Johan has been
      * consistent all weekend that consequential things need a press.
-     * Reuses two mechanisms verbatim rather than building either again:
+     * Reuses a mechanism verbatim rather than building it again:
      *   - The contact/property link itself is the SAME contact_property
      *     pivot ContactPropertyController::link() already writes, role
      *     'tenant' — already a first-class value there (the esign_role
@@ -947,12 +1070,15 @@ class RentalApplicationController extends Controller
      *     MarkBuyerWonOnPropertyLink already reacts to 'buyer'/'purchaser')
      *     sees a rental-sourced tenant link exactly like any other.
      *
-     * Reversible, per instruction — "no one-way state changes, no
-     * destroyed history": unlinkTenantProperty() below detaches the pivot
-     * row (nothing deleted) and, mirroring DR2's own revert-on-decline
-     * companion (RevertPropertyStatusOnDealDeclined), restores the
-     * property's prior status from pre_tenant_link_status if this link is
-     * what set it and nothing else on the property still needs it let.
+     * DOES NOT TOUCH PROPERTY STATUS. Johan's original ask ("the property
+     * changes to let out status") was built and then deliberately pulled
+     * apart by the conductor's ruling, 2026-09-13, after an investigation
+     * found flipping to let_out risked a live Property24/Private Property
+     * listing silently vanishing (see .ai/specs/rental-applications.md,
+     * "Property status side effects — DO NOT flip on tenant link"). The
+     * link and the status change are now two separate features; only the
+     * link is built here. Reversible regardless — unlinkTenantProperty()
+     * below detaches the pivot row and nothing else (nothing deleted).
      * Building the full "tenant moving out" workflow is explicitly NOT
      * today's job (Johan has parked it) — this only keeps that door open.
      */
@@ -1010,36 +1136,39 @@ class RentalApplicationController extends Controller
             ));
         }
 
-        // Flip to Let — mirrors FlagPropertyUnderOfferOnDealCreated's own
-        // guard exactly: never touch a property that's already off-market
-        // (sold/withdrawn/already let out/…) or the snapshot below would
-        // overwrite a status this action didn't itself set aside.
-        $oldPropertyStatus = $property->status;
-        if (! in_array((string) $oldPropertyStatus, Property::OFF_MARKET_STATUSES, true)) {
-            $property->pre_tenant_link_status = $oldPropertyStatus !== '' ? $oldPropertyStatus : null;
-            $property->status = 'let_out';
-            $property->save(); // PropertyObserver: audit + P24/website syndication fire on the status change.
-        }
+        // Deliberately does NOT touch $property->status. The conductor's
+        // ruling, 2026-09-13: linking a tenant and marking a property Let
+        // are two separate features. The status flip was pulled after an
+        // investigation (see .ai/specs/rental-applications.md, "Property
+        // status side effects — DO NOT flip on tenant link") found that
+        // PropertyObserver's off-market-delist path does not recognise
+        // the RENTED lifecycle as protected the way it protects SOLD, so
+        // flipping to let_out risked the listing being silently withdrawn
+        // from Property24 minutes later, and Private Property delists a
+        // rented property outright by design — an agent approving a
+        // rental application could pull a live listing off both portals.
+        // What the status change SHOULD do is Johan's call, pending; this
+        // action only ever writes the contact_property link.
 
         $audit->log(
             $rentalApplication,
             eventCategory: 'tenant_link',
             eventType: 'linked',
             user: $request->user(),
-            oldValues: ['property_id' => $oldPropertyId, 'property_status' => $oldPropertyStatus],
-            newValues: ['property_id' => $property->id, 'property_status' => $property->status],
-            humanSummary: 'Linked ' . $contact->full_name . ' to ' . $property->buildDisplayAddress() . ' as tenant' . ($property->status === 'let_out' ? ' — property marked Let' : ''),
+            oldValues: ['property_id' => $oldPropertyId],
+            newValues: ['property_id' => $property->id],
+            humanSummary: 'Linked ' . $contact->full_name . ' to ' . $property->buildDisplayAddress() . ' as tenant',
         );
 
-        return back()->with('success', 'Linked to ' . $property->buildDisplayAddress() . ' as tenant.' . ($property->status === 'let_out' ? ' Property marked Let.' : ''));
+        return back()->with('success', 'Linked to ' . $property->buildDisplayAddress() . ' as tenant.');
     }
 
     /**
      * The reversal — see linkTenantProperty()'s own docblock for why this
      * exists even though the fuller "tenant moving out" workflow is parked.
      * Detaches the tenant link (nothing deleted — the contact and property
-     * both stand untouched) and, only when safe, restores the property's
-     * prior status.
+     * both stand untouched). No status to restore — linkTenantProperty()
+     * no longer touches property status (conductor's ruling, 2026-09-13).
      */
     public function unlinkTenantProperty(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
     {
@@ -1051,31 +1180,23 @@ class RentalApplicationController extends Controller
 
         $contact->properties()->wherePivot('role', 'tenant')->detach($property->id);
 
-        $oldStatus = $property->status;
-        // Only revert a status THIS link set aside, and only when no other
-        // contact is still linked as tenant to the same property — mirrors
-        // RevertPropertyStatusOnDealDeclined's own "don't clobber if
-        // something else still needs it" check exactly.
-        if ($oldStatus === 'let_out' && $property->pre_tenant_link_status !== null) {
-            $stillTenanted = $property->contacts()->wherePivot('role', 'tenant')->exists();
-            if (! $stillTenanted) {
-                $property->status = $property->pre_tenant_link_status;
-                $property->pre_tenant_link_status = null;
-                $property->save(); // PropertyObserver: audit + re-syndication.
-            }
-        }
+        // No status to revert — linkTenantProperty() above no longer
+        // touches $property->status (conductor's ruling, 2026-09-13; see
+        // that method's own comment). pre_tenant_link_status is left
+        // unused/reserved rather than dropped, since a properly-designed
+        // status-change feature may want the same snapshot column later.
 
         $audit->log(
             $rentalApplication,
             eventCategory: 'tenant_link',
             eventType: 'unlinked',
             user: $request->user(),
-            oldValues: ['property_id' => $property->id, 'property_status' => $oldStatus],
-            newValues: ['property_id' => null, 'property_status' => $property->status],
-            humanSummary: 'Unlinked ' . $contact->full_name . ' from ' . $property->buildDisplayAddress() . ' as tenant' . ($oldStatus !== $property->status ? ' — property status restored' : ''),
+            oldValues: ['property_id' => $property->id],
+            newValues: ['property_id' => null],
+            humanSummary: 'Unlinked ' . $contact->full_name . ' from ' . $property->buildDisplayAddress() . ' as tenant',
         );
 
-        return back()->with('success', 'Tenant link removed.' . ($oldStatus !== $property->status ? ' Property status restored.' : ''));
+        return back()->with('success', 'Tenant link removed.');
     }
 
     /**

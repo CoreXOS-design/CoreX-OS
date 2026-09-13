@@ -613,23 +613,44 @@
         .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .rr-ledger-strike {
             position: relative;
-            width: 18px; height: 14px; padding: 0; border: none; background: transparent;
-            color: var(--text-muted); font-size: 12px; line-height: 14px; text-align: center; cursor: pointer;
+            width: 18px; height: 16px; padding: 0; border: none; background: transparent;
+            color: var(--text-muted); font-size: 12px; line-height: 16px; text-align: center; cursor: pointer;
         }
-        /* The real button box stays 14px TALL on purpose — this row's height
-           was governed by the arrow column's own 16.5px content, not the
-           strike button; making the button's own box any taller than that
-           would become the new tallest thing and grow every row (measured:
-           it did, by 1.5px, before this was caught and fixed). ::before is
-           position:absolute, so it's removed from layout entirely — free to
-           be taller than the button's own box, using exactly the row's own
-           already-measured 6.5px of vertical slack (20.5px row - 14px
-           button), without ever touching the next row (gap between rows is
-           0, confirmed by measurement — going even 1px past this row's own
-           boundary risks landing on the NEXT row's own strike button). */
+        /* Real box 16px, not 14 — 2026-09-13, Round D. The row's content
+           height is governed by the date span's 16.5px (see below); a real
+           box up to 16px sits AT that ceiling with zero row growth, swept
+           and confirmed empirically (14px and 16px both measure a 20.5px
+           row pitch on a 12-row fixture, byte-identical). 18px measured
+           +1.5px/row, 20px measured +3.5px/row — real, linear, and
+           unavoidable once you exceed the ceiling, since grid rows auto-
+           size to their tallest child. 16px is the free ceiling: a visibly
+           bigger glyph/target for a real mouse user, zero cost to row
+           density. The already-fixed 18px invisible ::before overlay is
+           unaffected (its clickable footprint was already bigger than the
+           real box, so this is a visual-affordance win, not a hit-area
+           change). The real box stays no taller than this ceiling on
+           purpose — going past it makes the button's own box the row's
+           new tallest thing and grows every row (measured: at 18px it
+           did, by 1.5px; at 20px, by 3.5px — before this was caught and
+           kept at 16px). ::before is position:absolute, so it's removed
+           from layout entirely — free to be taller than the button's own
+           box, using the row's own vertical slack (20.5px row - 16px
+           button = 4.5px).
+
+           Deliberately 18px, not the full 20px: a flat 20px consumes 100%
+           of that slack with ZERO margin either side, so this row's overlay
+           and the next row's overlay exactly TOUCH at a shared, non-integer
+           boundary (row pitch is 20.5px, not a whole number). Headless
+           Chromium's integer-rounded hit-testing reported that as a clean
+           touch, but real Chrome resolves the contested sub-pixel edge by
+           DOM paint order and was measured shaving it down to ~16px in
+           practice — the same class of headless/real-Chrome divergence as
+           the horizontal scrollbar-clip bug above, this time on the
+           vertical axis. 18px keeps ~1.25px of real clearance on both
+           sides so no row's hit area can ever contest its neighbour's. */
         .rr-ledger-strike::before {
             content: ''; position: absolute; top: 50%; left: 0; transform: translateY(-50%);
-            width: 100%; height: 20px;
+            width: 100%; height: 18px;
         }
         .rr-ledger-strike:hover { color: var(--text-primary); }
         .rr-ledger-strike:disabled { cursor: default; opacity: 0.5; }
@@ -1330,8 +1351,12 @@
                     </div>
                 @endif
                 @if($rentalApplication->status === 'approved' && $rentalApplication->applicant_notified_at)
+                    {{-- AT-410d, 2026-09-16 — Johan: "an approval that looks
+                         unconditional is the failure mode here." The
+                         qualifier travels with the approval everywhere it's
+                         shown, not just at the moment of deciding. --}}
                     <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">
-                        &check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month. Sent to the applicant on {{ $rentalApplication->applicant_notified_at->format('d M Y, H:i') }}.
+                        &check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month{{ $rentalApplication->approved_subject_to_fica_at ? ', subject to FICA verification' : '' }}. Sent to the applicant on {{ $rentalApplication->applicant_notified_at->format('d M Y, H:i') }}.
                     </div>
                 @elseif($rentalApplication->status === 'approved')
                     {{-- AT-392 — Johan: "agent gets back and upon them being happy
@@ -1341,7 +1366,10 @@
                          page — command-center/buyers/detail.blade.php:580-615,
                          not a second editor), then sends. --}}
                     <div class="rounded-md px-3 py-2 text-xs mb-2" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
-                        <p class="font-semibold mb-1.5">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month — not yet sent.</p>
+                        <p class="font-semibold mb-1.5">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month{{ $rentalApplication->approved_subject_to_fica_at ? ', subject to FICA verification' : '' }} — not yet sent.</p>
+                        @if($rentalApplication->approved_subject_to_fica_at)
+                            <p class="mb-2">FICA is still outstanding for this applicant. The approval will resolve automatically once compliance verifies FICA — no need to come back and check.</p>
+                        @endif
                         <p class="mb-2">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
                         <div class="flex flex-wrap gap-2">
                             <button type="button" @click="wishlistDrawerOpen = true" class="corex-btn-outline text-xs">
@@ -1640,7 +1668,7 @@
                         <p class="text-[11px]" style="color: var(--text-muted);">You created this application — only another authoriser may act on it.</p>
                     @else
                         <button type="button" data-qa="authoriser-send-back-open" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
-                        <button type="button" data-qa="authoriser-approve-open" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true">Approve &amp; continue</button>
+                        <button type="button" data-qa="authoriser-approve-open" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true; approveConfirming = false">Approve &amp; continue</button>
                         {{-- Equal weight with Approve, 2026-09-14 (cc4's walk,
                              Johan GO): "declining is the unusual, awkward
                              path" was a real, visible bias — a full-width
@@ -1767,23 +1795,70 @@
                      confirm()+unload-guard-suppress @submit pattern as
                      before this round; only the surrounding chrome (now a
                      modal instead of an always-visible card) changed. --}}
-                <div x-show="approveModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false">
-                    <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="approveModalOpen = false">
+                <div x-show="approveModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
+                    <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="approveModalOpen = false; approveConfirming = false">
                         <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Approve</h3>
                         @if($alreadyDecided && $canOverride)
                             <p class="text-xs mb-2" style="color: var(--ds-amber, #b45309);">This overrides the existing decision — a reason is required.</p>
                         @endif
+                        {{-- AT-410d, 2026-09-16, Johan: "approving now records
+                             this as Approved, subject to FICA verification" —
+                             told BEFORE the click, same principle as the
+                             no-email guard: warn before, not surprise after.
+                             One button throughout; this is the only thing
+                             that changes depending on live FICA state. --}}
+                        @if($rentalApplication->ficaOutstanding())
+                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
+                                FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                            </p>
+                        @endif
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
-                        <input type="text" inputmode="decimal" x-model="approveAmount" class="corex-input text-sm w-full mb-2" placeholder="0.00">
-                        <textarea x-model="approveReason" rows="2" class="corex-input text-xs w-full mb-3" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
+                        <input type="text" inputmode="decimal" x-model="approveAmount" :disabled="approveConfirming" class="corex-input text-sm w-full mb-2" placeholder="0.00">
+                        <textarea x-model="approveReason" rows="2" :disabled="approveConfirming" class="corex-input text-xs w-full mb-3" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
+                        {{-- 2026-09-16, Johan — native confirm() removed, same
+                             reasoning as the decline path (see that modal's own
+                             comment): unstyled, behaves differently across
+                             browsers, and Chrome lets a user silently suppress
+                             ALL further dialogs on a page ("prevent this page
+                             from creating additional dialogs") — at which
+                             point this confirmation would stop appearing
+                             entirely and approvals would go through with no
+                             check at all. Unlike decline, Johan's explicit
+                             instruction here was to KEEP a real confirmation
+                             step, not just rely on the modal's own gating —
+                             approving a tenancy at a stated rent is exactly
+                             the kind of irreversible action that should ask
+                             "are you sure", and the dynamic amount in the
+                             message is the whole value of asking. So this is
+                             a genuine two-step in-page flow, not a single
+                             submit: the first Approve click never submits
+                             anything — it reveals the SAME message text the
+                             old confirm() used, rendered on the page, with
+                             its own explicit Yes/Go-back buttons. --}}
+                        <template x-if="approveConfirming">
+                            <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                <p class="font-semibold" x-text="'Approve this tenant for R' + Number(approveAmount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '?'"></p>
+                            </div>
+                        </template>
                         <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}"
-                              @submit="if (!confirm('Approve this tenant for R' + Number(approveAmount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
+                              @submit="window.__raSuppressUnloadGuard = true; $refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
                             @csrf
                             <input type="hidden" name="approved_rental_amount" x-ref="approveAmountField">
                             <input type="hidden" name="reason" x-ref="approveReasonField">
                             <div class="flex justify-end gap-2">
-                                <button type="button" class="corex-btn-outline text-xs" @click="approveModalOpen = false">Cancel</button>
-                                <button type="submit" data-qa="authoriser-approve-confirm" class="corex-btn-primary text-xs" :disabled="!approveAmount">Approve</button>
+                                <template x-if="!approveConfirming">
+                                    <button type="button" class="corex-btn-outline text-xs" @click="approveModalOpen = false">Cancel</button>
+                                </template>
+                                <template x-if="approveConfirming">
+                                    <button type="button" class="corex-btn-outline text-xs" @click="approveConfirming = false">Go back</button>
+                                </template>
+                                <template x-if="!approveConfirming">
+                                    <button type="button" data-qa="authoriser-approve-continue" class="corex-btn-primary text-xs" :disabled="!approveAmount"
+                                            :title="!approveAmount ? 'Enter a monthly amount first.' : null" @click="approveConfirming = true">Approve</button>
+                                </template>
+                                <template x-if="approveConfirming">
+                                    <button type="submit" data-qa="authoriser-approve-confirm" class="corex-btn-primary text-xs">Yes, approve</button>
+                                </template>
                             </div>
                         </form>
                     </div>
@@ -1830,14 +1905,30 @@
                         </select>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Note for the agent</label>
                         <textarea x-model="declineReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="Reason for decline (required) — the agent will see this"></textarea>
+                        {{-- 2026-09-15, Johan — native confirm()/alert()/prompt()
+                             removed from this path entirely: "a native dialog is
+                             not acceptable in this product... it behaves
+                             differently in every browser." Investigated as a
+                             candidate for a real-mouse-click failure he found;
+                             ruled out as that specific cause by direct testing,
+                             but it stays removed regardless per his standing
+                             instruction — it's also the confirmed mechanism
+                             behind a separate renderer freeze he hit (a native
+                             JS dialog blocks the whole tab's main thread, which
+                             is also why CDP screenshot/eval calls hang while one
+                             is open). The modal itself — open it, pick a reason,
+                             type a note, click the one red button — is already
+                             the deliberate multi-step action; a browser popup on
+                             top of that is redundant, not an extra safety net. --}}
                         <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}"
-                              @submit="if (!confirm('Decline the application from ' + {{ Js::from($headerContactName) }} + {{ Js::from($propertyLabel ? ' for ' . $propertyLabel : '') }} + '?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason; $refs.declineReasonTemplateIdField.value = declineReasonTemplateId">
+                              @submit="window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason; $refs.declineReasonTemplateIdField.value = declineReasonTemplateId">
                             @csrf
                             <input type="hidden" name="reason" x-ref="declineReasonField">
                             <input type="hidden" name="decline_reason_template_id" x-ref="declineReasonTemplateIdField">
                             <div class="flex justify-end gap-2">
                                 <button type="button" class="corex-btn-outline text-xs" @click="declineModalOpen = false">Cancel</button>
-                                <button type="submit" data-qa="authoriser-decline-confirm" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim() || !declineReasonTemplateId">Decline</button>
+                                <button type="submit" data-qa="authoriser-decline-confirm" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim() || !declineReasonTemplateId"
+                                        :title="!declineReasonTemplateId && !declineReason.trim() ? 'Choose a reason for the applicant and add a note for the agent first.' : (!declineReasonTemplateId ? 'Choose a reason for the applicant first.' : (!declineReason.trim() ? 'Add a note for the agent first.' : null))">Decline</button>
                             </div>
                         </form>
                     </div>
@@ -2013,6 +2104,7 @@
              freely edit both before sending. Submitting posts whatever is
              actually in these two fields, edited or not. --}}
         @if($viewerRole === 'agent' && $rentalApplication->status === 'declined' && !$rentalApplication->applicant_notified_at)
+            @php($declineRecipientEmail = $rentalApplication->recipientEmail())
             <div x-show="declineSendDrawerOpen" x-cloak
                  class="fixed inset-0 z-[100] flex justify-end"
                  style="background: rgba(0,0,0,0.5);"
@@ -2028,9 +2120,50 @@
                     <p class="text-xs mb-4" style="color: var(--text-muted);">
                         This is the exact email the applicant will receive. Edit anything you need to — nothing sends until you click Send below.
                     </p>
+                    {{-- 2026-09-15, Johan — "the agent is never shown who the
+                         email is going to... an applicant mistypes their
+                         email, the agent presses Send in good faith, the
+                         applicant never hears anything, and the agency
+                         believes it has told them." Read-only, right above
+                         Subject — the exact address recipientEmail() (the
+                         same resolution the actual send uses) will send to,
+                         not a re-derived guess. No-email is a real, honest
+                         dead end here: the Send button is disabled with a
+                         reason shown, never a silently-inert control. --}}
+                    @if($declineRecipientEmail)
+                        <p class="text-xs mb-3" style="color: var(--text-secondary);">
+                            <span class="font-medium">To:</span> {{ $declineRecipientEmail }}
+                        </p>
+                    @else
+                        {{-- 2026-09-15, Johan — "the message tells the agent
+                             WHAT IS WRONG but not WHAT TO DO... add the
+                             remedy in the same sentence... if there is a
+                             sensible link straight to it, better still."
+                             Checked where an email is actually added rather
+                             than guessing: the contact's own Emails section,
+                             corex.contacts.show's main edit form — the exact
+                             field recipientEmail() falls back to when the
+                             application's own email is blank. --}}
+                        <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626); border: 1px solid var(--ds-red, #dc2626);">
+                            This application has no email address on file — there is nowhere to send this.
+                            @if($rentalApplication->contact)
+                                Add one under <a href="{{ route('corex.contacts.show', $rentalApplication->contact) }}" target="_blank" rel="noopener" style="text-decoration: underline; font-weight: 600;">{{ $rentalApplication->contact->full_name }}'s contact record</a> (Emails section), then come back here.
+                            @else
+                                Add one to the applicant's contact record before sending.
+                            @endif
+                        </p>
+                    @endif
+                    {{-- 2026-09-15, Johan — native confirm() removed here too,
+                         same reasoning as the authoriser's Decline modal (see
+                         that modal's own comment). The drawer itself — open
+                         it, read the real final text, optionally edit it,
+                         click the one button — is already the deliberate
+                         action; the applicant's name is already visible in
+                         the letter's own "Dear ..." line, so nothing is lost
+                         by dropping the popup on top of it. --}}
                     <form method="POST" action="{{ route('corex.rental-applications.review.send-decline', $rentalApplication) }}"
                           x-data="{ subject: {{ Js::from($rentalApplication->decline_email_subject ?? '') }}, body: {{ Js::from($rentalApplication->decline_email_body ?? '') }}, sending: false }"
-                          @submit="if (sending) { $event.preventDefault(); return; } if (!confirm('Send this decline email to ' + {{ Js::from($headerContactName) }} + '?')) { $event.preventDefault(); return; } sending = true; window.__raSuppressUnloadGuard = true;">
+                          @submit="if (sending) { $event.preventDefault(); return; } sending = true; window.__raSuppressUnloadGuard = true;">
                         @csrf
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Subject</label>
                         <input type="text" name="subject" x-model="subject" class="corex-input text-sm w-full mb-3" required maxlength="998">
@@ -2038,7 +2171,8 @@
                         <textarea name="body" x-model="body" rows="16" class="corex-input text-sm w-full mb-4" style="white-space: pre-wrap;" required maxlength="10000"></textarea>
                         <div class="flex justify-end gap-2">
                             <button type="button" class="corex-btn-outline text-xs" @click="declineSendDrawerOpen = false">Cancel</button>
-                            <button type="submit" data-qa="decline-send-confirm" class="corex-btn-primary text-xs" :disabled="sending || !subject.trim() || !body.trim()">Send to applicant</button>
+                            <button type="submit" data-qa="decline-send-confirm" class="corex-btn-primary text-xs" :disabled="sending || !subject.trim() || !body.trim() || {{ $declineRecipientEmail ? 'false' : 'true' }}"
+                                    @if(! $declineRecipientEmail) title="No email address on file for this applicant — add one to their contact record first." @endif>Send to applicant</button>
                         </div>
                     </form>
                 </div>
@@ -3126,6 +3260,11 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
         // Decision panel fields — unchanged from before this screen grew a document viewer.
         approveAmount: '',
         approveReason: '',
+        // 2026-09-16 — the in-page confirmation step that replaced native
+        // confirm() on this form (see the modal's own comment). Reset to
+        // false everywhere the modal can close, so reopening it never
+        // shows a stale confirmation left over from a previous attempt.
+        approveConfirming: false,
         declineReason: '',
         // AT-410b, 2026-09-15 — which applicant-facing reason+guidance
         // template the authoriser picked. Separate state from declineReason

@@ -176,6 +176,14 @@
             linkTenantProperty()/unlinkTenantProperty() for the reasoning on
             why this reuses contact_property + the DR2 under-offer pattern
             rather than building either again.
+
+            The "changes to let out status" half of Johan's original ask is
+            NOT built here — the conductor split it out, 2026-09-13, after
+            an investigation found it risked a live Property24/Private
+            Property listing silently vanishing (see .ai/specs/
+            rental-applications.md, "Property status side effects — DO NOT
+            flip on tenant link"). This control only ever writes the
+            contact_property link.
         --}}
         <div class="mt-3 pt-3" style="border-top: 1px solid var(--border);"
              x-data="{
@@ -200,9 +208,9 @@
             @if($tenantLinkedProperty)
                 <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Tenant linked to property</p>
                 <div class="flex items-center gap-2 flex-wrap">
-                    <span class="ds-badge ds-badge-success">{{ $tenantLinkedProperty->buildDisplayAddress() }} — marked Let</span>
+                    <span class="ds-badge ds-badge-success">{{ $tenantLinkedProperty->buildDisplayAddress() }} — tenant linked</span>
                     <form method="POST" action="{{ route('corex.rental-applications.unlink-tenant-property', $rentalApplication) }}"
-                          onsubmit="return confirm('Remove this tenant link? If nothing else needs the property let, its status will be restored to what it was before.');" class="inline">
+                          onsubmit="return confirm('Remove this tenant link from the property?');" class="inline">
                         @csrf
                         @method('DELETE')
                         <button type="submit" class="text-xs underline" style="color: var(--ds-red, #dc2626);">Unlink</button>
@@ -235,9 +243,9 @@
                             </div>
                         </div>
                     </template>
-                    <button type="submit" class="corex-btn-primary text-xs" :disabled="!propertyId">Link as tenant &amp; mark Let</button>
+                    <button type="submit" class="corex-btn-primary text-xs" :disabled="!propertyId">Link as tenant</button>
                 </form>
-                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Sets {{ $rentalApplication->contact->full_name ?? 'this applicant' }} as the tenant and flips the property to Let.</p>
+                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Sets {{ $rentalApplication->contact->full_name ?? 'this applicant' }} as the tenant on this property.</p>
             @endif
         </div>
         @endif

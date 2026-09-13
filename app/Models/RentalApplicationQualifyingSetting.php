@@ -206,11 +206,28 @@ class RentalApplicationQualifyingSetting extends Model
      * This gates only the AUTHORISER hand-off, never the application's own
      * receipt — see RentalApplication::ficaOutstanding() and
      * RentalApplicationSigningController::submit()'s FICA hand-off, which
-     * always accepts the application regardless of this setting. Default
-     * true: HFC's own answer is yes, per Johan's own words; another agency
-     * may turn it off.
+     * always accepts the application regardless of this setting.
+     *
+     * AT-410d, 2026-09-16 — DEFAULT FLIPPED to false. Johan's ruling on the
+     * front door, verbatim: "The front door selection - yes it will get
+     * used." Conditional approval (see approved_subject_to_fica_at) is a
+     * real, everyday path, not an edge case — a hard block at submission
+     * by default would mean the authoriser almost never gets the chance to
+     * use it. The obligation stays visible and attached via the
+     * conditional-approval state; it no longer needs the front door closed
+     * to be honoured. An agency that wants the hard block back still can —
+     * see forAgency()'s own null-vs-explicitly-set distinction just below,
+     * which is exactly what keeps this default change from silently
+     * switching the control off for an agency that deliberately turned it
+     * on: RentalApplicationSettingsController::updateRequireFicaBeforeAuthorisation()
+     * always writes an explicit boolean via updateOrCreate() (the settings
+     * form ships a hidden value="0" fallback ahead of the checkbox, so
+     * "saved unchecked" and "never saved" are never confused) — only a row
+     * that has NEVER been saved for that agency (column still NULL) picks
+     * up this default; a deliberate `true` from before this change is read
+     * back exactly as saved, unaffected.
      */
-    public const DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION = true;
+    public const DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION = false;
 
     /**
      * Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is

@@ -11942,6 +11942,20 @@ Fixture: application 321 (agency 1, fresh contact, `status='under_assessment'`, 
 - `.env` `MAIL_FROM_ADDRESS` reverted to its original value after testing; local `php artisan serve` test instance stopped.
 - `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.
 
+### Round 2 — Johan's real-Chrome walk, recipient visibility, and a retracted click report (2026-09-15)
+
+Johan walked the merged flow in real Windows Chrome. Result summary, for the record:
+
+**Confirmed working, unchanged:** the two-field gate (all four states), the fully-resolved draft email (real name, agency tone, template guidance merged naturally, zero placeholders), the amber "not yet sent" hold surviving a page reload, structural idempotency (send controls disappear entirely from the DOM once sent — nothing left to press twice), the audit trail, the PDF filing.
+
+**A real gap he found and this round fixed — the agent was never shown who the email was actually going to.** The send-decline drawer now shows a read-only `To: {email}` line, resolved via the same `RentalApplication::recipientEmail()` the actual send uses. When there's no email anywhere on the application, the drawer says so plainly and the Send button is disabled — enforced server-side too: `sendDecline()` previously still marked `applicant_notified_at` and flashed "Decline sent to the applicant" even when the mailer's own internal guard had silently swallowed a missing-recipient send. That false-success path is now closed, refused before anything is written.
+
+**Round 2b — the guard message names the remedy, not just the problem.** Johan: "the message tells the agent WHAT IS WRONG but not WHAT TO DO... add the remedy in the same sentence... if there is a sensible link straight to it, better still." Checked where an agent actually adds an email rather than guessing — `corex.contacts.show`'s own edit form, "Emails" section (the `_identifier-repeater` partial, `kind=emails`) — the exact field `recipientEmail()` falls back to. The guard message now links straight there, naming the contact. The disabled Send button also carries a `title` tooltip for the case the on-screen message scrolls out of view (Johan's own "low priority, but it costs nothing" ask).
+
+**Native `confirm()`/`alert()`/`prompt()` removed from both decline-path submit handlers** — the authoriser's Decline modal and the agent's send-decline drawer — per Johan's standing instruction ("a native dialog is not acceptable in this product... it behaves differently in every browser"). Approve, Send-back-to-agent, and Clear-linked-property keep theirs — out of scope, not touched.
+
+**The click-freeze report — investigated, then retracted by Johan himself, worth recording so nobody re-opens it.** Johan initially reported the enabled Decline button doing nothing on a real mouse click, plus a renderer freeze on a follow-up programmatic click. Both were real observations of *something*, but not of a code defect: his testing tab was in the background (a second tab, with Johan working in his own foreground tabs on the same browser) — Chrome does not deliver synthetic input to a background tab at all, and throttles/can appear to hang a backgrounded renderer, which produced both symptoms without a single line of application code being at fault. He proved this himself (capture-phase `mousedown` listeners on `document` receiving zero events on a background-tab click) and retracted the report in full. cc5's own reproduction attempts (real CDP-driven mouse click, varied focus states, a genuine native-select keyboard interaction) never reproduced a swallowed click either, consistent with the retraction. **Decline-button clickability remains formally unverified, not proven-safe** — Johan intends to walk it again with a genuine foreground tab before signing it off, and nothing further should be built on the assumption that click is broken or that it's confirmed fixed.
+
 ## Decline reason templates — agency-configurable reason + guidance library (2026-09-15, cc4)
 
 ### What this feature does and why
@@ -12221,9 +12235,92 @@ click target is still the whole row, not the glyph; the out-of-period dot
 still has no click handler. Neither was affected by this round's fix and
 neither needed one.
 
-**Not yet re-confirmed in an actual real browser** — that is the
-conductor's own next step per their instruction, and the honest state of
-this fix until they do.
+**Round C — width/clip axis confirmed in real Chrome; a second, distinct
+defect found on the height axis (2026-09-13, conductor + cc3).** The
+conductor re-measured live in real Windows Chrome after a genuine cache
+bust: the width/clip fix above is CLOSED — 18px wide, fully inside the
+content edge, 4px of real clearance, hit map contiguous. That is the
+first sub-part of this saga independently confirmed outside headless.
+
+Separately, the conductor found the button's effective height had
+regressed to ~16px live, against a CSS-declared 20px `::before` overlay
+that headless consistently (and wrongly, for the same structural reason
+as the width bug) measured as a clean, unclipped 20-21px.
+
+**Root cause: a second knife-edge, this time vertical.** The `::before`
+was sized to consume the *entire* 6.5px of vertical slack in the row
+(20.5px row pitch − 14px real button box = 6.5px, split 20px overlay =
+100% of it, zero margin). Because the row pitch itself is a non-integer
+(20.5px), each row's overlay touches its neighbour's at an exact,
+contested sub-pixel boundary. Headless's integer-rounded hit-testing
+resolves that touch as clean; real Chrome resolves it by actual
+sub-pixel geometry and DOM paint order, and was measured shaving the
+contested edge down on the earlier row. Mechanistically distinct from
+the horizontal clip (that one was a genuine `overflow-x: hidden` cutting
+through a button; this one is two adjacent absolutely-positioned overlays
+contesting a shared edge with no margin) — but the same *lesson*: an
+element sized to exactly, zero-margin, exactly match an adjacent boundary
+is a headless-blind risk, not just this one.
+
+**Fix:** `::before` height reduced 20px → 18px. Leaves ~1.25px of real
+clearance on each side instead of 0px, so no row's overlay can ever
+contest its neighbour's. Real box (14px) and width (18px) untouched.
+
+**Verified (headless — arithmetic, not click-simulation) on TWO
+fixtures:**
+- App 300 (3 rows, hands-off, read-only measurement — no clicks): row
+  pitch unchanged at 20.5/49.5px; clickable rect now 18×19px (18px
+  design + 1px integer-scan rounding), right edge exactly 1475+18=1493
+  on all three rows (unchanged from round 2 — the height fix never
+  touched width).
+- New throwaway fixture **application 341** ("THROWAWAY Ledger Test
+  Fixture (cc3 hit-area verify)", 12 ledger lines, status `in_progress`,
+  never touches 70/76/107/204/205/230/300): row pitch uniformly 20.5px
+  across all 11 gaps — no drift on a longer ledger. Same 18×19px
+  clickable rect, same exact-1493 right edge, on every one of the 12
+  rows. Overlay-to-neighbour clearance now ~3px measured (previously 0).
+
+**Round C confirmed by the conductor in real Windows Chrome, on the
+deployed build:** before the fix, real Chrome measured 18×16 on fixture
+300 (3 rows) but 18×20-21 on fixture 341 (12 rows) — the same
+layout-dependent inconsistency the sub-pixel-boundary diagnosis
+predicted. After the fix (18px overlay), BOTH fixtures measure identically
+18×19 on every row — the layout-dependent variation is gone, not just
+reduced. Struck state (`"(2 struck)"` / `"(1 struck)"`) also confirmed to
+survive a full page reload post-deploy. Horizontal clip, vertical shave,
+and function are all closed.
+
+**Round D — the real (visible) glyph box grew 14px → 16px, a free
+ceiling (2026-09-13, conductor + cc3).** The conductor asked, having
+accepted the 18×19 invisible hit area, whether the real button box itself
+could grow toward 18-20px for a bigger visible target — explicitly asking
+for an honest empirical answer, not an assumption, and to be told plainly
+if it doesn't fit. Swept 14/16/18/20px directly (temporarily edited,
+measured, reverted, never left mid-sweep) against the 12-row fixture:
+
+| real box height | row pitch | growth |
+|---|---|---|
+| 14px | 20.5px | — (previous) |
+| 16px | 20.5px | **zero** |
+| 18px | 22px | +1.5px/row |
+| 20px | 24px | +3.5px/row |
+
+16px is the free ceiling: the row's content height was already governed
+by the date column's own 16.5px, so a button up to 16px is a tie, not a
+new tallest element — CSS grid only grows a row once a child exceeds the
+existing tallest sibling. Past 16px, growth is exact and linear (matches
+the earlier 1.5px-at-18px anecdote precisely, and predicts 20px's cost
+correctly). Shipped: real box → 16px (bigger, more legible glyph, zero
+row-density cost). The already-fixed 18px invisible overlay is
+unaffected — its footprint was already bigger than either box height, so
+this is a pure visual-affordance win, not a hit-area change. 18-20px
+real boxes remain possible but have a real, quantified, non-hypothetical
+cost (+1.5 to +3.5px per row, compounding on a long ledger) — that
+trade-off was reported, not silently made.
+
+Re-verified post-change on 341: pitch still 20.5px on every one of 11
+gaps, right edge still exactly x1493, clickable footprint still 18×19 on
+all 12 rows — the glyph got bigger, nothing else moved.
 
 ## Approved application → link to property, mark it Let (2026-09-13, cc3)
 
@@ -12340,6 +12437,540 @@ directly is exactly the pattern the new standard exists to stop, and it
 won't happen again from this lane. Nothing further will be migrated
 directly; the next migration this lane needs goes in via a normal push,
 applied through `/corex-qa1` like everything else.
+
+## Property status side effects — DO NOT flip on tenant link (2026-09-13, conductor + cc3)
+
+**The status-flip half of the feature above was built, then pulled apart
+the same day.** The section above still describes what was originally
+shipped (`status` → `let_out` on link, restored on unlink) — it is now
+historical. This section is the reason why, and is what anyone
+implementing the status change properly, later, should read first.
+
+**What the investigation found, before the feature was ever used on a
+real application:** the "`let_out` maps to P24's `Rented` and stays on
+the portal, doesn't vanish" claim (recorded above, and true of the P24
+status mapper in isolation) does not hold once the rest of the observer
+chain is followed through.
+
+1. **Property24 — a real bug, not a hypothetical, would fire every time
+   this feature is used.** `PropertyObserver.php:596-629` dispatches
+   `DesyndicatePropertyFromPortalsJob` whenever a property becomes
+   off-market (`let_out` qualifies via `Property::OFF_MARKET_STATUSES`),
+   passing `keepP24ForSold: true` so a genuinely SOLD listing isn't
+   pulled. Inside that job, both `delistProperty24()`
+   (`app/Jobs/Syndication/DesyndicatePropertyFromPortalsJob.php:122-148`)
+   and `delistPrivateProperty()` (`:155-179`) only honour that "keep"
+   flag when `ListingLifecycle::resolve($property->status, ...) ===
+   ListingLifecycle::SOLD` (`:133-136` and `:164-167`). `let_out`
+   resolves to `ListingLifecycle::RENTED`
+   (`app/Services/Syndication/ListingLifecycle.php:104-105`), not SOLD —
+   the guard does not recognise RENTED as protected. Net effect,
+   observed as a real timing sequence, not a maybe: the observer
+   synchronously pushes `'Rented'` to Property24
+   (`PropertyObserver.php:672-738` calling
+   `Property24ApiClient::setListingStatus()`), then the SAME request
+   queues the desyndication job, which — because its SOLD-only guard
+   doesn't cover RENTED — falls through to
+   `Property24SyndicationService::deactivateListing()`
+   (`app/Services/Syndication/Property24/Property24SyndicationService.php:563-570`)
+   and pushes a hard `'Withdrawn'` shortly after. A property correctly
+   tagged Rented gets silently withdrawn from Property24 minutes later
+   by its own codebase.
+2. **Private Property does the opposite, by design, not by bug.**
+   `app/Services/PrivateProperty/PrivatePropertyListingMapper.php:808-826`
+   (`statusFor()`) keeps a SOLD lifecycle listed (`:815-820`) but its own
+   comment (`:821-823`) lists "rented" among the lifecycles mapped to
+   `'Inactive'` — a deliberate full delist. `SyncPpListingStatusJob` →
+   `PrivatePropertySyndicationService::syncStatus()`
+   (`app/Services/PrivateProperty/PrivatePropertySyndicationService.php:299-352`)
+   carries that through, writing `pp_syndication_status =
+   PORTAL_OFF_STATUS` (`:344-347`).
+3. **The two portals disagree with each other on what a Rented property
+   should look like**, and nobody has decided which is right: P24's
+   design intent is "stays visible, re-tagged" (matching how Sold is
+   treated); PP's design intent is "comes off entirely." Bug #1 means
+   even P24's own intent isn't honoured today. **This is why "fixing" the
+   SOLD-only guard without a decision first could make things worse** —
+   it would make P24 match its own documented intent (stays listed) while
+   leaving the P24/PP disagreement exactly as unresolved as it is now.
+   **What should actually happen to a listing when a rental property is
+   let — re-tagged and kept visible everywhere, or removed everywhere —
+   is Johan's call, taken to him directly by the conductor, not routed to
+   another lane and not decided in this write-up.** Whoever eventually
+   builds that decision should start here, with both portals' current
+   behaviour on the record and in disagreement.
+
+**Two secondary, lower-priority findings from the same investigation
+pass — logged, not actioned:**
+
+- The public agency website does **not** hide a `let_out` property by
+  default: `app/Http/Controllers/Api/V1/Website/ListingsController.php:49`
+  (`NEVER_PUBLIC_STATUSES = ['expired', 'withdrawn', 'draft',
+  'sold_by_3rd_party']`) deliberately excludes `sold`/`let_out`, per its
+  own comment at `:44-47` ("agencies showcase their OWN sold stock").
+  Whether that's the right call for Let too, the same way it already is
+  for Sold, is worth Johan confirming rather than assuming.
+- A scheduled open house does **not** auto-cancel when its property goes
+  `let_out`: `Property::activeShowdays()` (`app/Models/Property.php:
+  726-729`) filters only on `active`/`end_date`, no status check, and the
+  public listings query eager-loads it unconditionally
+  (`ListingsController.php:131`). A property let this afternoon could
+  still be advertising an open house for this weekend on the agency's own
+  website. Flagged because it's genuinely embarrassing if it ever
+  actually happens, not because it's this feature's job to fix.
+
+**The ruling (conductor, 2026-09-13) that resolves this without touching
+any syndication code:** decouple the two things Johan actually asked
+for. He asked for the approved application to be linked to the property;
+he did not, separately, ask for a specific, already-safe status
+transition — "the property changes to let out status" was one sentence
+inside a bigger ask, and it's the one sentence that turned out to have a
+live-incident-shaped side effect. **The tenant link stays. The status
+change is pulled entirely, pending a proper decision on the portal
+question above.**
+
+**What changed in code as a result:**
+- `RentalApplicationController::linkTenantProperty()` no longer touches
+  `$property->status` or `pre_tenant_link_status` at all — it only
+  writes the `contact_property` pivot (role `'tenant'`) and keeps the
+  application's own `property_id` in step, exactly as the section above
+  describes for the link half, with the status-flip block removed
+  entirely (was between the `ContactLinkedToProperty` event and the
+  audit call).
+- `unlinkTenantProperty()` no longer has any status-restore branch — it
+  detaches the pivot row and nothing else.
+- `properties.pre_tenant_link_status` (the column, the migration) is
+  left in place, unused, rather than dropped — a properly-designed
+  status-change feature, once Johan rules on the portal question, may
+  well want exactly this same snapshot slot back. Deliberately not
+  cleaned up as premature schema churn for a decision that hasn't been
+  made yet.
+- `view-readonly.blade.php`'s UI text ("marked Let", "Link as tenant &
+  mark Let", the unlink confirm copy) updated to describe only what the
+  action now does — a plain tenant link, no status claim.
+- New test coverage added:
+  `tests/Feature/RentalApplications/RentalApplicationTenantPropertyLinkTest.php`
+  — locks in additive linking (a second approved application can link a
+  second tenant to the same property without disturbing the first),
+  zero property-status writes in either direction, and that unlink
+  removes only the pivot row. There was no test coverage for this
+  feature before this pass.
+
+### Johan's answer on the portal question, and what the sales "under offer" model actually does (2026-09-13)
+
+Johan, checking what the portals allow before committing: "will have to
+check what the portal allow. if we can show it let out for a week like
+sales do when under offer it will be great." Intent: a let property
+should stay visible, re-tagged, for a limited period — mirroring sales
+under-offer — then presumably come down. **This does not reconnect the
+tenant link to property status** — the decoupling above stands; Johan
+answered a narrower question about what an advert should show once a
+property IS let, not whether linking a tenant should flip anything.
+Investigated the sales model as prep for whenever this is built, so the
+next person isn't starting from zero:
+
+**1. What status sales under-offer actually sets:** a literal, hardcoded
+`'under_offer'` string (`FlagPropertyUnderOfferOnDealCreated.php:58`),
+snapshotting the prior status into `pre_deal_offer_status` (`:57`).
+Gated behind `AgencyDealSyncSettings::flag_property_under_offer_on_deal`
+— **OFF by default** (`AgencyDealSyncSettings.php:34`) — so not even every
+agency has this behaviour turned on for sales today. Reverted only by
+`RevertPropertyStatusOnDealDeclined.php:69-70`, on the deal being
+explicitly declined/lapsed by a human.
+
+**2. Both portals keep it live, re-tagged — matches Johan's model
+exactly:** Property24 maps under-offer to `'Pending'`
+(`Property24ListingMapper.php:1636-1637,1646-1648`). Private Property maps
+it to `'PendingOffer'` (`PrivatePropertyListingMapper.php:808-814`,
+own comment: "still advertised, just flagged"). Neither portal takes the
+listing down.
+
+**3. No time limit exists anywhere, for sales either.** Searched the full
+`routes/console.php` schedule (~70 entries, several comparable expiry
+jobs exist for other domains — mandates, signatures, agency-access) —
+nothing for under-offer. `AgencyDealSyncSettings` has no duration field.
+No cron, no scheduled job, no configurable N-days setting. Today, sales
+under-offer reverts only when a human declines/lapses the deal, or never
+— it can sit under-offer indefinitely. **Johan's "for a week" is not an
+existing, borrowable mechanism — it would be new work for sales too, not
+just for rentals.**
+
+**4. Why under-offer is safe from desyndication — and it's a different
+mechanism than the SOLD guard, which matters for how the rental version
+should be built:** `under_offer` resolves to `ListingLifecycle::
+UNDER_OFFER` (`ListingLifecycle.php`, distinct from `SOLD`), and — this is
+the key fact — **`under_offer` is deliberately NOT in
+`Property::OFF_MARKET_STATUSES`** (`Property.php:57-61`; it's added
+explicitly to `systemStatuses()` instead, `:1365-1373`, as one of the
+on-market picker statuses). Because `PropertyObserver::isOffMarketStatus()`
+only checks `OFF_MARKET_STATUSES`, `DesyndicatePropertyFromPortalsJob`
+is **never dispatched** for an under-offer transition at all — there is
+nothing to protect it from, because it's still classified as on-market.
+This is NOT "the SOLD guard also happens to cover under-offer" — it's a
+structurally different, simpler mechanism (stay on-market, skip the
+desyndication path entirely). `let_out`, by contrast, **is** in
+`OFF_MARKET_STATUSES` (`Property.php:59`), which is exactly why it trips
+`DesyndicatePropertyFromPortalsJob` and hits the SOLD-only-guard bug
+documented above. **So "just add RENTED next to SOLD in that guard" is
+not actually the parallel to how sales does it** — the sales model's
+safety comes from never entering the off-market path in the first place.
+A rental "stay visible for a week" feature built the same way sales does
+it would most likely need a genuinely on-market, temporary status (or
+equivalent portal-level tag) for that week — not a permanently
+off-market `let_out` with a desyndication exemption bolted on. Worth
+whoever designs this reading closely before choosing a shape.
+
+**5. Status vocabulary confirms 4 above:** `under_offer` is in neither
+`OFF_MARKET_STATUSES` nor `CONCLUDED_STATUSES` — only in the explicit
+on-market additions inside `systemStatuses()`. `let_out` and `rented`
+are in both off-market lists. They sit on opposite sides of the
+on/off-market line by design.
+
+**Also logged here, per instruction, not actioned:** the Performance
+dashboard's "Properties Needing Attention" widget
+(`PropertyHealthCalculator.php:73-83`, rendered on `command-center/
+performance.blade.php:226-236`) flags "No owner/landlord linked" as a
+**critical** warning for any property whose only linked contact is a
+tenant — it only checks `role IN ('owner','lessor','landlord','seller')`,
+so a rental property correctly linked only to its tenant reads as
+critical-attention-needed on that dashboard. Minor, pre-existing,
+unrelated to this feature's own code — flagged, not fixed.
+
+## `contact_property` allows exactly ONE role per contact-property pair — CONFIRMED business rule, not a gap (Johan, 2026-09-13)
+
+Surfaced while working out how to make `contact_property` soft-delete-safe
+for re-linking (see the hard-delete fix section below), initially written
+up as an open question for Johan. **It is not an open question.** Johan's
+ruling, verbatim: **"contact should not be placed on the same property as
+different roles. if that scenario happens the contact will be changed."**
+
+**The rule, confirmed:** one contact holds exactly one role on a given
+property, ever. When the real-world relationship changes — a landlord
+becomes that property's tenant, a seller ends up buying their own
+listing — the SAME link's role changes to reflect it. There is
+deliberately no second, parallel link recording the old relationship
+alongside the new one.
+
+**What already enforces this, exactly as intended:** `contact_property`'s
+unique index, `(contact_id, property_id)` only, `role` excluded
+(`database/migrations/2026_03_05_200001_create_contact_property_table.php:18`).
+`ContactPropertyController::link()` (`app/Http/Controllers/CoreX/
+ContactPropertyController.php:70-72`) already behaves correctly under
+this rule: `syncWithoutDetaching()` finds the existing row for the pair
+regardless of its current role and updates the role in place — "the
+contact will be changed," precisely as Johan describes it.
+
+**What changes because history is being kept, not because the rule
+changes:** today a role change leaves no record of what the role was
+before — no audit entry, and (confirmed by re-reading `link()`'s own
+comment) the `ContactLinkedToProperty` domain event fires "only on new
+link, not on no-op re-attach," so a role change on an *already-linked*
+pair is invisible even to the domain-events audit path, not just to
+the pivot row itself. Once the hard-delete fix below adds real history
+to this table, a bare unaudited role flip becomes the same class of gap
+the whole fix exists to close. See the hard-delete fix's stage 2/4 below
+for how the audit requirement folds this in — the rule itself is not
+changing, only the audit trail underneath it.
+
+## The `contact_property` hard-delete fix — plan, findings, and where tomorrow starts (2026-09-13, conductor + cc3)
+
+**Status: NOT STARTED tonight, deliberately.** Johan ruled "we have to
+fix it, corex is a no delete system," then, once the scope grew to the
+whole table (not just the 4 originally-named call sites), ruled "always
+all." The conductor then ruled the job ships as one complete piece or
+not at all — no partial/staged landing to QA1 — because the investigation
+below found that a *partial* fix (only the 4 named sites, or the
+foundation without the write-side fix) is actively worse than doing
+nothing: it would make Property/Contact screens correctly hide a removed
+link while Seller Outreach and the Client Seller Insights portal kept
+treating it as live, a silent inconsistency across pillars rather than a
+visible one. With Johan demoing to a rental team and eight agencies on
+Tuesday, this is deliberately a "tomorrow, properly" job, not tonight's.
+This section is what tomorrow starts from — read this before
+re-investigating anything below.
+
+### Why this exists
+
+Johan: "we have to fix it. corex is a no delete system." `contact_property`
+has no `deleted_at` and at least 7 call sites permanently delete rows —
+a tenant, owner, seller, buyer, or landlord link, once removed, cannot
+be recovered and leaves no trace. This matters concretely because a
+tenancy link is the kind of record someone needs back years later (a
+deposit dispute, a reference check, a court matter), and cc4's approved
+inspections spec has agents pressing the rental-application unlink
+button as a routine part of an inspection workflow — this button is
+about to be used far more often than it has been.
+
+### Not a live problem today, independently confirmed
+
+Before scoping the fix, checked whether TODAY's hard-delete already
+causes an access problem — e.g. a removed seller retaining portal
+access because of a cache or stale session. It does not:
+`ClientSellerInsightsController::index()`/`show()`
+(`app/Http/Controllers/Api/V1/ClientSellerInsightsController.php:61,117`)
+and `EntryPointController`'s `isSeller` checks (e.g. `:1420-1423`) all
+query `contact_property` fresh, per request, via `DB::table(...)`. No
+cache, no session-stored role (`ClientAuthService` has no `Cache::`/
+`remember()` calls). Under hard-delete, removing a link correctly and
+immediately revokes anything gated on it. **The access-regression risk
+below is a risk this FIX could introduce if shipped incompletely — it
+is not a pre-existing vulnerability.**
+
+### Check 1 — the unique index, and why the obvious fix is wrong
+
+`(contact_id, property_id)` only, no `role`
+(`create_contact_property_table.php:18`) — stricter than assumed; one
+contact can hold only one role per property at all today (see the
+finding above).
+
+**A tempting, wrong fix:** widen the unique index to
+`(contact_id, property_id, deleted_at)` so soft-deleted rows don't block
+a fresh insert. **This does not work.** MySQL does not enforce
+uniqueness across a composite key when any column in it is NULL — so
+multiple ACTIVE (`deleted_at IS NULL`) rows for the same pair could be
+inserted without the database ever raising a duplicate-key error, since
+each NULL is treated as distinct from every other NULL even within the
+same composite tuple. Widening the index would silently remove the one
+protection the table has today, not add one — this would have shipped
+as a silent duplicate-active-links bug months from now if not caught.
+
+**The actual fix, and it's simpler than first framed:** leave the unique
+index exactly as it is. Because Johan has since confirmed one row per
+`(contact_id, property_id)` pair is the intended rule, not a gap (see the
+finding above), the rule for every write path has an unambiguous target —
+there is only ever ONE legitimate row for a pair, so "find the existing
+row, trashed or not, and restore it with the new role" needs no
+reasoning about which of several candidates to restore. Never insert a
+second row for a pair that already has one, trashed or active. "Restore,
+never blind-insert, never leave a trashed row behind while creating a
+fresh one" is the rule for stage 2 below, not an index change.
+
+### Check 2 — role values / other features
+
+Production data: `owner` (809), `seller` (476), `lead` (349), `landlord`
+(104), `buyer` (27), null (5) — all legitimate property-contact
+relationship roles, nothing repurposing the table for something
+unrelated. The wide blast radius comes from HOW MANY features read/write
+those same roles (Prospecting, Seller Outreach, Compliance, Command
+Center all depend on owner/seller/landlord data in this exact table),
+not from role diversity.
+
+### The stages, in landing order — build all of them before any of them ships
+
+**Stage 1 — foundation.** Migration: add `deleted_at` (nullable
+timestamp) to `contact_property`. No index change (see Check 1). No
+data migration — existing rows are untouched, all get `deleted_at =
+NULL` by column default. Relationship-level scope: add
+`->wherePivotNull('deleted_at')` to both `Contact::properties()`
+(`app/Models/Contact.php:688-693`) and `Property::contacts()`
+(`app/Models/Property.php:777-782`) so every consumer going through
+these two named relations is automatically deleted_at-safe with no
+per-file change. Migration runs only via `/corex-qa1` (cc1 owns moving
+HEAD there, per this session's standing rule) — never applied directly
+from a worktree.
+
+**Stage 2 — every write site.** The 4 originally-named detach sites
+(`RentalApplicationController.php:1083`, `ContactPropertyController.php:112`,
+`PropertyContactController.php:388`, `MobilePropertyController.php:1284`)
+plus `ComposeSellerService.php:339,490,522`. ALL become soft-deletes (set
+`deleted_at`), never a real `DELETE`. Additionally — this is the
+scope-widening found tonight — every LINK/attach/sync/`updateOrInsert`
+write path for this pivot must apply "restore, never blind-insert, never
+leave a trashed row behind": check for the one existing row for that
+pair (trashed or not) before writing; restore it (`deleted_at = null`)
+and set its role to whatever role is now being applied — same operation
+whether the row was active with a different role (a role change) or
+trashed (a re-link) or absent (a genuinely fresh link, insert only in
+this last case). **Every role change — including a restore-with-new-role
+— must write an audit entry recording old role → new role, per Johan's
+confirmation that a role change is a real business event, not a silent
+field update** (see the finding above). Today's `ContactLinkedToProperty`
+domain event does not cover this — its own comment says it fires "only
+on new link, not on no-op re-attach," so a role change on an existing
+pair currently produces no event and no audit trail at all. Whether
+tomorrow's fix extends that event to cover role changes (with old/new
+role in the payload) or introduces its own is an implementation
+decision for tomorrow, not decided here — but the requirement itself
+(a role change must be visible in the audit trail) is fixed by
+tonight's ruling and belongs in whatever gets built.
+
+**What happens when a soft-deleted row is re-linked in a DIFFERENT
+role, worked through as asked:** it restores the one existing row and
+takes the new role — it does not stay recorded as the old role, and no
+second row preserves the old role standing alongside it. This follows
+directly from Johan's rule above: there is only ever one legitimate row
+per pair, so restoring it IS changing its role, the same operation as a
+live role change on an active row. The consequence for "was this
+contact ever the owner here?" a year from now: **the pivot row itself
+cannot answer that once it's been restored into a new role** — its own
+`role` column only ever holds the current one, and restoring doesn't
+freeze or copy the prior value anywhere on the row itself. The AUDIT
+TRAIL is therefore the only place that question is answerable, which is
+exactly why the audit requirement above is not optional polish — without
+it, "was this person ever linked as X" silently stops being answerable
+the moment this fix ships, for both a genuine unlink-and-forget and a
+restore-into-a-new-role. Note also that the row's own `created_at` stays
+from whenever the pair was FIRST ever linked, not from when the current
+role started — after a restore, the pivot row's timestamps describe the
+pair's whole history, not the current role's tenure; only the audit log
+carries "when did THIS role start."
+
+**Stage 3 — every raw read site.** Every `DB::table('contact_property')`
+query and every join by that table name needs its own
+`whereNull('deleted_at')` — these bypass the stage-1 relationship scope
+entirely, so they are NOT covered for free. The full verified,
+disambiguated list is below.
+
+### The verified, disambiguated file list (tonight's investigation — no code written)
+
+**A precedent exists in this codebase already — copy the shape, don't
+invent one.** `Deal::properties()` (`app/Models/Deal.php:244-249`)
+already solves this exact problem for the `deal_properties` pivot: a
+dedicated `DealProperty` pivot model registered via `->using()`,
+`deleted_at` carried in `withPivot()`, `wherePivotNull('deal_properties.
+deleted_at')` baked into the relation itself, plus a companion
+`withTrashedProperties()` (`Deal.php:254`) for the one or two screens
+that deliberately need to see removed rows (`resources/views/dr2/
+create.blade.php:209,802`). No `ContactProperty` pivot model exists yet
+— building one, the same shape, is the natural stage-1 design, not a
+novel one. **Not yet confirmed:** whether `Deal::properties()`'s existing
+pattern also solves the write-side "restore instead of blind-insert"
+problem below, or only the read-side scope — check this FIRST tomorrow,
+since if `Deal::properties()` already has the same blind-write exposure,
+that's a second, larger pre-existing gap worth knowing about before
+copying its shape uncritically.
+
+**Correction to this section's earlier draft:** `PropertyObserver.php:892`
+is NOT a stage-2 site. Confirmed: it's a `forceDeleted()` cleanup that
+only runs during a genuine, permanent property purge — correctly
+removing every `contact_property` row unconditionally, regardless of
+soft-delete state, because the property itself is gone forever in that
+path. No change needed there. Same finding for
+`ContactController.php:2201`'s `destroyAll()` — a documented,
+super-admin-only hard-purge escape hatch that already knowingly violates
+"no hard deletes" as a deliberate, separate exception; out of scope for
+this fix.
+
+**The write-side risk is bigger than the 7 delete sites — this is the
+single most important thing tonight's sweep found.** Neither
+`Contact::properties()` nor `Property::contacts()` has a `->using()`
+pivot model today, so Laravel's own `attach()`/`syncWithoutDetaching()`
+determine "is this pair already linked" via the relation's own (soon to
+be scoped) query — a soft-deleted row won't read as "linked," so these
+calls fall through to a plain `INSERT` and collide with the unique
+index. This hits nearly every LINK path in the codebase, not just the
+delete/detach sites: confirmed real risk (not just theoretical — each
+is a path where the SAME contact/property pair could plausibly be
+re-linked after having been unlinked) at minimum in
+`ContactPropertyController.php:74`, `PropertyContactController.php:136,
+218,348`, `PropertyController.php:1126,1167`, `ESignWizardController.php:
+861`, `DealRegisterController.php:1133`, `RentalApplicationController.
+php:1117`, `MobilePropertyController.php:163,1253`,
+`Property24/P24LeadService.php:366`, `PrivateProperty/PpLeadService.php:
+401`, `PpWebhookController.php:73`. (A handful of similarly-shaped calls
+immediately following a brand-new `Contact::create()`/`Property::
+duplicate()` are safe in practice — a fresh id can't collide — listed
+in the full investigation transcript, not repeated here.)
+
+**LIST A — read sites needing `deleted_at IS NULL`, by module:**
+- **Core relations** (fixed for free once stage 1's scope lands):
+  `Contact.php:212,1091`, `Property.php:798,986,1620,1666`
+- **CoreX Contacts**: `ContactController.php:232,239,2191`,
+  `ContactExportController.php:198,201`, `ContactPropertyController.php:
+  20,72`, `ComposerController.php:522`
+- **CoreX Properties**: `PropertyContactController.php:60-62,148,217,
+  235,299,347,366,393,411`, `PropertyController.php:1117,1163`,
+  `DealRegisterController.php:919,1117`
+- **Rental Applications**: `RentalApplicationController.php:1115`,
+  `view-readonly.blade.php:19-22`, `_linked-properties.blade.php:16`
+- **Compliance / FICA**: `MarketingReadinessService.php:111,341,414,422`,
+  `WhistleblowComplaintService.php:393`, `PropertyOwnershipGuard.php:106`,
+  `DealPropertyOwnerGate.php:40,128`
+- **Command Center**: `CalendarController.php:2783,2904`,
+  `CalendarEventService.php:738`, `PropertyHealthCalculator.php:73`
+  (raw — the two Calendar sites already filter the contact side's
+  `deleted_at`, not the pivot's)
+- **Prospecting / Seller Outreach**: `EntryPointController.php:349,1267,
+  1420,1573,1598,1623`, `PropertyIntelligenceService.php:947-958`,
+  `ComposeSellerService.php:74-90,145,150`,
+  `PropertyDuplicateMatchEvidence.php:380-384`,
+  `ProspectingListingStateEnricher.php:393-398`,
+  `DeedsCaptureLinkService.php:439`, `TransactionStateService.php:190-193`
+- **Docuperfect / E-Sign**: `ESignWizardController.php:1133-1137,
+  1144-1148,1479` — **pipeline-gate file (CLAUDE.md)**, any change here
+  needs a test diff in `tests/Feature/Docuperfect/SigningView/`
+- **Deeds Capture**: `DeedsCaptureController.php:105,190-192`
+- **Mobile API**: `ClientSellerInsightsController.php:61,117`,
+  `MobilePropertyController.php:988,1150`
+- **Tools / Presentations**: `PdfSplitterController.php:164,1429`,
+  `presentations/show.blade.php:218-220`,
+  `CoreMatchListPdfService.php:209`
+- **Views**: `properties/show.blade.php:5847`,
+  `_header-actions.blade.php:56`
+- **Console / seeders** (lower priority, non-production traffic):
+  `BackfillContactPropertyRoles.php:47,66`,
+  `BuyersBackfillFlagCommand.php:175`, `BuyersBackfillWonCommand.php:63`,
+  the five `Demo*Seeder.php` files listed in the full transcript
+
+**LIST B — write sites, by risk class:**
+- **B1 — `updateOrInsert` keyed correctly but needs `deleted_at =>
+  null` added to the update array** (else it silently restores role on a
+  row that stays invisible-as-linked): `DeedsCaptureController.php:1094`,
+  `EntryPointController.php:161,548`, `ComposeSellerService.php:324`,
+  `OwnerContactResolver.php:118`
+- **B2 — `attach()`/`syncWithoutDetaching()` blind-write risk**, listed
+  above
+- **B3 — `updateExistingPivot`, safe once its guarding `exists()` check
+  is scope-fixed**: `PropertyContactController.php:430`
+- **B4 — hard `detach()`, convert to soft-delete**: the 4 originally
+  named sites
+- **B5 — raw `->delete()`, convert to soft-delete**:
+  `ComposeSellerService.php:339,490,522`
+- **B6 — touches a role/flag without excluding soft-deleted rows**:
+  `BackfillContactPropertyRoles.php:59,83`,
+  `ComposeSellerService.php:335-336` (`markPrimary` — a removed seller
+  could otherwise hold `is_primary=true` invisibly)
+- **B7 — deliberate, correct, out-of-scope hard deletes, no change**:
+  `PropertyObserver.php:892`, `ContactController.php:2201`
+
+**Flagged for manual review, not guessed:** whether
+`ComposeSellerService::resolveOrCreateEntitySellerContact()` returns a
+pre-existing contact often enough to prioritize
+`PropertyContactController.php:347-348`'s risk; ~30 test files that
+`assertDatabaseHas`/`insert` against `contact_property` directly (not
+broken by the column add, but worth a look once the restore design is
+chosen); `BackfillContactPropertyRoles.php` deprioritized as an
+admin-run, dry-run-by-default maintenance command, not live traffic.
+
+**Stage 4 — audit trail.** `ContactPropertyController.php:112`,
+`PropertyContactController.php:388`, and `MobilePropertyController.php:1284`
+currently log nothing at all before deleting — matching pattern already
+proven in `RentalApplicationController::unlinkTenantProperty()`'s own
+audit call. Same requirement extends to their LINK counterparts once
+stage 2's restore rule is live: a restore-with-new-role is a role
+change, and per Johan's confirmation (see the finding above) a role
+change must be audited the same way an unlink is — old role → new role,
+not a silent overwrite. This is a genuinely new audit surface, not
+present anywhere today (`ContactLinkedToProperty` only fires on a
+brand-new link), so tomorrow's stage 2/4 work should treat "log the role
+change" as part of building the restore path, not a separate follow-up.
+
+### Non-negotiable constraints, restated for whoever starts tomorrow
+
+- Nothing in Prospecting, Seller Outreach, or Command Center may break —
+  Johan demos those modules Tuesday.
+- No data migration touching existing row values — column add only.
+- Re-linking a previously-unlinked contact must work cleanly: no
+  duplicate row, no unique-index failure.
+- Ships as ONE complete, verified piece — no partial landing to QA1.
+  The investigation above is exactly why: a partial fix is worse than no
+  fix, because it makes pillars silently disagree instead of visibly
+  agreeing (see "not a live problem today" above for the mechanism).
+- Report progress at the end of each stage, not only at the end.
+- State plainly, every time, by what means something was tested —
+  headless Puppeteer with real `ElementHandle.click()` is acceptable and
+  disclosed as such; a real browser click by the conductor is still the
+  final verification step before anything is called done.
 
 ## FICA becomes mandatory — one continuous submit-into-FICA flow (Johan, 2026-09-13, round 3)
 
@@ -12855,3 +13486,413 @@ RentalApplicationIdentityGateTest.php`.
   shipped text in a test, not just against the intent described here.
 - Clicked through in a real browser, unauthenticated, before being
   reported done — per standing rule, PHPUnit is not the proof.
+
+## `require_fica_before_authorisation` — what it actually does (2026-09-15/16, cc5, INVESTIGATION ONLY, NOTHING BUILT)
+
+Johan noticed "Approve & continue" was clickable on an application badged
+FICA OUTSTANDING and asked what the setting actually does, whether it's
+reachable, and whether it should also govern Decline. Per his explicit
+instruction: **investigation and this note only — no code changed.**
+
+**What it does, from the code:** exactly one call site,
+`RentalApplicationReviewController::submitForApproval()` (the AGENT's own
+hand-off action) — line ~872. When on, it refuses to let the agent submit
+an application to the authoriser while `RentalApplication::ficaOutstanding()`
+(`$contact->ficaStatus() !== 'complete'`, a live check) is true, with a
+plain 422 error naming the reason. **It does not touch `approve()` or
+`decline()` at all** — grepped every call site of
+`RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor()`
+in the codebase; the submit gate above is the only one. Once an
+application has reached the authoriser (whether it passed this gate, or
+predates it — the migration landed 2026-09-13, so any application that
+reached `under_assessment` before then was never checked at all, and
+nothing re-checks it afterward), Approve and Decline are both fully
+reachable regardless of current FICA state. The settings page's own copy
+is honest about this scope ("controls whether the application can be sent
+to the authoriser" — never claims to gate the decision itself); the gap is
+between that and Johan's own mental model of what "before authorisation"
+should mean, not a bug in what's actually written.
+
+**Default:** `true` (required) — `RentalApplicationQualifyingSetting::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION`,
+matching Johan's own stated legal position ("technically we not allowed
+to work with anyone if did not fica"). The DB column itself defaults to
+`NULL` (nullable, no migration-level default) — the model's
+`requireFicaBeforeAuthorisationFor()` treats `NULL` as "use the `true`
+default," so an agency that's never touched the setting is still
+protected. Confirmed live: agency 1's raw column is `NULL`, and the
+resolved value is `true` right now.
+
+**Exposed and agency-configurable, not a stranded column:** Settings →
+Rental Applications → "FICA Before Authorisation" section, one checkbox,
+its own save route (`corex.settings.rental-applications.require-fica-before-authorisation`).
+Reachable, already shipped, already correctly labelled for what it does.
+
+**Governs neither Approve nor Decline today — only the earlier hand-off.**
+So the literal answer to "does it block both, that may be wrong" is:
+it currently blocks **neither** decision action, only the agent's own
+submit step before either one becomes possible. Whether Johan wants the
+setting (or a differently-scoped one) to *also* gate the authoriser's own
+Approve — and, separately, whether a FICA-incomplete applicant being
+DECLINED should ever be blocked by this at all, given declining is
+refusing to take them on, not proceeding with them — is exactly the
+choice put to him. **Nothing built pending that ruling.**
+
+## FICA Outstanding tile split — BUILT (2026-09-15/16)
+
+Johan's ruling: **"yes on fica."** Built and verified — 19 PHPUnit tests
+(`tests/Feature/RentalApplications/RentalApplicationFicaTileSplitTest.php`),
+including the conditional-approval interaction from section (g). The
+wording below reflects the FINAL copy after one round of conductor
+feedback, not the first draft — see (c).
+
+### The crux question, answered directly — is this a half-hour job or a real one
+
+Checked, per the conductor's explicit instruction, before writing another
+word: **`ficaOutstanding()` keys off `Contact::ficaStatus()`, which
+cannot distinguish the two buckets.** `Contact::ficaStatus()`
+(`app/Models/Contact.php` line ~434) collapses `draft`, `submitted`,
+`under_review`, `agent_approved`, `referred_to_co`,
+`corrections_requested`, `rejected`, and `cancelled` ALL into the single
+result `'incomplete'` — "applicant hasn't started" and "applicant
+finished, sitting with a compliance officer" read identically through
+that accessor. `RentalApplication::ficaOutstanding()` (`app/Models/RentalApplication.php`
+line ~601) is a thin wrapper over exactly that accessor, so it inherits
+the same blindness.
+
+**This is a real job, not a half-hour one — it cannot be built off
+`ficaOutstanding()`/`ficaStatus()` alone.** It requires reading the
+contact's latest `FicaSubmission.status` directly, bypassing the coarse
+accessor entirely. This is not new risk, though: the CURRENT single
+`fica_outstanding` tile filter already does exactly this today
+(`applyTileFilter()`, `app/Http/Controllers/CoreX/RentalApplicationController.php`
+line ~291, `whereDoesntHave('contact.ficaSubmissions', ...)` against the
+raw `status`/`verified_at` columns) — its own code comment names the
+reason explicitly: it deliberately does NOT go through
+`Contact::ficaStatus()` because that accessor is too coarse for a fast,
+correct list filter. The split extends a pattern already in production,
+rather than inventing a new query shape from nothing. Everything in the
+sections below was written against the real `FicaSubmission.status`
+column for exactly this reason.
+
+### The problem, precisely
+
+`RentalApplicationController::TILES['fica_outstanding']` (line ~230)
+counts an application as outstanding whenever its contact lacks a
+FicaSubmission that is BOTH `status = 'approved'` AND `verified_at`
+within the last 11 months (`applyTileFilter()`, line ~291). That single
+condition covers every one of these, today, with no way for an agent to
+tell them apart from the tile:
+
+- nobody has asked this applicant for FICA yet (no submission exists)
+- the applicant started the form and abandoned it (`draft`)
+- the applicant finished and it's sitting with agency staff, unlooked-at
+  (`submitted`, `under_review`)
+- it's gone further up the chain and is sitting with a specific person
+  (`agent_approved` = needs the RO; `referred_to_co` = needs the CO)
+- it was sent back to the applicant for fixes (`corrections_requested`)
+- it was rejected by a compliance officer (`rejected`)
+- it was cancelled/superseded (`cancelled`)
+- it was once approved but has gone stale (`approved`, `verified_at`
+  ≥ 11 months ago)
+
+An agent sees one number and cannot tell "phone the applicant" from
+"phone your own compliance officer" apart — exactly the wasted, wrong
+phone call this whole rebuild exists to remove.
+
+### (a) The real states, read from the code, not guessed
+
+The full `FicaSubmission.status` vocabulary (`FicaSubmission::getStatusLabelAttribute()`,
+`app/Models/FicaSubmission.php` line ~340) is: `draft`, `submitted`,
+`under_review`, `agent_approved`, `referred_to_co`,
+`corrections_requested`, `approved`, `rejected`, `cancelled`. Nine
+states, not two — Johan's instinct to split into two TILES is still
+right, but the two tiles are each a bucket of several of these states,
+and one state (`rejected`) is a genuine judgement call, not a clean fit
+either side.
+
+**A directly relevant precedent already exists and is already proven
+correct**, just for a different audience: `RentalApplication::ficaAwaitingApplicantAction()`
+(`app/Models/RentalApplication.php` line ~620), built for the
+APPLICANT'S OWN confirmation page, to tell an applicant who already
+submitted their FICA form ("we're reviewing it") apart from one who
+hasn't started or was sent back ("please finish it"). Its own rule:
+awaiting-applicant = latest submission is `null`, or its status is one
+of `draft`, `rejected`, `corrections_requested`.
+
+That rule is right for the applicant's own screen but **not quite right
+for the agent's tile**, and the difference is `rejected`. Checked
+directly (`FicaController::resend()`, line ~838): a live, self-service
+resend link only exists for `draft` and `corrections_requested` — a
+`rejected` submission has NO applicant-facing path back into the form at
+all; a member of staff must decide to create a fresh submission before
+the applicant can do anything further. Telling an applicant "you need to
+act" when they're rejected is still reasonable framing for THEM
+(matches what the existing method already does, and it's not being
+changed here). Telling an AGENT "this is waiting on the applicant" for a
+rejected FICA is different — it invites a routine "please resubmit"
+phone call when what actually needs to happen first is a staff decision
+(re-request, or reconsider the tenant). Recommend `rejected` sits in
+**"Waiting on us"** for the tile split, deliberately diverging from
+`ficaAwaitingApplicantAction()`'s bucketing — different audience,
+different question, and the two functions should stay separate rather
+than one being stretched to serve both (a new
+`RentalApplication::ficaWaitingOnApplicant()` alongside the existing
+method, not a rewrite of it).
+
+**Recommended split**, latest FicaSubmission for the contact by
+`created_at` (mirroring `ficaAwaitingApplicantAction()`'s own query
+shape exactly, for the same reason it was built that way — a contact's
+older rejected/cancelled submission must not out-count a newer live
+one):
+
+| Bucket | Latest submission | Who acts next |
+|---|---|---|
+| **Waiting on applicant** | none exists, or `draft`, or `corrections_requested` | the applicant |
+| **Waiting on us** | `submitted`, `under_review`, `agent_approved`, `referred_to_co`, `rejected`, `cancelled`, or `approved`-but-expired | agency staff (agent, RO, or CO depending on stage) |
+
+This is exhaustive and mutually exclusive over every row the current
+single tile counts today (every status in the enum appears exactly
+once), which is what makes (f) below hold by construction rather than
+needing a runtime reconciliation check.
+
+### (b) No submission at all vs. started-and-abandoned
+
+**Same bucket — "Waiting on applicant" — and this is not a close call.**
+Checked how a FicaSubmission comes to exist for a rental applicant in
+the first place (`RentalApplicationSigningController::findOrCreateFicaSubmission()`,
+see "FICA becomes mandatory" above): the hand-off happens strictly
+AFTER the applicant's own full submit() commits, which is also the
+moment the rental application's status leaves `in_progress` for
+`returned`. That means:
+
+- A `returned`/`reopened`/`under_assessment` application (already past
+  the applicant's own submit) will always have at least one
+  FicaSubmission — auto-created if nothing else. "No submission at all"
+  at that stage would mean either an application pre-dating this
+  feature (2026-09-13) or the hand-off itself failed, and either way the
+  applicant is still the one who needs to complete it — no different
+  in effect from `draft`.
+- An `in_progress` application (the applicant hasn't finished the main
+  form yet) will normally have NO FicaSubmission yet, and that is
+  completely expected — FICA isn't due to exist for these at all. This
+  is not neglect on anyone's part; it's identical in effect to `draft`
+  from the agent's point of view: the applicant hasn't gotten to it.
+
+Both read as "the applicant hasn't done their part yet" to an agent
+deciding who to chase, and `ficaAwaitingApplicantAction()`'s own
+precedent already treats `null` and `draft` identically for exactly
+this reason. No third bucket needed for this distinction.
+
+**One nuance worth naming, not hiding**: an `approved`-but-expired
+FICA (Case in the table above) reads as "Waiting on us" under this
+split, which is correct only for the period before anyone has asked the
+applicant to renew — once a fresh `draft` is created for a renewal, it
+correctly flips to "Waiting on applicant" on its own, no special code
+needed. Worth Johan knowing this exists as a state at all: a FICA that
+has simply gone stale, where nobody has yet requested a renewal, will
+sit under "Waiting on us" until a staff member notices and asks — which
+is arguably the entire point of splitting the tile in the first place.
+
+### (c) Wording — FINAL, after one round of feedback
+
+First draft was **"FICA — Applicant" / "FICA — Us"**. Rejected by
+Johan/conductor: doesn't read as English — "each label must be a
+complete plain-English answer to the question the control exists to
+answer" (the exact test the scope toggle's "Yours only / Your branch /
+Whole agency" already passed), and the tile exists to answer exactly
+one question — who does the agent chase. "FICA — Us" answers a
+different, unasked question ("what category is this").
+
+**Built as:**
+
+> **"Waiting on applicant"** and **"Waiting on us"**
+
+Each one directly answers "who am I waiting for" — nothing to decode.
+Dropping "FICA" from the label text loses the anchor back to what the
+pair is about (an agent scanning the row could misread "Waiting on us"
+floating among "Sent for Authorisation"/"Approved"), so a small,
+non-clickable **"FICA:"** marker renders immediately before the pair in
+the tile row instead of being stuffed into both tile names — mechanics
+left to the build, exactly as invited.
+
+### (d) Screen real estate — honest count, not rounded
+
+Currently, per `$primaryTiles`/`$secondaryTiles` (`index.blade.php` line
+~58): **8 primary tiles** (All, Not Yet Submitted, Returned, Under
+Assessment, Sent for Authorisation, Approved, Declined, FICA
+Outstanding) **+ 2 secondary "Also:" links** (Applicant Withdrawn,
+Reopened) = 10 total, not 9 — worth correcting for the record.
+
+Splitting FICA Outstanding into two makes it **9 primary + 2
+secondary = 11 total**. Honest answer: still readable, and not a new
+kind of decision — Johan already approved splitting one status into two
+purposeful tiles once before, in this exact row (`Under Assessment` vs
+`Sent for Authorisation` are BOTH `status = under_assessment`, split
+only by `submitted_for_approval_at`, specifically because "with agent"
+vs "with authoriser" was "the precise question an agent wastes clicks
+on" — this FICA split is the same kind of question, same justification).
+The row is `flex flex-wrap` (`index.blade.php` line ~152) — it already
+wraps onto a second line on a normal window width with 8 tiles; one more
+short tile changes wrapping, not readability, and doesn't hide, truncate,
+or require scrolling. No proposal to remove or merge anything else to
+compensate — nothing else on the row is misleading or redundant the way
+the single FICA tile currently is, so nothing else has earned removal.
+
+### (e) Should this be a setting
+
+**No, agreed with the conductor's instinct.** This corrects a tile that
+currently states something an agent cannot act on correctly — there is
+no agency for whom the merged, ambiguous number is the better product,
+and a toggle to keep the old behaviour would just be a way to leave the
+misleading number in place for whoever doesn't find the setting. Not
+comparable to the own/branch/all scope default, which genuinely varies
+by role; this varies by nothing.
+
+### (f) Counts stay consistent — why, not just "yes"
+
+Both new tiles reuse the identical `clone $countBase` /
+`applyTileFilter()` mechanism every existing tile already uses
+(`.ai/specs/rental-applications.md`, "count and list can never disagree
+because they share one scoped ancestor" — see above), so scope-toggle
+correctness is inherited for free, exactly as it is for the 8 tiles that
+exist today; nothing new to verify there beyond the existing gate.
+
+**The two-FICA-tiles-sum-to-the-old-single-tile property holds by
+construction WITHIN the population the old tile already covered** — not
+by a runtime check: the two recommended filters in (a) are an
+exhaustive, mutually-exclusive partition of the FULL `FicaSubmission`
+status enum (every one of the nine states, plus "no submission," appears
+in exactly one of the two buckets — see the table above) applied on top
+of the SAME existing outer condition (`whereDoesntHave(approved AND
+valid)`). The one implementation detail that would actually break this
+guarantee, flagged now so it isn't discovered at ship time: the split
+MUST key off the contact's LATEST FicaSubmission by `created_at`
+(exactly as `ficaAwaitingApplicantAction()` already does), never "does
+any submission with status X exist" — a contact with an old `rejected`
+submission and a newer live `draft` must land only in "Waiting on
+applicant," not in both buckets or neither. Get that one query shape
+right and the sum is automatic for that population; get it wrong and it
+silently isn't.
+
+**That guarantee no longer extends to the tile row as a whole**, because
+of conditional approval — see (g) immediately below, written after
+Johan's ruling landed mid-spec.
+
+### (g) Conditional approval changes what these tiles are, not just what's in them
+
+Landed mid-spec: Johan has separately ruled "yes, can become approved
+subject to FICA verification" (cc5 speccing the build). Confirmed
+directly with cc5 before writing this: no new `rental_applications.status`
+value — status stays `'approved'`, and the conditional state is a new
+nullable `approved_subject_to_fica_at` timestamp (non-null = currently
+conditional; cleared back to null automatically once FICA verifies).
+
+This changes what the FICA tiles fundamentally are. Today,
+`fica_outstanding`'s status list (`REVIEWABLE_STATUSES` — `in_progress`,
+`returned`, `reopened`, `under_assessment`) deliberately EXCLUDES
+`approved` — the comment on that constant says so explicitly ("a
+terminal approved/declined/withdrawn application isn't something
+FICA-chasing helps any more"). A conditionally-approved application
+breaks that assumption: it IS `approved`, and FICA-chasing on it is now
+the single most useful thing an agent could do. So the FICA tiles' own
+status list must widen to also include `status = 'approved' AND
+approved_subject_to_fica_at IS NOT NULL` — meaning a conditionally
+-approved-but-unverified application now legitimately appears in BOTH
+the "Approved" tile AND one of the two FICA tiles at once.
+
+**Agreed with the conductor's instinct: these become a work queue, not
+a mutually-exclusive status breakdown, and the screen must say so.**
+Concretely:
+
+- The two FICA tiles stay mutually exclusive WITH EACH OTHER — a
+  conditionally-approved row is classified into "Waiting on Applicant"
+  or "Waiting on Us" by the exact same latest-FicaSubmission-status
+  logic as any other row in (a); conditional approval doesn't create a
+  third FICA bucket, it just widens WHICH `rental_applications.status`
+  values are eligible to land in the two that already exist.
+- What breaks is the tile ROW's implicit promise that a row belongs to
+  exactly one tile. It no longer does, for this one case. The FICA
+  tiles' combined total will now legitimately exceed what a naive
+  reading of "Approved + everything-not-approved" would suggest, by
+  exactly the count of conditionally-approved-and-unverified rows.
+- **Does a conditionally-approved application belong in the FICA queue
+  at all — yes, and it's arguably the most urgent row in it**, matching
+  the conductor's own read: the agency has already committed to a
+  tenant it hasn't verified. Excluding it from the queue because it's
+  also "Approved" would hide exactly the case FICA-chasing matters most
+  for.
+- **Screen honesty**: the existing scope caption (`"Yours only" /
+  "Your branch" / "Whole agency"`) already sits right above the tile row
+  for exactly this reason — stating plainly what the numbers mean rather
+  than letting them imply something false. Recommend the same caption
+  line grows one more clause when the FICA tiles are in play, e.g.:
+  **"FICA tiles can overlap with Approved — an application can be
+  both."** Short, factual, no jargon ("work queue" is developer
+  language; "can be both" says the same thing in Johan's register).
+  Only needs to render when at least one of the two FICA tiles has a
+  nonzero count that overlaps Approved, so it doesn't clutter the
+  screen for an agency with nothing conditional in flight.
+- **Visual marker on the row itself — one, not several.** Whatever
+  label cc5 settles on for the review screen's own conditional-approval
+  badge (Johan's own phrasing suggests something like "Approved —
+  subject to FICA") should be the SAME label reused as a small tag next
+  to that row in this list — not a second wording for the same fact.
+  Exact copy deferred to cc5's spec sign-off; this spec's job is only to
+  confirm the list needs to show it at all, once, and reuse rather than
+  duplicate.
+
+### Files — built
+
+`app/Http/Controllers/CoreX/RentalApplicationController.php` — `TILES`
+split into `fica_waiting_applicant`/`fica_waiting_us`, `VIEW_RETURNED_TILES`
+updated; `applyTileFilter()` gained a dedicated branch for FICA tiles
+(widens status eligibility to also match `status = 'approved' AND
+approved_subject_to_fica_at IS NOT NULL`, per (g), before deferring to
+the new `applyFicaBucketFilter()` for the applicant/us split itself, a
+raw correlated subquery on the contact's latest, non-soft-deleted
+`FicaSubmission.status`).
+
+`resources/views/corex/rental-applications/index.blade.php` — `$tileLabels`/
+`$primaryTiles`/`$emptyStateCopy` updated for the two new keys; a
+non-clickable "FICA:" group marker (`$ficaGroupBeforeTile`) renders
+immediately before the pair; the overlap caption from (g) renders
+whenever either FICA tile is non-empty; a per-row "Subject to FICA
+verification" tag (reusing cc5's exact review-screen phrase, not new
+copy) renders under the status cell for a conditionally-approved row.
+
+**Deliberately NOT added**: the `ficaWaitingOnApplicant()`/
+`ficaWaitingOnUs()` model methods sketched in the spec draft. Nothing in
+this build calls them — the tile filter is a self-contained list-level
+SQL condition, and index.blade.php has no per-row FICA badge (that's
+review.blade.php's territory, out of this task's scope) that would need
+a per-instance version of the same classification. Left out rather than
+built ahead of a caller that doesn't exist yet; if a future prompt wants
+a per-row FICA-bucket badge on this list, the same logic in
+`applyFicaBucketFilter()` is the reference to port into an instance
+method at that point, not before.
+
+`tests/Feature/RentalApplications/RentalApplicationFicaTileSplitTest.php`
+(new) — 19 tests, 58 assertions: every status in the real
+`FicaSubmission` vocabulary lands in the bucket this spec settled on
+(including the deliberate `rejected`/`cancelled` divergence from
+`ficaAwaitingApplicantAction()`), the latest-submission-wins guarantee
+in both directions (an old submission of one bucket must never out-rank
+a newer one of the other), the two tiles summing to the original
+single-tile population, scope-toggle respect, and all four
+conditional-approval interactions from (g) — surfaces in whichever
+bucket its FICA status calls for, a plain (non-conditional) `approved`
+row stays out of both tiles, and the double-membership with "All"/
+"Approved" is confirmed to still count the row exactly once (a plain
+`WHERE`, not a `JOIN`, so no duplication risk).
+
+**Coordination dependency, confirmed directly with cc5 (2026-09-15) and
+verified against the real column after it shipped (2026-09-16)**:
+conditional approval is `rental_applications.approved_subject_to_fica_at`
+(nullable timestamp; non-null = conditional, cleared to null
+automatically once FICA verifies — `ResolveConditionalApprovalOnFicaVerified`),
+no new status value, exactly as told. Migration
+`2026_09_16_090000_add_approved_subject_to_fica_at_to_rental_applications`
+applied to `corex_qa1` before this build's filter was widened to use it
+— building against a column that didn't exist yet was avoided by
+shipping the two-bucket split first and the widening as a fast follow-up
+once the dependency actually landed, rather than guessing ahead of it.

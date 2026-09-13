@@ -39,9 +39,19 @@
  *   9. Send back to applicant — Confirm is LEGITIMATELY disabled with no note typed
  *  10. Send back to applicant — Confirm works once a note is typed
  *  11. Authoriser Approve — Approve is LEGITIMATELY disabled with no amount typed
- *  12. Authoriser Approve — works once an amount is typed (handles the native confirm())
+ *  12. Authoriser Approve — works once an amount is typed AND the in-page
+ *      confirmation ("Yes, approve") is clicked (2026-09-16, cc5 — native
+ *      confirm() removed here too, but Johan's call was to KEEP a real
+ *      confirmation step; this is now a genuine two-stage flow, not one
+ *      button whose disabled state changes)
  *  13. Authoriser Decline — Decline is LEGITIMATELY disabled with no reason typed
- *  14. Authoriser Decline — works once a reason is typed (handles the native confirm())
+ *  14. Authoriser Decline — works once BOTH a reason AND a reason template are
+ *      chosen (AT-410b added the required template select; handles the native
+ *      confirm())
+ *  19. Rental applications list — scope toggle actually changes what's on
+ *      screen (2026-09-13, AT-402 scope-default fix): switching Own->All
+ *      changes the row count AND every tile count together, and a plain
+ *      agent's own ceiling can't be exceeded by a hand-crafted ?scope=all.
  *
  *  NOT covered (named so this stays an honest list, not a silent gap):
  *   - The document-highlighter's CREATE flow (drag a new highlight on the
@@ -394,19 +404,30 @@ async function main() {
     await roPageApprove.goto(`${BASE_URL}/corex/rental-applications/authorisation/${fx.app_b_id}`, { waitUntil: 'networkidle0', timeout: 25000 });
     await new Promise((r) => setTimeout(r, 800));
 
+    // 2026-09-16, cc5 — native confirm() removed from Approve too (same
+    // reasoning as decline, but Johan's explicit call here was to KEEP a
+    // real confirmation step, not drop it): Approve is now a genuine
+    // two-stage IN-PAGE flow, not one submit. "Approve"
+    // (data-qa="authoriser-approve-continue") never submits — it just
+    // flips approveConfirming=true, which Alpine's x-if swaps for a
+    // SECOND button, "Yes, approve" (data-qa="authoriser-approve-confirm")
+    // — the two never coexist in the DOM (both live inside <template
+    // x-if>), so this is genuinely two clicks on two different elements,
+    // not one selector whose disabled state changes.
     await roPageApprove.click('[data-qa="authoriser-approve-open"]');
     await new Promise((r) => setTimeout(r, 300));
     await checkControl(roPageApprove, {
       name: '11. Authoriser Approve — legitimately disabled with no amount typed',
-      selector: '[data-qa="authoriser-approve-confirm"]',
+      selector: '[data-qa="authoriser-approve-continue"]',
       expectDisabledBefore: true,
     });
     await roPageApprove.type('input[x-model="approveAmount"]', '9500');
     await new Promise((r) => setTimeout(r, 200));
+    await roPageApprove.click('[data-qa="authoriser-approve-continue"]');
+    await new Promise((r) => setTimeout(r, 300));
     await checkControl(roPageApprove, {
-      name: '12. Authoriser Approve — works once an amount is typed',
+      name: '12. Authoriser Approve — works once an amount is typed and confirmed',
       selector: '[data-qa="authoriser-approve-confirm"]',
-      expectDisabledBefore: false,
       requestPattern: /\/approve$/,
       requestMethod: 'POST',
       timeout: 6000,
@@ -424,10 +445,26 @@ async function main() {
       selector: '[data-qa="authoriser-decline-confirm"]',
       expectDisabledBefore: true,
     });
+    // AT-410b, 2026-09-13 — Decline now needs BOTH the free-text note AND a
+    // reason-template selection (review.blade.php:1829's :disabled checks
+    // both declineReason and declineReasonTemplateId). Selecting only the
+    // first field correctly leaves the button disabled — that used to read
+    // as a gate failure here because this check never picked a template.
+    // Picks the first real (non-empty) option rather than a hardcoded id,
+    // since the exact template id differs per fixture agency.
+    const templateOptionValue = await roPageDecline.evaluate(() => {
+      const select = document.querySelector('select[x-model="declineReasonTemplateId"]');
+      const opt = select ? Array.from(select.options).find((o) => o.value) : null;
+      return opt ? opt.value : null;
+    });
+    if (!templateOptionValue) {
+      throw new Error('No decline reason template option found for this fixture agency — cannot exercise the real two-field precondition.');
+    }
+    await roPageDecline.select('select[x-model="declineReasonTemplateId"]', templateOptionValue);
     await roPageDecline.type('textarea[x-model="declineReason"]', 'Gate check reason');
     await new Promise((r) => setTimeout(r, 200));
     await checkControl(roPageDecline, {
-      name: '14. Authoriser Decline — works once a reason is typed',
+      name: '14. Authoriser Decline — works once a reason AND a reason template are chosen',
       selector: '[data-qa="authoriser-decline-confirm"]',
       expectDisabledBefore: false,
       requestPattern: /\/decline$/,
@@ -466,6 +503,96 @@ async function main() {
       requestMethod: 'POST',
     });
     await agentPage2.close();
+
+    // ══════════════════ 19. SCOPE TOGGLE (AT-402 scope-default fix,
+    // 2026-09-13) — real incident: the list used to hardcode 'own' as its
+    // default regardless of the viewer's real ceiling, so an Owner's tiles
+    // (including one literally labelled "All") silently showed only their
+    // own subset. Proves three things a static/headless-only check can't:
+    // the toggle actually changes what's rendered (not just a link that
+    // looks right), the row count and EVERY tile count move together (they
+    // share one query, so a mismatch would mean the fix is only partial),
+    // and a lower-ceiling user's hand-crafted ?scope=all is still clamped
+    // server-side, not just hidden from the UI. ══
+    const extractCounts = async (page) => {
+      return page.evaluate(() => {
+        const allTileLink = Array.from(document.querySelectorAll('a[href*="tile=all"]'))[0];
+        const allTileCount = allTileLink ? parseInt(allTileLink.textContent.replace(/\D/g, ''), 10) : null;
+        // Real data rows only -- the empty-state row ("No applications
+        // match...") is a genuine <tr> inside the same <tbody> with a
+        // single colspan <td>, and would otherwise count as "1 row" even
+        // when the list is genuinely empty.
+        const rowCount = Array.from(document.querySelectorAll('tbody tr')).filter((tr) => !tr.querySelector('td[colspan]')).length;
+        // Scoped to the "Showing:" toggle's own container specifically --
+        // a tile link on this same page legitimately forwards whatever raw
+        // ?scope= the current request carried (even a clamped-away one),
+        // so a page-wide href search for "scope=all" false-positives on
+        // tile links, not just the real toggle.
+        const toggleContainer = Array.from(document.querySelectorAll('span')).find((s) => s.textContent.trim() === 'Showing:')?.nextElementSibling || null;
+        const activePill = toggleContainer ? toggleContainer.querySelector('a[style*="var(--brand-icon"]') : null;
+        return {
+          allTileCount, rowCount,
+          activePillText: activePill ? activePill.textContent.trim() : null,
+          toggleOffersBranchOrAll: toggleContainer ? !!toggleContainer.querySelector('a[href*="scope=branch"], a[href*="scope=all"]') : false,
+        };
+      });
+    };
+
+    const roPage = await newPage(browser, fx.ro_user_id);
+    await roPage.goto(`${BASE_URL}/corex/rental-applications`, { waitUntil: 'networkidle0', timeout: 25000 });
+    await new Promise((r) => setTimeout(r, 500));
+    const defaultCounts = await extractCounts(roPage);
+
+    const ownHref = await roPage.evaluate(() => {
+      const el = Array.from(document.querySelectorAll('a[href*="scope=own"]'))[0];
+      return el ? el.href : null;
+    });
+    if (!ownHref) {
+      record('19a. Scope toggle — Own option present for a wider-ceiling user', false, 'no ?scope=own link found — the toggle should always offer at least Own');
+    } else {
+      await roPage.goto(ownHref, { waitUntil: 'networkidle0', timeout: 25000 });
+      await new Promise((r) => setTimeout(r, 300));
+      const ownCounts = await extractCounts(roPage);
+      const movedTogether = ownCounts.allTileCount !== null && ownCounts.rowCount !== null
+        && (ownCounts.allTileCount === 0) === (ownCounts.rowCount === 0);
+      if (defaultCounts.allTileCount === ownCounts.allTileCount) {
+        record('19a. Scope toggle — switching to Own actually narrows the view', false,
+          `default (All) tile read ${defaultCounts.allTileCount}, Own read the SAME ${ownCounts.allTileCount} — toggle looks present but changes nothing, exactly the bug class this exists to catch`);
+      } else if (!movedTogether) {
+        record('19a. Scope toggle — switching to Own actually narrows the view', false,
+          `tile count (${ownCounts.allTileCount}) and row count (${ownCounts.rowCount}) disagree on whether anything is visible — they no longer share one query`);
+      } else if (ownCounts.activePillText !== 'Own') {
+        record('19a. Scope toggle — switching to Own actually narrows the view', false,
+          `counts changed correctly but the active pill reads "${ownCounts.activePillText}", not "Own" — the highlight and the data have drifted apart`);
+      } else {
+        record('19a. Scope toggle — switching to Own actually narrows the view', true,
+          `All-tile ${defaultCounts.allTileCount} -> ${ownCounts.allTileCount}, rows ${defaultCounts.rowCount} -> ${ownCounts.rowCount}, pill correctly highlighted`);
+      }
+    }
+    await roPage.close();
+
+    // 19b. A plain 'own'-ceiling agent hand-crafting ?scope=all must never
+    // see more than their own ceiling permits — the toggle not rendering
+    // this option for them is a UI nicety, not the actual security
+    // boundary; the server-side clamp is.
+    const plainPage = await newPage(browser, fx.plain_agent_user_id);
+    await plainPage.goto(`${BASE_URL}/corex/rental-applications`, { waitUntil: 'networkidle0', timeout: 25000 });
+    await new Promise((r) => setTimeout(r, 300));
+    const plainDefaultCounts = await extractCounts(plainPage);
+    await plainPage.goto(`${BASE_URL}/corex/rental-applications?scope=all`, { waitUntil: 'networkidle0', timeout: 25000 });
+    await new Promise((r) => setTimeout(r, 300));
+    const plainCraftedCounts = await extractCounts(plainPage);
+    if (plainCraftedCounts.toggleOffersBranchOrAll) {
+      record('19b. Scope toggle — never offered beyond a plain agent\'s own ceiling', false,
+        'a branch/all option rendered for a role whose ceiling is own — the toggle itself can escalate, not just fail to hide');
+    } else if (plainCraftedCounts.allTileCount !== plainDefaultCounts.allTileCount) {
+      record('19b. Scope toggle — a hand-crafted ?scope=all cannot exceed a plain agent\'s ceiling', false,
+        `?scope=all changed the All tile from ${plainDefaultCounts.allTileCount} to ${plainCraftedCounts.allTileCount} — the server accepted a scope beyond this user's real ceiling`);
+    } else {
+      record('19b. Scope toggle — a hand-crafted ?scope=all cannot exceed a plain agent\'s ceiling', true,
+        `?scope=all left the All tile at ${plainCraftedCounts.allTileCount}, identical to the real default — clamped server-side regardless of the URL`);
+    }
+    await plainPage.close();
   } finally {
     await browser.close();
     console.log('Cleaning up fixtures...');
