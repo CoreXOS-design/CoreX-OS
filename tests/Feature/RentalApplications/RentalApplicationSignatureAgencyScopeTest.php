@@ -74,7 +74,13 @@ final class RentalApplicationSignatureAgencyScopeTest extends TestCase
 
         $png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
+        // AT-392 round 5, 2026-09-13 — submit() now enforces the agency's
+        // default-required fields; this test is about agency stamping on
+        // the resulting signature/generation rows, not field completeness.
         $response = $this->post(route('rental-applications.public.submit', $application->token), [
+            'full_name' => 'A Contact', 'id_number' => '9001015800083',
+            'email' => 'contact-a@example.test', 'current_residential_address' => '1 Example Road',
+            'monthly_salary' => 20000, 'rental_term_months' => 12,
             'declaration_signature' => $png,
             'tpn_consent_signature' => $png,
         ]);

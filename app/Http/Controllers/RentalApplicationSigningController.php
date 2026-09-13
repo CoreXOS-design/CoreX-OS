@@ -637,7 +637,17 @@ class RentalApplicationSigningController extends Controller
         // never hardcoded in the template.
         $autosaveDebounceSeconds = \App\Models\RentalApplicationQualifyingSetting::autosaveDebounceSecondsFor($application->agency_id);
 
-        return view('rental-applications.public.show', compact('application', 'autosaveDebounceSeconds'));
+        // Submission hard floor, AT-392 round 5, 2026-09-13 — which fields
+        // this agency has marked compulsory (drives the `required`
+        // attribute — a courtesy to the applicant, never the only check;
+        // submit() enforces the real gate from the same setting) and the
+        // agency's own marital status option list (Ruling 1 — converts
+        // marital_status from free text to a real select so the spouse
+        // condition can actually fire).
+        $requiredFieldKeys = \App\Models\RentalApplicationQualifyingSetting::requiredFieldKeysFor($application->agency_id);
+        $maritalStatusOptions = \App\Models\RentalApplicationQualifyingSetting::maritalStatusOptionsFor($application->agency_id);
+
+        return view('rental-applications.public.show', compact('application', 'autosaveDebounceSeconds', 'requiredFieldKeys', 'maritalStatusOptions'));
     }
 
     /**
@@ -795,15 +805,19 @@ class RentalApplicationSigningController extends Controller
         // numeric field before validation, same as the agent-side fix.
         $request->merge(RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
 
-        // BUILD_STANDARD §2 — every field is optional (nullable passes on
-        // empty/absent), but a MALFORMED value must be rejected with a clear
-        // message, never allowed through to crash the date/decimal cast on
-        // save(). This is a public, unauthenticated endpoint — validation
-        // here is the only thing standing between a tampered field and a 500.
-        $validated = $request->validate(array_merge(RentalApplication::fieldValidationRules(), [
-            'declaration_signature' => ['required', 'string'],
-            'tpn_consent_signature' => ['required', 'string'],
-        ]));
+        // BUILD_STANDARD §2 — every field is optional at the STORAGE layer
+        // (nullable passes on empty/absent) — that governs what the model
+        // will store, not what the business accepts as a complete
+        // submission. Submission hard floor, AT-392 round 5, 2026-09-13 —
+        // Johan, twice ruled: every field is agency tick/untick via
+        // RentalApplicationQualifyingSetting::requiredFieldKeysFor(), no
+        // locked set. A ticked field in a conditional group (employer/
+        // landlord/spouse) is only enforced when that group's trigger
+        // condition is true for THIS submission — see
+        // RentalApplication::submissionValidationRules().
+        $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::requiredFieldKeysFor($application->agency_id);
+        [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id);
+        $validated = $request->validate($rules, [], $attributes);
 
         $fields = collect($validated)->except(['declaration_signature', 'tpn_consent_signature'])->all();
         // Optional-and-empty must never error (BUILD_STANDARD §2) — a blank
@@ -843,8 +857,8 @@ class RentalApplicationSigningController extends Controller
             }
             $application->save();
 
-            $this->storeSignature($application, 'declaration', $validated['declaration_signature'], $request);
-            $this->storeSignature($application, 'tpn_consent', $validated['tpn_consent_signature'], $request);
+            $this->storeSignature($application, 'declaration', $validated['declaration_signature'] ?? null, $request);
+            $this->storeSignature($application, 'tpn_consent', $validated['tpn_consent_signature'] ?? null, $request);
 
             \App\Models\RentalApplicationGeneration::seal($application, $request);
 
@@ -1367,15 +1381,23 @@ class RentalApplicationSigningController extends Controller
             ->with('success', 'Document replaced.');
     }
 
-    private function storeSignature(RentalApplication $application, string $kind, string $dataUrl, Request $request): void
+    /**
+     * Submission hard floor, AT-392 round 5, 2026-09-13 — format/ink
+     * well-formedness is now enforced at validation time
+     * (RentalApplication::signatureWellFormedRule()), before this method is
+     * ever called, so $dataUrl is guaranteed genuine here. Previously this
+     * method did its own format check and silently no-op'd on failure —
+     * the exact "quietly discarded" defect Johan flagged; that check moved
+     * upstream so a malformed signature is now a real rejection the
+     * applicant sees, never a silent no-write.
+     */
+    private function storeSignature(RentalApplication $application, string $kind, ?string $dataUrl, Request $request): void
     {
-        // Signature pad payload is a data: URI (image/png;base64,...) — same
-        // capture shape the e-sign signing view already uses.
-        if (! preg_match('/^data:image\/png;base64,(.+)$/', $dataUrl, $m)) {
-            return;
+        if ($dataUrl === null || $dataUrl === '') {
+            return; // not required by this agency's settings and the applicant left it blank
         }
 
-        $binary = base64_decode($m[1]);
+        $binary = RentalApplication::signatureDecodedBinary($dataUrl);
         $path = "rental-applications/{$application->id}/signatures/" . $kind . '-' . Str::random(8) . '.png';
         Storage::disk('local')->put($path, $binary);
 

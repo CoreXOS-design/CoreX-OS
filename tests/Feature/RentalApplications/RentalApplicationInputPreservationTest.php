@@ -220,7 +220,15 @@ final class RentalApplicationInputPreservationTest extends TestCase
         $app = $this->application(['status' => 'sent']);
         $sig = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
+        // AT-392 round 5, 2026-09-13 — submit() now enforces the agency's
+        // default-required fields; this test is about comma/space money
+        // parsing, not field completeness, so every other default-required
+        // field is supplied (monthly_salary itself is the field under test
+        // and keeps its own value, not the usual baseline).
         $response = $this->post(route('rental-applications.public.submit', $app->token), [
+            'full_name' => 'Jane Applicant', 'id_number' => '9001015800083',
+            'email' => 'jane@example.com', 'current_residential_address' => '1 Example Road, Ramsgate',
+            'rental_term_months' => 12,
             'monthly_salary' => '25 000',
             'current_rental_amount' => '7,500',
             'declaration_signature' => $sig,
@@ -274,7 +282,13 @@ final class RentalApplicationInputPreservationTest extends TestCase
         $app = $this->application(['status' => 'sent']);
         $sig = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
+        // AT-392 round 5, 2026-09-13 — submit() now enforces the agency's
+        // default-required fields; this test is about the equal-dates
+        // date-order edge case, not field completeness.
         $response = $this->post(route('rental-applications.public.submit', $app->token), [
+            'full_name' => 'Jane Applicant', 'id_number' => '9001015800083',
+            'email' => 'jane@example.com', 'current_residential_address' => '1 Example Road, Ramsgate',
+            'monthly_salary' => 20000, 'rental_term_months' => 12,
             'current_rental_from' => '2026-08-15',
             'current_rental_to' => '2026-08-15',
             'declaration_signature' => $sig,

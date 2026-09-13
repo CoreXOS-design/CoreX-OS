@@ -48,6 +48,41 @@ Compliance is currently scattered:
 
 ---
 
+## Rulings (decided — do not re-propose without a new mandate from Johan)
+
+### FICA form fields are never pre-filled, from any source
+
+**2026-09-13, AT-392 round 5.** While building the rental-application → FICA
+hand-off, it was flagged that four FICA fields (full name, ID number, phone,
+email) duplicate data already held on the rental application — and the ID
+number is literally what the applicant just typed to pass the return gate
+seconds earlier. Pre-filling was proposed to cut the typing roughly in half
+at exactly the point applicants are most likely to abandon the form.
+
+No FICA/CDD legal requirement blocks this — legal responsibility attaches at
+the signed declaration to whatever values are in the form at submission, not
+to the act of typing them. That analysis was put to Johan and he overruled
+it on a stricter-than-legal-minimum compliance line, verbatim: **"for fica we
+do not fill anything. for compliance the applicant needs to fill it. same
+like on normal fica. do not build any auto fills."** His reasoning: on his
+FICA process, the client fills the form themselves, the same as any other
+FICA client — the applicant's own act of entering each value is part of what
+he considers the declaration to attest to, regardless of where legal
+liability technically sits.
+
+**The rule:** `fica/form.blade.php` never receives, and must never receive,
+any value from `RentalApplication`, `Contact`, or any other prior record —
+not full name, not ID number, not phone, not email, not anything else. Every
+field starts blank for every applicant, every time, exactly as it does today.
+The downstream question this would have raised — what happens to the Contact
+record if an applicant's FICA entry disagrees with a value already on file —
+is moot as a result and was not decided; it only existed as a consequence of
+pre-filling. If pre-fill is ever reconsidered, that question (a real one,
+with a genuine existing pattern to build from — see `App\Models\Docuperfect\
+DocumentAmendment`'s propose/pending/accept-reject shape) comes back with it.
+
+---
+
 *Full spec to be completed after Phase 1 consolidation.*
 
 ---

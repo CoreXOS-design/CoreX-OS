@@ -2855,6 +2855,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // FICA-mandatory, AT-392 round 3, 2026-09-13 — whether FICA must be complete before authorisation.
     Route::post('/settings/rental-applications/require-fica-before-authorisation', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireFicaBeforeAuthorisation'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.require-fica-before-authorisation');
+    // Submission hard floor, AT-392 round 5, 2026-09-13 — every applicant
+    // form field's compulsory tick, and the agency-configurable marital
+    // status option list (Ruling 1) that drives the spouse-fields group.
+    Route::post('/settings/rental-applications/required-fields', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequiredFields'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.required-fields');
+    Route::post('/settings/rental-applications/marital-status-options', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateMaritalStatusOptions'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.marital-status-options');
     // Return gate, AT-392 round 4, 2026-09-13 — gate method + attempt cap.
     Route::post('/settings/rental-applications/return-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReturnGate'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.return-gate');

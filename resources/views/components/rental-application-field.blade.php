@@ -1,4 +1,16 @@
-@props(['name', 'label', 'value' => null, 'type' => 'text', 'hint' => null, 'inputmode' => null, 'min' => null, 'max' => null])
+@props(['name', 'label', 'value' => null, 'type' => 'text', 'hint' => null, 'inputmode' => null, 'min' => null, 'max' => null, 'required' => false, 'requiredExpr' => null])
+{{--
+    Submission hard floor, AT-392 round 5, 2026-09-13 — $required is a
+    static courtesy attribute for a field that's ALWAYS relevant when
+    ticked compulsory. $requiredExpr is an Alpine JS boolean expression
+    string for a field inside a conditional group (employer/landlord/
+    spouse) — a static `required` there would wrongly block, say, a
+    self-employed applicant from submitting with Employer name blank the
+    moment the agency ticks it, even though the server would never have
+    asked for it. Either way this is a courtesy only; submit() enforces
+    the real gate from the same agency setting regardless of what the
+    browser did or didn't block.
+--}}
 {{--
     AT-392, Johan 2026-09-07 — "losing a tenant's typed answers is
     unacceptable." A validation failure on submit() redirects back with
@@ -16,11 +28,13 @@
     label, is the more robust fix for exactly the error he described.
 --}}
 <div>
-    <label class="block text-xs text-slate-500 mb-1">{{ $label }}</label>
+    <label class="block text-xs text-slate-500 mb-1">{{ $label }}@if($requiredExpr)<span x-show="{{ $requiredExpr }}" x-cloak> *</span>@elseif($required) *@endif</label>
     <input type="{{ $type }}" name="{{ $name }}" value="{{ old($name, $value) }}"
            @if($inputmode) inputmode="{{ $inputmode }}" @endif
            @if($min !== null) min="{{ $min }}" @endif
            @if($max !== null) max="{{ $max }}" @endif
+           @if($requiredExpr) x-bind:required="{{ $requiredExpr }}" x-bind:aria-required="{{ $requiredExpr }}"
+           @elseif($required) required aria-required="true" @endif
            class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has($name) ? 'border-red-400' : 'border-slate-300' }}">
     @if($hint)
         <p class="text-[11px] text-slate-400 mt-1">{{ $hint }}</p>
