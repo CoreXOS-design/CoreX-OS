@@ -55,7 +55,10 @@
  *     brief was controls an agent's whole job depends on, not an
  *     exhaustive inventory of every clickable pixel on the screen.
  *
- *  PENDING — do not exist on this screen yet, named here in advance
+ *  PENDING — not yet regression-covered by THIS gate (mostly because they
+ *  don't exist on the screen yet; #18 is the one exception, already
+ *  shipped with its own one-time proof — see its own note below), named
+ *  here in advance
  *  (Johan, 2026-09-15: "so the next lane sees what is expected of it
  *  rather than discovering the gate after the fact"). Four lanes are
  *  building new interactive controls on these same screens today; each
@@ -71,8 +74,12 @@
  *   16. Reason template picker (the guidance-template dropdown/selector
  *       feeding the new Decline flow's reason field)
  *   17. Applicant link gate (the new applicant-link-gating + FICA control)
- *   18. Direct-file type picker (cc5's new document-type picker on the
- *       direct-file upload path)
+ *   18. Direct-file type picker — ALREADY SHIPPED (cc5, AT-410, same day)
+ *       with its own one-time real-browser Puppeteer proof (see
+ *       .ai/specs/rental-applications.md, "AT-410 — File a document
+ *       directly") — this slot stays reserved because that proof was a
+ *       one-time manual walk, not a permanent check in THIS gate. Not
+ *       "does not exist"; "exists, not yet regression-covered here."
  *
  * Usage:
  *   php8.2 scripts/rental-click-through.mjs
@@ -199,7 +206,7 @@ const PENDING_CONTROLS = [
   '15. Decline send button (new reason + guidance-template flow)',
   '16. Reason template picker',
   '17. Applicant link gate (link-gating + FICA)',
-  '18. Direct-file type picker (cc5\'s direct-file upload path)',
+  '18. Direct-file type picker (cc5\'s AT-410, already shipped — not yet regression-covered by this gate)',
 ];
 
 async function main() {

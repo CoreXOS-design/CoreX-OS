@@ -115,13 +115,29 @@
     // and Zone 4's own button visibility (further down the page) read the
     // exact same gate — see RentalApplicationReviewController::reopen()/
     // requestMoreInfoFromApplicant() for what each path actually does.
+    // AT-392 round 2, 2026-09-13 — parity fix: this gate used to check the
+    // override tier ONLY for 'declined', so a non-override agent viewing a
+    // WITHDRAWN application saw the full Reopen button enabled, clicked it,
+    // and hit the controller's own override-tier 403 (which correctly
+    // requires it for BOTH declined and withdrawn — see reopen()'s
+    // $isOverrideReopen). Matches the backend now: both terminal statuses
+    // require the same override tier to reopen.
     $canReopenNow = $viewerRole === 'agent'
         && in_array($rentalApplication->status, \App\Models\RentalApplication::REOPENABLE_STATUSES, true)
-        && ($rentalApplication->status !== 'declined' || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
+        && (! in_array($rentalApplication->status, ['declined', 'withdrawn'], true) || auth()->user()->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id));
     // $reviewLocked already computed above, near $initialMarkedUpDocIds —
     // this screen's header text needs it before this second @php block runs.
+    //
+    // AT-392 round 2, 2026-09-13 — companion parity fix: 'withdrawn' was
+    // missing from this exclusion list, so a non-override agent could
+    // always trigger the LESSER requestMoreInfoFromApplicant() action on a
+    // withdrawn application. That endpoint has no status guard at all — it
+    // sends the applicant an email but never touches status or
+    // token_expires_at, so the applicant's link stays genuinely dead. An
+    // agent without reopen permission must see no button at all here,
+    // exactly like declined already worked.
     $canSendBackToApplicant = $viewerRole === 'agent'
-        && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined'], true));
+        && ($canReopenNow || !in_array($rentalApplication->status, ['approved', 'declined', 'withdrawn'], true));
 @endphp
 <div class="w-full"
      @if($viewerRole === 'agent')
@@ -149,6 +165,7 @@
          expectedGeneration: {{ Js::from($rentalApplication->current_generation) }},
          canReopenNow: {{ Js::from($canReopenNow) }},
          documentChecklist: {{ Js::from($documentChecklist) }},
+         documentTypeOptions: {{ Js::from($documentTypeOptions) }},
          reviewLocked: {{ Js::from($reviewLocked) }},
      })"
      @else
@@ -477,8 +494,42 @@
            (89px -> 103px, see the 2026-09-13 comment above for that math) —
            taken as its own column, not from the amount column's own
            hard-won floor. */
+        /* HIT-AREA FIX, 2026-09-13 (cc1's own-hand find, verifying cc2's
+           strike fix: "aimed a real mouse click at the centre of that
+           control and nothing happened... 14 by 14 pixels"). Measured
+           in-situ, not assumed: .rr-ledger-strike really was exactly
+           14x14 with zero padding — no invisible padding was hiding a
+           bigger real target. Rows are only 20.5px tall with ZERO gap
+           between them (confirmed by measurement), so any invisible
+           hit-area expansion past a row's OWN boundary risks landing on
+           the NEXT row's strike button instead — worse than the original
+           problem. The only safe budget is what's already inside this
+           row's own box: gap shrunk 3px -> 2px (freeing 4px across the
+           4 gaps, same borrow-from-gap technique as the 2026-09-13 date-
+           column fix above) handed entirely to the strike column
+           (14px -> 18px); row height, row width, and every other
+           column's width are unchanged (15+53+72(min)+12+18=170,
+           +4x2=8 gap = 178, byte-identical to before: 15+53+72+12+14=166
+           +4x3=12 = 178). Glyph itself (font-size, ⊘/↺) untouched.
+           Width grew via the real button box (18px, safe — width doesn't
+           drive row height); height grew via an invisible ::before
+           overlay instead of the button's own box (see that rule's own
+           comment) after a first attempt that made the button itself
+           18px tall and measurably grew every row by 1.5px — caught by
+           re-measuring after the change, not assumed safe. Real hit area
+           confirmed after: 18x20 (from 14x14), safely within the row's
+           own 20.5px height, row height itself unchanged. This does not
+           reach the 44px touch
+           guideline Johan cited — that would need loosening the whole
+           panel's row density, a bigger, costlier call flagged
+           separately rather than assumed here. The jump arrow (visually
+           12px) and the out-of-period dot were checked too and need no
+           fix: the arrow's REAL click target is this whole row
+           (@click="jumpToMark(row)" below, not the glyph itself), and the
+           dot has no click handler at all — hover-only, so a hit-area
+           guideline doesn't apply to it the same way. */
         .rr-ledger-row {
-            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px 14px; gap: 3px; align-items: center;
+            display: grid; grid-template-columns: 15px 53px minmax(72px, 1fr) 12px 18px; gap: 2px; align-items: center;
             padding: 2px 0;
         }
         .rr-ledger-badge {
@@ -488,8 +539,24 @@
         }
         .rr-ledger-amount { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .rr-ledger-strike {
-            width: 14px; height: 14px; padding: 0; border: none; background: transparent;
-            color: var(--text-muted); font-size: 12px; line-height: 14px; cursor: pointer;
+            position: relative;
+            width: 18px; height: 14px; padding: 0; border: none; background: transparent;
+            color: var(--text-muted); font-size: 12px; line-height: 14px; text-align: center; cursor: pointer;
+        }
+        /* The real button box stays 14px TALL on purpose — this row's height
+           was governed by the arrow column's own 16.5px content, not the
+           strike button; making the button's own box any taller than that
+           would become the new tallest thing and grow every row (measured:
+           it did, by 1.5px, before this was caught and fixed). ::before is
+           position:absolute, so it's removed from layout entirely — free to
+           be taller than the button's own box, using exactly the row's own
+           already-measured 6.5px of vertical slack (20.5px row - 14px
+           button), without ever touching the next row (gap between rows is
+           0, confirmed by measurement — going even 1px past this row's own
+           boundary risks landing on the NEXT row's own strike button). */
+        .rr-ledger-strike::before {
+            content: ''; position: absolute; top: 50%; left: 0; transform: translateY(-50%);
+            width: 100%; height: 20px;
         }
         .rr-ledger-strike:hover { color: var(--text-primary); }
         .rr-ledger-strike:disabled { cursor: default; opacity: 0.5; }
@@ -759,6 +826,60 @@
                                             @csrf
                                             <button type="submit" style="color: var(--ds-amber, #b45309); font-weight: 600; cursor: pointer; border: none; background: none; padding: 0;" title="This document hasn't been sorted into document types yet — split it into separate, filed documents before submitting for authorisation.">Split &amp; File</button>
                                         </form>
+                                    @endif
+                                    {{-- AT-410 — Johan: "this applicant sent split docs.
+                                         so I know what they are. dont need to run them
+                                         through the splitter... allow selecting document
+                                         type and click file." Sits right next to Split
+                                         & File on the same row, deliberately: an agent who
+                                         opens the type picker and realises this is actually
+                                         a mixed bundle reaches the splitter without
+                                         navigating anywhere. "Change type" (already-typed
+                                         documents) is given the SAME visual weight as
+                                         "File as…" per Johan's explicit instruction — a
+                                         correction must be at least as easy to find as the
+                                         mistake it fixes. --}}
+                                    @if($viewerRole === 'agent' && !$row['pulled_from_contact'])
+                                        @php
+                                            $isUntypedDoc = $document->document_type_id === null;
+                                            $fileActionUrl = $isUntypedDoc
+                                                ? route('corex.rental-applications.documents.file-direct', [$rentalApplication, $document])
+                                                : route('corex.rental-applications.documents.retype', [$rentalApplication, $document]);
+                                            $fileActionColor = $isUntypedDoc ? 'var(--ds-green, #15803d)' : 'var(--ds-blue, #2563eb)';
+                                            $fileActionLabel = $isUntypedDoc ? 'File as…' : 'Change type';
+                                            $fileActionSubmitLabel = $isUntypedDoc ? 'File' : 'Save';
+                                            $fileActionTitle = $isUntypedDoc
+                                                ? "This applicant already sent this as its own separate file — file it as a document type directly, without the splitter."
+                                                : 'Filed as the wrong type? Change it here — nothing is deleted or re-uploaded.';
+                                        @endphp
+                                        <span x-data="fileDocumentAction()" style="display:inline-flex; align-items:center; gap:4px;">
+                                            <template x-if="!open">
+                                                <button type="button" @click="startPick()"
+                                                        style="color: {{ $fileActionColor }}; font-weight: 600; cursor: pointer; border: none; background: none; padding: 0;"
+                                                        title="{{ $fileActionTitle }}">{{ $fileActionLabel }}</button>
+                                            </template>
+                                            <template x-if="open">
+                                                <span style="display:inline-flex; align-items:center; gap:4px;">
+                                                    <select x-model="typeId" style="font-size: 11px; max-width: 130px;">
+                                                        <option value="">Type&hellip;</option>
+                                                        <optgroup label="For this application" x-show="documentTypeOptionsPrimary.length">
+                                                            <template x-for="dt in documentTypeOptionsPrimary" :key="dt.id">
+                                                                <option :value="dt.id" x-text="dt.label"></option>
+                                                            </template>
+                                                        </optgroup>
+                                                        <optgroup label="Other document types">
+                                                            <template x-for="dt in documentTypeOptionsOther" :key="dt.id">
+                                                                <option :value="dt.id" x-text="dt.label"></option>
+                                                            </template>
+                                                        </optgroup>
+                                                    </select>
+                                                    <button type="button" :disabled="!typeId || busy" @click="submit('{{ $fileActionUrl }}')"
+                                                            style="color: {{ $fileActionColor }}; font-weight: 600;">{{ $fileActionSubmitLabel }}</button>
+                                                    <button type="button" @click="cancelPick()" style="color: var(--text-muted);">Cancel</button>
+                                                </span>
+                                            </template>
+                                            <span x-show="error" x-text="error" x-cloak style="color: var(--ds-red, #dc2626); font-weight: 600;"></span>
+                                        </span>
                                     @endif
                                 </span>
                             </div>
@@ -2064,7 +2185,7 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
     };
 }
 
-function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, reviewLocked }) {
+function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, documentTypeOptions, reviewLocked }) {
     return {
         // 2026-09-12 — Johan-approved read-only lock while the application
         // is with the authoriser (isPendingAuthorisation()). Set once, from
@@ -2118,6 +2239,15 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         sendBackNote: '',
         sendBackSending: false,
         documentChecklist: (documentChecklist || []).map(d => ({ ...d, checked: false })),
+        // AT-410 — "File as…" / "Change type" picker source, agency-
+        // configured (see RentalApplicationReviewController::show()'s own
+        // comment on $documentTypeOptions for why this is the FULL active
+        // list, not the narrower per-employment-type documentChecklist
+        // above). Split once here into "for this application" (slugs also
+        // in documentChecklist) vs everything else, so the per-row picker
+        // below never re-derives the split on every keystroke.
+        documentTypeOptionsPrimary: (documentTypeOptions || []).filter(o => (documentChecklist || []).some(c => c.slug === o.slug)),
+        documentTypeOptionsOther: (documentTypeOptions || []).filter(o => !(documentChecklist || []).some(c => c.slug === o.slug)),
         canReopenNow: !!canReopenNow,
         async sendBackToApplicant() {
             if (this.sendBackSending || !this.sendBackNote.trim()) return;
@@ -2725,6 +2855,50 @@ function attachExistingDocument() {
                 this.status = 'Could not attach — check your connection.';
             }
             this.submittingId = null;
+        },
+    };
+}
+
+// AT-410, 2026-09-13 — "file a document directly, without going through the
+// splitter" / "change type" (Johan's correctable requirement). One factory,
+// instantiated per document row, mirroring attachExistingDocument()'s own
+// reload-on-success shape immediately above so the row re-renders from the
+// server with whatever it was actually filed/retyped as — no client-side
+// guess at what the new row should say.
+function fileDocumentAction() {
+    return {
+        open: false,
+        typeId: '',
+        busy: false,
+        error: '',
+        csrfToken() { return document.querySelector('meta[name="csrf-token"]')?.content ?? ''; },
+        startPick() { this.open = true; this.typeId = ''; this.error = ''; },
+        cancelPick() { this.open = false; this.typeId = ''; this.error = ''; },
+        async submit(url) {
+            if (!this.typeId || this.busy) return;
+            this.busy = true;
+            this.error = '';
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': this.csrfToken(),
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({ document_type_id: this.typeId }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (res.ok && data.ok) {
+                    try { sessionStorage.setItem('rentalReviewJustUploadedDocIds', JSON.stringify(data.document ? [data.document.id] : [])); } catch (_) {}
+                    window.location.reload();
+                    return;
+                }
+                this.error = data.error || 'Could not save — try again.';
+            } catch (e) {
+                this.error = 'Could not save — check your connection.';
+            }
+            this.busy = false;
         },
     };
 }

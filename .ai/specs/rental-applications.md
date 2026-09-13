@@ -11574,3 +11574,300 @@ Round10/Round11 test debt.
   document-highlight raster cache and the fixture's admin users' "last
   admin" guard leftovers as the only intentional, documented exceptions.
 - `.ai/STANDARDS.md` — Standard −1f, the standing rule.
+
+## Strike/restore hit area was really 14x14 — measured, fixed, proved with a real click (2026-09-13, conductor + cc3)
+
+CORRECTION, same day — this section originally credited this finding to
+cc1. cc1 checked and confirmed they have no record of it: never touched
+fixture 300, entries 452/453, or the strike control this session. The
+finding actually came from a message opening "Conductor. New finding from
+my own verification just now" and continuing entirely in first person —
+nothing in it names cc1. The misattribution was mine, caught only because
+cc1 pushed back on it rather than quietly accepting credit that didn't
+check out. Corrected below; the commit message that first shipped this
+fix still says "cc1's own-hand find" and could not be safely rewritten
+after pushing — this note is the correction of record.
+
+The conductor, verifying cc2's strike fix by hand on fixture 300: the
+arithmetic and persistence are correct (R3,500 struck from a R23,500
+income → totals to R20,000, restore puts it back, survives reload) — but
+"I aimed a real mouse click at the centre of that control and nothing
+happened. A programmatic click on the same element worked immediately...
+14 by 14 pixels." Explicitly flagged as not yet certain the miss was
+purely size — asked for the real hit area to be established, not assumed.
+
+**Measured before touching anything.** `.rr-ledger-strike` really was
+exactly 14x14px with `padding: 0` — no invisible padding was hiding a
+bigger real target; the reported number was exactly right. Also measured, since
+it bears directly on how much room exists to fix it: the ledger rows are
+only 20.5px tall with **zero gap between them** — any hit-area expansion
+that goes past a row's own boundary lands on the NEXT row's own strike
+button instead, which would be worse than the original problem.
+
+**The other two controls the conductor asked about did not need the same fix:**
+- The panel row's jump arrow (visually ~12px) is not itself a click
+  target — the `@click="jumpToMark(row)"` handler is on the WHOLE
+  `.rr-ledger-row` div (confirmed by reading the markup, not assumed),
+  so the real hit area is the entire row: full width, 20.5px tall. No fix
+  needed; the small arrow is purely a visual affordance.
+- The out-of-period dot (5x5px) has no click handler at all — a hover-
+  only tooltip (`title="..."`). A hit-area guideline doesn't apply to a
+  control nobody clicks. Also not fixed.
+
+So this was a one-control problem, not a shared-class problem — no class-
+level fix was needed across three controls, only the strike button's own.
+
+**The fix, sized to the real, measured budget — not a guess:**
+- Width: the row's own `gap` shrunk 3px → 2px (freeing 4px across the 4
+  gaps between the row's 5 columns — the same borrow-from-gap technique
+  already used for the 2026-09-13 date-column fix on this same row),
+  handed entirely to the strike column: 14px → 18px. Every other column
+  and the row's total width are unchanged (178px either way).
+- Height: a real attempt to also grow the button's own box to 18px tall
+  measurably grew every row by 1.5px (20.5px → 22px) — caught by
+  re-measuring after the change, not assumed safe, and reverted. Instead,
+  the button's own real box stays 14px tall (so it stays UNDER the
+  16.5px arrow-column content that actually governs this row's height),
+  and a `::before` pseudo-element — `position: absolute`, so it is
+  removed from layout and cannot affect row height or push any sibling —
+  carries the extra height: 20px, centered on the button, using exactly
+  the row's own already-measured 6.5px of vertical slack (3px above, 3px
+  below), never reaching the next row's own 0px-away boundary.
+- Glyph itself (font-size, ⊘/↺) is completely untouched.
+
+**Real hit area: 14x14 → 18x20 (invisible height, visible width).** Row
+height, row width, and every other column confirmed unchanged by
+measurement, not by re-reading the CSS math and assuming it holds.
+
+**Proved with real clicks, not read off the source** — `page.mouse.click()`
+at real screen coordinates (not `element.click()`, which bypasses hit-
+testing entirely and would prove nothing about this): clicked 8px above
+the button's visual center — outside the OLD 14px box (half-height 7px)
+but inside the NEW 20px invisible zone (half-height 10px) — on a real
+ledger entry on fixture 300. Toggled correctly. Repeated the identical
+test at phone width (390px): toggled correctly there too. Row height
+confirmed unchanged (20.5px) and the gap to the next row confirmed still
+0 in both cases — the fix does not eat into that non-existent buffer.
+
+**Does not reach the 44px touch guideline the conductor cited** — that
+would need loosening the whole panel's row density, a bigger and costlier
+call than "padding on the button," flagged here rather than assumed. This
+fix is a real, measured, ~2x area improvement (196px² → likely-clickable
+region closer to 360px², counting the invisible overlay) aimed
+specifically at the mouse/trackpad miss actually reported, not a claim of
+full touch compliance.
+
+**Housekeeping:** the real-click proof above ran against fixture 300 —
+the same shared record the conductor's own verification had just used —
+since `toggleStrike()` persists to the real database, not just client
+state. The automated clicks landed on entry id 452 (R20,000), not the
+R3,500 entry (id 453) named in the conductor's own R23,500→R20,000
+example — that example's own entry was never touched — but id 452 was
+left struck by the automated test and was explicitly restored to
+unstruck afterward (`struck_out_at` set back to `null`) so the fixture is
+exactly as it was found. Named here per this session's own standing rule
+about shared-fixture writes.
+
+## AT-410 — "File a document directly, without going through the splitter" (2026-09-13, cc5)
+
+Johan, on application 230's review screen, verbatim: *"this applicant sent
+split docs. so I know what they are. dont need to run them through the
+splitter. can we give the option right here to file directly as well. so
+you keep the splitter but allow selecting document type and click file and
+its files it without going via the splitter?"*
+
+### Investigation, before any code — per instruction
+
+Read `PdfSplitterController::intakeRentalApplicationDocument()`/
+`linkForRentalApplication()` in full to find the splitter's real output
+shape. Confirmed it is NOT a simple "set document_type_id" — even the
+single-type case copies the source bytes to a new storage path, creates a
+brand-new `Document` row, attaches the same `contacts()`/`properties()`
+pivots, and soft-deletes the original. "Indistinguishable afterwards"
+(Johan's own requirement) can only be satisfied by reproducing that exact
+sequence, not a lighter lookalike.
+
+Located the live-mark guard verbatim (`linkForRentalApplication()`,
+originally inline, ~15 lines) so it could be reused rather than
+re-derived — reusing a re-derived copy risks the two guards silently
+drifting apart the way this exact codebase has already been bitten by
+(the AT-392 pipeline-gate rule exists for precisely that reason).
+
+Found `DocumentType` has NO `agency_id` — it is a global catalogue, not
+per-agency. `RentalApplicationDocumentRequirement::checklistFor()` is the
+actual agency-configurable mechanism on this screen, but scoped per
+employment type — too narrow for "an applicant sent something the default
+checklist didn't anticipate," which is exactly the case direct-filing
+exists for.
+
+### Two things proposed, and the conductor's ruling (verbatim GO)
+
+**1. Control placement — APPROVED.** Reuses the exact minimal-footprint
+pattern "Split & File" already uses on this row — a plain-text, bold,
+coloured trigger, no new column, no row-height change. "File as…"
+(untyped documents) expands in place into a `<select>` + File/Cancel;
+"Change type" (already-typed documents) is the SAME control, same visual
+weight, same expand-in-place mechanic, sitting where the type badge is.
+Split & File is untouched, same row, same place.
+
+**2. Bulk filing — DECLINED, single-document only, per instruction.**
+Recorded here so it is never revisited as an oversight: five separate
+uploaded files are five independently-chosen types by construction — a
+bulk control would still need five type-picks, and would add partial-
+failure handling, batch guards, and batch audit entries with no real
+reduction in agent effort. What Johan actually named as tedious was going
+through the splitter at all, not clicking a few times.
+
+### The build
+
+**`RentalApplicationDocumentMark::blockingMarksMessageFor(int $documentId): ?string`**
+(new, `app/Models/RentalApplicationDocumentMark.php`) — the live-mark
+guard, extracted verbatim from `linkForRentalApplication()`'s own inline
+block so both the splitter and the new action call the exact same check.
+`PdfSplitterController::linkForRentalApplication()` now calls this method
+instead of carrying its own copy — zero behaviour change, proven by the
+existing `PdfSplitterRentalApplicationMarkGuardTest` still passing after
+the refactor (both its assertions, unchanged).
+
+**`RentalApplicationReviewController::fileDocumentDirectly()`** (new) —
+POST `/{rentalApplication}/documents/{document}/file-direct`. Guards, in
+order: `guardRentalApplication()` (own/branch/agency scope),
+`guardDocumentBelongsToApplication()` (document must belong to THIS
+application), `guardScreenNotLockedForAuthoriser()` (423 while the
+application is with the authoriser — the exact same guard every other
+write on this screen uses), owned-only (a pulled-from-contact document is
+never filable here, matching Split & File's own scoping), untyped-only,
+then `blockingMarksMessageFor()`. On success: copies the source file's
+bytes to a new storage path, creates a new `Document` row (any mime type,
+not PDF-only — see the routing spec below for why), attaches contacts/
+properties, soft-deletes the source, writes an audit-log entry
+(`event_category: 'document'`, `event_type: 'filed_direct'`), returns the
+new document's id/name/type.
+
+**`RentalApplicationReviewController::retypeDocument()`** (new) — POST
+`/{rentalApplication}/documents/{document}/retype`. The "correctable"
+requirement — Johan: *"if she picks the wrong type she can change it
+without deleting anything and without re-uploading."* Same guards as
+above, EXCEPT deliberately does NOT run the live-mark guard: nothing here
+moves the document, its storage path, or its id — every mark's
+`document_id` stays exactly what it was, so the guard's actual concern (a
+page's marks silently following the wrong resulting piece) cannot arise
+from a same-row type-tag change. Updates `document_type_id` and
+`original_name` in place on the SAME row — no new row, no delete. Works
+on any already-typed owned document on this screen, not only ones filed
+by the new action, per the standing full-CRUD "correctable" design floor.
+Writes its own audit entry (`event_type: 'retyped'`, old and new type in
+`oldValues`/`newValues`).
+
+**Type list** — `$documentTypeOptions` (new, `RentalApplicationReviewController::show()`):
+every active `DocumentType`, not the narrower per-employment-type
+`$documentChecklist`. The Blade groups the same list into "For this
+application" (types also in `$documentChecklist`) vs "Other document
+types" client-side — the agency-configured checklist surfaces first, nothing
+is ever unreachable.
+
+**UI** (`resources/views/corex/rental-applications/review.blade.php`) —
+one `fileDocumentAction()` Alpine factory (`open`/`typeId`/`busy`/`error`
++ `startPick()`/`cancelPick()`/`submit()`), instantiated per document row,
+mirroring `attachExistingDocument()`'s own reload-on-success shape so the
+row always re-renders from the server with whatever it was actually
+filed/retyped as — no client-side guess at what to show. Per Johan's two
+follow-up conditions: "Change type" uses the identical trigger style,
+weight, and expand mechanic as "File as…" (never a fainter/muted
+treatment — a correction must be at least as easy to find as the mistake
+it fixes), and the collapse-on-success reload means the very next thing
+the agent sees is the row's own type label in plain text, no hover
+required.
+
+### Proof — real browser click-through, per the conductor's explicit
+### instruction not to hand over an endpoint test alone
+
+Fixture built fresh in the dev DB (`corex_qa1`), never touching
+application 230: application 240 (agency 1, `status='returned'`) with
+four documents — an untyped PDF (doc 3028), an untyped PDF carrying a live
+capture-ledger mark (doc 3029), an untyped JPG (doc 3030), and an
+already-typed PDF (doc 3031, "Bank Statement"). Application 241
+(`status='under_assessment'`, `submitted_for_approval_at` set — pending
+authorisation) with one untyped document (doc 3032), for the lock guard.
+Application 245 in agency 42 (`ScopeCheck Co A`) with one document
+(3034), for the cross-agency guard. Real headless Chromium via Puppeteer,
+logged in as the existing `qa-cc5-authoriser-test@example.invalid`
+fixture user, real clicks, real network requests observed, zero console
+errors throughout:
+
+- **File as… → File, doc 3028 (plain untyped PDF):** clicked the trigger,
+  the `<select>` appeared, picked "Payslip," clicked File. Real
+  `POST .../3028/file-direct` → 200. Page reloaded; doc 3028's row was
+  gone, a new row (doc 3035) appeared reading "Payslip.pdf · Payslip"
+  with a "Change type" trigger now available.
+- **Any mime type, not just PDF — doc 3030 (JPG):** same click-through,
+  picked "IDs / Identity." `POST .../3030/file-direct` → 200. New row
+  3037: "IDs - Identity.jpg · IDs / Identity", `mime_type` confirmed
+  unchanged (`image/jpeg`) via DB check.
+- **Live-mark guard fires, doc 3029 (has a captured mark):** same
+  click-through, picked "Bank Statement," clicked File. `POST
+  .../3029/file-direct` → **422**, body: *"This document has 1 captured
+  ledger entry (R5,000.00) drawn on it. Splitting or re-filing it would
+  break the link between that evidence and its figures. Remove those
+  marks first if you need to re-file this document."* — the identical
+  wording the splitter itself would show, because it's the same method.
+  Doc 3029's row was untouched afterward (still "Untyped", still present,
+  `deleted_at` still null) — confirmed via DB.
+- **Correctable, doc 3031 (already "Bank Statement") → "Levy Statement":**
+  clicked "Change type," picked the new type, clicked Save. `POST
+  .../3031/retype` → 200, page reloaded, SAME row id (3031) now reads
+  "Levy Statement.pdf · Levy Statement" with "Change type" still
+  available. DB confirmed: same `id`, `deleted_at` still null, exactly
+  one `Document` row for that original upload (no second row created).
+- **Review-lock guard, application 241 (pending authorisation):** direct
+  `fetch()` POST to `.../241/documents/3032/file-direct` while
+  authenticated as the agent → **423**, the same *"read-only until it
+  comes back to you"* message every other write on this screen returns.
+  Confirmed the screen's own `reviewLocked` Alpine flag is `true` and the
+  page text shows the same message — the server enforces it independently
+  of what the UI happens to hide.
+- **Cross-agency guard:** `fetch()` POST from an agency-1 session against
+  agency-42's document (3034), attached to application 240 (agency 1) →
+  **404** — Laravel's own route-model binding can't even resolve the
+  foreign-agency `Document`/`RentalApplication` rows (the existing
+  `BelongsToAgency`/`AgencyScope` global scopes make them invisible to a
+  different agency's query before the controller's own guards run at
+  all). Opening agency-42's application review route directly as the
+  agency-1 user → 404, same mechanism.
+- **Audit trail:** `RentalApplicationAuditLog` rows confirmed for both
+  actions — `document/filed_direct`: *"QA CC5 Authoriser Test filed
+  '...' directly as Payslip, without the splitter."*; `document/retyped`:
+  *"QA CC5 Authoriser Test changed document #3031 from 'Bank Statement'
+  to 'Levy Statement'."* — both carrying the real acting user's id.
+- **No hard deletes:** every soft-deleted original (`Document::withTrashed()`)
+  still exists on disk and in the DB with `deleted_at` set, never actually
+  removed.
+
+### Written test coverage
+
+`tests/Feature/RentalApplications/FileDocumentDirectlyTest.php` (new) —
+covers the same ground as the manual walk above as a permanent regression
+check: successful direct filing reproduces the splitter's shape (new row,
+old soft-deleted, contacts pivot, correct storage/type), non-PDF mime
+type succeeds, the live-mark guard blocks with the exact message and
+touches nothing, the review-lock guard refuses (423) without processing,
+a cross-agency document 403/404s, retyping updates the SAME row in place
+(no new row, no delete), and both actions write an audit-log entry.
+
+### Files
+
+- `app/Models/RentalApplicationDocumentMark.php` — `blockingMarksMessageFor()` added.
+- `app/Http/Controllers/Tools/PdfSplitterController.php` — its inline guard block replaced with a call to the method above; zero behaviour change.
+- `app/Http/Controllers/CoreX/RentalApplicationReviewController.php` — `fileDocumentDirectly()`, `retypeDocument()`, `$documentTypeOptions` added to `show()`.
+- `routes/web.php` — two new POST routes under the existing `permission:rental_applications.view` group.
+- `resources/views/corex/rental-applications/review.blade.php` — `fileDocumentAction()` Alpine factory, per-row "File as…"/"Change type" control, `documentTypeOptionsPrimary`/`documentTypeOptionsOther` computed in `rentalReview()`.
+- `tests/Feature/RentalApplications/FileDocumentDirectlyTest.php` — new.
+- This file and `.ai/specs/pdf-splitter-routing.md` — this section and its "AT-410 — an alternate path INTO this same routing story" counterpart.
+
+### Gates run before push
+
+- `php -l` on every changed PHP file — clean.
+- `php artisan view:clear` / `route:clear` / `cache:clear` — clean.
+- `php artisan test tests/Feature/RentalApplications/FileDocumentDirectlyTest.php` and the pre-existing `tests/Feature/Tools/PdfSplitterRentalApplicationMarkGuardTest.php` (proving the guard refactor didn't regress the splitter itself) — see results recorded at push time below.
+- Real Puppeteer click-through against a local `php artisan serve` instance on the actual worktree, per the conductor's explicit instruction not to hand over an endpoint test alone — full walk above, zero console errors throughout.
+- `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated plainly rather than cited as having run.

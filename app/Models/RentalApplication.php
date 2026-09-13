@@ -538,6 +538,58 @@ class RentalApplication extends Model
     }
 
     /**
+     * AT-392 round 2, 2026-09-13 — cc3's finding while investigating the
+     * withdraw control: uploadDocuments()/removeDocument()/
+     * replaceDocument() never checked status at all, so a withdrawn or
+     * declined application's public link kept accepting files
+     * indefinitely — a public, unauthenticated write into agency storage
+     * with no closing condition. Johan's ruling: these two are ALWAYS
+     * closed, no agency override — reopen() (same gate as "Send back to
+     * applicant") is the only door back in, exactly as designed for
+     * these two statuses already.
+     */
+    public const DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES = ['withdrawn', 'declined'];
+
+    /**
+     * Approved is deliberately NOT in the always-closed list above —
+     * Johan: "an agency may legitimately ask an approved tenant for one
+     * more document," so this stays an agency setting (default open) via
+     * RentalApplicationQualifyingSetting::documentUploadsOpenAfterApprovalFor().
+     */
+    public function documentUploadsOpen(): bool
+    {
+        if (in_array($this->status, self::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, true)) {
+            return false;
+        }
+
+        if ($this->status === 'approved') {
+            return RentalApplicationQualifyingSetting::documentUploadsOpenAfterApprovalFor((int) $this->agency_id);
+        }
+
+        return true;
+    }
+
+    /**
+     * Johan, verbatim: "it must not read as a dead end... does not imply
+     * they have done something wrong." Deliberately the SAME wording for
+     * withdrawn and declined (no blame language either way) and names
+     * the actual way back — reopen() — rather than leaving the applicant
+     * with nowhere to go. Null when uploads are open (nothing to say).
+     */
+    public function documentUploadsClosedMessage(): ?string
+    {
+        if (in_array($this->status, self::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, true)) {
+            return "This application is currently closed and not accepting new documents. If you have something to add, please contact your agent — they're able to reopen your application for you.";
+        }
+
+        if ($this->status === 'approved' && ! RentalApplicationQualifyingSetting::documentUploadsOpenAfterApprovalFor((int) $this->agency_id)) {
+            return 'Your application has been approved and is no longer accepting new documents. If you need to send something else, please contact your agent.';
+        }
+
+        return null;
+    }
+
+    /**
      * Reopen/resubmit — Johan: "agent has review screen open, applicant
      * resubmits mid-review... reuse the exact 409-conflict pattern you
      * already built and shipped for document marks." A review screen loads
