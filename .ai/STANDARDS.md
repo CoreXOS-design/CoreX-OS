@@ -311,6 +311,88 @@ gate has ever checked.
 
 ---
 
+## Standard −1f — Proving an endpoint is not proving a feature (REQUIRED, before any push touching a rental review-screen control)
+
+Johan, 2026-09-15, after the strike/restore button shipped completely dead
+to everyone on QA1: the build behind it had 6 PHPUnit tests and 35
+assertions — the server contract proved to the cent in both directions,
+cross-agency 404s and wrong-author 403s all verified — and the button a
+human actually clicks never fired, because `:disabled="row.strikingBusy"`
+bound `undefined` rather than `false`, and a boolean-attribute binding
+backed by `undefined` resolves through `Element.toggleAttribute(name,
+force)`, where `force === undefined` is spec'd as the argument being
+OMITTED — toggleAttribute just flips whatever the attribute's current
+state already is, instead of forcing it false.
+
+**Every PHPUnit test in this module POSTs straight to a controller
+action. None of them loads the page and clicks the thing a human clicks.
+A PHPUnit test cannot see a disabled button — it does not run a browser.**
+That is not a gap in one test file; it is the shape of every test this
+module had. Six tests and 35 assertions proved the server was right and
+said nothing at all about whether the control that calls it worked,
+because nothing in the suite was capable of saying so.
+
+**A test that POSTs to an endpoint proves the server contract. It proves
+nothing about whether a human can reach that endpoint at all — not
+whether the control is disabled, not whether the click fires, not whether
+the request that leaves the browser is the one the server was tested
+against.** Endpoint coverage and control coverage are two different
+claims; treating the first as proof of the second is exactly how this
+shipped dead.
+
+**Before pushing any change that adds or touches an interactive control
+on the rental review/authorisation screens** (a button, a form, anything
+an agent or authoriser clicks to make something happen), run:
+
+```bash
+php8.2 scripts/rental-click-through.mjs \
+    [--app-root=/corex-qa1] [--base-url=https://qatesting1.corexos.co.za] [--php-bin=php8.2]
+```
+
+This is a SIBLING to `rental-smoke.mjs`, not an edit to it — deliberately.
+`rental-smoke.mjs` is read-only and page-load-focused, several of its own
+checks assert against known-stable persistent fixture state (exact mark
+counts on app 22, app 4); a click-through check MUTATES state (strikes a
+line, submits, approves, declines — one-way transitions), so it creates
+and soft-deletes its own throwaway agency/applications/document on every
+run (`rental-click-through-fixture.php`) rather than touching any
+persistent fixture, Johan's own real applications included.
+
+The pattern every check in that script runs, the same one that would have
+caught the dead strike button: **find a real control by selector, assert
+it is not wrongly disabled, click it for real, assert a real network
+request (or, for a control with no server round-trip, a real observable
+state change) actually happened.** A control legitimately disabled
+because its precondition isn't met yet (manual-entry Save with no type
+chosen, Approve with no amount typed, the review screen locked while with
+the authoriser) is asserted as correctly disabled — that is a pass, not a
+skip. A control disabled with no legitimate reason is exactly the bug
+class this gate hunts, and fails loudly, the same way a `[SCRIPT EVAL
+ERROR]` in the render gate does.
+
+**The script's own file header names every control it covers, and every
+control it deliberately doesn't, so this stays an honest, readable list
+rather than a silent gap** — read it before assuming a control is
+checked. If you add a new interactive control to these screens, add its
+own named check to that list in the same push; a control invisible to
+this gate is a control nobody but a live human will ever prove works.
+
+**A currently-failing control found this way is reported as a `KNOWN
+ISSUE`, not silently marked passing and not left to fail the gate
+forever on every future push.** The gate itself found a second one this
+way, the same day it was built: the capture chip's EDIT path (click an
+existing capture-ledger mark on the document to reopen it) has never
+worked, for anyone, since `entry_type` was added to marks — the code that
+loads marks into the per-document viewer never copied that field across,
+so the click-to-edit guard always sees it as unset and refuses. That is
+tracked as a named, dated, explained exception in the script itself, not
+fixed by this standard (it touches a file mid-rework by another lane) —
+the same discipline BUILD_STANDARD already applies to the pre-existing
+Round10/Round11 test debt: one tracked, explained exception that prints
+loudly on every run, never a silent, growing pile of them.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.

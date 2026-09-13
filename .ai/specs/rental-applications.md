@@ -11464,3 +11464,113 @@ wording, correctly unchanged), the control disappeared, Reopen appeared in
 its place. Detail page afterward: header, pill, and audit-trail line
 ("returned → Applicant withdrawn") all agree. Zero console errors, render
 gate PASS throughout.
+
+## The strike/restore button shipped dead — root cause, hotfix, and the permanent click-through gate (2026-09-15, cc4)
+
+### The bug, live on QA1, found by Johan himself testing end-to-end
+
+The struck-out-lines feature built the previous round (6 tests, 35
+assertions, proved to the cent both directions, cross-agency 404s and
+wrong-author 403s verified) shipped with its own button **permanently
+disabled from first paint, for everyone, on every application** —
+cc4/cc5 found it independently the same morning Johan ran his own
+end-to-end test.
+
+**Root cause, confirmed directly in a real headless Chromium, not
+guessed:** `row.strikingBusy` was never given an initial value, so
+`:disabled="row.strikingBusy"` bound `undefined` rather than `false`. A
+boolean-attribute binding backed by `undefined` resolves through
+`Element.toggleAttribute(name, force)`, and the DOM spec treats
+`force === undefined` as the argument being OMITTED — toggleAttribute
+then just flips whatever the attribute's current presence already is,
+instead of forcing it false. Proved directly: `el.toggleAttribute(
+'disabled', undefined)` on a fresh element turns `disabled` ON, not off.
+
+**Hotfix, live same morning:** `:disabled="!!row.strikingBusy"` at both
+binding sites (a real boolean can never trigger the omitted-argument
+ambiguity), plus `strikingBusy: false` given explicitly wherever a row
+enters `captureEntries` (initial load, `addCaptureEntry()`,
+`updateCaptureEntry()` — the last of these matters just as much as the
+first: it replaces the WHOLE row object on every strike/restore
+response, and without the same default there the very toggle that
+finishes clearing the busy state would immediately reintroduce the bug).
+Verified in headless Chromium against the worktree, then against the
+real fixture (application 22, restored to its original state
+afterward) before push.
+
+### The honest answer to "what would have caught this"
+
+**Every PHPUnit test in this module POSTs straight to a controller
+action. None of them loads the page and clicks the thing a human
+clicks. A PHPUnit test cannot see a disabled button — it does not run a
+browser.** The 6 tests and 35 assertions proved the server contract
+exactly right and said nothing about whether the control that calls it
+worked, because nothing in the suite was capable of saying so. Recorded
+as a standing rule, not just this incident's postmortem — see
+`.ai/STANDARDS.md`, Standard −1f, "Proving an endpoint is not proving a
+feature."
+
+### The permanent gate — `scripts/rental-click-through.mjs`
+
+A sibling to `rental-smoke.mjs`, not an edit to it (agreed directly with
+cc1 before writing a line — rental-smoke.mjs is read-only/page-load
+focused and several of its own checks depend on persistent fixture
+state staying exactly as it is; a click-through check mutates state —
+strikes, submits, approves, declines are one-way transitions — so it
+creates and soft-deletes its OWN throwaway agency/applications/document
+on every run via `rental-click-through-fixture.php`, never touching app
+22, app 4, or any of Johan's own real applications).
+
+The pattern every check runs: **find a real control by selector, assert
+it is not wrongly disabled, click it for real, assert a real network
+request (or, for a control with no server round-trip, a real observable
+state change) actually happened.** A control legitimately disabled
+because its precondition isn't met (manual-entry Save with no type
+chosen, Approve with no amount typed, Decline with no reason typed,
+Send-back with no note typed) is asserted as correctly disabled — a
+pass, not a skip; a control disabled for no legitimate reason is
+exactly the bug class this gate hunts, and fails loudly.
+
+**Coverage — named in the script's own file header so the next person
+can see what's checked and what isn't, not sampled:** strike, restore,
+add-line-manually (open, legitimately-disabled Save, working Save), a
+ledger row's jump-to-document, submit for approval, send back to
+applicant (legitimately-disabled and working), authoriser Approve
+(legitimately-disabled and working, including its native `confirm()`),
+authoriser Decline (same). 13 real checks, all passing.
+
+**A second dead control found the same way, the same day — reported,
+not fixed here:** the capture chip's EDIT path (click an existing
+capture-ledger mark on a document to reopen it) has never worked, for
+anyone, since `entry_type` was added to marks.
+`document-highlighter-script.blade.php`'s mark-loading code (the
+`common` object built from the server's `toMarkArray()` response) never
+copies `entry_type`/`entry_date`/`entry_description`/`entry_amount`/
+`struck_out` onto `this.marks` — only `id`/`highlighterId`/
+`authorUserId`/`authorName`/`authorRole`/`type`/`page`/`points`/`width`
+survive. `onStrokeClick()`'s own guard, `if (!mark.entry_type) return`,
+therefore fires on every mark, always, because that field is always
+undefined client-side — confirmed directly via `Alpine.$data()`'s real
+key list, not inferred. A one-line, additive fix (thread the missing
+fields into `common`) — not applied here since it touches cc3's file,
+actively worked on this same weekend; recorded as a `KNOWN ISSUE` in the
+gate script itself, printed loudly on every run, tracked separately from
+pass/fail so this one pre-existing, already-reported bug doesn't
+permanently block the gate from catching NEW regressions on the other 13
+controls — the same discipline already applied to the pre-existing
+Round10/Round11 test debt.
+
+### Files changed
+
+- `resources/views/corex/rental-applications/review.blade.php` — the
+  `strikingBusy` hotfix; `data-qa` attributes on every control the gate
+  needs a stable selector for (none of them change layout, styling, or
+  behaviour).
+- `scripts/rental-click-through.mjs` — new, the permanent gate.
+- `scripts/rental-click-through-fixture.php` — new, throwaway fixture
+  create/cleanup (agency, branch, two admin users, three applications,
+  one real document + anchored/unanchored marks), soft-deletes
+  everything on every run success or failure; leaves the mark's own
+  document-highlight raster cache and the fixture's admin users' "last
+  admin" guard leftovers as the only intentional, documented exceptions.
+- `.ai/STANDARDS.md` — Standard −1f, the standing rule.
