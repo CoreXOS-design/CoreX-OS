@@ -381,6 +381,7 @@ class PropertyDuplicateMatchEvidence
             ->join('contacts', 'contacts.id', '=', 'contact_property.contact_id')
             ->where('contact_property.property_id', $property->id)
             ->where('contact_property.role', 'owner')
+            ->whereNull('contact_property.deleted_at')
             ->selectRaw("GROUP_CONCAT(TRIM(CONCAT(contacts.first_name, ' ', contacts.last_name)) SEPARATOR ', ') as names")
             ->value('names');
     }

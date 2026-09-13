@@ -110,6 +110,7 @@ class MarketingReadinessService
         // Build snapshot data
         $sellers = $property->contacts()
             ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->wherePivotNull('deleted_at')
             ->get();
 
         $sellerData = $sellers->map(fn ($c) => [
@@ -340,6 +341,7 @@ class MarketingReadinessService
         $ficaSlug = config('corex-compliance.fica_slug', 'fica');
         $primarySeller = $property->contacts()
             ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->wherePivotNull('deleted_at')
             ->first();
         $sellerName = $primarySeller
             ? (trim(($primarySeller->first_name ?? '') . ' ' . ($primarySeller->last_name ?? '')) ?: ($primarySeller->name ?? 'seller'))
@@ -413,6 +415,7 @@ class MarketingReadinessService
     {
         return $property->contacts()
             ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->wherePivotNull('deleted_at')
             ->pluck('contacts.id');
     }
 
@@ -421,6 +424,7 @@ class MarketingReadinessService
     {
         $id = $property->contacts()
             ->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->wherePivotNull('deleted_at')
             ->value('contacts.id');
 
         return $id ? (int) $id : null;

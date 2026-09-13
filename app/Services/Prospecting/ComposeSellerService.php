@@ -74,6 +74,7 @@ class ComposeSellerService
         $links = DB::table('contact_property')
             ->where('property_id', $propertyId)
             ->where('role', 'seller')
+            ->whereNull('deleted_at')
             ->get(['contact_id', 'is_primary'])
             ->keyBy('contact_id');
 
@@ -143,12 +144,12 @@ class ComposeSellerService
     public function ensurePrimaryDefault(int $propertyId): void
     {
         $hasPrimary = DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
-            ->where('is_primary', true)->exists();
+            ->where('is_primary', true)->whereNull('deleted_at')->exists();
         if ($hasPrimary) {
             return;
         }
         $firstId = DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
-            ->orderBy('id')->value('contact_id');
+            ->whereNull('deleted_at')->orderBy('id')->value('contact_id');
         if ($firstId) {
             $this->markPrimary($propertyId, (int) $firstId);
         }
