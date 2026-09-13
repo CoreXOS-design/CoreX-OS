@@ -192,6 +192,7 @@
                 results: [],
                 propertyId: {{ Js::from($rentalApplication->property_id) }},
                 propertyLabel: {{ Js::from($rentalApplication->property ? ($rentalApplication->property->title ?: $rentalApplication->property->buildDisplayAddress()) : null) }},
+                unlinkConfirming: false,
                 async search() {
                     if (this.query.length < 2) { this.results = []; return; }
                     const res = await fetch({{ Js::from(route('corex.rental-applications.search-properties')) }} + '?q=' + encodeURIComponent(this.query));
@@ -208,13 +209,39 @@
             @if($tenantLinkedProperty)
                 <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Tenant linked to property</p>
                 <div class="flex items-center gap-2 flex-wrap">
-                    <span class="ds-badge ds-badge-success">{{ $tenantLinkedProperty->buildDisplayAddress() }} — tenant linked</span>
-                    <form method="POST" action="{{ route('corex.rental-applications.unlink-tenant-property', $rentalApplication) }}"
-                          onsubmit="return confirm('Remove this tenant link from the property?');" class="inline">
-                        @csrf
-                        @method('DELETE')
-                        <button type="submit" class="text-xs underline" style="color: var(--ds-red, #dc2626);">Unlink</button>
-                    </form>
+                    {{-- 2026-09-13 — native confirm() removed, same reasoning as
+                         Approve/Decline (see review.blade.php and
+                         scripts/rental-click-through.mjs's newPage() dialog
+                         handler): a native dialog blocks the whole tab's
+                         renderer until a human dismisses THAT specific dialog,
+                         and it is invisible to the click-through gate — a
+                         reintroduced confirm() here would have been silently
+                         clicked through by the gate's old auto-accept handler.
+                         Two-stage in-page confirmation instead, same pattern
+                         as authoriser-approve-continue/-confirm, naming the
+                         tenant and property being unlinked rather than a
+                         generic "are you sure". --}}
+                    <template x-if="!unlinkConfirming">
+                        <span class="flex items-center gap-2 flex-wrap">
+                            <span class="ds-badge ds-badge-success">{{ $tenantLinkedProperty->buildDisplayAddress() }} — tenant linked</span>
+                            <button type="button" class="text-xs underline" style="color: var(--ds-red, #dc2626);"
+                                    data-qa="tenant-unlink-continue" @click="unlinkConfirming = true">Unlink</button>
+                        </span>
+                    </template>
+                    <template x-if="unlinkConfirming">
+                        <span class="flex items-center gap-2 flex-wrap">
+                            <span class="text-xs" style="color: var(--ds-red, #dc2626);">
+                                Remove {{ $rentalApplication->contact->full_name }} as tenant of {{ $tenantLinkedProperty->buildDisplayAddress() }}?
+                            </span>
+                            <button type="button" class="corex-btn-outline text-xs" @click="unlinkConfirming = false">Go back</button>
+                            <form method="POST" action="{{ route('corex.rental-applications.unlink-tenant-property', $rentalApplication) }}" class="inline">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="text-xs underline" style="color: var(--ds-red, #dc2626);"
+                                        data-qa="tenant-unlink-confirm">Yes, unlink</button>
+                            </form>
+                        </span>
+                    </template>
                 </div>
             @else
                 <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Link this tenant to a property</p>
