@@ -12266,12 +12266,47 @@ fixtures:**
   clickable rect, same exact-1493 right edge, on every one of the 12
   rows. Overlay-to-neighbour clearance now ~3px measured (previously 0).
 
-**Not yet re-confirmed in an actual real browser** — same rule as every
-round: headless numbers are the diagnosis, not the proof. The conductor's
-own real-Chrome re-measurement is still the closing step. Application
-341 (`/corex/rental-applications/341/review`) is offered as a disposable,
-12-row fixture for that real click-test — never touches any hands-off
-fixture, safe to strike/restore/delete freely.
+**Round C confirmed by the conductor in real Windows Chrome, on the
+deployed build:** before the fix, real Chrome measured 18×16 on fixture
+300 (3 rows) but 18×20-21 on fixture 341 (12 rows) — the same
+layout-dependent inconsistency the sub-pixel-boundary diagnosis
+predicted. After the fix (18px overlay), BOTH fixtures measure identically
+18×19 on every row — the layout-dependent variation is gone, not just
+reduced. Struck state (`"(2 struck)"` / `"(1 struck)"`) also confirmed to
+survive a full page reload post-deploy. Horizontal clip, vertical shave,
+and function are all closed.
+
+**Round D — the real (visible) glyph box grew 14px → 16px, a free
+ceiling (2026-09-13, conductor + cc3).** The conductor asked, having
+accepted the 18×19 invisible hit area, whether the real button box itself
+could grow toward 18-20px for a bigger visible target — explicitly asking
+for an honest empirical answer, not an assumption, and to be told plainly
+if it doesn't fit. Swept 14/16/18/20px directly (temporarily edited,
+measured, reverted, never left mid-sweep) against the 12-row fixture:
+
+| real box height | row pitch | growth |
+|---|---|---|
+| 14px | 20.5px | — (previous) |
+| 16px | 20.5px | **zero** |
+| 18px | 22px | +1.5px/row |
+| 20px | 24px | +3.5px/row |
+
+16px is the free ceiling: the row's content height was already governed
+by the date column's own 16.5px, so a button up to 16px is a tie, not a
+new tallest element — CSS grid only grows a row once a child exceeds the
+existing tallest sibling. Past 16px, growth is exact and linear (matches
+the earlier 1.5px-at-18px anecdote precisely, and predicts 20px's cost
+correctly). Shipped: real box → 16px (bigger, more legible glyph, zero
+row-density cost). The already-fixed 18px invisible overlay is
+unaffected — its footprint was already bigger than either box height, so
+this is a pure visual-affordance win, not a hit-area change. 18-20px
+real boxes remain possible but have a real, quantified, non-hypothetical
+cost (+1.5 to +3.5px per row, compounding on a long ledger) — that
+trade-off was reported, not silently made.
+
+Re-verified post-change on 341: pitch still 20.5px on every one of 11
+gaps, right edge still exactly x1493, clickable footprint still 18×19 on
+all 12 rows — the glyph got bigger, nothing else moved.
 
 ## Approved application → link to property, mark it Let (2026-09-13, cc3)
 
