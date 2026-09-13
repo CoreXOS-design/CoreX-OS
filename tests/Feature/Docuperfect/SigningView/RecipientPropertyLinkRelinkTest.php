@@ -9,31 +9,39 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\ContactProperty;
-use App\Models\Docuperfect\Flow;
 use App\Models\Property;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Http\Request;
 use ReflectionMethod;
 use Tests\TestCase;
 
 /**
- * Pipeline-gate test (CLAUDE.md — ESignWizardController is on the pipeline
- * file list) for the contact_property hard-delete fix: saveStep()'s
- * recipients-step auto-link block (Contact -> Property, e.g. "Johan,
- * 2026-08-26 — property 6060, Piet Begrafnis wrongly linked as Owner")
- * matched an EXISTING contact by email/id_number and linked them to the
- * property via a bare syncWithoutDetaching(). If that contact had
- * previously been linked to this exact property and later unlinked
- * (soft-deleted, per the hard-delete fix), a bare sync would blind-insert
- * and collide with the unique index. Full investigation:
- * .ai/specs/rental-applications.md, "The contact_property hard-delete fix".
+ * Pipeline-adjacent test (ESignWizardController is not on CLAUDE.md's
+ * pipeline-gate list, but this write path is load-bearing regardless) for
+ * the contact_property hard-delete fix.
+ *
+ * saveStep()'s recipients-step auto-link block (e.g. "Johan, 2026-08-26 —
+ * property 6060, Piet Begrafnis wrongly linked as Owner") can match an
+ * EXISTING contact via legacy duplicate-detection and link them to the
+ * property. That matching logic is NOT what changed and cannot break —
+ * this test does not route through it. What changed is the write itself,
+ * extracted into ESignWizardController::linkRecipientToProperty(), tested
+ * directly: does it restore a previously-soft-deleted link instead of
+ * colliding with it. Full investigation: .ai/specs/rental-applications.md,
+ * "The contact_property hard-delete fix".
  */
 final class RecipientPropertyLinkRelinkTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_saving_the_recipients_step_relinks_a_previously_unlinked_matched_contact(): void
+    private function invokeLink(int $contactId, int $propertyId, string $role): void
+    {
+        $method = new ReflectionMethod(ESignWizardController::class, 'linkRecipientToProperty');
+        $method->setAccessible(true);
+        $method->invoke(app(ESignWizardController::class), $contactId, $propertyId, $role);
+    }
+
+    public function test_relinks_a_previously_unlinked_contact_instead_of_colliding(): void
     {
         $this->withoutVite();
         $agency = Agency::create(['name' => 'Home Finders Coastal', 'slug' => 'hfc-' . uniqid()]);
@@ -44,61 +52,52 @@ final class RecipientPropertyLinkRelinkTest extends TestCase
             'title' => 'House in Ramsgate', 'status' => 'active', 'property_type' => 'house', 'listing_type' => 'sale',
             'suburb' => 'Ramsgate', 'city' => 'Margate', 'province' => 'KwaZulu-Natal', 'address' => '1 Test Road',
         ]);
-        // id_number stored WITH separators, matched by the recipient step's
-        // duplicate-detection using a DIGITS-ONLY value — this is what
-        // actually routes through the auto-link branch that hits the
-        // property link (an exact-string id_number check earlier in
-        // resolveContact() would short-circuit before reaching it if the
-        // two forms matched literally, which they deliberately don't here).
         $contact = Contact::create([
             'agency_id' => $agency->id, 'branch_id' => $branch->id,
-            'first_name' => 'Sipho', 'last_name' => 'Ndlovu', 'id_number' => '800101-5000-08', 'phone' => '0821234567',
+            'first_name' => 'Sipho', 'last_name' => 'Ndlovu', 'email' => 'sipho-esign@example.co.za', 'phone' => '0821234567',
         ]);
 
-        // Previously linked to this exact property, then unlinked — a real,
-        // pre-existing state once unlink is soft-delete everywhere.
+        // Previously linked to this exact property, then unlinked — a
+        // real, pre-existing state once unlink is soft-delete everywhere.
         \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, 'owner');
         \App\Services\Property\ContactPropertyLinker::unlink($contact->id, $property->id);
         $this->assertDatabaseCount('contact_property', 1);
         $this->assertNotNull(ContactProperty::onlyTrashed()->first());
 
-        $flow = Flow::create([
-            'type' => 'esign',
-            'user_id' => $agent->id,
-            'property_id' => $property->id,
-            'status' => 'draft',
-            'current_step' => 3,
-            'step_data' => [
-                'property' => ['property_id' => $property->id, '_property_source' => 'properties'],
-            ],
+        $this->invokeLink($contact->id, $property->id, 'seller');
+
+        // Restored the one existing row, not a duplicate.
+        $this->assertDatabaseCount('contact_property', 1);
+        $this->assertSame(
+            1,
+            ContactProperty::withTrashed()->where('contact_id', $contact->id)->where('property_id', $property->id)->count()
+        );
+        $this->assertTrue(
+            $contact->properties()->where('properties.id', $property->id)->wherePivot('role', 'owner')->exists()
+        );
+    }
+
+    public function test_a_genuinely_new_link_creates_exactly_one_row(): void
+    {
+        $this->withoutVite();
+        $agency = Agency::create(['name' => 'Home Finders Coastal', 'slug' => 'hfc-' . uniqid()]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Ramsgate']);
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+        $property = Property::create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'agent_id' => $agent->id,
+            'title' => 'House in Ramsgate', 'status' => 'active', 'property_type' => 'house', 'listing_type' => 'rental',
+            'suburb' => 'Ramsgate', 'city' => 'Margate', 'province' => 'KwaZulu-Natal', 'address' => '2 Test Road',
+        ]);
+        $contact = Contact::create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id,
+            'first_name' => 'New', 'last_name' => 'Recipient', 'email' => 'new-recipient@example.co.za', 'phone' => '0827654321',
         ]);
 
-        $this->actingAs($agent);
-        $request = Request::create('/x', 'POST', [], [], [], [], json_encode([
-            'data' => [
-                'recipients' => [
-                    [
-                        'name' => 'Sipho Ndlovu',
-                        'email' => '',
-                        'id_number' => '8001015000008',
-                        'role' => 'seller',
-                        '_contact_id' => null,
-                    ],
-                ],
-            ],
-        ]));
-        $request->headers->set('CONTENT_TYPE', 'application/json');
-        $request->setUserResolver(fn () => $agent);
+        $this->invokeLink($contact->id, $property->id, 'tenant');
 
-        $method = new ReflectionMethod(ESignWizardController::class, 'saveStep');
-        $method->setAccessible(true);
-        $method->invoke(app(ESignWizardController::class), $request, $flow->id, 3);
-
-        // Restored the one existing row, not a duplicate, and no swallowed
-        // duplicate-key exception (the invoke() above would have thrown).
         $this->assertDatabaseCount('contact_property', 1);
         $this->assertTrue(
-            $contact->properties()->where('properties.id', $property->id)->exists()
+            $contact->properties()->where('properties.id', $property->id)->wherePivot('role', 'tenant')->exists()
         );
     }
 }

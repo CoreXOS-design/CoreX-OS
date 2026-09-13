@@ -851,19 +851,7 @@ class ESignWizardController extends Controller
 
                     // Link contact to property if one is selected
                     if ($propertyId && $propertySource === 'properties') {
-                        $pivotRoleMap = [
-                            'tenant' => 'tenant', 'lessee' => 'tenant',
-                            'buyer' => 'buyer',
-                            'landlord' => 'lessor', 'lessor' => 'lessor',
-                            'seller' => 'owner', 'owner' => 'owner',
-                        ];
-                        $pivotRole = $pivotRoleMap[strtolower($r['role'] ?? '')] ?? null;
-                        // ContactPropertyLinker, not syncWithoutDetaching() —
-                        // $contact can be an EXISTING, found contact, a real
-                        // risk of colliding with a soft-deleted contact_property
-                        // row. See .ai/specs/rental-applications.md, "The
-                        // contact_property hard-delete fix".
-                        \App\Services\Property\ContactPropertyLinker::link($contact->id, (int) $propertyId, $pivotRole);
+                        $this->linkRecipientToProperty($contact->id, (int) $propertyId, (string) ($r['role'] ?? ''));
                     }
                 }
             }
@@ -983,6 +971,29 @@ class ESignWizardController extends Controller
             'next_step' => $nextStep,
             'redirect'  => route('docuperfect.esign.step', ['flow' => $flow->id, 'step' => $nextStep]),
         ]);
+    }
+
+    /**
+     * Extracted from saveStep()'s recipients-step processing so the
+     * contact_property write it performs can be tested directly, without
+     * routing through the surrounding legacy duplicate-detection matching
+     * (which decides WHICH contact this is, not whether the link is safe).
+     * $contact can be an EXISTING, previously-resolved contact — a real
+     * risk of colliding with a soft-deleted contact_property row from a
+     * prior link/unlink of this exact pair. See .ai/specs/
+     * rental-applications.md, "The contact_property hard-delete fix".
+     */
+    private function linkRecipientToProperty(int $contactId, int $propertyId, string $recipientRole): void
+    {
+        $pivotRoleMap = [
+            'tenant' => 'tenant', 'lessee' => 'tenant',
+            'buyer' => 'buyer',
+            'landlord' => 'lessor', 'lessor' => 'lessor',
+            'seller' => 'owner', 'owner' => 'owner',
+        ];
+        $pivotRole = $pivotRoleMap[strtolower($recipientRole)] ?? null;
+
+        \App\Services\Property\ContactPropertyLinker::link($contactId, $propertyId, $pivotRole);
     }
 
     /**
