@@ -100,10 +100,36 @@ class RentalApplicationQualifyingSetting extends Model
     /** Rolling window the cap above applies over. */
     public const DEFAULT_AUTOSAVE_RATE_LIMIT_WINDOW_MINUTES = 60;
 
+    /**
+     * Document-upload volume cap, 2026-09-13 — Johan, live on QA1, blocked
+     * before golf: the PRE-EXISTING `throttle:10,1` on the public document
+     * upload/replace/remove routes is (a) keyed per-IP by Laravel's default
+     * unauthenticated signature, meaning an entire shared-office or carrier-
+     * grade-NAT mobile connection is ONE applicant as far as it's concerned
+     * — the exact incident, reproduced live: five uploads in two seconds
+     * from one IP hit it — and (b) sized for a task that routinely needs
+     * more: a real applicant's file picker fires ONE POST PER FILE,
+     * concurrently (`Promise.all` in show.blade.php's own JS), and a full
+     * document set (ID, payslips, bank statements, a FICA proof) commonly
+     * runs to 10+ phone photos selected in one action — before counting a
+     * single retry from a slow response, which is exactly what Johan hit.
+     * Sized against that realistic burst, not the typical one: up to 10
+     * files in ONE multi-select (the hard array cap `supporting_files`
+     * already enforces) plus a full second attempt if the first stalls,
+     * repeated across a session that adds documents in more than one
+     * batch (ID now, bank statements later) — comfortably inside 60 in 10
+     * minutes with real headroom to spare.
+     */
+    public const DEFAULT_DOCUMENT_RATE_LIMIT_MAX = 60;
+
+    /** Rolling window the cap above applies over. */
+    public const DEFAULT_DOCUMENT_RATE_LIMIT_WINDOW_MINUTES = 10;
+
     protected $fillable = [
         'agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days',
         'lock_property_after_submission', 'tag_contact_as_tenant_on_approval',
         'autosave_debounce_seconds', 'autosave_rate_limit_max', 'autosave_rate_limit_window_minutes',
+        'document_rate_limit_max', 'document_rate_limit_window_minutes',
     ];
 
     protected $casts = [
@@ -114,6 +140,8 @@ class RentalApplicationQualifyingSetting extends Model
         'autosave_debounce_seconds' => 'integer',
         'autosave_rate_limit_max' => 'integer',
         'autosave_rate_limit_window_minutes' => 'integer',
+        'document_rate_limit_max' => 'integer',
+        'document_rate_limit_window_minutes' => 'integer',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -216,5 +244,31 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->autosave_rate_limit_window_minutes !== null
             ? (int) $row->autosave_rate_limit_window_minutes
             : self::DEFAULT_AUTOSAVE_RATE_LIMIT_WINDOW_MINUTES;
+    }
+
+    public static function documentRateLimitMaxFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_DOCUMENT_RATE_LIMIT_MAX;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->document_rate_limit_max !== null
+            ? (int) $row->document_rate_limit_max
+            : self::DEFAULT_DOCUMENT_RATE_LIMIT_MAX;
+    }
+
+    public static function documentRateLimitWindowMinutesFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_DOCUMENT_RATE_LIMIT_WINDOW_MINUTES;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->document_rate_limit_window_minutes !== null
+            ? (int) $row->document_rate_limit_window_minutes
+            : self::DEFAULT_DOCUMENT_RATE_LIMIT_WINDOW_MINUTES;
     }
 }

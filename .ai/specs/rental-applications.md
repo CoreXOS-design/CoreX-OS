@@ -11154,3 +11154,260 @@ Traced from `RentalApplicationSigningController` directly, not inferred:
 
 Not touched, per instruction: nothing on this behaviour, and nothing
 beyond the wording moved in this round.
+
+## Authoriser screen: Decline's weight, its confirmation, doc visibility, and what he can actually see (2026-09-14, cc5)
+
+From cc4's watched authoriser walk. All GO except item 4, which was
+diagnose-only per instruction.
+
+**1 — Decline had a third the visual weight of Approve.** Was a
+`text-[11px] underline` text link under two real `corex-btn-*` buttons.
+Now `corex-btn-outline text-xs w-full mb-1.5` — same classes as "Send
+back", same width (157px) as all three buttons — with the same red
+outline styling the confirmation modal's own Decline button already used,
+so trigger and confirm now visually agree. Equal weight, not equal
+invitation, per instruction.
+
+**2 — Decline's confirmation had nothing to check against.** Approve's
+confirm() always carried a real figure ("Approve this tenant for
+R13,500.00?") because the amount is literally what was just typed;
+Decline's said only "Decline this application?" — survived the earlier
+approve/decline consistency fix because that fix was about destination/
+feedback/double-submit, never about what the confirmation itself names.
+Fixed using the exact same static facts every other screen on this page
+already resolves once (`$headerContactName`/`$propertyLabel`, computed
+near the top of the file) — now shown both in the modal body (durable,
+not a one-shot popup) and in the confirm() text itself, matching Approve's
+own pattern. Confirmed live: confirm() now reads "Decline the application
+from {name} for {property}?"
+
+**3 — Supporting Documents started collapsed on the authoriser's screen
+too.** One-line fix: `docsOpen: {{ $viewerRole === 'authoriser' ? 'true' : 'false' }}`
+(was hardcoded `false`). Agent's own collapsed default — Johan's explicit
+instruction — untouched; confirmed via card text-length comparison
+(authoriser: expanded content present; agent: still collapsed, header
+only).
+
+**4 — DIAGNOSED ONLY, not fixed, per instruction.** cc4 saw a technical
+error flash before the correct "Saved" tick. Reproduced precisely with
+network + visible-banner logging on a realistic two-step date entry (set
+"from", wait, then set "to" — not both at once): a 422 fires at +340ms
+("Enter both a from and to date...", correctly rejecting the momentarily-
+incomplete pair), the red banner shows that message for ~700ms (visible,
+not literally invisible on this box — cc4's exact framing may reflect a
+faster real-world gap between two field picks than my test's ~1s), then a
+SECOND, complete save at +1401ms succeeds. This is the **benign** case
+the conductor named, not the data-loss one: `performSave()` sends the
+FULL current state of every field on every call, never an incremental
+delta, so the successful save never depends on or inherits anything from
+the failed one — nothing is lost between the two. No handler changed.
+
+**A separate, real gap found while checking item 4's wording — the
+authoriser was told he'd see gaps he couldn't actually see.** The warning
+modal's own sentence, "You can still submit — the authoriser will see the
+same gaps," was not true. Two independent code-level causes, both fixed:
+
+- `incompleteAssessmentReasons()` (the three-gap check: no captured
+  lines / no period / net monthly not calculable) lived ONLY on
+  `rentalReview()` — the agent's own component — so it was never callable
+  on the authoriser's screen at all. Moved into the shared
+  `rentalCaptureLedger()` factory (already spread into both components,
+  same "one copy of the tally logic" pattern this file already follows)
+  — now genuinely one shared check, not two to keep in sync.
+- **The out-of-period amber dot (QA1 item 6) had the identical structural
+  gap, independently:** `rentalAuthorisationViewer()` never received
+  `statementPeriodFrom`/`statementPeriodTo` at all — only
+  `statementMonths` — so `isOutsidePeriod(row)`'s own first line
+  (`if (!this.statementPeriodFrom || ...) return false`) was permanently
+  true on the authoriser's screen, for every row, regardless of the real
+  data. The dot could never render for him. Coordinated with cc4 directly
+  (conductor's instruction, rather than both testing the same thing) —
+  confirmed this diagnosis to him before fixing, confirmed the fix after.
+  Fixed by passing `$assessment->statement_period_from/to` into the
+  authoriser's x-data call site, same read-only pattern already used for
+  `statement_months`.
+
+Added a persistent amber banner ("This assessment looks incomplete" +
+the same three bullet reasons, same words the agent's own modal uses) on
+the authoriser's screen only, near the "Agent's Assessment" heading —
+**computed live from current state, not from any "the agent saw this"
+flag**, so it is a property of the file per instruction, correct whether
+or not the agent's own warning was ever shown. Amber/informational,
+doesn't block Approve or Decline either way. Live-proven both ways: a
+fully empty fixture (205) shows all three reasons; a complete fixture
+(204, period set, one entry correctly outside it) shows NO gap banner and
+correctly shows the out-of-period dot only on the one row that's actually
+outside — screenshotted, both confirmed together on the same screen.
+
+**PDF and notification — checked, not built.** Grepped
+`RentalApplicationPdfService`, `RentalApplicationMailer`, and
+`RentalApplicationNotifier`: none reference `statement_months`,
+`incomeItems`, `captureEntries`, or the assessment at all. **Neither the
+approval PDF nor the agent-notification currently records whether the
+assessment was complete at the moment of decision.** This is a real gap —
+if the authoriser approves a thin file, nothing in the durable record
+shows he knew that — but it wasn't a "GO" in the instruction (only "tell
+me"), so reported here for a decision, not built.
+
+**The warning's wording — now true.** "You can still submit — the
+authoriser will see the same gaps" is accurate as of this fix: he does.
+
+**Small item, checked as asked — trivial, not built.** The agent's
+pre-send intake form (`show.blade.php`) is a long multi-section form
+(Property, Personal Details, Emergency Contact, and more below) with no
+"this is optional" reminder anywhere near it, while
+`create.blade.php` (one step earlier, picking a contact) says plainly
+"everything else is optional and can be filled in later or by the
+applicant themselves." Confirmed this reminder genuinely doesn't repeat
+anywhere on `show.blade.php`. It is exactly what was described: a one-
+line repeat of the existing sentence, near the top of the form. Not
+built — reported for you to route.
+
+**Found while in this file, not mine to fix, flagged by cc4 rather than
+left unflagged (his own words) — the strike/restore button (⊘/↺ per
+ledger line) does not work at all, for anyone, on any application.** Not
+a click-handling bug: every line pushed via `addCaptureEntry()` never
+gets a starting value for the busy-flag its `:disabled` binding checks
+(`strikingBusy` or equivalent, near `rentalCaptureLedger()`), so it reads
+`undefined` — which this Alpine version treats as permanently disabled.
+Confirmed by cc4 three ways (real click, JS click, fresh-reload-then-
+click): no network request ever fires. Upstream of both the incomplete-
+assessment and out-of-period work above, since striking is how an agent
+excludes a bad captured line in the first place. One-line fix (an
+explicit `false` on creation) but genuinely broken as shipped. Reporting,
+not fixing — not this task's scope.
+
+### Gates run before push
+
+`scripts/verify-alpine-render.mjs` against the authoriser screen (now
+expanded by default — 399 Alpine expressions, up from 279, all compile
+clean) and an agent screen — PASS both, zero leaked-attribute/execution
+failures (same pre-existing WARN-only scope-gap notices, one new one from
+the now-visible expanded-docs markup, unrelated to this change and
+present in the underlying scope structure before this edit too).
+`scripts/rental-smoke.mjs`: `review_screen` and `authorisation_screen`
+both pass with 0 console errors; the one failure is the same pre-existing
+markup_view/fixture-data issue documented multiple times above, unrelated,
+not touched. `dev-check.ps1` cannot run on this box (no `pwsh`) — stated
+plainly.
+
+## Document upload throttle incident (Johan, live on QA1, 2026-09-13)
+
+Johan was blocked mid-application ("too many attempts") uploading
+documents on a real rental application (id 230). Root-caused via nginx
+access logs + the QA1 database cache table (not assumption): the culprit
+was a **pre-existing, unrelated** `throttle:10,1` on the public document
+upload/replace/remove routes — Laravel's stock unauthenticated per-IP
+throttle, keyed on `sha1($domain.'|'.$ip)` — not the applicant-side
+autosave rate limiter built earlier this session (that limiter's own
+counter for this application had only taken 22 of its 3,000 budget; it
+was never close to tripping). His own incident had already self-resolved
+(the 60-second window expired) by the time it was investigated; his
+autosave limiter key was also cleared as an immediate precaution before
+the real cause was confirmed.
+
+Conductor's ruling (this is a plain defect, not a business decision —
+Johan did not need to be consulted): re-key to the application token,
+raise + agency-configure the limit sized against the worst realistic
+case, and replace the message with a human one. Same pattern as the
+autosave rate limit built earlier this session.
+
+### The fix
+
+- **`app/Providers/AppServiceProvider.php`** — new named limiter
+  `rental-application-documents`, resolves the application from the
+  `{token}` route parameter and keys purely on
+  `'rental-application-documents:' . $token` — **no IP component at
+  all**, unlike the `reengage-shared-link` limiter's two-part
+  token+IP pattern elsewhere in this file, which would have reintroduced
+  the exact shared-connection bug this fix exists to close. On trip,
+  returns `{"message": "You've made a lot of document changes in a short
+  time, so uploads are paused for a moment. Everything you've already
+  uploaded is safe — please wait a minute and try again."}` (429) — read
+  by the same `data.message` handling `show.blade.php` already has from
+  the AT-392 async-upload work, no frontend change needed.
+- **`routes/web.php`** — `POST /{token}/documents`,
+  `POST /{token}/documents/{document}/remove`,
+  `POST /{token}/documents/{document}/replace` re-keyed from
+  `throttle:10,1` to `throttle:rental-application-documents`.
+- **`RentalApplicationQualifyingSetting`** — new
+  `document_rate_limit_max` / `document_rate_limit_window_minutes`
+  columns (nullable, same "never write on read" pattern as every other
+  setting in this model), default **60 per 10 minutes**. Sizing
+  rationale: the applicant's own file picker fires one POST per file,
+  concurrently (`Promise.all`), and `supporting_files` already hard-caps
+  a multi-select at 10 files — so a full document set (ID, payslips,
+  bank statements, FICA proof) plus one full retry because the first
+  attempt stalled (exactly what happened to Johan) is 20 requests. 60
+  leaves headroom for that burst plus a second batch later in the same
+  session (bank statements added after the ID), with real margin to
+  spare, the same worst-case-not-typical-case sizing already used for
+  `DEFAULT_AUTOSAVE_RATE_LIMIT_MAX`.
+- **Settings screen** — `corex.settings.rental-applications.document-
+  rate-limit` (new route + controller method +
+  `resources/views/corex/settings/rental-applications.blade.php` block),
+  mirroring the existing "Applicant Autosave Volume Cap" block exactly.
+- **Migration**:
+  `2026_09_13_000000_add_document_rate_limit_to_rental_application_qualifying_settings.php`.
+- **Tests**:
+  `tests/Feature/RentalApplications/RentalApplicationDocumentUploadRateLimitTest.php`
+  — 4 tests, 41 assertions, all passing: realistic 20-request burst at
+  the real default never trips; two tokens never share a budget; tripping
+  it returns the human message and damages nothing already uploaded;
+  the setting has a sensible default and is agency-configurable.
+
+### Three proofs required by the conductor, run live against QA1 (qatesting1.corexos.co.za)
+
+Using throwaway fixtures (agencies 44/45, applications 231/232/233 —
+all soft-deleted after; applications 70, 76, 107, 204, 205, and Johan's
+own 230 confirmed untouched before and after):
+
+1. **Realistic burst never trips** — application 231, real shipped
+   default (60/10min): 2 batches of 10 concurrent-shaped uploads each
+   (20 total, the exact worst-case the default was sized against) — all
+   20 returned HTTP 200.
+2. **Two tokens never share a budget** — applications 232/233, agency
+   setting temporarily lowered to 2/10min for this throwaway agency only:
+   application 232 was driven to its cap (3rd upload → HTTP 429) from the
+   same box/IP that application 233 then uploaded 2 files from
+   successfully (HTTP 200, HTTP 200) — proving the key is the token, not
+   the IP, exactly the defect this fix closes.
+3. **Tripping it shows the human message and loses nothing** —
+   application 233's own 3rd upload (its own cap, not 232's) returned
+   HTTP 429 with the exact human message above (no "Too many attempts"
+   anywhere in the body); a direct DB check afterward confirmed both of
+   233's pre-trip documents (`c-preB-1.pdf`, `c-preB-2.pdf`) were present,
+   unduplicated, and untouched.
+
+### Gates
+
+`scripts/verify-alpine-render.mjs` against a real authenticated fetch of
+the settings screen (`scripts/fetch-authenticated-page.php`, user 22) —
+PASS, 209 Alpine expressions compile clean, zero leaked attribute text,
+zero execution errors (only pre-existing WARN-only scope-gap notices on
+unrelated components: sidebar/markup, document-type search, validity
+overrides — none touching this change). `scripts/rental-smoke.mjs` — all
+8 screens PASS, 0 console errors.
+
+### Sweep — other per-IP throttles on the public applicant journey (report only, none changed)
+
+Per the conductor's explicit instruction, the rest of the public
+applicant-facing routes were swept for the same shared-connection
+problem. **None of these were touched — reported for a decision, not
+fixed**, since re-keying each is a distinct judgment call about what
+"real" volume looks like on that specific action (view/read routes carry
+materially different risk than a mutating action like document upload
+did):
+
+| Route | Method | Middleware | Notes |
+|---|---|---|---|
+| `/{token}` (show) | GET | `throttle:30,1` | Page load — a shared office/NAT connection with multiple applicants sharing one link-family could plausibly hit 30/min on a bad connection with aggressive retries, though far less likely than the concurrent-multi-POST shape that caused the document incident. |
+| `/{token}/autosave` | POST | `throttle:40,1` | Per-IP AND supplemented by the existing per-application layer built earlier this session (`autosave_rate_limit_max`/`window_minutes`, default 3,000/60min) — the app-level layer already gives this route real headroom independent of IP, unlike documents before today's fix. |
+| `/{token}/submit` | POST | `throttle:10,1` | Fires once per genuine submission attempt; a shared IP would need 10 real people submitting different applications in the same minute to collide — low likelihood, still per-IP. |
+| `/{token}/pdf` | GET | `throttle:30,1` | Read-only render, no state mutation risk if capped. |
+| `/{token}/documents/{document}` (view) | GET | `throttle:30,1` | Read-only render, same category as pdf above. |
+
+All five remain per-IP as shipped. Flagging per the conductor's
+instruction that "the same shared-office problem applies to them" is a
+possibility worth a ruling, not a claim that any of them has actually
+caused an incident — only the document upload route has.

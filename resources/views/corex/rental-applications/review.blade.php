@@ -160,6 +160,17 @@
          highlighters: {{ Js::from($highlighters) }},
          initialCaptureEntries: {{ Js::from($captureEntries) }},
          initialStatementMonths: {{ Js::from($assessment->statement_months) }},
+         {{-- 2026-09-14 (cc4's walk, Johan GO) — the authoriser's viewer
+              never received these at all, which meant isOutsidePeriod()
+              silently returned false unconditionally on this screen (its
+              own first check is `!this.statementPeriodFrom`, always true
+              here since the property never existed) — the out-of-period
+              amber dot could never render for an authoriser, regardless of
+              the actual data. Same read-only need as statement_months
+              above: the authoriser doesn't edit these, just needs them to
+              compute against. --}}
+         initialStatementPeriodFrom: {{ Js::from($assessment->statement_period_from?->format('Y-m-d')) }},
+         initialStatementPeriodTo: {{ Js::from($assessment->statement_period_to?->format('Y-m-d')) }},
          captureStrikeUrlTemplate: '{{ route('corex.rental-applications.authorisation.capture-entries.strike', [$rentalApplication, '__MARK_UID__']) }}',
      })"
      @endif
@@ -645,7 +656,12 @@
                  `this` binding is genuinely different from a raw x-init
                  expression's. --}}
             <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
-                 x-data="{ docsOpen: false, restoreJustUploadedDocRow() {
+                 {{-- Authoriser starts expanded, 2026-09-14 (cc4's walk, Johan
+                      GO — authoriser-screen only). Agent's collapsed default is
+                      Johan's own explicit instruction and stays untouched — the
+                      authoriser's whole job here is checking the paperwork
+                      behind the numbers, where the agent's is not. --}}
+                 x-data="{ docsOpen: {{ $viewerRole === 'authoriser' ? 'true' : 'false' }}, restoreJustUploadedDocRow() {
                     try {
                         const justUploadedIds = JSON.parse(sessionStorage.getItem('rentalReviewJustUploadedDocIds') || 'null');
                         sessionStorage.removeItem('rentalReviewJustUploadedDocIds');
@@ -1160,6 +1176,33 @@
                 <p class="text-xs mb-2" x-show="agentActionStatus" x-text="agentActionStatus" :style="agentActionError ? 'color: var(--ds-red, #dc2626);' : 'color: var(--ds-emerald, #059669);'"></p>
             @endif
 
+            @if($viewerRole === 'authoriser')
+                {{-- 2026-09-14 (cc4's watched walk, Johan GO) — the agent's
+                     own submit-time warning ("You can still submit — the
+                     authoriser will see the same gaps") was a promise the
+                     screen didn't keep: nothing here told the authoriser
+                     the file was thin. A barely-documented application and
+                     a fully-evidenced one looked identical to him. Same
+                     facts, same words as the agent's own warning
+                     (incompleteAssessmentReasons(), now shared — see that
+                     method's own comment) — computed live from the current
+                     captured lines/period/net-monthly, so this is a
+                     property of the FILE, not of whether the agent's modal
+                     was ever seen or dismissed. Amber/informational per
+                     instruction: decision-relevant (he's approving or
+                     declining a number, and a gap in the evidence behind
+                     that number is relevant to that decision), never an
+                     error, and it does not block him acting either way —
+                     Johan's ruling that a thin file CAN be submitted still
+                     stands, this only makes sure HE knows it's thin too. --}}
+                <div class="rounded-md px-3 py-2 text-xs mb-2" x-show="incompleteAssessmentReasons().length" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
+                    <p class="font-semibold mb-1">This assessment looks incomplete</p>
+                    <ul class="space-y-0.5">
+                        <template x-for="reason in incompleteAssessmentReasons()" :key="reason"><li x-text="'• ' + reason"></li></template>
+                    </ul>
+                </div>
+            @endif
+
             {{-- ROUND 8, 2026-09-11 — capture-ledger rework. Johan: "the
                  highlighter mark IS the ledger line." Read-only tally now
                  (income/expense entries come from drawing on the document
@@ -1274,7 +1317,7 @@
                              toggle is the same call both ways. .stop so
                              clicking it never also fires the row's own
                              jumpToMark(). --}}
-                        <button type="button" class="rr-ledger-strike" :disabled="row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
+                        <button type="button" class="rr-ledger-strike" :disabled="!!row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
                     </div>
                 </template>
             </div>
@@ -1305,7 +1348,7 @@
                         <span class="rr-ledger-amount text-xs" :style="{ color: row.struck_out ? 'var(--text-muted)' : 'var(--text-primary)', 'text-decoration': row.struck_out ? 'line-through' : 'none' }" :title="row.entry_description" x-text="formatR(row.entry_amount)"></span>
                         <span x-show="!row.document_missing" class="text-[11px] text-right" :style="{ color: row.document_id ? 'var(--ds-blue, #2563eb)' : 'var(--text-muted)' }">&rarr;</span>
                         <span x-show="row.document_missing" class="text-[10px] text-right" style="color: var(--ds-crimson, #dc2626);">Document removed</span>
-                        <button type="button" class="rr-ledger-strike" :disabled="row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
+                        <button type="button" class="rr-ledger-strike" :disabled="!!row.strikingBusy" :title="row.struck_out ? 'Restore this line to the totals' : 'Strike this line — exclude it from the totals'" @click.stop="toggleStrike(row)" x-text="row.struck_out ? '↺' : '⊘'"></button>
                     </div>
                 </template>
             </div>
@@ -1384,7 +1427,18 @@
                     @else
                         <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
                         <button type="button" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true">Approve &amp; continue</button>
-                        <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-crimson, #dc2626);" @click="declineModalOpen = true">Decline</button>
+                        {{-- Equal weight with Approve, 2026-09-14 (cc4's walk,
+                             Johan GO): "declining is the unusual, awkward
+                             path" was a real, visible bias — a full-width
+                             underlined TEXT LINK a third the size sitting
+                             under two real buttons. Same corex-btn-outline
+                             shape/size as Send back, same destructive-red
+                             styling the confirmation modal's own Decline
+                             button already used (so trigger and confirm now
+                             visually agree) — distinct from Approve's solid
+                             primary treatment on purpose, per instruction:
+                             equal weight, not equal invitation. --}}
+                        <button type="button" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline</button>
                     @endif
                 @endif
             </div>
@@ -1521,13 +1575,31 @@
                     </div>
                 </div>
 
-                {{-- Decline — same fields/form/pattern as before. --}}
+                {{-- Decline — same fields/form/pattern as before. Identifying
+                     info added 2026-09-14 (cc4's walk, Johan GO): Approve's
+                     confirm() always carried a real figure to check against
+                     ("Approve this tenant for R13,500.00?") — a last chance
+                     to catch a mistake — because the amount is literally
+                     what the authoriser just typed. Decline has no
+                     equivalent typed value, so it had nothing at all; this
+                     survived the earlier approve/decline consistency fix
+                     because that fix was about destination/feedback/
+                     double-submit, never about what the confirmation itself
+                     names. The same STATIC identifying facts every other
+                     screen already resolves ($headerContactName/
+                     $propertyLabel, computed once near the top of this
+                     file) now appear both in the modal body (durable, not a
+                     one-shot popup) and in the confirm() text (matching
+                     Approve's own pattern exactly), so an authoriser working
+                     a queue can see, at the moment of confirming, which
+                     applicant she is turning down. --}}
                 <div x-show="declineModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="declineModalOpen = false">
                     <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="declineModalOpen = false">
                         <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Decline</h3>
+                        <p class="text-xs mb-2" style="color: var(--text-secondary);">{{ $headerContactName }}{{ $propertyLabel ? ' — ' . $propertyLabel : '' }}</p>
                         <textarea x-model="declineReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="Reason for decline (required) — the agent will see this"></textarea>
                         <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}"
-                              @submit="if (!confirm('Decline this application?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason">
+                              @submit="if (!confirm('Decline the application from ' + {{ Js::from($headerContactName) }} + {{ Js::from($propertyLabel ? ' for ' . $propertyLabel : '') }} + '?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.declineReasonField.value = declineReason">
                             @csrf
                             <input type="hidden" name="reason" x-ref="declineReasonField">
                             <div class="flex justify-end gap-2">
@@ -1723,7 +1795,30 @@
  */
 function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate } = {}) {
     return {
-        captureEntries: initialCaptureEntries || [],
+        // BUG FIX, 2026-09-15 — Johan, live on QA1: the strike/restore
+        // button never fired for anyone. Root cause: `strikingBusy` was
+        // never given an initial value, so `:disabled="row.strikingBusy"`
+        // bound `undefined` rather than `false`. A DOM boolean attribute
+        // binding backed by `undefined` (as opposed to an explicit `false`)
+        // resolves through `Element.toggleAttribute(name, force)`, and per
+        // the DOM spec, `force === undefined` is treated as THE ARGUMENT
+        // BEING OMITTED — toggleAttribute then flips whatever the
+        // attribute's CURRENT presence happens to be, instead of forcing it
+        // false. Confirmed directly in a real headless Chromium: calling
+        // `el.toggleAttribute('disabled', undefined)` on a fresh element
+        // turns `disabled` ON, not off. Every row's button rendered
+        // permanently disabled from first paint, before a human ever
+        // touched it — no error, nothing to catch in a test that only hits
+        // the endpoint directly (see the spec's own write-up of this
+        // incident for the fuller answer to "what would have caught this").
+        // Fixed two ways, not one: `!!row.strikingBusy` at every binding
+        // site (a real boolean can never trigger the omitted-argument
+        // ambiguity, regardless of where the row object came from), AND
+        // `strikingBusy: false` given explicitly here and everywhere a row
+        // enters captureEntries below — belt-and-braces, since the field
+        // existing as a real value from the moment a row is created is the
+        // fix that actually matches its own name.
+        captureEntries: (initialCaptureEntries || []).map(e => ({ strikingBusy: false, ...e })),
         captureStrikeUrlTemplate: captureStrikeUrlTemplate || '',
         // Johan's decision, 2026-09-14 — a brief, row-agnostic error surface
         // for the strike/restore toggle (locked screen, wrong author, etc.)
@@ -1828,6 +1923,30 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
             if (!this.statementPeriodFrom || !this.statementPeriodTo || !row.entry_date) return false;
             return row.entry_date < this.statementPeriodFrom || row.entry_date > this.statementPeriodTo;
         },
+        // MOVED into the shared factory, 2026-09-14 (cc4's walk, Johan GO)
+        // — this used to live only on rentalReview() (the agent's own
+        // component), so the incomplete-assessment gaps it lists were
+        // visible only in the agent's own submit-time warning modal. The
+        // authoriser's screen showed nothing, even though the modal's own
+        // wording promised "the authoriser will see the same gaps" — a
+        // promise the code never kept. Now computed once, shared by both,
+        // same facts either side reads it from. A property of the FILE
+        // (current captured lines / period / net monthly), never of
+        // whether anyone clicked anything — correct by construction for
+        // "whether or not the agent saw the warning."
+        incompleteAssessmentReasons() {
+            const reasons = [];
+            if (this.incomeEntries().length === 0 && this.expenseEntries().length === 0) {
+                reasons.push('No income or expense lines have been captured.');
+            }
+            if (!this.statementPeriodFrom || !this.statementPeriodTo) {
+                reasons.push('No statement period has been set.');
+            }
+            if (this.netMonthly() === null) {
+                reasons.push('Net monthly income could not be calculated.');
+            }
+            return reasons;
+        },
         // Sums exactly what the server will sum — same rows, same filter,
         // plain addition (no server-side qualifyingResult() dependency any
         // more; that computation still exists, unused by this screen now,
@@ -1890,11 +2009,17 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
             return parts[2] + '/' + parts[1] + '/' + parts[0].slice(2);
         },
         addCaptureEntry(entry) {
-            this.captureEntries.push(entry);
+            this.captureEntries.push({ strikingBusy: false, ...entry });
         },
         updateCaptureEntry(entry) {
             const idx = this.captureEntries.findIndex(e => e.id === entry.id);
-            if (idx !== -1) this.captureEntries.splice(idx, 1, entry);
+            // strikingBusy: false here too — this replaces the WHOLE row
+            // object (including after a strike/restore's own optimistic
+            // update), and the server's response never carries this
+            // client-only transient field. Without it, the very toggle
+            // that finishes clearing the busy state would immediately
+            // reintroduce the undefined-vs-false bug this fix exists for.
+            if (idx !== -1) this.captureEntries.splice(idx, 1, { strikingBusy: false, ...entry });
         },
         removeCaptureEntry(markUid) {
             const idx = this.captureEntries.findIndex(e => e.id === markUid);
@@ -2114,21 +2239,11 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
             this.agentActionStatus = 'This application changed since you opened it — the applicant resubmitted. Reload the page to see the new version.';
         },
         // Warning, never a gate — see the modal's own comment above.
+        // incompleteAssessmentReasons() itself moved into the shared
+        // rentalCaptureLedger() spread, 2026-09-14 — see that copy's own
+        // comment for why.
         incompleteSubmitWarningOpen: false,
         incompleteSubmitReasons: [],
-        incompleteAssessmentReasons() {
-            const reasons = [];
-            if (this.incomeEntries().length === 0 && this.expenseEntries().length === 0) {
-                reasons.push('No income or expense lines have been captured.');
-            }
-            if (!this.statementPeriodFrom || !this.statementPeriodTo) {
-                reasons.push('No statement period has been set.');
-            }
-            if (this.netMonthly() === null) {
-                reasons.push('Net monthly income could not be calculated.');
-            }
-            return reasons;
-        },
         submitForApproval() {
             if (this.submittingForApproval) return;
             const reasons = this.incompleteAssessmentReasons();
@@ -2645,7 +2760,7 @@ function rentalReviewPropertyLink({ searchUrl, linkUrl, currentLabel }) {
     };
 }
 
-function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, initialCaptureEntries, initialStatementMonths, captureStrikeUrlTemplate }) {
+function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, initialCaptureEntries, initialStatementMonths, initialStatementPeriodFrom, initialStatementPeriodTo, captureStrikeUrlTemplate }) {
     return {
         // Shared highlight/note viewer — see partials/document-highlighter-script.blade.php.
         ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }),
@@ -2658,6 +2773,15 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
         // dates are the agent's own field, read-only here) — just the
         // number needed for monthlyIncome()/netMonthly() to compute.
         statementMonths: initialStatementMonths ?? '',
+        // 2026-09-14 — read-only mirrors of the agent's own period fields.
+        // Without these, isOutsidePeriod() (in the shared
+        // rentalCaptureLedger() spread above) silently returned false
+        // unconditionally here — the out-of-period amber dot could never
+        // render for an authoriser. Not editable on this screen, same as
+        // statementMonths above; needed purely so the shared computation
+        // has real dates to compare against.
+        statementPeriodFrom: initialStatementPeriodFrom ?? '',
+        statementPeriodTo: initialStatementPeriodTo ?? '',
 
         // Decision panel fields — unchanged from before this screen grew a document viewer.
         approveAmount: '',
