@@ -14454,6 +14454,18 @@ in `show.blade.php` against the array, not by hand-matching a list I'm
 guessing at now — that enumeration happens when this is built, is mechanical,
 and needs no design decision.
 
+**This test is load-bearing — do not delete it because it gets in the way.**
+Conductor, 2026-09-13, on why: the failure mode it exists to catch is the
+nasty one — a field marked compulsory in settings that nothing actually
+enforces, or enforced server-side without ever being shown/explained on the
+form. Nobody notices either failure at build time; an agency finds out only
+when incomplete applications keep coming through anyway, or an applicant
+gets rejected for a reason the screen never told them about. If this test
+is ever in the way of a change (a field renamed, a new conditional group,
+a field genuinely removed from the form), the correct fix is to update the
+registry and the test's own `DELIBERATELY_EXCLUDED` list with a reason —
+never to delete or skip the test itself.
+
 **Group = the applicability condition, fixed by the form's own logic, not
 agency-configurable.** Three groups today:
 - `employed` — applies only when `employment_type === 'permanently_employed'`
@@ -14591,3 +14603,34 @@ record on a correction — moot, since there's nothing to correct against)
 are recorded in `.ai/specs/compliance.md` under "Rulings" — that is the
 canonical record; this entry exists so anyone working this file's history
 also hits it. Do not re-propose without a new mandate from Johan.
+
+## Open decision — retroactivity of a newly-ticked compulsory field (2026-09-13, PENDING Johan's confirmation)
+
+**Not settled — do not treat as decided.** The conductor asked, thinking-not-
+building: if an agency marks a field compulsory AFTER applications have
+already been submitted without it, what happens to those existing
+applications? Three options were named — they become retroactively invalid,
+they stay valid and the new rule applies only to submissions from that point
+forward, or the agent sees them flagged as incomplete. The conductor's own
+instinct was the middle option, because changing a setting should not
+silently invalidate work people have already signed.
+
+**What the current implementation actually does, confirmed structurally, not
+merely claimed**: `RentalApplicationQualifyingSetting::requiredFieldKeysFor()`
+is read fresh at the moment of each `submit()` call. There is no code path
+anywhere that goes back and re-validates, revalidates, or flags an
+already-submitted application against a setting changed afterward. So today,
+option two (forward-only, nothing retroactive) is what happens — not because
+it was chosen as a considered answer to this question, but because it is the
+natural consequence of reading the setting live rather than caching it onto
+each application at submit time.
+
+**This is the conductor's own reasoning and this build's implementation —
+Johan has not seen the question.** If he prefers option three (existing
+applications missing a newly-compulsory field flagged as incomplete on the
+review screen), that is real, unbuilt work: `required_field_keys` would need
+to be wired into the existing `incompleteAssessmentReasons()` mechanism
+(`review.blade.php`), which currently runs its own independent completeness
+heuristic unrelated to this setting. Do not build either path as more settled
+than it is — the current behaviour is what the code happens to do, not a
+ruling.
