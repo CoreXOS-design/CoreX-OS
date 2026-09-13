@@ -12221,9 +12221,92 @@ click target is still the whole row, not the glyph; the out-of-period dot
 still has no click handler. Neither was affected by this round's fix and
 neither needed one.
 
-**Not yet re-confirmed in an actual real browser** — that is the
-conductor's own next step per their instruction, and the honest state of
-this fix until they do.
+**Round C — width/clip axis confirmed in real Chrome; a second, distinct
+defect found on the height axis (2026-09-13, conductor + cc3).** The
+conductor re-measured live in real Windows Chrome after a genuine cache
+bust: the width/clip fix above is CLOSED — 18px wide, fully inside the
+content edge, 4px of real clearance, hit map contiguous. That is the
+first sub-part of this saga independently confirmed outside headless.
+
+Separately, the conductor found the button's effective height had
+regressed to ~16px live, against a CSS-declared 20px `::before` overlay
+that headless consistently (and wrongly, for the same structural reason
+as the width bug) measured as a clean, unclipped 20-21px.
+
+**Root cause: a second knife-edge, this time vertical.** The `::before`
+was sized to consume the *entire* 6.5px of vertical slack in the row
+(20.5px row pitch − 14px real button box = 6.5px, split 20px overlay =
+100% of it, zero margin). Because the row pitch itself is a non-integer
+(20.5px), each row's overlay touches its neighbour's at an exact,
+contested sub-pixel boundary. Headless's integer-rounded hit-testing
+resolves that touch as clean; real Chrome resolves it by actual
+sub-pixel geometry and DOM paint order, and was measured shaving the
+contested edge down on the earlier row. Mechanistically distinct from
+the horizontal clip (that one was a genuine `overflow-x: hidden` cutting
+through a button; this one is two adjacent absolutely-positioned overlays
+contesting a shared edge with no margin) — but the same *lesson*: an
+element sized to exactly, zero-margin, exactly match an adjacent boundary
+is a headless-blind risk, not just this one.
+
+**Fix:** `::before` height reduced 20px → 18px. Leaves ~1.25px of real
+clearance on each side instead of 0px, so no row's overlay can ever
+contest its neighbour's. Real box (14px) and width (18px) untouched.
+
+**Verified (headless — arithmetic, not click-simulation) on TWO
+fixtures:**
+- App 300 (3 rows, hands-off, read-only measurement — no clicks): row
+  pitch unchanged at 20.5/49.5px; clickable rect now 18×19px (18px
+  design + 1px integer-scan rounding), right edge exactly 1475+18=1493
+  on all three rows (unchanged from round 2 — the height fix never
+  touched width).
+- New throwaway fixture **application 341** ("THROWAWAY Ledger Test
+  Fixture (cc3 hit-area verify)", 12 ledger lines, status `in_progress`,
+  never touches 70/76/107/204/205/230/300): row pitch uniformly 20.5px
+  across all 11 gaps — no drift on a longer ledger. Same 18×19px
+  clickable rect, same exact-1493 right edge, on every one of the 12
+  rows. Overlay-to-neighbour clearance now ~3px measured (previously 0).
+
+**Round C confirmed by the conductor in real Windows Chrome, on the
+deployed build:** before the fix, real Chrome measured 18×16 on fixture
+300 (3 rows) but 18×20-21 on fixture 341 (12 rows) — the same
+layout-dependent inconsistency the sub-pixel-boundary diagnosis
+predicted. After the fix (18px overlay), BOTH fixtures measure identically
+18×19 on every row — the layout-dependent variation is gone, not just
+reduced. Struck state (`"(2 struck)"` / `"(1 struck)"`) also confirmed to
+survive a full page reload post-deploy. Horizontal clip, vertical shave,
+and function are all closed.
+
+**Round D — the real (visible) glyph box grew 14px → 16px, a free
+ceiling (2026-09-13, conductor + cc3).** The conductor asked, having
+accepted the 18×19 invisible hit area, whether the real button box itself
+could grow toward 18-20px for a bigger visible target — explicitly asking
+for an honest empirical answer, not an assumption, and to be told plainly
+if it doesn't fit. Swept 14/16/18/20px directly (temporarily edited,
+measured, reverted, never left mid-sweep) against the 12-row fixture:
+
+| real box height | row pitch | growth |
+|---|---|---|
+| 14px | 20.5px | — (previous) |
+| 16px | 20.5px | **zero** |
+| 18px | 22px | +1.5px/row |
+| 20px | 24px | +3.5px/row |
+
+16px is the free ceiling: the row's content height was already governed
+by the date column's own 16.5px, so a button up to 16px is a tie, not a
+new tallest element — CSS grid only grows a row once a child exceeds the
+existing tallest sibling. Past 16px, growth is exact and linear (matches
+the earlier 1.5px-at-18px anecdote precisely, and predicts 20px's cost
+correctly). Shipped: real box → 16px (bigger, more legible glyph, zero
+row-density cost). The already-fixed 18px invisible overlay is
+unaffected — its footprint was already bigger than either box height, so
+this is a pure visual-affordance win, not a hit-area change. 18-20px
+real boxes remain possible but have a real, quantified, non-hypothetical
+cost (+1.5 to +3.5px per row, compounding on a long ledger) — that
+trade-off was reported, not silently made.
+
+Re-verified post-change on 341: pitch still 20.5px on every one of 11
+gaps, right edge still exactly x1493, clickable footprint still 18×19 on
+all 12 rows — the glyph got bigger, nothing else moved.
 
 ## Approved application → link to property, mark it Let (2026-09-13, cc3)
 

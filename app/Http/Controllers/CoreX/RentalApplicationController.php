@@ -56,10 +56,34 @@ class RentalApplicationController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user();
-        $requestedScope = $request->get('scope', 'own');
+        // 2026-09-13 — real incident: this used to hardcode 'own' as the
+        // default before the user's own ceiling was ever consulted, so an
+        // Owner/admin (ceiling 'all') landed on a list — AND tiles reading
+        // "All 14"/"Declined 0"/"FICA Outstanding 6" — that silently showed
+        // only their own 14 of the agency's real 112, with no control on
+        // screen to reach the rest. `scopeVisibleTo()` below already
+        // resolves a null requested scope to the user's real ceiling via
+        // PermissionService::clampScope() (the exact mechanism
+        // ContactController::index()'s own $dataScope relies on) — the bug
+        // was overriding that with a literal before it ever got the
+        // chance. No requested scope now means "use my ceiling", not
+        // "assume own".
+        $requestedScope = $request->get('scope');
         $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_applications');
+        $resolvedScope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
         $canSeeBranch = in_array($maxScope, ['branch', 'all'], true);
         $canSeeAgency = $maxScope === 'all';
+        // Mirrors DeedsCaptureController's own $deedsScopeOptions exactly
+        // (Johan's named reference implementation for this control) — the
+        // toggle only ever offers what this user's ceiling actually
+        // permits; a wider option never renders, and a hand-crafted
+        // ?scope= beyond the ceiling is independently clamped above
+        // regardless of what the button set shows.
+        $scopeOptions = match ($maxScope) {
+            'all' => ['own', 'branch', 'all'],
+            'branch' => ['own', 'branch'],
+            default => ['own'],
+        };
 
         $perPage = $this->resolvePerPage($request);
 
@@ -161,6 +185,7 @@ class RentalApplicationController extends Controller
         return view('corex.rental-applications.index', compact(
             'applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage',
             'tile', 'counts', 'isAuthoriser', 'authorisationQueueCount', 'canViewReturned',
+            'resolvedScope', 'scopeOptions',
         ));
     }
 
