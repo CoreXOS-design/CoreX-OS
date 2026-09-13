@@ -97,6 +97,14 @@ rendered"), run `node scripts/rental-smoke.mjs` — see BUILD_STANDARD.md for
 the full contract. **A 200 HTTP status is not a pass signal in either
 script and must never be treated as one.**
 
+Neither of these two scripts drives an interaction — a page loading is not
+the same claim as a control on that page actually working. For any push
+touching a rental review-screen control (strike/restore, add-line, submit,
+approve, decline, send-back, etc.), `node scripts/rental-click-through.mjs`
+is a third REQUIRED gate — see Standard −1f, below, for the full contract
+and why a PHPUnit test proving a controller endpoint works is not proof a
+human can actually reach it.
+
 **`scripts/dev-check.ps1` is PowerShell. There is no `pwsh` on this box. It
 has never run here, for any build, ever.** Stop citing it as a verification
 gate for any change made in this environment — the two scripts above are
