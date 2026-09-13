@@ -109,6 +109,30 @@ final class RentalApplicationFicaHandoffTest extends TestCase
         $show->assertSee('One more step needed');
     }
 
+    /**
+     * ficaOutstanding() alone can't tell "never started" from "submitted,
+     * awaiting our own review" — an applicant who already did their part
+     * must never be told to "contact your agent" as if they hadn't.
+     */
+    public function test_a_submitted_but_not_yet_approved_fica_shows_awaiting_review_not_one_more_step(): void
+    {
+        FicaSubmission::create([
+            'contact_id' => $this->contact->id, 'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'requested_by' => $this->agent->id, 'status' => 'submitted',
+            'token' => Str::random(64), 'token_expires_at' => now()->addDays(14),
+        ]);
+        $application = $this->application();
+        $this->post(route('rental-applications.public.submit', $application->token), $this->submitPayload());
+
+        $this->assertTrue($application->refresh()->ficaOutstanding());
+        $this->assertFalse($application->ficaAwaitingApplicantAction());
+
+        $show = $this->get(route('rental-applications.public.show', $application->token));
+        $show->assertOk();
+        $show->assertSee('Verification in progress');
+        $show->assertDontSee('One more step needed');
+    }
+
     public function test_a_contact_with_an_already_approved_unexpired_fica_is_reused_not_duplicated(): void
     {
         $existing = FicaSubmission::create([

@@ -102,10 +102,14 @@ class RentalApplicationSigningController extends Controller
             $isTerminallyClosed = in_array($application->status, RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, true);
             // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan: "flagged
             // ... on the applicant's confirmation" if they abandoned FICA.
+            // ficaAwaitingApplicantAction distinguishes "never started" from
+            // "submitted, we're reviewing it" — telling someone who already
+            // did their part to go contact their agent would be wrong.
             $ficaOutstanding = $application->ficaOutstanding();
+            $ficaAwaitingApplicantAction = $application->ficaAwaitingApplicantAction();
 
             return view('rental-applications.public.already-submitted', compact(
-                'application', 'documentUploadsOpen', 'documentUploadsClosedMessage', 'isTerminallyClosed', 'ficaOutstanding'
+                'application', 'documentUploadsOpen', 'documentUploadsClosedMessage', 'isTerminallyClosed', 'ficaOutstanding', 'ficaAwaitingApplicantAction'
             ));
         }
 
