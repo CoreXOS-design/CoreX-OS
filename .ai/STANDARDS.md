@@ -751,6 +751,23 @@ is cc2's own work, not cc4's, despite the name.
 
 ---
 
+## Standard −1n — Check the raw HTML, not the rendered text, when verifying removed data is gone (2026-09-16)
+
+The conductor's own walk of tonight's contact_property no-delete fix, five real-mouse screens deep: three of the five only became conclusive by reading the actual HTML response, not what the page visually showed. The live-links finding came directly out of doing this — a removed seller's live property link page still returned a real `HTTP 200` with a full render, unauthenticated, even though the seller's name was gone from every visible screen.
+
+**The rule: when verifying that removed data is gone, check the raw HTML
+(or the raw API response), not the rendered page as a human sees it.** A name absent from what's visually on screen is not proof of anything — it can still be sitting in a hidden field, an unauthenticated side-channel route, a data attribute never displayed, or a page nobody thought to look at that renders it in full. "I don't see it on the page" and "it's gone" are different claims; only checking the actual payload proves the second one.
+
+This is the same family as Standard −1f ("proving an endpoint is not proving a feature") and Standard −1j (prove the input arrived before blaming the code) — a different instrument, the same principle: know what your verification method can and cannot see, and don't let "looks right on screen" stand in for "the underlying data is actually gone."
+
+## Standard −1o — Capture the BEFORE before you change anything (2026-09-16)
+
+Two outcomes from the same night, side by side: cc5 captured a real before-picture on the DR2 refusal-wording finding before touching anything, unprompted — the after became verifiable proof (the owner's name genuinely replaced by "one of the sellers on this deal", not just plausible-looking new copy). The conductor did not capture a before-picture on the tenant-unlink walk, and said so plainly rather than claim a baseline she didn't have — a `Schema::hasColumn()` check stood in as indirect evidence instead (no `deleted_at` column existed on the old schema, so a hard delete was the only possible prior outcome), which was sufficient evidence to proceed but is a strictly weaker form of proof than an actual before-screenshot or before-response would have been.
+
+**The rule: capture the actual before-state — a screenshot, a saved response body, a raw query result — before making the change you're about to verify, whenever that capture is possible.** An after-only comparison against memory or assumption is an argument, not proof; a real before-and-after pair is proof. This costs almost nothing when the target is still reachable, and the cost of skipping it is exactly what happened tonight: an honest gap in the record, disclosed rather than papered over, but a gap all the same. If the before is genuinely unreachable (the case that forced the tenant-unlink workaround: the very confirm() being fixed was itself blocking the capture), say so explicitly and name the indirect evidence used instead — do not claim a baseline that wasn't actually taken.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
