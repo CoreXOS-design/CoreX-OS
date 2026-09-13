@@ -88,6 +88,22 @@ final class TaskBoardExcludesPropertyAutomationTest extends TestCase
             ->assertDontSee('Upload owner ID copy');
     }
 
+    public function test_board_has_no_at_risk_strip_and_always_renders_all_four_columns(): void
+    {
+        // One overdue task would have lit the old "At Risk" strip; three columns are empty.
+        $this->task('Call the seller back', 'custom', null, null);
+
+        $this->actingAs($this->agent)
+            ->get(route('command-center.tasks'))
+            ->assertOk()
+            ->assertDontSee('At Risk')
+            ->assertSee('data-kanban-column="todo"', false)
+            ->assertSee('data-kanban-column="in_progress"', false)
+            ->assertSee('data-kanban-column="awaiting"', false)
+            ->assertSee('data-kanban-column="done"', false)
+            ->assertDontSee('emptyColumnHidden');
+    }
+
     public function test_archived_view_hides_archived_property_housekeeping(): void
     {
         $this->task('Old real task', 'custom', null, null, deletedAt: now());
