@@ -535,3 +535,35 @@ All 13 must pass on staging before deploying to live.
 ---
 
 *Ready to fire Phase 1.*
+
+---
+
+## 11. Outcomes dashboard — Cockpit strip layout (2026-09-13)
+
+Andre asked for `/corex/presentations/outcomes` to stop scrolling and picked
+**1 · Cockpit strip** from four drafts on a design canvas
+(https://claude.ai/code/artifact/6e8f6b14-6c48-4643-8037-c7343ab4fdda — the other
+three, Split view / Tabs / Outcome board, stay there). View-only change to
+`resources/views/presentations/outcomes/index.blade.php`; the controller, its
+filters, the metrics, the loss-reasons breakdown and the table are untouched.
+
+**The rule:** the page fits the viewport. The banner (title + the filter form on
+its right) and the numbers strip stay put; the outcomes table is the one region
+that scrolls, inside itself, with a sticky column header; the loss-reasons chart
+sits in a 300px rail beside the table (below it, capped at 40vh, under `lg`).
+Same frozen-header / inner-scroll pattern as the Today page and Deeds Capture:
+root `w-full h-full flex flex-col`, body `flex-1 min-h-0`, the scroll region
+`flex-1 min-h-0 overflow-auto corex-brand-scroll`.
+
+**What moved, not what changed:**
+
+| Before | Now |
+|---|---|
+| Filter form in its own card under the banner | Same form, same fields (from / to / outcome / loss reason / agent, Apply, Clear), on the right of the banner with screen-reader-only labels |
+| Six tall metric tiles | The same six numbers as one slim strip (three per row below `lg`) |
+| Loss-reasons card full width above the table | Same bars in the rail beside the table |
+| Table in page flow, page scrolls | Table scrolls inside its card; pagination pinned to the card foot |
+
+The tour anchors (`pres-outcomes-intro / -filters / -metrics / -loss-reasons`)
+and the empty state are preserved. Further Outcomes UI work extends this frame;
+do not reintroduce stacked sections.
