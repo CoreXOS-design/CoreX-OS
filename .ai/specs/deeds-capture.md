@@ -602,3 +602,77 @@ captured with no classification, logged as a warning, and is neither current nor
 
 Nothing in this list has been touched. This section is the spec only, per Johan's instruction —
 build starts when he says so.
+
+---
+
+## 8. Screen layout — Queue + inspector (Andre, 2026-09-13)
+
+**Status:** Built on branch `today-day-timeline` (view only — no controller, route, model or data
+change). Not deployed, not promoted.
+
+### 8.1 What was wrong
+The screen was a banner, a filter bar, and up to 30 tall cards stacked underneath. Each card carried
+the property, its owners/directors/previous owners, an owner-conflict box, the side-by-side comparison
+table, the "what this capture changed" log and the Virtual Agent numbers — so one page ran for many
+screens and the agent lost their place after every action (each action is a PRG reload).
+
+### 8.2 What it is now
+The page never scrolls. Five layouts were drafted on a design canvas
+(https://claude.ai/code/artifact/5680d913-6884-4b5f-aba7-aef3cd3c3023); Andre chose **1 · Queue +
+inspector** and asked for the property header to use the full inspector width ("stretch it out,
+otherwise it is very squished").
+
+```
+┌ header card: title + Own/Branch/All + search + agent picker ─────────────────┐  frozen
+├ flash (success / info) ──────────────────────────────────────────────────────┤  frozen
+├──────────────┬───────────────────────────────────────────────────────────────┤
+│ QUEUE 380px  │ INSPECTOR (selected capture)                                  │
+│ "N waiting"  │ header, full width, frozen: PROPERTY eyebrow → address (lg,   │
+│ + count tags │ bold) → scraped by → status sentence → why → take-rule line → │
+│              │ "No — different property" → details lines → ACTION ROW        │
+│ row per      ├───────────────────────────────────────────────────────────────┤
+│ capture:     │ body, scrolls inside itself: owners / directors / previous    │
+│ address      │ owners / owner conflict → comparison panel (with its Same /   │
+│ owner ·      │ Different buttons) → parse status → what this capture changed │
+│ scraped by   │ → Virtual Agent numbers                                       │
+│ + one tag    │                                                               │
+│ (scrolls)    │                                                               │
+│ pagination   │                                                               │
+└──────────────┴───────────────────────────────────────────────────────────────┘
+```
+
+- **Frame:** `w-full h-full flex flex-col` inside the layout's `<main id="appScroll">`, the same
+  frozen-header / inner-scroll pattern as the contact page (AT-393). The queue list carries
+  `data-scroll-region` so the global scroll preserve/restore keeps the agent's place in the queue
+  across the PRG reload every action causes.
+- **Queue row** = headline (sectional headline swap from §6.3 unchanged; wraps, never truncates),
+  `first owner [+ N more] · scraped by <name>`, and ONE tag: `Blocked` (take rule `active_blocked`),
+  `Owner differs` (open owner conflict), `Same property?` (confident match to stock), `Possible match`
+  (ambiguous / GPS-only candidates), `On file` (tracked property predates this capture), else `New`.
+  Derived from the same flags the inspector header prints in full, in severity order, so row and
+  detail can never disagree. Queue header shows the total waiting and non-zero group counts
+  (new / matches / need a look / numbers).
+- **Standalone TVA captures** (no matching property) queue up after the properties as their own
+  rows + panels, tagged `Numbers`; the standalone Ingest form is unchanged.
+- **Inspector** = the existing card, re-flowed. Every capture's panel is rendered (hidden via
+  `x-show` until selected) so every form, every `form=""` attribute wiring TVA tick-boxes into the
+  promote form, and every `confirm()` keep working exactly as before. The right-hand "Action" column
+  became the action row under the address; nothing else in the card changed.
+- **Selection** lives in Alpine (`selected`), keyed `tp-<id>` / `tva-<id>`, remembered per
+  path+query in `sessionStorage`. On any form submit inside the inspector (not a cancelled
+  `confirm()`), the NEXT row's id is remembered so the reload lands on the next capture rather than
+  back at the top. A remembered id that no longer exists falls back to the first row.
+- **Empty state** renders only when there are neither captures nor standalone TVA captures.
+- **Mobile:** panes stack (`flex-col lg:flex-row`), queue capped at 40vh.
+
+### 8.3 Deliberately unchanged
+Controller, routes, permissions, pagination (30), every action, every label Johan set, every
+comment explaining why. No new setting → nothing for the Setup Wizard (CLAUDE.md #10a).
+
+### 8.4 Acceptance
+- [x] Page does not scroll at 1440×900; queue and inspector body scroll inside themselves.
+- [x] Selecting a row swaps the inspector; the address sits on its own full-width line.
+- [x] After Remove / Add / Same / Different, the reload lands on the next row (or the same row if it
+      is still there), never at the top.
+- [x] `tests/Feature/Prospecting/DeedsCaptureDismissTest.php` green (renders both a property row and
+      a standalone TVA row, then asserts they vanish after dismiss).

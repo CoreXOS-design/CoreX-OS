@@ -1,36 +1,30 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deeds Capture</h1>
-        <p class="text-xs mt-1" style="color: var(--text-muted);">
-            Properties captured from CMA / deeds lookups, held here for review. These are kept separate from
-            Market Intelligence. Confirm a capture to create a real property and link the owner as its owner.
-        </p>
-    </div>
-
-    @if(session('success'))
-        {{-- success_link (2026-08-14) — optional, set only by promote() (and,
-             2026-08-17, ingestTva()) alongside 'success'; dismiss actions keep
-             sending a plain string with no link, so this stays backward-
-             compatible rather than changing the shape of session('success')
-             itself. Closes the "action named with no way to take it" dead-end.
-             success_link_label defaults to promote()'s original copy so that
-             call site is unaffected; ingestTva() supplies its own ("Open
-             contact →") since the link target differs (a contact, not a
-             property). --}}
-        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 35%, transparent); color: var(--text-primary);">
-            {{ session('success') }}
-            @if(session('success_link'))
-                <a href="{{ session('success_link') }}" class="font-semibold underline" style="color: var(--ds-green, #16a34a);">{{ session('success_link_label', 'Open property →') }}</a>
-            @endif
+<style>
+    /* Deeds Capture — queue + inspector (2026-09-13, .ai/specs/deeds-capture.md §8).
+       Row hover/selection use the same tokens as the contacts list rows. */
+    .deeds-queue-row { transition: background 150ms ease; }
+    .deeds-queue-row:hover { background: var(--surface-2); }
+    .deeds-queue-row.is-selected {
+        background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);
+        box-shadow: inset 3px 0 0 var(--brand-icon, #0ea5e9);
+    }
+</style>
+{{-- Queue + inspector layout (Andre, 2026-09-13; .ai/specs/deeds-capture.md §8).
+     The page no longer scrolls: header + filters stay put, the queue on the left
+     scrolls inside itself, and the selected capture's full card fills the right-hand
+     inspector. Same frozen-header / inner-scroll pattern as the contact page (AT-393).
+     Every capture's card is still rendered (hidden until selected) so every form,
+     every form="" attribute and every confirm() keeps working exactly as before. --}}
+<div class="w-full h-full flex flex-col gap-3">
+    <div class="rounded-md px-4 py-3 flex flex-wrap items-center justify-between gap-3 flex-shrink-0" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="min-w-0">
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deeds Capture</h1>
+            <p class="text-xs mt-0.5" style="color: var(--text-muted);">
+                Captured from CMA / deeds lookups and held here for review — kept separate from Market Intelligence.
+            </p>
         </div>
-    @endif
-    @if(session('info'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-secondary);">{{ session('info') }}</div>
-    @endif
-
     {{-- Data scope + Agent picker + Search (Johan, 2026-08-20) — same idiom as the Contacts
          list's own filter bar (corex.contacts.index): Alpine agent-picker modal fed by a
          server-scoped candidate list, a search box, submitted via one GET form so every
@@ -52,7 +46,7 @@
                 f.submit();
             }
          }"
-         class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+         class="min-w-0">
         <form method="GET" action="{{ route('corex.deeds-capture.index') }}" x-ref="deedsFilterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Scope quick filters (Johan, 2026-08-21) — "there should always be the scope -
@@ -190,8 +184,30 @@
             @endif
         </form>
     </div>
+    </div>
 
-    @if($captures->isEmpty())
+    @if(session('success'))
+        {{-- success_link (2026-08-14) — optional, set only by promote() (and,
+             2026-08-17, ingestTva()) alongside 'success'; dismiss actions keep
+             sending a plain string with no link, so this stays backward-
+             compatible rather than changing the shape of session('success')
+             itself. Closes the "action named with no way to take it" dead-end.
+             success_link_label defaults to promote()'s original copy so that
+             call site is unaffected; ingestTva() supplies its own ("Open
+             contact →") since the link target differs (a contact, not a
+             property). --}}
+        <div class="rounded-md px-4 py-3 text-sm flex-shrink-0" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #16a34a) 35%, transparent); color: var(--text-primary);">
+            {{ session('success') }}
+            @if(session('success_link'))
+                <a href="{{ session('success_link') }}" class="font-semibold underline" style="color: var(--ds-green, #16a34a);">{{ session('success_link_label', 'Open property →') }}</a>
+            @endif
+        </div>
+    @endif
+    @if(session('info'))
+        <div class="rounded-md px-4 py-3 text-sm flex-shrink-0" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-secondary);">{{ session('info') }}</div>
+    @endif
+
+    @if($captures->isEmpty() && $tvaStandalone->isEmpty())
         <div class="rounded-md p-8 text-center" style="background: var(--surface); border: 1px solid var(--border);">
             @if($searchTerm !== '' || $filterAgentId !== '')
                 <p class="text-sm" style="color: var(--text-muted);">No deeds captures match this filter. <a href="{{ route('corex.deeds-capture.index') }}" class="underline">Clear it</a> to see everything in your scope.</p>
@@ -200,7 +216,20 @@
             @endif
         </div>
     @else
-        <div class="space-y-3">
+        @php
+            // Queue + inspector (§8): the loop below renders NOTHING inline. Each
+            // capture pushes one compact row onto 'deedsQueueRows' and its full card
+            // onto 'deedsInspectorPanels'; the two-pane frame after the loops pops
+            // both stacks. $deedsQueueIds is the selection order Alpine walks.
+            $deedsQueueIds = [];
+            $deedsCounts = ['new' => 0, 'match' => 0, 'look' => 0, 'tva' => 0];
+            $deedsTagStyle = fn (string $tone) => match ($tone) {
+                'green'   => 'background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);',
+                'amber'   => 'background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);',
+                'crimson' => 'background: color-mix(in srgb, var(--ds-crimson, #dc2626) 15%, transparent); color: var(--ds-crimson, #dc2626);',
+                default   => 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);',
+            };
+        @endphp
             @foreach($captures as $tp)
                 @php
                     $addr = collect([
@@ -388,12 +417,39 @@
                         $rowConfirmName = $shortStreetAddress($tp) ?: ($headline !== '' ? $headline : 'this property');
                     }
                 @endphp
-                <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                    <div class="flex flex-wrap items-start justify-between gap-4">
-                        {{-- Property --}}
-                        <div class="min-w-0 flex-1">
+                @php
+                    // Queue row tag (§8) — one phrase for what this capture needs, derived
+                    // from the SAME flags the inspector header spells out in full, so the
+                    // row and the detail can never disagree. Order = severity: a blocked
+                    // match outranks an owner conflict outranks a plain match question.
+                    $rowAge = $stockStatus['age'] ?? null;
+                    if ($rowAge && $rowAge->band === 'active_blocked') {
+                        [$rowTag, $rowTagTone, $rowTagGroup] = ['Blocked', 'crimson', 'look'];
+                    } elseif ($openConflicts->isNotEmpty()) {
+                        [$rowTag, $rowTagTone, $rowTagGroup] = ['Owner differs', 'amber', 'look'];
+                    } elseif ($stockStatus['property'] ?? null) {
+                        [$rowTag, $rowTagTone, $rowTagGroup] = ['Same property?', 'amber', 'match'];
+                    } elseif (!empty($stockStatus['ambiguousCandidates']) || !empty($stockStatus['gpsOnlyCandidates'])) {
+                        [$rowTag, $rowTagTone, $rowTagGroup] = ['Possible match', 'amber', 'match'];
+                    } elseif ($tpPredatesThisCapture) {
+                        [$rowTag, $rowTagTone, $rowTagGroup] = ['On file', 'crimson', 'look'];
+                    } else {
+                        [$rowTag, $rowTagTone, $rowTagGroup] = ['New', 'green', 'new'];
+                    }
+                    $deedsCounts[$rowTagGroup]++;
+                    $deedsQueueIds[] = 'tp-' . $tp->id;
+                @endphp
+                @push('deedsInspectorPanels')
+                <div x-show="selected === 'tp-{{ $tp->id }}'" x-cloak class="flex-1 min-h-0 flex flex-col">
+                    {{-- Inspector header — spans the full inspector width so the address has
+                         room (Andre, 2026-09-13: "stretch it out, otherwise it is very squished").
+                         What this is + what to do about it live here and stay put; the
+                         evidence (owners, comparison, changes, Virtual Agent numbers) scrolls
+                         underneath in its own region. --}}
+                    <div class="px-5 py-4 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
+                        <div class="min-w-0">
                             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">Property</div>
-                            <div class="font-semibold text-sm" style="color: var(--text-primary);">
+                            <div class="font-bold text-lg leading-tight" style="color: var(--text-primary);">
                                 {{ $headline !== '' ? $headline : 'This property' }}
                             </div>
 
@@ -533,6 +589,88 @@
                                 @if($tp->sale_type) · {{ $tp->sale_type }}@endif
                             </div>
                         </div>
+
+                        {{-- Action row (was the right-hand "Action" column of the stacked card;
+                             §8 moves it under the address so the header reads top-to-bottom:
+                             what this is → what we think → what you can do). --}}
+                        {{-- One-button promote+ingest (2026-08-19, Johan, verbatim from last
+                             night): tick the numbers you want, click THIS button once — no
+                             separate Ingest step in the ordering, no panel collapsing out from
+                             under the user. The id here is the target of every nested TVA
+                             block's checkboxes below (via the HTML5 form="" attribute — those
+                             inputs are NOT inside this <form> tag in the DOM, they submit into
+                             it anyway), so one click carries both writes. --}}
+                        {{-- Johan, after reading his own screen: "every button says what it
+                             will DO." Same action as always (promote()) — the label now
+                             names what actually happens instead of "Promote to property +
+                             contact", which meant nothing to an agent. --}}
+                        <div class="flex flex-wrap items-center gap-2 mt-3">
+                            @if($stockStatus['property'] ?? null)
+                                {{-- Deeds-capture duplicate-match take rule (Johan, 2026-08-21) —
+                                     "the Same/Different confirmation buttons sit with this panel,
+                                     since this is where the decision is now made." The form and its
+                                     buttons render with the comparison panel below, not here. --}}
+                                <div class="text-xs" style="color: var(--text-muted);">Decide using the comparison below ↓</div>
+                            @else
+                                @if(!empty($stockStatus['ambiguousCandidates']) || !empty($stockStatus['gpsOnlyCandidates']))
+                                    {{-- 2026-08-22 (matcher-accuracy build, property 15698) — the matcher found
+                                         something close but refused to auto-pick, either because more than one
+                                         candidate shares the same erf/stand/complex (Villa Del Sol / Lynne
+                                         Avenue class of case) or because GPS proximity was the only signal
+                                         (never confident alone). 15698's whole failure was that a near
+                                         neighbour existed and nothing on screen ever said so — this is that
+                                         "so" moment. Purely informational: still an honest "Add as new" below,
+                                         but the agent now sees this first. --}}
+                                    <div class="text-xs rounded-md p-2.5 basis-full" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, var(--border)); color: var(--ds-amber, #f59e0b);">
+                                        @if(!empty($stockStatus['ambiguousCandidates']))
+                                            <div class="font-semibold">{{ $stockStatus['ambiguousCandidates']->count() }} possible matches — none picked automatically</div>
+                                            <ul class="mt-1 space-y-0.5">
+                                                @foreach($stockStatus['ambiguousCandidates'] as $cand)
+                                                    <li>
+                                                        <a href="{{ route('corex.properties.show', $cand->id) }}" target="_blank" rel="noopener" class="no-underline" style="color: inherit; text-decoration: underline;">
+                                                            {{ trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')) ?: ('Property #' . $cand->id) }}{{ $cand->suburb ? ', ' . $cand->suburb : '' }}
+                                                        </a>
+                                                    </li>
+                                                @endforeach
+                                            </ul>
+                                        @elseif(!empty($stockStatus['gpsOnlyCandidates']))
+                                            <div class="font-semibold">{{ $stockStatus['gpsOnlyCandidates']->count() }} {{ $stockStatus['gpsOnlyCandidates']->count() === 1 ? 'property is' : 'properties are' }} within 25m — worth checking</div>
+                                            <ul class="mt-1 space-y-0.5">
+                                                @foreach($stockStatus['gpsOnlyCandidates'] as $cand)
+                                                    <li>
+                                                        <a href="{{ route('corex.properties.show', $cand->id) }}" target="_blank" rel="noopener" class="no-underline" style="color: inherit; text-decoration: underline;">
+                                                            {{ trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')) ?: ('Property #' . $cand->id) }}{{ $cand->suburb ? ', ' . $cand->suburb : '' }}
+                                                        </a>
+                                                    </li>
+                                                @endforeach
+                                            </ul>
+                                        @endif
+                                    </div>
+                                @endif
+                                <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
+                                      onsubmit="return confirm('Add this as a new property and link the owner? Any ticked contact numbers below will be added too.');">
+                                    @csrf
+                                    <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
+                                        Add as a new property
+                                    </button>
+                                </form>
+                            @endif
+                            {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
+                            <form method="POST" action="{{ route('corex.deeds-capture.dismiss', $tp->id) }}"
+                                  onsubmit="return confirm('Remove this capture from the list? It will no longer show here, but nothing is permanently deleted.');">
+                                @csrf
+                                <button type="submit" class="text-xs font-semibold px-3 py-2 rounded-md"
+                                        style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">
+                                    Remove
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    {{-- Inspector body — the evidence. Scrolls inside itself; the header
+                         above and the queue beside it never move. --}}
+                    <div class="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+                    <div class="flex flex-wrap items-start gap-6">
 
                         {{-- Owner(s) — multi-owner (2026-08-12): CMA properties can list more than
                              one registered owner; loop tracked_property_owners when present, else
@@ -773,79 +911,6 @@
                             </div>
                         @endif
 
-                        {{-- Action --}}
-                        <div class="flex-shrink-0 flex flex-col items-end gap-2">
-                            {{-- One-button promote+ingest (2026-08-19, Johan, verbatim from last
-                                 night): tick the numbers you want, click THIS button once — no
-                                 separate Ingest step in the ordering, no panel collapsing out from
-                                 under the user. The id here is the target of every nested TVA
-                                 block's checkboxes below (via the HTML5 form="" attribute — those
-                                 inputs are NOT inside this <form> tag in the DOM, they submit into
-                                 it anyway), so one click carries both writes. --}}
-                            {{-- Johan, after reading his own screen: "every button says what it
-                                 will DO." Same action as always (promote()) — the label now
-                                 names what actually happens instead of "Promote to property +
-                                 contact", which meant nothing to an agent. --}}
-                            @if($stockStatus['property'] ?? null)
-                                {{-- Deeds-capture duplicate-match take rule (Johan, 2026-08-21) —
-                                     "the Same/Different confirmation buttons sit with this panel,
-                                     since this is where the decision is now made." The form and its
-                                     buttons render with the comparison panel below, not here. --}}
-                                <div class="text-xs" style="color: var(--text-muted);">Decide using the comparison below ↓</div>
-                            @else
-                                @if(!empty($stockStatus['ambiguousCandidates']) || !empty($stockStatus['gpsOnlyCandidates']))
-                                    {{-- 2026-08-22 (matcher-accuracy build, property 15698) — the matcher found
-                                         something close but refused to auto-pick, either because more than one
-                                         candidate shares the same erf/stand/complex (Villa Del Sol / Lynne
-                                         Avenue class of case) or because GPS proximity was the only signal
-                                         (never confident alone). 15698's whole failure was that a near
-                                         neighbour existed and nothing on screen ever said so — this is that
-                                         "so" moment. Purely informational: still an honest "Add as new" below,
-                                         but the agent now sees this first. --}}
-                                    <div class="text-xs rounded-md p-2.5 max-w-xs text-right" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, var(--border)); color: var(--ds-amber, #f59e0b);">
-                                        @if(!empty($stockStatus['ambiguousCandidates']))
-                                            <div class="font-semibold">{{ $stockStatus['ambiguousCandidates']->count() }} possible matches — none picked automatically</div>
-                                            <ul class="mt-1 space-y-0.5 text-left">
-                                                @foreach($stockStatus['ambiguousCandidates'] as $cand)
-                                                    <li>
-                                                        <a href="{{ route('corex.properties.show', $cand->id) }}" target="_blank" rel="noopener" class="no-underline" style="color: inherit; text-decoration: underline;">
-                                                            {{ trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')) ?: ('Property #' . $cand->id) }}{{ $cand->suburb ? ', ' . $cand->suburb : '' }}
-                                                        </a>
-                                                    </li>
-                                                @endforeach
-                                            </ul>
-                                        @elseif(!empty($stockStatus['gpsOnlyCandidates']))
-                                            <div class="font-semibold">{{ $stockStatus['gpsOnlyCandidates']->count() }} {{ $stockStatus['gpsOnlyCandidates']->count() === 1 ? 'property is' : 'properties are' }} within 25m — worth checking</div>
-                                            <ul class="mt-1 space-y-0.5 text-left">
-                                                @foreach($stockStatus['gpsOnlyCandidates'] as $cand)
-                                                    <li>
-                                                        <a href="{{ route('corex.properties.show', $cand->id) }}" target="_blank" rel="noopener" class="no-underline" style="color: inherit; text-decoration: underline;">
-                                                            {{ trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')) ?: ('Property #' . $cand->id) }}{{ $cand->suburb ? ', ' . $cand->suburb : '' }}
-                                                        </a>
-                                                    </li>
-                                                @endforeach
-                                            </ul>
-                                        @endif
-                                    </div>
-                                @endif
-                                <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
-                                      onsubmit="return confirm('Add this as a new property and link the owner? Any ticked contact numbers below will be added too.');">
-                                    @csrf
-                                    <button type="submit" class="text-xs font-semibold px-4 py-2 rounded-md text-white" style="background: var(--brand-button, #0ea5e9);">
-                                        Add as a new property
-                                    </button>
-                                </form>
-                            @endif
-                            {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
-                            <form method="POST" action="{{ route('corex.deeds-capture.dismiss', $tp->id) }}"
-                                  onsubmit="return confirm('Remove this capture from the list? It will no longer show here, but nothing is permanently deleted.');">
-                                @csrf
-                                <button type="submit" class="text-xs font-semibold px-3 py-1 rounded-md"
-                                        style="background:transparent; color:#ef4444; border:1px solid rgba(239,68,68,0.4);">
-                                    Remove
-                                </button>
-                            </form>
-                        </div>
                     </div>
 
                     {{-- Side-by-side comparison panel (Johan, 2026-08-21): "current property -
@@ -1133,29 +1198,123 @@
                     @foreach(($tvaByProperty[$tp->id] ?? []) as $tvaCapture)
                         @include('corex.deeds-capture._tva-capture', ['capture' => $tvaCapture, 'formId' => 'promote-form-' . $tp->id])
                     @endforeach
+                    </div>
                 </div>
+                @endpush
+
+                {{-- Queue row (§8) — the address, who owns it, who scraped it, and the one
+                     phrase for what it needs. The address wraps rather than truncates so a
+                     sectional headline ("Complex — Section 2, Suburb") stays readable. --}}
+                @php
+                    $rowOwner = $ownerRows->first();
+                    $rowOwnerLabel = $rowOwner
+                        ? ($rowOwner->contact ? trim($rowOwner->contact->first_name . ' ' . (string) $rowOwner->contact->last_name) : ($rowOwner->name ?? 'Unnamed owner'))
+                        : ($owner ? trim($owner->first_name . ' ' . (string) $owner->last_name) : 'No owner captured');
+                    if ($ownerRows->count() > 1) {
+                        $rowOwnerLabel .= ' + ' . ($ownerRows->count() - 1) . ' more';
+                    }
+                @endphp
+                @push('deedsQueueRows')
+                <button type="button" @click="pick('tp-{{ $tp->id }}')"
+                        :class="selected === 'tp-{{ $tp->id }}' ? 'is-selected' : ''"
+                        class="deeds-queue-row w-full text-left flex items-start gap-3 px-3 py-2.5"
+                        style="border-top: 1px solid var(--border);">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-[13px] font-semibold leading-snug" style="color: var(--text-primary);">{{ $headline !== '' ? $headline : 'This property' }}</div>
+                        <div class="text-[11px] mt-0.5 truncate" style="color: var(--text-muted);">{{ $rowOwnerLabel }} · scraped by {{ $tp->deedsCapturedBy->name ?? 'Unknown' }}</div>
+                    </div>
+                    <span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap flex-shrink-0" style="{{ $deedsTagStyle($rowTagTone) }}">{{ $rowTag }}</span>
+                </button>
+                @endpush
             @endforeach
-        </div>
 
-        <div>{{ $captures->links() }}</div>
-    @endif
-
-    {{-- Standalone TVA captures — no matching suspense record, or the record
-         they matched isn't currently on this list (dismissed/promoted). --}}
-    @if($tvaStandalone->isNotEmpty())
-        <div class="rounded-md px-6 py-4 mt-6" style="background: var(--brand-default, #0b2a4a);">
-            <h2 class="text-base font-bold text-white">TVA captures — no matching property</h2>
-            <p class="text-xs text-white/60 mt-1">Either no deeds-capture record shares this ID number, or its matched property is no longer on this list.</p>
-        </div>
-        <div class="space-y-3 mt-3">
+            {{-- Standalone TVA captures — no matching suspense record, or the record
+                 they matched isn't currently on this list (dismissed/promoted). They queue
+                 up after the properties, each with its own row + inspector panel. --}}
             @foreach($tvaStandalone as $tvaCapture)
-                <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-                    {{-- Standalone (no suspense record to promote, or it's already promoted) —
-                         genuinely no Promote button to merge with, so this keeps its own
-                         independent Ingest form exactly as before (formId omitted). --}}
-                    @include('corex.deeds-capture._tva-capture', ['capture' => $tvaCapture, 'formId' => null])
+                @php
+                    $deedsQueueIds[] = 'tva-' . $tvaCapture->id;
+                    $deedsCounts['tva']++;
+                    $tvaName = trim(($tvaCapture->first_name ?? '') . ' ' . ($tvaCapture->surname ?? '')) ?: 'Unknown name';
+                @endphp
+                @push('deedsQueueRows')
+                <button type="button" @click="pick('tva-{{ $tvaCapture->id }}')"
+                        :class="selected === 'tva-{{ $tvaCapture->id }}' ? 'is-selected' : ''"
+                        class="deeds-queue-row w-full text-left flex items-start gap-3 px-3 py-2.5"
+                        style="border-top: 1px solid var(--border);">
+                    <div class="min-w-0 flex-1">
+                        <div class="text-[13px] font-semibold leading-snug" style="color: var(--text-primary);">{{ $tvaName }}</div>
+                        <div class="text-[11px] mt-0.5 truncate" style="color: var(--text-muted);">Virtual Agent capture · no matching property</div>
+                    </div>
+                    <span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap flex-shrink-0" style="{{ $deedsTagStyle('brand') }}">Numbers</span>
+                </button>
+                @endpush
+                @push('deedsInspectorPanels')
+                <div x-show="selected === 'tva-{{ $tvaCapture->id }}'" x-cloak class="flex-1 min-h-0 flex flex-col">
+                    <div class="px-5 py-4 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
+                        <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">Virtual Agent capture</div>
+                        <div class="font-bold text-lg leading-tight" style="color: var(--text-primary);">{{ $tvaName }}</div>
+                        <div class="text-sm mt-1.5" style="color: var(--text-primary);">No matching property — either no deeds-capture record shares this ID number, or its matched property is no longer on this list.</div>
+                    </div>
+                    <div class="flex-1 min-h-0 overflow-y-auto px-5 py-4">
+                        {{-- Standalone (no suspense record to promote, or it's already promoted) —
+                             genuinely no Promote button to merge with, so this keeps its own
+                             independent Ingest form exactly as before (formId omitted). --}}
+                        @include('corex.deeds-capture._tva-capture', ['capture' => $tvaCapture, 'formId' => null])
+                    </div>
                 </div>
+                @endpush
             @endforeach
+
+        {{-- The two-pane frame (§8). Selection lives in Alpine and is remembered per
+             URL in sessionStorage so the PRG reload every action causes lands the agent
+             back on the same row — or, when the row they acted on is gone (promoted /
+             removed), on the next one in the queue instead of back at the top. --}}
+        <div class="flex-1 min-h-0 flex flex-col lg:flex-row gap-3"
+             x-data="{
+                ids: {{ Illuminate\Support\Js::from($deedsQueueIds) }},
+                selected: null,
+                storageKey: 'corexDeeds:selected:' + location.pathname + location.search,
+                init() {
+                    let remembered = null;
+                    try { remembered = sessionStorage.getItem(this.storageKey); } catch (e) {}
+                    this.selected = (remembered && this.ids.includes(remembered)) ? remembered : (this.ids[0] ?? null);
+                    this.$watch('selected', v => { try { sessionStorage.setItem(this.storageKey, v); } catch (e) {} });
+                },
+                pick(id) { this.selected = id; },
+                rememberNext(e) {
+                    // The inline onsubmit confirm() has already run by the time this
+                    // bubbles up; a cancelled confirm leaves defaultPrevented set — then
+                    // nothing is happening, so remember nothing.
+                    if (e.defaultPrevented) return;
+                    const i = this.ids.indexOf(this.selected);
+                    const next = this.ids[i + 1] ?? this.ids[i - 1] ?? null;
+                    try { if (next) sessionStorage.setItem(this.storageKey, next); } catch (err) {}
+                }
+             }"
+             @submit="rememberNext($event)">
+
+            <div class="rounded-md flex flex-col min-h-0 flex-shrink-0 w-full lg:w-[380px] max-h-[40vh] lg:max-h-none" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="flex items-center justify-between gap-2 px-3 py-2.5 flex-shrink-0">
+                    <span class="text-[10px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">{{ $captures->total() + $tvaStandalone->count() }} waiting</span>
+                    <div class="flex items-center gap-1.5 flex-wrap justify-end">
+                        @if($deedsCounts['new'] > 0)<span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md" style="{{ $deedsTagStyle('green') }}">{{ $deedsCounts['new'] }} new</span>@endif
+                        @if($deedsCounts['match'] > 0)<span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md" style="{{ $deedsTagStyle('amber') }}">{{ $deedsCounts['match'] }} {{ $deedsCounts['match'] === 1 ? 'match' : 'matches' }}</span>@endif
+                        @if($deedsCounts['look'] > 0)<span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md" style="{{ $deedsTagStyle('crimson') }}">{{ $deedsCounts['look'] }} need a look</span>@endif
+                        @if($deedsCounts['tva'] > 0)<span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md" style="{{ $deedsTagStyle('brand') }}">{{ $deedsCounts['tva'] }} numbers</span>@endif
+                    </div>
+                </div>
+                <div class="flex-1 min-h-0 overflow-y-auto" data-scroll-region>
+                    @stack('deedsQueueRows')
+                </div>
+                @if($captures->hasPages())
+                    <div class="px-3 py-2 flex-shrink-0 text-xs" style="border-top: 1px solid var(--border);">{{ $captures->links() }}</div>
+                @endif
+            </div>
+
+            <div class="rounded-md flex-1 min-w-0 flex flex-col min-h-0" style="background: var(--surface); border: 1px solid var(--border);">
+                @stack('deedsInspectorPanels')
+            </div>
         </div>
     @endif
 </div>
