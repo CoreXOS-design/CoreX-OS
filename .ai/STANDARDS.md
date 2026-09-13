@@ -768,6 +768,16 @@ Two outcomes from the same night, side by side: cc5 captured a real before-pictu
 
 ---
 
+## Standard −1p — A QA1 freeze holds behaviour, not documentation (2026-09-16)
+
+The conductor froze QA1 at `13251f7cb` after walking it, to keep her verification attached to the exact behaviour she'd checked. cc1 then landed a docs-only Standards addition (`8fca05d5b`) on top, told her immediately, and she confirmed this was correct rather than a violation — but wanted the principle stated exactly rather than left to be guessed at next time.
+
+**The rule, in the conductor's own words: "the freeze is on anything that can change what a user sees or what the system does. Documentation, standards, audit write-ups and spec notes are not that, and you may land them. Code, views, migrations, config and anything that alters behaviour may not — those park on their own branches until I lift the freeze."**
+
+Why the line sits exactly there: a walk verifies specific behaviour at a specific SHA, and that verification has to stay attached to that behaviour for as long as the freeze holds. A docs commit changes nothing a user can see or the system can do, so it cannot detach the verification from what was walked. A one-line Blade change would — even a trivial-looking one — because "it was only a small change" is exactly how a walked state quietly stops being the walked state. When in doubt whether something crosses the line, it doesn't matter how small the change looks — if it touches code, a view, a migration, config, or anything else that can alter behaviour, it parks on its own branch and waits, same as everything else does during a freeze.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
