@@ -253,6 +253,16 @@ final class RentalApplicationFicaHandoffTest extends TestCase
 
     public function test_authoriser_gate_blocks_submission_when_fica_outstanding_and_setting_requires_it(): void
     {
+        // AT-410d, 2026-09-16 — default flipped to false (Johan's ruling:
+        // conditional approval is a real path, not an edge case; a hard
+        // block by default would have starved it). This test's own name
+        // says what it's actually proving — an agency that HAS turned the
+        // requirement on — so it now sets that explicitly rather than
+        // relying on an implicit default that no longer matches it.
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $this->agency->id],
+            ['require_fica_before_authorisation' => true],
+        );
         $application = $this->application(['status' => 'under_assessment', 'submitted_at' => now()->subDay(), 'current_generation' => 1]);
 
         $response = $this->actingAs($this->agent)->postJson(
@@ -309,13 +319,23 @@ final class RentalApplicationFicaHandoffTest extends TestCase
 
     public function test_require_fica_before_authorisation_setting_has_a_sensible_default_and_is_agency_configurable(): void
     {
+        // AT-410d, 2026-09-16 — default flipped to false (Johan: "The front
+        // door selection - yes it will get used"). An agency that has
+        // NEVER touched this setting (column still NULL) now gets the new
+        // default; one that has explicitly saved a value — proven below —
+        // keeps exactly what it chose, in either direction.
+        $this->assertFalse(RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor($this->agency->id));
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $this->agency->id],
+            ['require_fica_before_authorisation' => true],
+        );
         $this->assertTrue(RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor($this->agency->id));
 
         RentalApplicationQualifyingSetting::updateOrCreate(
             ['agency_id' => $this->agency->id],
             ['require_fica_before_authorisation' => false],
         );
-
         $this->assertFalse(RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor($this->agency->id));
     }
 }

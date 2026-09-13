@@ -1340,8 +1340,12 @@
                     </div>
                 @endif
                 @if($rentalApplication->status === 'approved' && $rentalApplication->applicant_notified_at)
+                    {{-- AT-410d, 2026-09-16 — Johan: "an approval that looks
+                         unconditional is the failure mode here." The
+                         qualifier travels with the approval everywhere it's
+                         shown, not just at the moment of deciding. --}}
                     <div class="rounded-md px-3 py-1.5 text-xs mb-2" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">
-                        &check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month. Sent to the applicant on {{ $rentalApplication->applicant_notified_at->format('d M Y, H:i') }}.
+                        &check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month{{ $rentalApplication->approved_subject_to_fica_at ? ', subject to FICA verification' : '' }}. Sent to the applicant on {{ $rentalApplication->applicant_notified_at->format('d M Y, H:i') }}.
                     </div>
                 @elseif($rentalApplication->status === 'approved')
                     {{-- AT-392 — Johan: "agent gets back and upon them being happy
@@ -1351,7 +1355,10 @@
                          page — command-center/buyers/detail.blade.php:580-615,
                          not a second editor), then sends. --}}
                     <div class="rounded-md px-3 py-2 text-xs mb-2" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
-                        <p class="font-semibold mb-1.5">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month — not yet sent.</p>
+                        <p class="font-semibold mb-1.5">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month{{ $rentalApplication->approved_subject_to_fica_at ? ', subject to FICA verification' : '' }} — not yet sent.</p>
+                        @if($rentalApplication->approved_subject_to_fica_at)
+                            <p class="mb-2">FICA is still outstanding for this applicant. The approval will resolve automatically once compliance verifies FICA — no need to come back and check.</p>
+                        @endif
                         <p class="mb-2">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
                         <div class="flex flex-wrap gap-2">
                             <button type="button" @click="wishlistDrawerOpen = true" class="corex-btn-outline text-xs">
@@ -1783,6 +1790,17 @@
                         @if($alreadyDecided && $canOverride)
                             <p class="text-xs mb-2" style="color: var(--ds-amber, #b45309);">This overrides the existing decision — a reason is required.</p>
                         @endif
+                        {{-- AT-410d, 2026-09-16, Johan: "approving now records
+                             this as Approved, subject to FICA verification" —
+                             told BEFORE the click, same principle as the
+                             no-email guard: warn before, not surprise after.
+                             One button throughout; this is the only thing
+                             that changes depending on live FICA state. --}}
+                        @if($rentalApplication->ficaOutstanding())
+                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
+                                FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                            </p>
+                        @endif
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
                         <input type="text" inputmode="decimal" x-model="approveAmount" class="corex-input text-sm w-full mb-2" placeholder="0.00">
                         <textarea x-model="approveReason" rows="2" class="corex-input text-xs w-full mb-3" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
@@ -1793,7 +1811,8 @@
                             <input type="hidden" name="reason" x-ref="approveReasonField">
                             <div class="flex justify-end gap-2">
                                 <button type="button" class="corex-btn-outline text-xs" @click="approveModalOpen = false">Cancel</button>
-                                <button type="submit" data-qa="authoriser-approve-confirm" class="corex-btn-primary text-xs" :disabled="!approveAmount">Approve</button>
+                                <button type="submit" data-qa="authoriser-approve-confirm" class="corex-btn-primary text-xs" :disabled="!approveAmount"
+                                        :title="!approveAmount ? 'Enter a monthly amount first.' : null">Approve</button>
                             </div>
                         </form>
                     </div>
@@ -1862,7 +1881,8 @@
                             <input type="hidden" name="decline_reason_template_id" x-ref="declineReasonTemplateIdField">
                             <div class="flex justify-end gap-2">
                                 <button type="button" class="corex-btn-outline text-xs" @click="declineModalOpen = false">Cancel</button>
-                                <button type="submit" data-qa="authoriser-decline-confirm" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim() || !declineReasonTemplateId">Decline</button>
+                                <button type="submit" data-qa="authoriser-decline-confirm" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim() || !declineReasonTemplateId"
+                                        :title="!declineReasonTemplateId && !declineReason.trim() ? 'Choose a reason for the applicant and add a note for the agent first.' : (!declineReasonTemplateId ? 'Choose a reason for the applicant first.' : (!declineReason.trim() ? 'Add a note for the agent first.' : null))">Decline</button>
                             </div>
                         </form>
                     </div>
