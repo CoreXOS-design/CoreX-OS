@@ -12542,6 +12542,86 @@ question above.**
   removes only the pivot row. There was no test coverage for this
   feature before this pass.
 
+### Johan's answer on the portal question, and what the sales "under offer" model actually does (2026-09-13)
+
+Johan, checking what the portals allow before committing: "will have to
+check what the portal allow. if we can show it let out for a week like
+sales do when under offer it will be great." Intent: a let property
+should stay visible, re-tagged, for a limited period — mirroring sales
+under-offer — then presumably come down. **This does not reconnect the
+tenant link to property status** — the decoupling above stands; Johan
+answered a narrower question about what an advert should show once a
+property IS let, not whether linking a tenant should flip anything.
+Investigated the sales model as prep for whenever this is built, so the
+next person isn't starting from zero:
+
+**1. What status sales under-offer actually sets:** a literal, hardcoded
+`'under_offer'` string (`FlagPropertyUnderOfferOnDealCreated.php:58`),
+snapshotting the prior status into `pre_deal_offer_status` (`:57`).
+Gated behind `AgencyDealSyncSettings::flag_property_under_offer_on_deal`
+— **OFF by default** (`AgencyDealSyncSettings.php:34`) — so not even every
+agency has this behaviour turned on for sales today. Reverted only by
+`RevertPropertyStatusOnDealDeclined.php:69-70`, on the deal being
+explicitly declined/lapsed by a human.
+
+**2. Both portals keep it live, re-tagged — matches Johan's model
+exactly:** Property24 maps under-offer to `'Pending'`
+(`Property24ListingMapper.php:1636-1637,1646-1648`). Private Property maps
+it to `'PendingOffer'` (`PrivatePropertyListingMapper.php:808-814`,
+own comment: "still advertised, just flagged"). Neither portal takes the
+listing down.
+
+**3. No time limit exists anywhere, for sales either.** Searched the full
+`routes/console.php` schedule (~70 entries, several comparable expiry
+jobs exist for other domains — mandates, signatures, agency-access) —
+nothing for under-offer. `AgencyDealSyncSettings` has no duration field.
+No cron, no scheduled job, no configurable N-days setting. Today, sales
+under-offer reverts only when a human declines/lapses the deal, or never
+— it can sit under-offer indefinitely. **Johan's "for a week" is not an
+existing, borrowable mechanism — it would be new work for sales too, not
+just for rentals.**
+
+**4. Why under-offer is safe from desyndication — and it's a different
+mechanism than the SOLD guard, which matters for how the rental version
+should be built:** `under_offer` resolves to `ListingLifecycle::
+UNDER_OFFER` (`ListingLifecycle.php`, distinct from `SOLD`), and — this is
+the key fact — **`under_offer` is deliberately NOT in
+`Property::OFF_MARKET_STATUSES`** (`Property.php:57-61`; it's added
+explicitly to `systemStatuses()` instead, `:1365-1373`, as one of the
+on-market picker statuses). Because `PropertyObserver::isOffMarketStatus()`
+only checks `OFF_MARKET_STATUSES`, `DesyndicatePropertyFromPortalsJob`
+is **never dispatched** for an under-offer transition at all — there is
+nothing to protect it from, because it's still classified as on-market.
+This is NOT "the SOLD guard also happens to cover under-offer" — it's a
+structurally different, simpler mechanism (stay on-market, skip the
+desyndication path entirely). `let_out`, by contrast, **is** in
+`OFF_MARKET_STATUSES` (`Property.php:59`), which is exactly why it trips
+`DesyndicatePropertyFromPortalsJob` and hits the SOLD-only-guard bug
+documented above. **So "just add RENTED next to SOLD in that guard" is
+not actually the parallel to how sales does it** — the sales model's
+safety comes from never entering the off-market path in the first place.
+A rental "stay visible for a week" feature built the same way sales does
+it would most likely need a genuinely on-market, temporary status (or
+equivalent portal-level tag) for that week — not a permanently
+off-market `let_out` with a desyndication exemption bolted on. Worth
+whoever designs this reading closely before choosing a shape.
+
+**5. Status vocabulary confirms 4 above:** `under_offer` is in neither
+`OFF_MARKET_STATUSES` nor `CONCLUDED_STATUSES` — only in the explicit
+on-market additions inside `systemStatuses()`. `let_out` and `rented`
+are in both off-market lists. They sit on opposite sides of the
+on/off-market line by design.
+
+**Also logged here, per instruction, not actioned:** the Performance
+dashboard's "Properties Needing Attention" widget
+(`PropertyHealthCalculator.php:73-83`, rendered on `command-center/
+performance.blade.php:226-236`) flags "No owner/landlord linked" as a
+**critical** warning for any property whose only linked contact is a
+tenant — it only checks `role IN ('owner','lessor','landlord','seller')`,
+so a rental property correctly linked only to its tenant reads as
+critical-attention-needed on that dashboard. Minor, pre-existing,
+unrelated to this feature's own code — flagged, not fixed.
+
 ## FICA becomes mandatory — one continuous submit-into-FICA flow (Johan, 2026-09-13, round 3)
 
 Johan, a legal position, not a preference: "technically we not allowed to
