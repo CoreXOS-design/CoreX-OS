@@ -25,6 +25,22 @@ use App\Models\ContactProperty;
  * SoftDeletes needs its write path proven via create -> soft-delete ->
  * recreate, not just a fresh-fixture happy path — see
  * tests/Unit/Services/Property/ContactPropertyLinkerTest.php.
+ *
+ * link() and unlink() are DELIBERATELY asymmetric on a role mismatch, per
+ * the conductor's ruling, 2026-09-13 — this looks inconsistent at a glance,
+ * so the reason is written down here rather than left to be "fixed" later:
+ *   - link() CHANGES the role on the existing row, quietly and correctly,
+ *     never throws. Johan's rule is that a contact takes exactly one role
+ *     per property — arriving with a different role than the one already
+ *     there is not an error, it's the normal case this rule describes.
+ *   - unlink() THROWS on a role mismatch (ContactPropertyRoleMismatchException).
+ *     Removing a link is destructive to the caller's belief about what
+ *     they just did — if the role changed under them since they last read
+ *     it, silently matching nothing would leave a live link the caller
+ *     thinks is gone (e.g. a tenant staying attached to a property they
+ *     moved out of, because the row had since become 'owner' and the
+ *     'tenant'-scoped unlink quietly found nothing). Loud failure, not
+ *     silent data loss of the caller's intent.
  */
 class ContactPropertyLinker
 {
@@ -76,23 +92,41 @@ class ContactPropertyLinker
     }
 
     /**
-     * Soft-delete the one row for this pair. Pass $role to only remove a
-     * link if it currently holds that role (mirrors the rental-application
-     * tenant unlink's own scoping) — omit it to remove whatever role is
-     * there. Returns the removed row (still readable — soft-deleted, not
-     * gone) so the caller can log its role/id before it's out of scope, or
-     * null if there was nothing to remove.
+     * Soft-delete the one row for this pair. There is only ever one row per
+     * (contactId, propertyId) — role is not part of the unique key, and its
+     * value can have changed since the caller last read it (Johan: one
+     * contact holds exactly one role per property, ever; the role on the
+     * link changes rather than a new link being created).
+     *
+     * $expectedRole, when given, is an ASSERTION, not a filter — the
+     * conductor's ruling, 2026-09-13: a mismatch throws
+     * ContactPropertyRoleMismatchException rather than silently matching
+     * nothing. A silent no-op here is exactly how a tenant stays attached
+     * to a property they moved out of, if the row's role happened to have
+     * changed to something else in the meantime — the caller believes the
+     * link is gone and it never was.
+     *
+     * Returns the removed row (still readable — soft-deleted, not gone) so
+     * the caller can log its role/id before it's out of scope, or null if
+     * there was nothing to remove at all (an idempotent no-op — calling
+     * unlink twice, or unlinking something never linked, is not an error).
+     *
+     * @throws ContactPropertyRoleMismatchException
      */
-    public static function unlink(int $contactId, int $propertyId, ?string $role = null): ?ContactProperty
+    public static function unlink(int $contactId, int $propertyId, ?string $expectedRole = null): ?ContactProperty
     {
-        $query = ContactProperty::where('contact_id', $contactId)->where('property_id', $propertyId);
-        if ($role !== null) {
-            $query->where('role', $role);
-        }
-
-        $row = $query->first();
+        $row = ContactProperty::where('contact_id', $contactId)->where('property_id', $propertyId)->first();
         if ($row === null) {
             return null;
+        }
+
+        if ($expectedRole !== null && $row->role !== $expectedRole) {
+            throw new \App\Exceptions\Property\ContactPropertyRoleMismatchException(
+                contactId: $contactId,
+                propertyId: $propertyId,
+                expectedRole: $expectedRole,
+                actualRole: (string) $row->role,
+            );
         }
 
         $row->delete();

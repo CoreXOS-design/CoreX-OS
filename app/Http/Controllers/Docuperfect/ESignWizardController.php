@@ -858,9 +858,12 @@ class ESignWizardController extends Controller
                             'seller' => 'owner', 'owner' => 'owner',
                         ];
                         $pivotRole = $pivotRoleMap[strtolower($r['role'] ?? '')] ?? null;
-                        $contact->properties()->syncWithoutDetaching([
-                            $propertyId => ['role' => $pivotRole],
-                        ]);
+                        // ContactPropertyLinker, not syncWithoutDetaching() —
+                        // $contact can be an EXISTING, found contact, a real
+                        // risk of colliding with a soft-deleted contact_property
+                        // row. See .ai/specs/rental-applications.md, "The
+                        // contact_property hard-delete fix".
+                        \App\Services\Property\ContactPropertyLinker::link($contact->id, (int) $propertyId, $pivotRole);
                     }
                 }
             }
