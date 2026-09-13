@@ -3,6 +3,7 @@
 
 @section('corex-content')
 <div class="w-full space-y-4" data-tour-root="contacts"
+     x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name') || $errors->any()) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}', idKind: '{{ old('id_type', 'sa_id') }}' }">
 
     {{-- Page header cap — ONE frozen bar: title + count, the filter controls, and the
          page actions. `sticky top-0` pins it to <main>'s scrollport so only the contact
