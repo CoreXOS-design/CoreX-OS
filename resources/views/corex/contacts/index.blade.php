@@ -2,27 +2,78 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-4" data-tour-root="contacts"
+<div class="w-full h-full flex flex-col" data-tour-root="contacts"
      x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name') || $errors->any()) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}', idKind: '{{ old('id_type', 'sa_id') }}' }">
 
-    {{-- Page header cap — ONE frozen bar: title + count, the filter controls, and the
-         page actions. `sticky top-0` pins it to <main>'s scrollport so only the contact
-         list scrolls beneath it. Negative margins break out of <main>'s p-4/lg:p-6 so
-         the bottom border spans edge to edge. Opaque --bg (no backdrop blur): a
-         backdrop-filter would make this bar the containing block for every
-         position:fixed descendant. Flat neutral chrome per DESIGN-SYSTEM §Page Headers. --}}
-    <div class="sticky top-0 z-20 -mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-4 lg:px-6 py-2.5"
-         style="background:var(--bg); border-bottom:1px solid var(--border);">
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-
-            <div class="flex items-baseline gap-2 flex-shrink-0">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Contacts</h1>
-                <span class="text-xs whitespace-nowrap" style="color: var(--text-muted);">{{ number_format($contacts->total()) }} total
-                    @if($selectedAgent) &middot; {{ $selectedAgent->name }} @endif
-                </span>
+                <p class="text-xs" style="color: var(--text-muted);">Manage your contacts and leads.</p>
             </div>
+            <div class="flex flex-wrap items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            @if(auth()->user()->effectiveRole() === 'super_admin')
+            <button type="button" @click="showImport = !showImport" class="corex-btn-outline text-xs">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
+                </svg>
+                Import
+            </button>
+            @endif
+            @permission('contacts.export')
+            <div class="relative" x-data="{ exportOpen: false }" @keydown.escape="exportOpen = false">
+                <button type="button" @click="exportOpen = !exportOpen" @click.outside="exportOpen = false" class="corex-btn-outline text-xs">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+                    </svg>
+                    Export
+                </button>
+                <div x-show="exportOpen" x-cloak x-transition.opacity
+                     class="absolute right-0 mt-1 w-56 rounded-md py-1 z-20 shadow-lg"
+                     style="background:var(--surface); border:1px solid var(--border);">
+                    <a href="{{ route('corex.contacts.export', request()->only(['search', 'type', 'agent_id'])) }}"
+                       class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
+                       onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        Export current view
+                    </a>
+                    <a href="{{ route('corex.contacts.export', ['all' => 1]) }}"
+                       class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
+                       onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                        Export all contacts
+                    </a>
+                </div>
+            </div>
+            @endpermission
+            <button type="button" @click="showAdd = !showAdd" data-tour="contact-add-btn" class="corex-btn-primary text-xs">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+                </svg>
+                Add Contact
+            </button>
+            @permission('access_settings')
+            <a href="{{ url('/corex/settings?section=my-portal&s=feature-contacts') }}"
+               title="Contacts Settings"
+               aria-label="Contacts Settings"
+               class="inline-flex items-center justify-center rounded-md transition-colors"
+               style="width:32px; height:32px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);"
+               onmouseover="this.style.background='var(--surface-2)'; this.style.borderColor='var(--border-hover)'; this.style.color='var(--text-primary)';"
+               onmouseout="this.style.background='transparent'; this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)';">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+            </a>
+            @endpermission
+            </div>
+        </div>
+    </div>
 
-            {{-- Filters — live inside the cap; the form submits GET to this page. --}}
+    {{-- Filters — directly under the header (AT-393). Header + filters are frozen:
+         the page wrapper is a full-height flex column and ONLY the scroll region
+         below (flash messages, add/import forms, the contacts list) scrolls. --}}
     <div x-data="{
             agentPicker: false,
             agentSearch: '',
@@ -43,9 +94,9 @@
                 f.submit();
             }
          }"
-         class="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+         class="rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route('corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+        <form method="GET" action="{{ route('corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Street & Complex Search — AT-273. Lives at the far left of the filter
                  bar as just the property icon + a "?" help popover. Clicking the house
@@ -197,10 +248,7 @@
                 @endif
             </div>
 
-            {{-- Picker modal — teleported to <body>. The sticky header cap is its
-                 own stacking context; a position:fixed modal left inside it would render
-                 beneath the lg sidebar (z-50) and could not dim it. --}}
-            <template x-teleport="body">
+            {{-- Picker modal --}}
             <div x-show="agentPicker" x-cloak
                  class="fixed inset-0 z-50 flex items-center justify-center p-4"
                  style="background:rgba(0,0,0,0.5);"
@@ -274,7 +322,6 @@
                     </div>
                 </div>
             </div>
-            </template>
             @endif
 
             <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
@@ -287,64 +334,9 @@
 
     </div>
 
-            <div class="flex flex-wrap items-center gap-2 ml-auto flex-shrink-0">
-            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
-            @if(auth()->user()->effectiveRole() === 'super_admin')
-            <button type="button" @click="showImport = !showImport" class="corex-btn-outline text-xs">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
-                </svg>
-                Import
-            </button>
-            @endif
-            @permission('contacts.export')
-            <div class="relative" x-data="{ exportOpen: false }" @keydown.escape="exportOpen = false">
-                <button type="button" @click="exportOpen = !exportOpen" @click.outside="exportOpen = false" class="corex-btn-outline text-xs">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/>
-                    </svg>
-                    Export
-                </button>
-                <div x-show="exportOpen" x-cloak x-transition.opacity
-                     class="absolute right-0 mt-1 w-56 rounded-md py-1 z-20 shadow-lg"
-                     style="background:var(--surface); border:1px solid var(--border);">
-                    <a href="{{ route('corex.contacts.export', request()->only(['search', 'type', 'agent_id'])) }}"
-                       class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
-                       onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                        Export current view
-                    </a>
-                    <a href="{{ route('corex.contacts.export', ['all' => 1]) }}"
-                       class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
-                       onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                        Export all contacts
-                    </a>
-                </div>
-            </div>
-            @endpermission
-            <button type="button" @click="showAdd = !showAdd" data-tour="contact-add-btn" class="corex-btn-primary text-xs">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-                </svg>
-                Add Contact
-            </button>
-            @permission('access_settings')
-            <a href="{{ url('/corex/settings?section=my-portal&s=feature-contacts') }}"
-               title="Contacts Settings"
-               aria-label="Contacts Settings"
-               class="inline-flex items-center justify-center rounded-md transition-colors"
-               style="width:32px; height:32px; background: transparent; border: 1px solid var(--border); color: var(--text-secondary);"
-               onmouseover="this.style.background='var(--surface-2)'; this.style.borderColor='var(--border-hover)'; this.style.color='var(--text-primary)';"
-               onmouseout="this.style.background='transparent'; this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)';">
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="3"/>
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                </svg>
-            </a>
-            @endpermission
-            </div>
-        </div>
-    </div>
+    {{-- Scroll region — everything from here down scrolls; header + filters stay put. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto mt-4 space-y-5">
+
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
@@ -635,6 +627,15 @@
 
     {{-- Contacts table --}}
     <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="px-5 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
+            <div class="text-sm font-bold" style="color:var(--text-primary);">
+                Contacts
+                @if($selectedAgent)
+                <span class="ml-2 text-xs font-normal" style="color:var(--text-muted);">— {{ $selectedAgent->name }}</span>
+                @endif
+            </div>
+            <div class="text-xs" style="color:var(--text-muted);">{{ number_format($contacts->total()) }} total</div>
+        </div>
 
         @forelse($contacts as $contact)
         @php
@@ -807,6 +808,7 @@
         </div>
         @endif
     </div>
+    </div>{{-- /scroll region --}}
 
 </div>
 @endsection
