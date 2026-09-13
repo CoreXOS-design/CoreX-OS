@@ -64,6 +64,10 @@ if (isset($opts['create'])) {
     $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin', 'name' => 'Gate Agent']);
     $ro = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin', 'name' => 'Gate Authoriser']);
     $agency->update(['rental_application_ro_user_ids' => [$ro->id], 'rental_application_co_user_ids' => [$ro->id]]);
+    // 2026-09-13 — a real 'own'-ceiling role, for the scope-toggle gate:
+    // proves a hand-crafted ?scope=all is still clamped server-side even
+    // when the toggle itself would never render one for this user.
+    $plainAgent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent', 'name' => 'Gate Plain Agent']);
 
     $contactA = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'first_name' => 'Gate', 'last_name' => 'ApplicantA', 'email' => $stamp . '-a@example.test']);
     $contactB = Contact::create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'first_name' => 'Gate', 'last_name' => 'ApplicantB', 'email' => $stamp . '-b@example.test']);
@@ -170,7 +174,7 @@ if (isset($opts['create'])) {
 
     echo json_encode([
         'agency_id' => $agency->id, 'branch_id' => $branch->id,
-        'agent_user_id' => $agent->id, 'ro_user_id' => $ro->id,
+        'agent_user_id' => $agent->id, 'ro_user_id' => $ro->id, 'plain_agent_user_id' => $plainAgent->id,
         'contact_a_id' => $contactA->id, 'contact_b_id' => $contactB->id, 'contact_c_id' => $contactC->id,
         'app_a_id' => $appA->id, 'app_b_id' => $appB->id, 'app_c_id' => $appC->id,
         'document_id' => $document->id,
@@ -248,7 +252,7 @@ if (!empty($opts['cleanup'])) {
     // same session's own PHPUnit fixture cleanup: never bypass that guard
     // to tidy up test data — leave the one it blocks, a harmless orphaned
     // row in a throwaway agency nobody will ever use again.
-    foreach (['agent_user_id', 'ro_user_id'] as $key) {
+    foreach (['agent_user_id', 'ro_user_id', 'plain_agent_user_id'] as $key) {
         if (!empty($ids[$key])) {
             try {
                 User::withTrashed()->find($ids[$key])?->delete();

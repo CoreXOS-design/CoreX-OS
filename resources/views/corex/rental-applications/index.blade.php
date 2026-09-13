@@ -106,33 +106,49 @@
         </div>
     @endif
 
-    {{-- Own/branch/agency scope TOGGLE — unchanged mechanism from before
-         AT-402 (RentalApplication::clampScope() enforces the ceiling
-         server-side regardless of this UI). --}}
+    {{-- Own/branch/all scope TOGGLE — rebuilt 2026-09-13. The previous
+         version (see git history) offered 'own'/'branch'/'agency' but
+         highlighted the active pill by comparing against
+         request('scope', 'own') — a value that never matched a real
+         '?scope=all' request (nothing in PermissionService::clampScope()'s
+         own rank table recognises the string 'agency' at all) at, so a
+         real "?scope=all" view showed a toggle with NOTHING highlighted:
+         technically present, functionally unreadable. A careful real-
+         browser walk correctly concluded there was no usable scope control
+         here.
+         Rebuilt to mirror DeedsCaptureController's reference implementation
+         exactly (Johan's own named example): canonical own/branch/all
+         values throughout, options built from $scopeOptions (the user's
+         real ceiling — a wider pill never renders at all), highlighted from
+         $resolvedScope (the controller's own already-clamped value, not a
+         raw, unclamped request() default). --}}
+    @if(count($scopeOptions) > 1)
     <div class="flex items-center gap-2">
         <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
         <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-            <a href="{{ route('corex.rental-applications.index', array_merge(request()->except('page'), ['scope' => 'own'])) }}"
+            @foreach($scopeOptions as $i => $sc)
+            <a href="{{ route('corex.rental-applications.index', array_merge(request()->except(['scope', 'page']), ['scope' => $sc])) }}"
                class="px-3 py-1.5 text-xs font-semibold"
-               style="{{ request('scope', 'own') === 'own' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Own</a>
-            @if($canSeeBranch)
-            <a href="{{ route('corex.rental-applications.index', array_merge(request()->except('page'), ['scope' => 'branch'])) }}"
-               class="px-3 py-1.5 text-xs font-semibold"
-               style="border-left: 1px solid var(--border); {{ request('scope', 'own') === 'branch' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Branch</a>
-            @endif
-            @if($canSeeAgency)
-            <a href="{{ route('corex.rental-applications.index', array_merge(request()->except('page'), ['scope' => 'agency'])) }}"
-               class="px-3 py-1.5 text-xs font-semibold"
-               style="border-left: 1px solid var(--border); {{ request('scope', 'own') === 'agency' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Agency</a>
-            @endif
+               style="{{ $i > 0 ? 'border-left: 1px solid var(--border);' : '' }} {{ $resolvedScope === $sc ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">{{ ucfirst($sc) }}</a>
+            @endforeach
         </div>
     </div>
+    @endif
 
     {{-- AT-402 — the tiles. FICA's own pattern exactly: real server-rendered
          links (?tile=key), each count computed from the SAME scoped base
          query as the filtered list below (see the controller's
          $countBase/$counts) — a tile can never show a count of rows the
-         viewer can't open. --}}
+         viewer can't open.
+
+         Wording caption, 2026-09-13 (Johan, via the conductor) — a tile
+         labelled "All" reading 14 when the agency holds 112 is the screen
+         stating something untrue; this says plainly, in a few words,
+         whose numbers are on screen right now, without eating space on a
+         banner. Sits with the tiles specifically since that is where the
+         misleading number actually was — the toggle above already shows
+         which scope is active; this is the plain-language reading of it. --}}
+    <p class="text-xs mb-0" style="color: var(--text-muted);">{{ ['own' => 'Yours only', 'branch' => 'Your branch', 'all' => 'Whole agency'][$resolvedScope] ?? '' }}</p>
     <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
         @foreach($primaryTiles as $key)
             @php $active = $tile === $key; @endphp

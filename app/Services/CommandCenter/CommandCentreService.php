@@ -1591,7 +1591,16 @@ class CommandCentreService
             // AT-402 — links straight into the Approved tile on the merged
             // control centre rather than the retired Returned Applications
             // screen (which now just redirects here anyway).
-            'view_all_url' => route('corex.rental-applications.index', ['tile' => 'approved']),
+            // scope=own explicit, 2026-09-13: this card's own count above is
+            // deliberately own-only (created_by_user_id, see this method's
+            // docblock). The list's default used to always BE 'own' too, so
+            // "View All" coincidentally agreed with what the card counted —
+            // now that the list defaults to the viewer's real ceiling, an
+            // Owner clicking this would otherwise land on the WHOLE agency's
+            // approved list, not what this card just showed them. Pinned so
+            // this link keeps meaning what it always meant, regardless of
+            // who clicks it.
+            'view_all_url' => route('corex.rental-applications.index', ['tile' => 'approved', 'scope' => 'own']),
         ];
     }
 
