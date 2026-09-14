@@ -350,25 +350,51 @@ class BuyerPipelineController extends Controller
             ->toArray();
     }
 
+    /** Per-request memo so the 4 call sites below (main query, won query, agent-options query, stateCounts()) — all using the SAME $leadType in one page load — pay the underlying query once, not four times. */
+    private array $leadTypeContactIdsCache = [];
+
     /**
-     * Rentals vs Sales filter on a buyers query, keyed on the buyer's wishlist
-     * listing_type (contact_matches.listing_type, seeded from the enquired listing).
-     *   'rental' → buyers with at least one rental wishlist (tenant leads)
-     *   'sale'   → buyers with NO rental wishlist (sale/untyped/manual buyers)
+     * Rentals vs Sales filter on a buyers query, keyed on the buyer's
+     * PRIMARY wishlist's listing_type (contact_matches.listing_type, seeded
+     * from the enquired listing) — the SAME question pipeline.blade.php's
+     * own card label asks (Contact::primaryMatchIsRental()), not "has a
+     * match of this type ANYWHERE."
+     *
+     *   'rental' → primary wishlist is a rental listing (tenant leads)
+     *   'sale'   → primary wishlist is NOT rental, including no wishlist at
+     *              all (sale/untyped/manual buyers)
      *   null     → no filter (All). The two branches partition the board exactly.
+     *
+     * FIXED 2026-09-18 (Johan, live on QA1: "rental pipeline shows all
+     * sales and rentals") — this used to ask "has ANY match of this type",
+     * which silently disagreed with the card's own PRIMARY-based label for
+     * any contact with a mixed wishlist: admitted a sale-primary contact
+     * into the rental board because they ALSO had an old rental match (2
+     * of 174 contacts, confirmed live on QA1) — and, the half nobody
+     * reported because a missing row is invisible, excluded a genuinely
+     * sale-primary contact from the sale-filtered board entirely because
+     * they had ANY rental match at all. `Contact::primaryMatchIsRental()`
+     * now answers both this filter and the card's own label — one method,
+     * not two copies that can drift apart again. Computed via a small
+     * eager-loaded pass rather than a SQL subquery: `matches` is already
+     * eager-loaded for every candidate row on this screen for card
+     * rendering, so this reuses what's already paid for rather than
+     * adding a new query shape.
      */
     private function applyLeadTypeFilter($query, ?string $leadType): void
     {
         if ($leadType !== 'rental' && $leadType !== 'sale') {
             return;
         }
-        $rentalTypes = ['rental', 'rent', 'to_let', 'to let', 'letting'];
-        $rentalMatch = fn ($m) => $m->whereIn(DB::raw('LOWER(listing_type)'), $rentalTypes);
 
-        if ($leadType === 'rental') {
-            $query->whereHas('matches', $rentalMatch);
-        } else { // 'sale'
-            $query->whereDoesntHave('matches', $rentalMatch);
+        if (! array_key_exists($leadType, $this->leadTypeContactIdsCache)) {
+            $wantRental = $leadType === 'rental';
+            $this->leadTypeContactIdsCache[$leadType] = Contact::buyers()->with('matches')->get()
+                ->filter(fn ($contact) => $contact->primaryMatchIsRental() === $wantRental)
+                ->pluck('id')
+                ->all();
         }
+
+        $query->whereIn('contacts.id', $this->leadTypeContactIdsCache[$leadType]);
     }
 }
