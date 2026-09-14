@@ -1026,6 +1026,12 @@ class PropertyController extends Controller
         $property->dusk_images_json    = $this->storeImages($request, 'dusk_images',    $property->id);
         $property->gallery_images_json = $this->storeImages($request, 'gallery_images', $property->id);
 
+        // File every stored photo into gallery_categories_json (unsorted) so the
+        // mobile app — which reads categories ONLY — sees the same gallery the web
+        // does. No row lock needed here: the row was created inside this very
+        // transaction, so nothing else can hold it yet.
+        $property->syncGalleryCategories();
+
         // Agent images for portal syndication
         if ($request->hasFile('pp_agent_image')) {
             $property->pp_agent_image_path = $request->file('pp_agent_image')->store("properties/{$property->id}/agents", 'public');
@@ -1463,6 +1469,15 @@ class PropertyController extends Controller
 
         $previousP24SuburbId = $property->p24_suburb_id;
         $property->update($data);
+
+        // Whatever the form uploaded is now in gallery_images_json; make sure each
+        // photo is filed exactly once in gallery_categories_json — under the room
+        // chosen above, or in `unsorted` when no image_category was sent (the case
+        // that left web uploads invisible to the mobile app). Under the row lock the
+        // mobile upload uses: both columns feed galleryFingerprint().
+        if ($newGallery) {
+            $property->syncGalleryCategoriesLocked();
+        }
         if (isset($data['p24_suburb_id'])
             && (int) $data['p24_suburb_id'] > 0
             && (int) $previousP24SuburbId !== (int) $data['p24_suburb_id']) {
@@ -1899,6 +1914,13 @@ class PropertyController extends Controller
 
         if (!empty($updates)) {
             $property->update($updates);
+        }
+
+        // New gallery photos must be filed (into `unsorted`) so the mobile app,
+        // which reads gallery_categories_json only, sees them. Row-locked: both
+        // columns feed galleryFingerprint().
+        if (isset($updates['gallery_images_json'])) {
+            $property->syncGalleryCategoriesLocked();
         }
 
         if ($request->wantsJson()) {
