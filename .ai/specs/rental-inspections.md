@@ -1,14 +1,27 @@
 # Rental Inspections
 
 **Status:** Spec — not yet built. NO CODE has been written against this spec.
-**Date:** 2026-09-17
+**Date:** 2026-09-17 (amended 2026-09-17 — see amendment note below)
 **Author:** cc5, with the data-model core designed by cc3 (current-state investigation, folded in per §3)
-**Pillar:** Property (`Property`) — reads from and writes back to the property record; also touches
-Contact (owner, tenant) and User (the inspecting agent).
-**Sequencing:** Johan's ruling — core matches / pipeline → **inspections (this spec)** → work orders.
-This spec is written before Work Orders (`.ai/specs/rental-work-orders.md`, not yet written) precisely
+**Pillar:** Property (`Property`) — every `rental_inspection_item` anchors directly to it; every
+`rental_inspection` (event) anchors to it only denormalized, through its required `lease_id` (see
+amendment note). Also touches Contact (owner, tenant) and User (the inspecting agent).
+**Sequencing:** Johan's ruling — core matches / pipeline → **inspections (this spec)** → work orders,
+later revised by Johan to insert Leases before Inspections (`.ai/specs/leases.md`) once he identified
+that a tenant is linked to a lease, not a property, and a property has many tenancies over its life —
+without that link, nothing hanging off a property directly (an inspection, a work order, a photo) can
+say which tenant it belonged to two years later.
+This spec is written before Work Orders (`.ai/specs/rental-work-orders.md`, built by cc4) precisely
 because Johan ruled work orders are evidence *feeding into* an out-inspection, not a separate concern —
 see §3.4.
+
+**Amendment, 2026-09-17 (this revision):** `rental_inspections` (§3.2) gains a required `lease_id` FK,
+`property_id` becomes a denormalized convenience column, per the amendment named-but-not-applied in
+`.ai/specs/leases.md` §9 at the time that spec was written. Applied now on Johan's explicit ruling,
+once the leases design was reviewed. `rental_inspection_items` are unchanged — still property-scoped,
+never lease-scoped, since a physical space outlives any one tenancy. §3.2a is new: a direct, worked
+answer to "does this let an out-inspection pull a space's full history across the whole tenancy," not
+just an in-vs-out diff.
 
 ---
 
@@ -97,8 +110,14 @@ applies equally to inspections) and which the CRUD/list-screen design floor (§5
 
 ## 2. Pillar connections
 
-- **Property** — every inspection, item, and observation is anchored to a `Property` (`property_id`).
-  Reads the property's `listing_type`/`spaces_json` for context; writes the inspection record back.
+- **Property** — every `rental_inspection_item` is anchored to a `Property` directly (physical
+  spaces/meters outlive any one tenancy). Every `rental_inspection` (the event) is anchored to a
+  `Property` only denormalized, through its required `lease_id` (§3.2, amended 2026-09-17 — see
+  `.ai/specs/leases.md` §9). Reads the property's `listing_type`/`spaces_json` for context; writes the
+  inspection record back.
+- **Deal (Lease)** — every inspection event belongs to a `Lease`, not directly to a `Property`. This is
+  the load-bearing connection this spec was amended for: without it, nothing can answer "which tenancy
+  did this inspection belong to" once a property has had more than one.
 - **Contact** — the tenant (observation author when the tenant self-reports a fault; signer of the
   out-inspection) and, at least by reference, the owner/landlord (recipient of inspection-completion
   notifications, per the shared notification infrastructure noted in §3.4 and the prior work-orders
@@ -162,7 +181,23 @@ rental_inspection_items
 rental_inspections
   id
   agency_id
-  property_id
+  lease_id               -- REQUIRED FK to leases (.ai/specs/leases.md §9, amendment applied
+                          --   2026-09-17). This is the authoritative answer to "which tenancy
+                          --   did this inspection event belong to" — the entire reason leases
+                          --   were built before this spec's code. An inspection cannot exist
+                          --   without a lease. Ordering note: SA practice has the in-inspection
+                          --   happen as the tenancy is being onboarded, which may be the same
+                          --   day a lease goes 'active' or slightly ahead of it — so lease_id
+                          --   may reference a lease in status 'draft' OR 'active' (never
+                          --   'expired'/'cancelled') at inspection-creation time. This spec does
+                          --   not require the lease be 'active' first; whether creating an
+                          --   in-inspection should itself prompt activating the lease is a
+                          --   build-time UX decision, not a rule this spec imposes.
+  property_id            -- denormalized convenience column, ALWAYS set to lease.property_id
+                          --   at creation, never edited independently. Exists purely so "every
+                          --   inspection on this property regardless of tenant" queries don't
+                          --   require a join through leases — it is never the authoritative
+                          --   answer to "whose tenancy," lease_id is.
   type                  -- enum: 'in' | 'out' | 'ad_hoc'
   status                -- enum: 'draft' | 'in_progress' | 'awaiting_signature' | 'completed' | 'cancelled'
   scheduled_for          -- nullable date the inspection is/was booked for (§0.5, "deliberate events")
@@ -241,6 +276,42 @@ rental_inspection_settings   -- one row per agency, §3.5
   out_inspection_signing_window_days -- default 7
   created_at, updated_at
 ```
+
+### 3.2a Does this actually let an out-inspection pull a space's full history across the whole
+tenancy — not just compare two points in time? Checked directly, answer is yes.
+
+Johan's exact requirement: "having the comprehensive log of what damages were reported when and what
+was actioned is the evidence assisting the out inspection to be more fair" — specifically so a badly
+repaired ceiling traces to the contractor, not the tenant. That requires more than an in-vs-out diff:
+it needs every observation AND every work order that touched a given item, in order, for the whole
+span of this tenancy.
+
+Walking the actual join, not asserting it: for a given lease and item, `rental_inspection_observations`
+joins to `rental_inspections` filtered on `lease_id` and to `rental_inspection_item_id` — one join,
+returns every observation ever recorded against that item during that lease, regardless of whether it
+came from the in-inspection, an ad-hoc mid-tenancy check, or the out-inspection itself, in chronological
+order via `created_at`. Photos hang off observations, so the same join one level deeper returns every
+photo. Because `lease_id` is required on every `rental_inspections` row — not only 'in'/'out' but
+'ad_hoc' too (§3.2, `type` enum) — a mid-tenancy fault report or ad-hoc check is NOT a separate silo
+from the in/out bookends; it's the same queryable timeline. This is what makes it a comprehensive log
+and not a two-point comparison.
+
+Work orders (`.ai/specs/rental-work-orders.md`, cc4) carry `lease_id` directly (nullable, per that
+spec's own vacancy-repair case) alongside `rental_inspection_item_id` — so "every work order raised
+against this item during this lease" is the same shape of query, joinable straight onto the
+observation timeline above without going through inspections at all. A repair that happened and was
+"badly done" shows up as its own dated fact on the same per-item, per-lease timeline as the damage
+report that preceded it and the damage observed again at the out-inspection — which is exactly the
+trace from damage → repair → still-damaged that assigns responsibility to the contractor rather than
+the tenant.
+
+**The same join, with the `lease_id` filter dropped, answers the OTHER question this spec was built
+for** — the original cross-tenant carry-forward requirement from §0.2 ("2 years later no one
+remembers"). Because `rental_inspection_items` are property-scoped, not lease-scoped, "every
+observation ever made on this item, across every lease this property has ever had" is the identical
+join minus one WHERE clause. Both the within-this-tenancy comprehensive log and the across-every-
+tenancy carry-forward are the same underlying shape — one is the other with a filter removed, not two
+different mechanisms that need to be separately built and kept in sync.
 
 ### 3.3 Why `rental_inspection_items` is retired, not deleted — and why `rental_inspections` is
 soft-deletable only before it has evidence
@@ -572,8 +643,12 @@ spec risks colliding with either way.
 
 ## 12. Files to create (none yet written — spec only)
 
+**Migration order dependency (added with the §3.2 lease amendment):** `leases` (`.ai/specs/leases.md`)
+must be migrated before `rental_inspections`, since `rental_inspections.lease_id` is a required FK.
+`rental_inspection_items` has no such dependency (property-scoped only) and can migrate independently.
+
 - `database/migrations/xxxx_create_rental_inspection_items_table.php`
-- `database/migrations/xxxx_create_rental_inspections_table.php`
+- `database/migrations/xxxx_create_rental_inspections_table.php` — after `leases` exists
 - `database/migrations/xxxx_create_rental_inspection_observations_table.php`
 - `database/migrations/xxxx_create_rental_inspection_photos_table.php`
 - `database/migrations/xxxx_create_rental_inspection_discrepancies_table.php`
