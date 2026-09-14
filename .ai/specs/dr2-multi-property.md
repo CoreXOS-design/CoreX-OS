@@ -255,6 +255,139 @@ a follow-up migration (`ALTER TABLE ... MODIFY allocated_price
 DECIMAL(12,2)`, raw SQL — no `doctrine/dbal` on this box) before any real
 data existed in the column (verified: all 16 rows were NULL at the time).
 
+## 8a. Create-time capture (built, 2026-09-14/16 — corrects §8's original scope)
+
+Johan found this himself, testing DR2 live: loaded a contact with two
+properties, linked the first to a new deal, and could not find a way to add
+the second — because there wasn't one. §8 below shipped the add/remove/
+price mechanism edit-mode only, on the stated reasoning that those actions
+"route-model-bind to a real, already-saved `Deal`." That reasoning is
+correct as an implementation detail but was never actually put to Johan —
+every other ruling in this spec (§1, §2, §3, §6, the two questions in §7)
+carries his own verbatim words; §8's edit-only scope carries none. The one
+time he was consulted on pricing (§7), the question was already framed
+around an already-saved deal, so the timing question underneath it was
+never asked.
+
+His correction, verbatim, and the reason it isn't a preference: **"the
+build is wrong if I have to save first... 2 properties sold together makes
+up 1 selling price, so what do we expect a user to do? save the deal with
+figures not balancing, or save with wrong figures, then reopen, change the
+deal to get it back to correct figures? That was never the spec."** Traced
+before accepting this as a genuine gap (not assumed): a declined-to-edit
+detour was never harmless here, because a deal register carrying a
+knowingly-wrong intermediate figure — however briefly, however quickly
+corrected — is the exact defect this whole feature exists to prevent.
+Confirmed by checking sign-off history, not assumed: every documented
+verification of this feature (the "Functional proof against the live QA1
+database" paragraph, cc1's own browser pass in §10a) exercised the EDIT
+path exclusively — real test rows were created via raw SQL and then
+edited, never through a genuine create-and-save flow. §10's own closing
+line admits the save-button/create flow was "traced by hand... not
+exercised end-to-end by a human/browser," and even the pass that WAS done
+never attempted building a two-property deal from nothing. Nobody found
+this by testing, because the control's *absence* on create isn't a bug you
+click into.
+
+**Johan's pricing model for create-time, verbatim:** *"the spec given was
+bm or admin - only ones who creates deals - can capture total and on
+properties. we need to allow the price per property to be captured which
+displays a total, but bm or admin has to verify that the price balances."*
+Checked, not assumed, before building: permissions ARE correctly restricted
+to BM/admin already (`create_deals`, absent from the `agent` role's default
+include list in `config/corex-permissions.php` — read end to end, not
+sampled) — this was a real question worth checking, not a rubber stamp.
+
+Mechanism — reuses everything that already existed for edit mode except one
+genuinely new piece (client-side staging), never a second implementation of
+anything already built:
+
+- **Held entirely client-side** (`dr2/create.blade.php`'s create-mode JS,
+  `dr2cp_*` ids — kept fully separate from edit mode's own `dr2mp_*` ids and
+  markup, zero shared state, zero risk to the edit path) until the ONE
+  "Save Deal" submit. Nothing is persisted, nothing is half-written, until
+  a single `store()` call.
+- **The main Selling Price/Commission fields change meaning, not mechanism**,
+  once a second property is staged: for 0-1 properties they mean exactly
+  what they always have (the one property's own price, unchanged UX). The
+  moment a second property is added, they become the BM's own
+  independently-entered TOTAL (the offer figure) — editable, never
+  auto-derived on create, which is the opposite of edit mode's own
+  behaviour (`DealPropertyPricingService::recalculateTotals()` force-
+  overwrites the total to the sum on every edit-mode add — deliberately
+  UNCHANGED for edit; this new independent-total behaviour is create-time
+  only). The primary property's own price, whatever was in those fields the
+  instant the second property was added, is frozen into its own row in the
+  list — "the primary gets its own row like the others," per Johan's
+  explicit instruction — editable from there exactly like every other row.
+- **Live reconciliation, not a silent recompute**: the sum of every
+  property's own row (primary included) is shown against the entered total,
+  live, as either figure changes, with the exact difference stated when
+  they disagree — "show the difference... do not make them work it out."
+- **Blocking, not warning, on mismatch — both client-side (immediate
+  feedback, `e.preventDefault()` on submit) and server-side
+  (`DealRegisterController::validateAdditionalPropertiesPayload()`, a
+  `ValidationException` thrown before ANYTHING is persisted — not even the
+  deal itself).** This is enforcement of Johan's own stated principle this
+  same week on this same feature — a deal register must never carry figures
+  that don't balance — not a new rule invented for this build.
+- **The live same-owner check reuses the existing
+  `deals-dr2.search.property-contacts` endpoint verbatim** — already
+  returns exactly the seller-side contact ids a client-side exact-set
+  comparison needs, already permission-gated correctly (`deals.create`/
+  `deals.edit`), already used by the primary property picker for the same
+  purpose. No new endpoint. This check is a convenience only — a failed or
+  skipped client-side check never blocks a legitimate add, because the real
+  gate always re-runs server-side regardless (see below).
+- **Server-side persistence never trusts anything the browser sent beyond
+  raw numbers**: `DealRegisterController::applyCreateTimeMultiProperty()`
+  runs, inside the SAME transaction `store()` already wraps everything in,
+  the EXACT `DealPropertyOwnerGate::assertCanAddToDeal()` and
+  `DealPropertyStatusService` checks `addProperty()` already runs for the
+  edit-mode case — never a second, looser gate for this path. A thrown
+  `PropertyOwnerMismatchException` here rolls back the ENTIRE transaction,
+  deal-number allocation and primary-property creation included — proven,
+  not assumed, by a test asserting `Deal::count()` is unchanged after a
+  refused owner-mismatch submission. The deal is never created half-right.
+- **The primary's own allocation is corrected after the fact, deliberately**:
+  `Deal::booted()`'s existing `syncPrimaryPropertyPivot()` mirror still
+  fires automatically the moment the Deal is created (unchanged, and
+  correctly so — every single-property deal still needs it), guessing the
+  primary's price from `property_value`/`total_commission` — which, for a
+  genuine multi-property submission, now hold the TOTAL, not the primary's
+  own price. `applyCreateTimeMultiProperty()` corrects that one row
+  immediately afterward with the real, individually-submitted figure,
+  before `recalculateTotals()` runs.
+
+Files: `resources/views/dr2/create.blade.php` (create-mode JS block +
+`@elseif` branch on the existing multi-property section's condition — the
+edit-mode branch is untouched, byte-for-byte, verified via the full
+pre-existing regression suite below), `DealRegisterController::store()`
+(the two new private methods above, wired into the existing transaction).
+
+**Tests**: `tests/Feature/Dr2/CreateTimeMultiPropertyTest.php` — 6 new
+tests: the create screen actually renders the section (proves the Blade
+compiles, not just that it should), the permission check holds (an
+ordinary agent still 403s), a balanced two-property submission creates
+both properties correctly in one transaction, a mismatched total refuses
+the save and writes NOTHING (not even the deal), a second property failing
+the owner gate refuses the save and writes NOTHING (proving the whole-
+transaction rollback, not just a partial one), and the ordinary
+single-property path (no `properties[]` at all) is completely unaffected.
+**Full pre-existing regression suite re-run, zero regressions**: all 37
+tests across `DealAddRemovePropertyControllerTest`,
+`DealPropertyOwnerGateTest`, `DealMultiPropertyBladeTest`,
+`Wave2MultiPropertyStatusSyncTest`, and `BackfillAllocatedPriceTest` still
+pass unchanged.
+
+**A pre-existing, unrelated defect found while regression-checking, not
+introduced here and not fixed here**: `tests/Feature/Dr2/Dr2CaptureTest.php`
+has 7 failing tests (`PropertyOwnerMismatchException` — "We can't confirm
+who owns X yet") that fail IDENTICALLY with this build's changes fully
+reverted (checked via `git stash` before reporting, not assumed) — genuine
+pre-existing test debt, unrelated to this feature, reported here per
+scope-lock rather than fixed.
+
 ## 8. UI (built)
 
 Full CRUD, on the deal edit screen (`resources/views/dr2/create.blade.php`,

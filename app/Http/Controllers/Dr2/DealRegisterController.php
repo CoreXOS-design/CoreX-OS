@@ -366,8 +366,26 @@ class DealRegisterController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('deals.create'), 403);
 
+        // Create-time multi-property, Johan 2026-09-14/16 — his own finding:
+        // the "Add another property" control only existed on the EDIT
+        // screen, so a user building a two-property deal was told to save
+        // first, then add — forcing a deal register to carry either
+        // knowingly-wrong figures or a deliberately unbalanced intermediate
+        // state, however briefly. His words: "2 properties sold together
+        // makes up 1 selling price... that was never the spec." Validated
+        // for shape and BALANCE here, before anything is persisted — pure
+        // arithmetic needs no DB write to check, so an obviously-wrong
+        // payload writes nothing at all, not even the deal itself. The
+        // same-owner gate can only run once the primary property is
+        // actually linked (assertCanAddToDeal() reads $deal->properties()),
+        // so that check happens after persistDeal() below, still inside the
+        // SAME transaction — any failure there rolls back everything
+        // already written this request, deal number allocation included.
+        // The deal is never created half-right.
+        $additionalProperties = $this->validateAdditionalPropertiesPayload($request);
+
         try {
-            return DB::transaction(function () use ($request) {
+            return DB::transaction(function () use ($request, $additionalProperties) {
                 $deal = new Deal();
 
                 // NUMERIC DEAL NUMBERING — supports legacy D-#### and numeric formats (DR1 parity).
@@ -404,12 +422,21 @@ class DealRegisterController extends Controller
                             ]);
                         }
                     }
+
+                    if ($additionalProperties !== null) {
+                        $this->applyCreateTimeMultiProperty($deal, $additionalProperties);
+                    }
                 }
 
                 return $resp;
             });
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
+        } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+            // Same exact shape as addProperty()'s own catch — the plain-
+            // English refusal message travels unwrapped, never behind the
+            // generic "Failed to save deal:" prefix below.
+            return back()->withErrors(['property_id' => $e->getMessage()])->withInput();
         } catch (\Throwable $e) {
             \Log::error('DR2 store() failed', [
                 'error' => $e->getMessage(),
@@ -418,6 +445,124 @@ class DealRegisterController extends Controller
             ]);
             return back()->withErrors('Failed to save deal: ' . $e->getMessage())->withInput();
         }
+    }
+
+    /**
+     * Create-time multi-property, Johan 2026-09-14/16. Validates the shape of
+     * the client's staged `properties[]` array (see dr2/create.blade.php's
+     * own create-mode JS) and enforces the balance rule server-side — never
+     * trusting the browser's own live check, same posture as every other
+     * gate on this feature. Returns null when this wasn't a genuine
+     * multi-property submission at all (fewer than 2 entries — the client
+     * only ever sends this array once a second property is staged), in
+     * which case store() proceeds exactly as it always has.
+     *
+     * @return array<int, array{property_id:int, allocated_price:float, allocated_commission:float}>|null
+     */
+    private function validateAdditionalPropertiesPayload(Request $request): ?array
+    {
+        $raw = $request->input('properties');
+        if (! is_array($raw) || count($raw) < 2) {
+            return null;
+        }
+
+        $validated = $request->validate([
+            'properties' => ['required', 'array', 'min:2'],
+            'properties.*.property_id' => ['required', 'integer', 'exists:properties,id'],
+            'properties.*.allocated_price' => ['required', 'numeric', 'min:0'],
+            'properties.*.allocated_commission' => ['required', 'numeric', 'min:0'],
+        ])['properties'];
+
+        $ids = array_column($validated, 'property_id');
+        if (count($ids) !== count(array_unique($ids))) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'properties' => 'The same property was submitted twice.',
+            ]);
+        }
+
+        // Johan's own principle, this same week, on this same feature: "a
+        // deal register must never carry figures that do not balance." The
+        // TOTAL (property_value/total_commission — the BM's own entered
+        // figure once 2+ properties exist, per his ruling: "bm or admin can
+        // capture total and on properties... has to verify that the price
+        // balances") must equal the sum of every property's own allocation,
+        // primary included. Blocking, not warning — this is enforcement of
+        // his own stated rule, not a new one.
+        $sumPrice = array_sum(array_column($validated, 'allocated_price'));
+        $sumCommission = array_sum(array_column($validated, 'allocated_commission'));
+        $totalPrice = (float) $request->input('property_value');
+        $totalCommission = (float) $request->input('total_commission');
+
+        if (abs($totalPrice - $sumPrice) >= 0.01 || abs($totalCommission - $sumCommission) >= 0.01) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'property_value' => sprintf(
+                    "The total (R %s price / R %s commission) doesn't match the sum of the %d properties' own prices (R %s price / R %s commission). Fix the figures before saving — a deal register must never carry numbers that don't balance.",
+                    number_format($totalPrice, 2), number_format($totalCommission, 2), count($validated),
+                    number_format($sumPrice, 2), number_format($sumCommission, 2)
+                ),
+            ]);
+        }
+
+        return $validated;
+    }
+
+    /**
+     * Create-time multi-property, Johan 2026-09-14/16 — links every
+     * additional property, corrects the primary's own allocation (the
+     * automatic single-property mirror in Deal::booted() already ran by the
+     * time this executes, guessing the primary's price from property_value/
+     * total_commission — the TOTAL, for a multi-property submission, which
+     * is wrong for the primary's own individual allocation), then
+     * recalculates the deal's totals as the true sum. Runs inside the SAME
+     * transaction store() already wraps everything in — a thrown
+     * PropertyOwnerMismatchException here rolls back the whole request,
+     * deal creation included, via that transaction's own exception
+     * propagation. Never a second, looser gate for the create-time path —
+     * the exact same DealPropertyOwnerGate/DealPropertyStatusService checks
+     * addProperty() already runs for the edit-mode case.
+     */
+    private function applyCreateTimeMultiProperty(Deal $deal, array $properties): void
+    {
+        $gate = app(\App\Services\Deal\DealPropertyOwnerGate::class);
+
+        foreach ($properties as $row) {
+            $property = Property::findOrFail($row['property_id']);
+
+            if ((int) $row['property_id'] === (int) $deal->property_id) {
+                DealProperty::where('deal_id', $deal->id)->where('property_id', $property->id)->update([
+                    'allocated_price' => $row['allocated_price'],
+                    'allocated_commission' => $row['allocated_commission'],
+                ]);
+                continue;
+            }
+
+            $gate->assertCanAddToDeal($deal, $property);
+
+            if (in_array($deal->accepted_status, ['G', 'R'], true)) {
+                $conflict = app(\App\Services\Deal\DealPropertyStatusService::class)
+                    ->committedDealOnProperty($property->id, $deal->id);
+                if ($conflict !== null) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'property_id' => "Can't add {$property->address} — deal #{$conflict->deal_no} already carries a Granted or Registered status on it.",
+                    ]);
+                }
+            }
+
+            DealProperty::create([
+                'deal_id' => $deal->id,
+                'property_id' => $property->id,
+                'is_primary' => false,
+                'allocated_price' => $row['allocated_price'],
+                'allocated_commission' => $row['allocated_commission'],
+            ]);
+
+            // Branch sharing (spec §6) — same co-share rule addProperty() already applies.
+            if ($property->branch_id && $property->branch_id !== $deal->branch_id) {
+                $deal->attachCoBranch($property->branch_id);
+            }
+        }
+
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal->fresh());
     }
 
     /** DR2 capture persist (update) — DR1 parity (Admin\DealController::update). */

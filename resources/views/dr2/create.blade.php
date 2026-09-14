@@ -77,7 +77,7 @@
 
     <div class="space-y-6">
 
-<form method="POST" action="{{ $mode === 'create' ? route('deals-dr2.store') : route('deals-dr2.update', $deal) }}" class="space-y-6">
+<form method="POST" id="dr2-main-form" action="{{ $mode === 'create' ? route('deals-dr2.store') : route('deals-dr2.update', $deal) }}" class="space-y-6">
         @csrf
 
         {{-- Deal Details --}}
@@ -322,6 +322,77 @@
                             </div>
                             <button type="submit" form="dr2mp_add_form_real" class="corex-btn-outline text-xs">Add to deal</button>
                             <button type="button" id="dr2mp_add_cancel" class="text-xs underline" style="color:var(--text-muted);">Cancel</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            @elseif(($mode ?? 'create') === 'create')
+            {{-- Johan, 2026-09-14/16 — the create-time gap he found himself: this
+                 section didn't exist on create at all, yet the hint text right above
+                 the primary property picker told the user to "link a second property
+                 here". His ruling on WHY it must be create-time, not save-then-add:
+                 "2 properties sold together makes up 1 selling price... save the
+                 deal with figures not balancing, or save with wrong figures, then
+                 reopen, change the deal to get it back to correct figures? That was
+                 never the spec." A deal register must never carry a knowingly-wrong
+                 intermediate state, however briefly.
+
+                 Held entirely client-side (nothing persisted) until the ONE "Save
+                 Deal" submit, which serialises this into a `properties[]` array
+                 alongside the existing fields — see the JS block below and
+                 DealRegisterController::store()'s own handling of it. Same same-
+                 owner gate, same list markup conventions, same "Add another
+                 property" idiom as edit mode above — a second, client-only staging
+                 area is the only genuinely new mechanism; everything else is reused.
+
+                 Johan's pricing model, verbatim: "bm or admin can capture total and
+                 on properties... allow the price per property to be captured which
+                 displays a total, but bm or admin has to verify that the price
+                 balances." So Selling Price/Commission above are NOT the primary
+                 property's own price once a second property exists — they become
+                 the BM's own independently-entered TOTAL (the offer figure), checked
+                 live against the sum of every property's own row here, INCLUDING
+                 the primary's (Johan: "the primary gets its own row like the
+                 others"). Blocking on mismatch, not warning — his own stated
+                 principle this same week is that the register must never carry
+                 figures that don't balance, and "has to verify" describes what the
+                 human is for, not what the system may skip enforcing. --}}
+            <div class="field-full" id="dr2cp-multi-props">
+                <label class="ds-label block mb-1">Properties on this deal (<span id="dr2cp_count">1</span>)</label>
+                <div class="mt-1 text-xs mb-2" style="color:var(--text-faint);" id="dr2cp_single_hint">
+                    Add a second property below only when the SAME owner(s) are selling all of them together on this one deal. The primary property above is priced through the Selling Price field until then.
+                </div>
+
+                <div id="dr2cp_balance_banner" style="display:none;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:.6rem .8rem;margin-bottom:.6rem;font-size:.8rem;">
+                    <div>Sum of properties below: <strong>R <span id="dr2cp_sum_price">0.00</span></strong> · Total entered above: <strong>R <span id="dr2cp_sum_total">0.00</span></strong></div>
+                    <div id="dr2cp_balance_status" style="margin-top:.15rem;font-weight:600;"></div>
+                </div>
+
+                <div id="dr2cp_owner_error" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2" style="display:none;"></div>
+
+                <div id="dr2cp_list" class="flex flex-col gap-1.5 mb-2"></div>
+
+                <div id="dr2cp_hidden_inputs"></div>
+
+                <div style="border-top:1px dashed var(--border);padding-top:.6rem;">
+                    <label class="text-xs font-semibold block mb-1" style="color:var(--text-secondary);">Add another property</label>
+                    <div style="position:relative;">
+                        <input type="text" id="dr2cp_search" autocomplete="off" placeholder="Search a property by address, reference, complex…" class="input-base w-full text-xs">
+                        <div id="dr2cp_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:14rem;overflow:auto;display:none;"></div>
+                    </div>
+                    <div id="dr2cp_add_form" style="display:none;margin-top:.5rem;">
+                        <div class="text-xs mb-1" id="dr2cp_add_label" style="color:var(--text-muted);"></div>
+                        <div style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;">
+                            <div>
+                                <label class="text-[11px] block" style="color:var(--text-muted);">Price</label>
+                                <input type="number" step="0.01" min="0" id="dr2cp_add_price" class="input-base text-xs">
+                            </div>
+                            <div>
+                                <label class="text-[11px] block" style="color:var(--text-muted);">Commission (Incl VAT)</label>
+                                <input type="number" step="0.01" min="0" id="dr2cp_add_commission" class="input-base text-xs">
+                            </div>
+                            <button type="button" id="dr2cp_add_confirm" class="corex-btn-outline text-xs">Add to deal</button>
+                            <button type="button" id="dr2cp_add_cancel" class="text-xs underline" style="color:var(--text-muted);">Cancel</button>
                         </div>
                     </div>
                 </div>
@@ -1204,6 +1275,13 @@
             .then(r => r.ok ? r.json() : { sellers: [], buyers: [] })
             .then(data => {
                 const sellers = data.sellers || [], buyers = data.buyers || [];
+                // Create-time multi-property (Johan, 2026-09-14/16) — the baseline
+                // seller-side set every additional property's own live check
+                // compares against. Same exact-set-equality rule as
+                // DealPropertyOwnerGate; this is a CLIENT-SIDE convenience only
+                // (immediate feedback), never the enforcement — store() re-runs
+                // the real gate server-side per property regardless.
+                DR2.primarySellerIds = sellers.map(s => s.id).sort((a, b) => a - b);
                 // Seller: auto-fill the name when empty (never clobber a typed name).
                 const sName = document.getElementById('dr2_seller_name');
                 if (sellers.length && !sName.value.trim()) sName.value = sellers.map(s => s.name).filter(Boolean).join(', ');
@@ -1573,6 +1651,227 @@
         if (dr2mpAddCancel) dr2mpAddCancel.addEventListener('click', () => {
             dr2mpAddForm.style.display = 'none'; dr2mpAddPropertyId.value = ''; dr2mpSearch.value = '';
             dr2mpAddPrice.value = ''; dr2mpAddCommission.value = '';
+        });
+    }
+
+    // ---------- Create-time multi-property staging (Johan, 2026-09-14/16) ----------
+    // Held entirely client-side until the ONE "Save Deal" submit — see
+    // DealRegisterController::store() for the server-side persistence, gate
+    // re-validation and balance re-check this feeds.
+    const dr2cpRoot = document.getElementById('dr2cp-multi-props');
+    if (dr2cpRoot) {
+        let dr2cpAdditional = []; // [{propertyId, address, price, commission}]
+        let dr2cpPrimary = null;  // {price, commission} — set the moment a 2nd property is added
+        let dr2cpPendingPick = null; // {id, address} awaiting price/commission entry
+
+        const dr2cpList = document.getElementById('dr2cp_list');
+        const dr2cpCount = document.getElementById('dr2cp_count');
+        const dr2cpSingleHint = document.getElementById('dr2cp_single_hint');
+        const dr2cpBanner = document.getElementById('dr2cp_balance_banner');
+        const dr2cpSumPrice = document.getElementById('dr2cp_sum_price');
+        const dr2cpSumTotal = document.getElementById('dr2cp_sum_total');
+        const dr2cpBalanceStatus = document.getElementById('dr2cp_balance_status');
+        const dr2cpOwnerError = document.getElementById('dr2cp_owner_error');
+        const dr2cpHiddenInputs = document.getElementById('dr2cp_hidden_inputs');
+        const dr2cpSearch = document.getElementById('dr2cp_search');
+        const dr2cpResults = document.getElementById('dr2cp_results');
+        const dr2cpAddForm = document.getElementById('dr2cp_add_form');
+        const dr2cpAddPrice = document.getElementById('dr2cp_add_price');
+        const dr2cpAddCommission = document.getElementById('dr2cp_add_commission');
+        const dr2cpAddLabel = document.getElementById('dr2cp_add_label');
+        const propValueEl = document.getElementById('dr2_property_value');
+        const totalCommEl = document.getElementById('dr2_total_commission');
+        const fmt2 = n => (Number(n) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+        const dr2cpShowOwnerError = msg => {
+            dr2cpOwnerError.textContent = msg || '';
+            dr2cpOwnerError.style.display = msg ? '' : 'none';
+        };
+
+        function dr2cpBalanced() {
+            const sumPrice = (dr2cpPrimary ? dr2cpPrimary.price : 0) + dr2cpAdditional.reduce((s, p) => s + (parseFloat(p.price) || 0), 0);
+            const sumCommission = (dr2cpPrimary ? dr2cpPrimary.commission : 0) + dr2cpAdditional.reduce((s, p) => s + (parseFloat(p.commission) || 0), 0);
+            const totalPrice = parseFloat(propValueEl.value) || 0;
+            const totalCommission = parseFloat(totalCommEl.value) || 0;
+            const priceDiff = Math.round((totalPrice - sumPrice) * 100) / 100;
+            const commDiff = Math.round((totalCommission - sumCommission) * 100) / 100;
+            return { sumPrice, sumCommission, totalPrice, totalCommission, priceDiff, commDiff, ok: Math.abs(priceDiff) < 0.01 && Math.abs(commDiff) < 0.01 };
+        }
+
+        function dr2cpRenderRow(label, isPrimary, price, commission, onPrice, onCommission, onRemove) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:8px;';
+            row.innerHTML = '<div style="min-width:0;flex-shrink:0;"><span style="font-weight:600;color:var(--text-primary);">' + esc(label) + '</span>'
+                + (isPrimary ? ' <span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:#065f46;background:#ecfdf5;">Primary</span>' : '') + '</div>'
+                + '<div style="display:flex;align-items:center;gap:.5rem;flex-shrink:0;">'
+                + '<label class="text-[11px]" style="color:var(--text-muted);">Price <input type="number" step="0.01" min="0" class="input-base text-xs dr2cp-row-price" style="width:110px;" value="' + esc(price) + '"></label>'
+                + '<label class="text-[11px]" style="color:var(--text-muted);">Commission <input type="number" step="0.01" min="0" class="input-base text-xs dr2cp-row-commission" style="width:110px;" value="' + esc(commission) + '"></label>'
+                + (isPrimary ? '' : '<button type="button" class="dr2cp-row-remove text-xs" style="color:#b91c1c;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;">Remove</button>')
+                + '</div>';
+            row.querySelector('.dr2cp-row-price').addEventListener('input', e => { onPrice(parseFloat(e.target.value) || 0); dr2cpRecompute(); });
+            row.querySelector('.dr2cp-row-commission').addEventListener('input', e => { onCommission(parseFloat(e.target.value) || 0); dr2cpRecompute(); });
+            const removeBtn = row.querySelector('.dr2cp-row-remove');
+            if (removeBtn) removeBtn.addEventListener('click', () => { onRemove(); dr2cpRecompute(); });
+            return row;
+        }
+
+        function dr2cpRecompute() {
+            const multi = dr2cpAdditional.length > 0;
+            dr2cpCount.textContent = String(1 + dr2cpAdditional.length);
+            dr2cpSingleHint.style.display = multi ? 'none' : '';
+            dr2cpBanner.style.display = multi ? '' : 'none';
+            dr2cpList.innerHTML = '';
+            dr2cpHiddenInputs.innerHTML = '';
+
+            if (!multi) { return; }
+
+            const b = dr2cpBalanced();
+            dr2cpSumPrice.textContent = fmt2(b.sumPrice);
+            dr2cpSumTotal.textContent = fmt2(b.totalPrice);
+            dr2cpBalanceStatus.style.color = b.ok ? '#065f46' : '#b91c1c';
+            dr2cpBalanceStatus.textContent = b.ok
+                ? '✓ Balances — matches the total above.'
+                : ('✗ Does not balance — price off by R ' + fmt2(Math.abs(b.priceDiff)) + (Math.abs(b.commDiff) >= 0.01 ? ', commission off by R ' + fmt2(Math.abs(b.commDiff)) : '') + '. Adjust the property prices or the total above before saving.');
+
+            dr2cpList.appendChild(dr2cpRenderRow(
+                pAddr.value || ('Property #' + pId.value), true, dr2cpPrimary.price, dr2cpPrimary.commission,
+                v => { dr2cpPrimary.price = v; }, v => { dr2cpPrimary.commission = v; }, () => {},
+            ));
+            dr2cpAdditional.forEach((p, idx) => {
+                dr2cpList.appendChild(dr2cpRenderRow(
+                    p.address, false, p.price, p.commission,
+                    v => { p.price = v; }, v => { p.commission = v; },
+                    () => {
+                        dr2cpAdditional.splice(idx, 1);
+                        if (dr2cpAdditional.length === 0) { dr2cpPrimary = null; }
+                        dr2cpRecompute();
+                    },
+                ));
+
+                ['property_id', 'allocated_price', 'allocated_commission'].forEach(field => {
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'properties[' + idx + '][' + field + ']';
+                    input.value = field === 'property_id' ? p.propertyId : field === 'allocated_price' ? p.price : p.commission;
+                    dr2cpHiddenInputs.appendChild(input);
+                });
+            });
+            // The primary's own row travels as properties[N] too (N = additional
+            // count) — store() tells it apart from the others by matching
+            // property_id against the deal's own primary property_id, never by
+            // array position (see store()'s own handling).
+            const primaryIdx = dr2cpAdditional.length;
+            [['property_id', pId.value], ['allocated_price', dr2cpPrimary.price], ['allocated_commission', dr2cpPrimary.commission]].forEach(([field, value]) => {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'properties[' + primaryIdx + '][' + field + ']';
+                input.value = value;
+                dr2cpHiddenInputs.appendChild(input);
+            });
+        }
+
+        function dr2cpAddConfirmed(id, address, price, commission) {
+            if (dr2cpAdditional.length === 0) {
+                // First addition — freeze whatever's currently in the main
+                // Selling Price/Commission fields as the PRIMARY's own row.
+                // Those fields now mean "the deal's total" from this point on;
+                // their current value is a reasonable starting point for the
+                // total (sum-of-one-property-so-far), edited from here by the BM.
+                dr2cpPrimary = { price: parseFloat(propValueEl.value) || 0, commission: parseFloat(totalCommEl.value) || 0 };
+            }
+            dr2cpAdditional.push({ propertyId: id, address, price, commission });
+            dr2cpRecompute();
+        }
+
+        // Live same-owner check — Johan's exact-set-equality rule
+        // (DealPropertyOwnerGate), reusing the SAME endpoint the primary
+        // picker already calls (R.propertyContacts) — no new endpoint. This
+        // is a convenience only: store() re-runs the real gate server-side
+        // per property regardless, never trusting this result.
+        function dr2cpCheckOwnerThenAdd(id, address, price, commission) {
+            dr2cpShowOwnerError(null);
+            const baseline = DR2.primarySellerIds || [];
+            fetch(R.propertyContacts.replace('__ID__', id), { headers: { Accept: 'application/json' } })
+                .then(r => r.ok ? r.json() : { sellers: [] })
+                .then(data => {
+                    const candidate = (data.sellers || []).map(s => s.id).sort((a, b) => a - b);
+                    if (baseline.length && (candidate.length !== baseline.length || !candidate.every((v, i) => v === baseline[i]))) {
+                        dr2cpShowOwnerError("Can't add " + address + " to this deal — its owner(s) don't exactly match the owner(s) already on this deal. A deal can only cover properties that share the exact same owners. This property needs its own, separate deal.");
+                        return;
+                    }
+                    dr2cpAddConfirmed(id, address, price, commission);
+                })
+                // A failed check must never silently block a legitimate add — the
+                // server re-checks unconditionally regardless of this call's outcome.
+                .catch(() => dr2cpAddConfirmed(id, address, price, commission));
+        }
+
+        const closeDr2cp = () => { dr2cpResults.style.display = 'none'; dr2cpResults.innerHTML = ''; };
+        const runDr2cp = debounce(() => {
+            const q = dr2cpSearch.value.trim();
+            if (q.length < 2) { closeDr2cp(); return; }
+            fetch(R.properties + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
+                .then(r => r.ok ? r.json() : [])
+                .then(rows => {
+                    if (!Array.isArray(rows) || !rows.length) {
+                        dr2cpResults.innerHTML = '<div style="padding:.6rem .8rem;color:#9ca3af;font-size:.85rem;">No match.</div>';
+                        dr2cpResults.style.display = 'block'; return;
+                    }
+                    dr2cpResults.innerHTML = rows.map(row => {
+                        const addr = row.address || ('Property #' + row.id);
+                        const price = (row.price != null && row.price !== '') ? 'R ' + money(row.price) : '';
+                        return '<div class="dr2cp-arow" role="button" tabindex="0" data-id="' + row.id + '" data-address="' + esc(addr) + '" data-price="' + (row.price ?? '') + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
+                            + '<div style="font-weight:600;color:#0b2a4a;">' + addr + '</div>'
+                            + (price ? '<div style="font-size:.78rem;color:#6b7280;">' + price + '</div>' : '') + '</div>';
+                    }).join('');
+                    dr2cpResults.style.display = 'block';
+                    dr2cpResults.querySelectorAll('.dr2cp-arow').forEach(el => {
+                        el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
+                        el.addEventListener('mouseout', () => el.style.background = '#fff');
+                        el.addEventListener('click', () => {
+                            dr2cpPendingPick = { id: el.dataset.id, address: el.dataset.address };
+                            dr2cpAddLabel.textContent = 'Adding ' + el.dataset.address;
+                            dr2cpAddPrice.value = el.dataset.price || '';
+                            dr2cpAddCommission.value = '';
+                            dr2cpSearch.value = el.dataset.address;
+                            dr2cpAddForm.style.display = '';
+                            closeDr2cp();
+                        });
+                    });
+                }).catch(closeDr2cp);
+        }, 220);
+        dr2cpSearch.addEventListener('input', runDr2cp);
+        dr2cpSearch.addEventListener('focus', runDr2cp);
+        document.addEventListener('click', e => { if (!e.target.closest('#dr2cp_search') && !e.target.closest('#dr2cp_results')) closeDr2cp(); });
+
+        document.getElementById('dr2cp_add_confirm').addEventListener('click', () => {
+            if (!dr2cpPendingPick) return;
+            if (dr2cpAdditional.some(p => String(p.propertyId) === String(dr2cpPendingPick.id))) {
+                dr2cpShowOwnerError('That property is already on this deal.');
+                return;
+            }
+            dr2cpCheckOwnerThenAdd(dr2cpPendingPick.id, dr2cpPendingPick.address, parseFloat(dr2cpAddPrice.value) || 0, parseFloat(dr2cpAddCommission.value) || 0);
+            dr2cpAddForm.style.display = 'none'; dr2cpPendingPick = null; dr2cpSearch.value = '';
+            dr2cpAddPrice.value = ''; dr2cpAddCommission.value = '';
+        });
+        document.getElementById('dr2cp_add_cancel').addEventListener('click', () => {
+            dr2cpAddForm.style.display = 'none'; dr2cpPendingPick = null; dr2cpSearch.value = '';
+            dr2cpAddPrice.value = ''; dr2cpAddCommission.value = '';
+        });
+
+        // Live balance recompute as the TOTAL fields themselves are edited —
+        // not just when a property row changes.
+        propValueEl.addEventListener('input', () => { if (dr2cpAdditional.length) dr2cpRecompute(); });
+        totalCommEl.addEventListener('input', () => { if (dr2cpAdditional.length) dr2cpRecompute(); });
+
+        // Block the ONE save if it doesn't balance — client-side backstop only;
+        // store() is the real, unconditional enforcement (see its own docblock).
+        document.getElementById('dr2-main-form').addEventListener('submit', e => {
+            if (dr2cpAdditional.length && !dr2cpBalanced().ok) {
+                e.preventDefault();
+                dr2cpBanner.scrollIntoView({ block: 'center' });
+                alert("This deal's total doesn't match the sum of its properties' prices yet. Fix the figures below before saving — a deal register must never carry numbers that don't balance.");
+            }
         });
     }
 })();
