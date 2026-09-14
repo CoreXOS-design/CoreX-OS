@@ -243,6 +243,24 @@
             </div>
         </div>
 
+        {{-- ═══════ CORE MATCHES — WORKING WINDOW (Johan's ruling 5) ═══════ --}}
+        <div class="corex-panel mb-6">
+            <div class="corex-panel-header">
+                <h3 class="corex-panel-title">Core Matches</h3>
+            </div>
+            <div class="corex-panel-body space-y-4">
+                <p class="text-xs" style="color:var(--text-muted);">How many days a buyer can go without a note, a message, a live link share, or "Last Contacted" being pressed before the Core Matches board shows them as gone quiet.</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Working window (days)</label>
+                        <input type="number" name="core_matches_working_window_days" value="{{ $settings->core_matches_working_window_days ?? \App\Models\AgencyContactSettings::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS }}" min="1" max="90"
+                               class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                    </div>
+                </div>
+            </div>
+        </div>
+
         {{-- ═══════ OUTREACH — NO-RESPONSE WINDOW (AT-81) ═══════ --}}
         <div class="corex-panel mb-6">
             <div class="corex-panel-header">

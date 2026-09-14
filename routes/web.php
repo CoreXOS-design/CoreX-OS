@@ -827,6 +827,15 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // seller/buyer contacts + attorney supplier directory). Static paths declared
     // BEFORE the {deal} wildcards so they never shadow-capture.
     Route::get('/search/properties',            [\App\Http\Controllers\Dr2\DealRegisterController::class, 'searchProperties'])->middleware('permission:create_deals')->name('search.properties');
+    // "Add another property" eligibility, Johan 2026-09-16 — a plain
+    // dropdown of gate-eligible properties only, not a whole-book search.
+    // Same middleware convention as search.properties directly above
+    // (pre-existing note, not fixed here per anti-drift: this middleware
+    // key is stricter than the controller's own deals.create||deals.edit
+    // check, so a deals.edit-only user would 403 here before ever reaching
+    // that check — matched as-is for consistency, not introduced by this
+    // change).
+    Route::get('/search/eligible-properties',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'eligibleProperties'])->middleware('permission:create_deals')->name('search.eligible-properties');
     Route::get('/search/property-contacts/{property}', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'propertyContacts'])->middleware('permission:create_deals')->name('search.property-contacts');
     Route::get('/search/contacts',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactSearch'])->middleware('permission:create_deals')->name('search.contacts');
     Route::post('/contact/inline',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactInline'])->middleware('permission:create_deals')->name('contact.inline');
@@ -4040,6 +4049,33 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/rentals/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
         ->middleware('permission:core_matches.all_view')
         ->name('corex.rentals.core-matches.all');
+
+    // AT-Core-Matches, Johan's ruling 1 — server-enforced, not a hidden
+    // button. Route middleware is the FIRST gate; ContactMatch::reassignTo()
+    // re-checks the same permission independently (defense in depth, direct-
+    // URL access must be blocked, not just absent from a menu). One route
+    // serves both the sale and rental screens — the match itself carries its
+    // own listing_type, there is no separate rentals variant needed here.
+    Route::post('/core-matches/{match}/reassign', [\App\Http\Controllers\CoreX\ContactMatchReassignmentController::class, 'reassign'])
+        ->middleware('permission:core_matches.reassign')
+        ->name('corex.core-matches.reassign');
+
+    // AT-Core-Matches, Johan's ruling 4 — logs a share event (internal-only)
+    // and resets the buyer's working clock. Same core_matches.view gate as
+    // reading the match itself — anyone who can see a match and act on it
+    // may share its live link; reassignment is the privileged action, not this.
+    Route::post('/core-matches/{match}/record-share', [\App\Http\Controllers\CoreX\ContactMatchShareController::class, 'record'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.core-matches.record-share');
+
+    // AT-Core-Matches, share-history piece — read-only: the share log, the
+    // separate "opened" signal, and "properties not seen since last send"
+    // (today's live matches minus everything ever shared). Same gate as
+    // record-share above; this is the query cc3's screen calls to render
+    // the share-history panel, not a second data-entry endpoint.
+    Route::get('/core-matches/{match}/share-history', [\App\Http\Controllers\CoreX\ContactMatchShareHistoryController::class, 'show'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.core-matches.share-history');
 
     // AT-403 — Rentals → Contacts. Johan: "rental menu - wheres my rental
     // contacts?" Same ContactController::index() as corex.contacts.index

@@ -407,6 +407,10 @@ return [
         ['key' => 'core_matches.manage',         'label' => 'Manage (edit, archive)',      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 13],
         ['key' => 'core_matches.convert_to_deal','label' => 'Convert to Deal',             'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 14],
         ['key' => 'core_matches.all_view',       'label' => 'All View (agency/branch oversight)', 'section' => 'core-matches', 'type' => 'action', 'module' => 'core_matches',  'sort_order' => 15],
+        // AT-Core-Matches, Johan's ruling 1 — "only a branch manager or admin
+        // can move a buyer between agents. Ever." Never granted to agent —
+        // mirrors contacts.reassign_agent's existing role placement exactly.
+        ['key' => 'core_matches.reassign',       'label' => 'Reassign buyer to another agent', 'section' => 'core-matches', 'type' => 'action', 'module' => 'core_matches', 'sort_order' => 16],
 
         // ── Portal Leads (P24 + PP unified) ──
         ['key' => 'access_portal_leads',         'label' => 'Access Portal Leads',         'section' => 'portal-leads',     'type' => 'access',  'module' => 'portal_leads',     'sort_order' => 1],
@@ -899,7 +903,7 @@ return [
                 'contacts.reassign_agent', // AT-118 hardening — managers reassign contact agents
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
-                'core_matches.all_view',
+                'core_matches.all_view', 'core_matches.reassign',
                 'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',

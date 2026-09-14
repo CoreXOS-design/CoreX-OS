@@ -125,7 +125,10 @@ final class CreateTimeMultiPropertyTest extends TestCase
         $response->assertOk();
         $response->assertSee('Properties on this deal', false);
         $response->assertSee('Add another property', false);
-        $response->assertSee('id="dr2cp_search"', false);
+        // Johan, 2026-09-16 — "why offer a search, it can be a plain
+        // dropdown" — a <select>, never a text search input, on either screen.
+        $response->assertSee('id="dr2cp_picker"', false);
+        $response->assertDontSee('id="dr2cp_search"', false);
     }
 
     public function test_an_ordinary_agent_cannot_reach_the_create_screen(): void
@@ -180,7 +183,14 @@ final class CreateTimeMultiPropertyTest extends TestCase
         $response = $this->actingAs($this->bm)->post(route('deals-dr2.store'), array_merge($this->basePayload(), [
             'property_id' => $propA->id,
             // Total says 1,500,000 but the parts only add up to 1,400,000 —
-            // deliberately off by 100,000.
+            // deliberately off by 100,000. Commission, deliberately, DOES
+            // balance (57,500 + 28,750 = 86,250) — this is Johan's own
+            // real-world case (AT-focus-fix, 2026-09-18): price wrong,
+            // commission fine. Price and commission are independent checks
+            // (Johan: "we don't work with the R240000 at all, we work with
+            // the R24000, that's the agency money") — a price mismatch must
+            // report as a PRICE error only, never drag commission into the
+            // same sentence when commission is genuinely correct.
             'property_value' => 1_500_000, 'total_commission' => 86_250,
             'properties' => [
                 ['property_id' => $propA->id, 'allocated_price' => 900_000, 'allocated_commission' => 57_500],
@@ -189,7 +199,42 @@ final class CreateTimeMultiPropertyTest extends TestCase
         ]));
 
         $response->assertSessionHasErrors('property_value');
+        $response->assertSessionDoesntHaveErrors('total_commission');
+        $this->assertStringContainsString('selling price', strtolower((string) session('errors')->first('property_value')));
         $this->assertSame($countBefore, Deal::count(), "A deal register must never carry figures that don't balance — nothing should have been written at all, not even the deal itself.");
+    }
+
+    /**
+     * Johan's exact real-world numbers (AT-focus-fix, 2026-09-18): two
+     * properties at 100,000 each (200,000 total) against a 220,000 selling
+     * price — genuinely R20,000 out. Commission 10,000 + 10,000 = 20,000
+     * against a 20,000 deal commission — genuinely balanced. The bug this
+     * guards against reported BOTH as out (commission "off by R17,800",
+     * comparing against a stale value that existed nowhere on screen).
+     */
+    public function test_johans_real_numbers_price_out_commission_balanced(): void
+    {
+        $propA = $this->makeProperty('Unit 5694, Serenity Hills Eco Estate');
+        $propB = $this->makeProperty('Unit 2 door 11 + 11A, Natspat Door, 60 Lilliecrona Boulevard');
+        $steve = $this->makeContact('Steve');
+        $this->linkOwner($propA, $steve);
+        $this->linkOwner($propB, $steve);
+        $countBefore = Deal::count();
+
+        $response = $this->actingAs($this->bm)->post(route('deals-dr2.store'), array_merge($this->basePayload(), [
+            'property_id' => $propA->id,
+            'property_value' => 220_000, 'total_commission' => 20_000,
+            'properties' => [
+                ['property_id' => $propA->id, 'allocated_price' => 100_000, 'allocated_commission' => 10_000],
+                ['property_id' => $propB->id, 'allocated_price' => 100_000, 'allocated_commission' => 10_000],
+            ],
+        ]));
+
+        $response->assertSessionHasErrors('property_value');
+        $response->assertSessionDoesntHaveErrors('total_commission');
+        $priceError = (string) session('errors')->first('property_value');
+        $this->assertStringContainsString('20,000.00', $priceError, 'must report the price genuinely off by R20,000');
+        $this->assertSame($countBefore, Deal::count());
     }
 
     public function test_a_second_property_with_a_different_owner_is_refused_and_creates_nothing_at_all(): void
@@ -212,6 +257,41 @@ final class CreateTimeMultiPropertyTest extends TestCase
         $response->assertSessionHasErrors('property_id');
         $this->assertStringContainsString('cannot sign for the transfer', (string) session('errors')->first('property_id'));
         $this->assertSame($countBefore, Deal::count(), 'The owner-gate failure must roll back the WHOLE transaction — the deal itself must never have been created, not just left without its second property.');
+        $this->assertDatabaseMissing('deal_properties', ['property_id' => $propA->id]);
+    }
+
+    /**
+     * The exact "31-gap" scenario the eligibility dropdown now shows as a
+     * DISABLED option with a reason (PropertyEligibilityDropdownTest)
+     * rather than hiding it. A disabled <option> is a client-side hint
+     * only — Conductor's explicit requirement, 2026-09-16: prove the same
+     * property id is refused when POSTed directly, by the same
+     * DealPropertyOwnerGate the dropdown itself queries, not a second,
+     * looser check. Steve owns the reference solely; Steve+Dave jointly
+     * own the candidate — same seller, different owner SET.
+     */
+    public function test_a_property_shown_disabled_in_the_dropdown_for_a_mismatched_owner_set_is_still_refused_when_posted_directly(): void
+    {
+        $steve = $this->makeContact('Steve');
+        $dave = $this->makeContact('Dave');
+        $propA = $this->makeProperty('7e Same Seller Different Set A Rd');
+        $jointlyOwned = $this->makeProperty('7e Same Seller Different Set B Rd');
+        $this->linkOwner($propA, $steve);
+        $this->linkOwner($jointlyOwned, $steve);
+        $this->linkOwner($jointlyOwned, $dave);
+        $countBefore = Deal::count();
+
+        $response = $this->actingAs($this->bm)->post(route('deals-dr2.store'), array_merge($this->basePayload(), [
+            'property_id' => $propA->id,
+            'property_value' => 1_500_000, 'total_commission' => 86_250,
+            'properties' => [
+                ['property_id' => $propA->id, 'allocated_price' => 1_000_000, 'allocated_commission' => 57_500],
+                ['property_id' => $jointlyOwned->id, 'allocated_price' => 500_000, 'allocated_commission' => 28_750],
+            ],
+        ]));
+
+        $response->assertSessionHasErrors('property_id');
+        $this->assertSame($countBefore, Deal::count(), 'Disabled in the dropdown is a UI hint only — the gate itself must still refuse this id and roll back the whole transaction when posted directly.');
         $this->assertDatabaseMissing('deal_properties', ['property_id' => $propA->id]);
     }
 

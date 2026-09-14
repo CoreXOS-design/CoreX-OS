@@ -834,6 +834,52 @@ The Kanban board ran one unbounded query per load — `Contact::buyers()...get()
 
 **Deliberately NOT added to the Setup Wizard** (non-negotiable #10a normally requires this for every new setting) — this is a display/pagination threshold, not a business policy an agency configures once when onboarding; it sits alongside `buyer_warm_days`/`buyer_cold_days`/`duplicate_mode` and the rest of the Contact Governance settings group, none of which are in the wizard today either (a pre-existing gap for that whole settings group, out of scope to retrofit here). Flagging the omission explicitly rather than silently deciding it, per the rule's own escape valve — Johan's call if this whole settings group should eventually reach the wizard.
 
+### 12.8 Follow-up (2026-09-14, cc6) — date-range filter, mixed-type badge, "Rentals only" restyle
+
+Johan reported the Rental Pipeline "shows everything" (150 in New alone); investigated
+alongside the already-landed primary-vs-any-match fix (§ elsewhere in this session's
+history — `Contact::primaryMatchIsRental()`). Root cause of the volume itself turned out
+to be real agency backlog, not a bug (documented at
+`.ai/specs/at372-contacted-signal.md`'s new section and on
+`BuyerStateService::resolveState()` — the board is deliberately manual). Two real,
+narrower gaps found and fixed on the SCREEN itself in the same investigation:
+
+- **Date-range filter** (BUILD_STANDARD.md §1b — every list screen ships one, minimum;
+  this was the one confirmed missing piece against §12.5's audit). `?entered_from=`/
+  `?entered_to=` filter on `contacts.buyer_pipeline_entered_at` (the same "Since" date
+  §12.6 already put on every card/row), letting a manager find who's been sitting on the
+  board since before a given date rather than eyeballing 150+ unsorted cards. Malformed
+  date input is absorbed (silently skipped), never a 500. Threaded through every
+  self-referencing toggle link the same way `agent_id`/`q`/`sort`/`dir` already were.
+- **Per-card Sale/Rental badge — deliberately NOT everywhere.** Investigated whether the
+  fix for "nobody could tell what a card was" (the reason Johan's report was misread in
+  the first place — no rental/sale indicator of any kind existed) should be a badge on
+  every card. It should not be, per Johan's own screen rule against decoration that
+  carries no information: on the Rentals-locked entry point, or the general board
+  filtered to one `lead_type`, every visible card is already the same type by
+  construction — a badge there is noise, not signal. The badge (`RENTAL`/`SALE`, small,
+  colour-coded) now renders ONLY on the general Buyer Pipeline board with no `lead_type`
+  filter (`command-center.buyers.pipeline`, "All" lead-type view) — the one place rows
+  genuinely vary. `$showsMixedTypes` gates it, computed once at the top of the view.
+- **"Rentals only" label restyled**, not rebuilt. Git-archaeology (this session) confirmed
+  it was never an `<a>` — born as a static label in the same commit that introduced the
+  AT-401 lock (`bfc2704ec`), never a broken/abandoned toggle. But it sat in the same
+  bordered-pill styling as the real Mine/Branch/All toggle beside it, which reads as a
+  control even though it never was one — exactly the ambiguity that let Johan's original
+  report stand unchallenged. Restyled to plain muted caption text ("Showing rentals
+  only"), no border/pill/background — a status, not a control. No behaviour change.
+
+Verification: `tests/Feature/Buyers/BuyerPipelineScopingHoldsAgainstCraftedRequestTest.php`
+(own/branch/agency scoping proved against a hand-crafted `?scope=agency` request from a
+low-privilege fixture user — never sees a same-agency rival outside their granted scope,
+an `agent_id=` filter can't be pointed at someone outside scope either, cross-agency
+isolation holds even under an agency-wide grant, and the identical URL genuinely works
+for a permitted role — the positive case, so the lock isn't just blocking everyone) and
+`tests/Feature/Buyers/BuyerPipelineScreenStandardTest.php` (date-range narrowing +
+malformed-input absorption, badge shown only on the mixed board, label reads as a
+caption). 11/11 passing, including the pre-existing `BuyerPipelineMixedWishlistPrimaryMatchTest`
+run alongside as a regression check.
+
 ### Files changed (§12)
 
 - `app/Http/Controllers/CommandCenter/BuyerPipelineController.php` — search/sort-whitelist/agent-options/kanban column cap
