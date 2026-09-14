@@ -351,7 +351,7 @@
                 <label class="ds-label block mb-1">Selling Price</label>
                 <input type="number" step="0.01" class="input-base money-input" name="property_value" id="dr2_property_value" value="{{ old('property_value', $deal->property_value) }}" required {{ $dr2MultiPriced ? 'readonly' : '' }}>
                 @if($dr2MultiPriced)
-                    <div class="mt-1 text-xs" style="color:var(--text-faint)">This deal has more than one property — this is the sum of their prices below. Edit each property's own price there.</div>
+                    <div class="mt-1 text-xs" id="dr2_selling_price_multi_hint" style="color:var(--text-faint)">This deal has more than one property — this is the sum of their prices below. Edit each property's own price there.</div>
                 @endif
             </div>
 
@@ -492,33 +492,26 @@
                 </div>
             </div>
             @elseif(($mode ?? 'create') === 'create')
-            {{-- Johan's pricing model, verbatim: "bm or admin can capture total and
-                 on properties... allow the price per property to be captured which
-                 displays a total, but bm or admin has to verify that the price
-                 balances." Selling Price/Commission above are NOT the primary
-                 property's own figures once a second property exists — they become
-                 the BM's own independently-entered TOTALS, checked live against the
-                 sum of every property's own row here, INCLUDING the primary's
-                 (Johan: "the primary gets its own row like the others"). Blocking
-                 on mismatch, not warning.
-
-                 Price and commission are two INDEPENDENT reconciliations, per
-                 Johan's own ruling — "we don't work with the R240000 at all, we
-                 work with the R24000, that's the agency money" — neither is
-                 derived from the other, and one balancing does not imply the
-                 other does. Both get their own sum/total/verdict line, never
-                 combined into one sentence, so a deal that's out on price but
-                 correct on commission (or vice versa) reads unambiguously as
-                 exactly that. --}}
-            <div class="field-full" id="dr2cp-multi-props">
+            {{-- AT-flow-fix, Johan 2026-09-19, verbatim: "Picking the 2nd
+                 property is the trigger to load both, show them and show
+                 their selling price and comm fields to be completed."
+                 SUPERSEDES the earlier "independently-typed total,
+                 reconciled against the sum" design (§8d) — see
+                 .ai/specs/dr2-multi-property.md §8e. Picking a second
+                 property from the dropdown above renders BOTH rows
+                 immediately — no separate "confirm" step. Each row's
+                 Selling price prefills from the property record and stays
+                 editable; each row's Commission starts BLANK for the agent
+                 or BM to complete, exactly like the single-property flow
+                 leaves commission for the BM to fill. Selling
+                 Price/Commission above become READ-ONLY the moment a
+                 second property exists — they ARE the sum, displayed live,
+                 never a second independently-typed figure to disagree with
+                 the parts. --}}
+            <div class="field-full" id="dr2cp-multi-props" data-multi-hint="This deal has more than one property — this is the sum of their prices below. Edit each property's own price there.">
                 <label class="ds-label block mb-1">Properties on this deal (<span id="dr2cp_count">1</span>)</label>
                 <div class="mt-1 text-xs mb-2" style="color:var(--text-faint);" id="dr2cp_single_hint">
-                    Add a second property above only when the SAME owner(s) are selling all of them together on this one deal. Its own selling price and commission appear here once added.
-                </div>
-
-                <div id="dr2cp_balance_banner" style="display:none;border:1px solid #fcd34d;background:#fffbeb;border-radius:8px;padding:.6rem .8rem;margin-bottom:.6rem;font-size:.8rem;">
-                    <div id="dr2cp_price_status" style="font-weight:600;"></div>
-                    <div id="dr2cp_comm_status" style="font-weight:600;margin-top:.15rem;"></div>
+                    Add a second property above only when the SAME owner(s) are selling all of them together on this one deal.
                 </div>
 
                 <div id="dr2cp_owner_error" class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2" style="display:none;"></div>
@@ -526,22 +519,6 @@
                 <div id="dr2cp_list" class="flex flex-col gap-1.5 mb-2"></div>
 
                 <div id="dr2cp_hidden_inputs"></div>
-
-                <div id="dr2cp_add_form" style="display:none;border:1px solid var(--border);border-radius:8px;padding:.6rem;background:var(--surface);">
-                    <div class="text-xs mb-1" id="dr2cp_add_label" style="color:var(--text-muted);"></div>
-                    <div style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;">
-                        <div>
-                            <label class="text-[11px] block" style="color:var(--text-muted);">Selling price</label>
-                            <input type="number" step="0.01" min="0" id="dr2cp_add_price" class="input-base text-xs">
-                        </div>
-                        <div>
-                            <label class="text-[11px] block" id="dr2cp_add_commission_label" style="color:var(--text-muted);">Commission (Incl VAT)</label>
-                            <input type="number" step="0.01" min="0" id="dr2cp_add_commission" class="input-base text-xs">
-                        </div>
-                        <button type="button" id="dr2cp_add_confirm" class="corex-btn-outline text-xs">Add to deal</button>
-                        <button type="button" id="dr2cp_add_cancel" class="text-xs underline" style="color:var(--text-muted);">Cancel</button>
-                    </div>
-                </div>
             </div>
             @endif
                 </div>
@@ -1215,12 +1192,14 @@
     // Johan's ruling, 2026-09-19 — the per-property commission label must
     // match the total it feeds, WORD FOR WORD, and follow the Commission
     // basis selector live. One place sets this text everywhere it appears
-    // (the Financials total, both add-forms, the edit flyout, and every
-    // rendered property row) so they can never drift out of sync with each
-    // other or with the selector.
+    // (the Financials total, the edit screen's add/edit forms, and every
+    // create-mode rendered property row) so they can never drift out of
+    // sync with each other or with the selector. Create mode has no
+    // separate add-form anymore (AT-flow-fix, 2026-09-19 — picking a
+    // property renders its row directly), so only its rows need covering.
     function dr2SetCommissionLabelText(text) {
         amtLabel.textContent = text;
-        const ids = ['dr2cp_add_commission_label', 'dr2mp_add_commission_label', 'dr2mp_edit_commission_label'];
+        const ids = ['dr2mp_add_commission_label', 'dr2mp_edit_commission_label'];
         ids.forEach(id => { const el = document.getElementById(id); if (el) el.textContent = text; });
         document.querySelectorAll('.dr2-row-commission-label').forEach(el => { el.textContent = text; });
     }
@@ -1849,43 +1828,79 @@
         });
     }
 
-    // ---------- Create-time multi-property staging (Johan, 2026-09-14/16) ----------
+    // ---------- Create-time multi-property staging (Johan, 2026-09-14/16, ----------
+    // ---------- flow rebuilt 2026-09-19 — see .ai/specs/dr2-multi-property.md §8e --
     // Held entirely client-side until the ONE "Save Deal" submit — see
-    // DealRegisterController::store() for the server-side persistence, gate
-    // re-validation and balance re-check this feeds.
+    // DealRegisterController::store() for the server-side persistence.
+    //
+    // AT-flow-fix, Johan 2026-09-19, verbatim: "Picking the 2nd property is
+    // the trigger to load both, show them and show their selling price and
+    // comm fields to be completed." SUPERSEDES the earlier design where
+    // Selling Price/Commission above were an independently-typed total,
+    // reconciled against the sum with a live balance banner and a
+    // submit-blocking check. His own correction on his own earlier ruling:
+    // "the master must never be a second, independently-typed figure — it
+    // IS the sum, displayed." So Selling Price/Commission above are now
+    // DERIVED — read-only the moment a second property exists, always equal
+    // to the sum of the rows below by construction. There is no longer a
+    // second number that could disagree with the parts, so there is nothing
+    // left to balance-check, warn about, or block a save over — that whole
+    // class of machinery (dr2cpBalanced(), the verdict banner, the
+    // submit-time block) is REMOVED, not left inert. Do not reinstate it —
+    // see the spec section for the full reasoning and why it would be
+    // reintroducing a solved problem, not restoring a safeguard.
     const dr2cpRoot = document.getElementById('dr2cp-multi-props');
     if (dr2cpRoot) {
         // Each entry stores its commission CANONICALLY as Incl VAT, always —
         // matching dr2_total_commission's own established convention (see
         // recompute()'s comment: "stored Incl-VAT total (DR1 truth)"). What
-        // the row/add-form DISPLAYS is derived from the canonical value at
-        // render time using whatever basis is currently selected; what the
-        // user TYPES is converted back to canonical before it's stored. This
-        // is what makes a basis flip a pure re-render — see point 5 below.
+        // a row DISPLAYS is derived from the canonical value at render time
+        // using whatever basis is currently selected; what the user TYPES is
+        // converted back to canonical before it's stored. This survived the
+        // flow rebuild unchanged — still needed, orthogonal to who computes
+        // the total (see point 5, .ai/specs/dr2-multi-property.md §8e).
         let dr2cpAdditional = []; // [{propertyId, address, price, commissionIncl}]
         let dr2cpPrimary = null;  // {price, commissionIncl} — set the moment a 2nd property is added
-        let dr2cpPendingPick = null; // {id, address} awaiting price/commission entry
 
         const dr2cpList = document.getElementById('dr2cp_list');
         const dr2cpCount = document.getElementById('dr2cp_count');
         const dr2cpSingleHint = document.getElementById('dr2cp_single_hint');
-        const dr2cpBanner = document.getElementById('dr2cp_balance_banner');
-        const dr2cpPriceStatus = document.getElementById('dr2cp_price_status');
-        const dr2cpCommStatus = document.getElementById('dr2cp_comm_status');
+        // Not rendered server-side for create mode (a brand-new deal is
+        // never $dr2MultiPriced at load) — DealMultiPropertyBladeTest
+        // asserts a single-property page never contains this text at all.
+        // Created/removed on demand here rather than always rendered
+        // hidden (which would have put the text in the response body
+        // regardless of CSS visibility) — and the text itself is read from
+        // dr2cpRoot's own data-multi-hint attribute, not hardcoded as a JS
+        // string literal, for the same reason: a literal would still be
+        // part of the compiled <script> output on every page (this same
+        // blade file serves edit mode too), defeating the point. The
+        // data attribute only exists at all inside the create-mode-only
+        // #dr2cp-multi-props block, so edit mode's compiled output never
+        // contains this text in ANY form.
+        function dr2EnsureSellingPriceMultiHint(show) {
+            let el = document.getElementById('dr2_selling_price_multi_hint');
+            if (show && !el) {
+                el = document.createElement('div');
+                el.id = 'dr2_selling_price_multi_hint';
+                el.className = 'mt-1 text-xs';
+                el.style.color = 'var(--text-faint)';
+                el.textContent = dr2cpRoot.dataset.multiHint;
+                propValueEl.insertAdjacentElement('afterend', el);
+            } else if (!show && el) {
+                el.remove();
+            }
+        }
         const dr2cpOwnerError = document.getElementById('dr2cp_owner_error');
         const dr2cpHiddenInputs = document.getElementById('dr2cp_hidden_inputs');
         const dr2cpPicker = document.getElementById('dr2cp_picker');
         const dr2cpPickerEmpty = document.getElementById('dr2cp_picker_empty');
-        const dr2cpAddForm = document.getElementById('dr2cp_add_form');
-        const dr2cpAddPrice = document.getElementById('dr2cp_add_price');
-        const dr2cpAddCommission = document.getElementById('dr2cp_add_commission');
-        const dr2cpAddLabel = document.getElementById('dr2cp_add_label');
         const propValueEl = document.getElementById('dr2_property_value');
         const totalCommEl = document.getElementById('dr2_total_commission');
-        const fmt2 = n => (Number(n) || 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-        // dr2ToDisplay/dr2ToCanonicalIncl are shared, outer-scope helpers —
-        // see their own docblock above recompute().
+        // dr2ToDisplay/dr2ToCanonicalIncl/dr2FinCanonicalIncl/fmt/zar are
+        // shared, outer-scope helpers — see their own docblocks above
+        // recompute().
         const dr2CurrentMode = () => modeEl.value; // 'incl' | 'excl'
 
         const dr2cpShowOwnerError = msg => {
@@ -1893,81 +1908,98 @@
             dr2cpOwnerError.style.display = msg ? '' : 'none';
         };
 
-        // Johan's ruling, 2026-09-19, verbatim: "we don't work with the
-        // R240000 at all, we work with the R24000, that's the agency
-        // money" — price and commission are two INDEPENDENT captured
-        // figures, neither derived from the other. Two completely separate
-        // sum/total/diff computations, never combined into one verdict, so
-        // a deal that's out on one and correct on the other reads as
-        // exactly that — never "out" or "balanced" as a single blur.
-        function dr2cpBalanced() {
-            const sumPrice = (dr2cpPrimary ? dr2cpPrimary.price : 0) + dr2cpAdditional.reduce((s, p) => s + (parseFloat(p.price) || 0), 0);
-            const sumCommission = (dr2cpPrimary ? dr2cpPrimary.commissionIncl : 0) + dr2cpAdditional.reduce((s, p) => s + (parseFloat(p.commissionIncl) || 0), 0);
-            const totalPrice = parseFloat(propValueEl.value) || 0;
-            const totalCommission = parseFloat(totalCommEl.value) || 0; // always Incl VAT — see recompute()
-            const priceDiff = Math.round((totalPrice - sumPrice) * 100) / 100;
-            const commDiff = Math.round((totalCommission - sumCommission) * 100) / 100;
-            return {
-                sumPrice, sumCommission, totalPrice, totalCommission, priceDiff, commDiff,
-                priceOk: Math.abs(priceDiff) < 0.01,
-                commOk: Math.abs(commDiff) < 0.01,
-            };
-        }
-
         function dr2cpRenderRow(label, isPrimary, price, commissionIncl, onPrice, onCommissionIncl, onRemove) {
             const row = document.createElement('div');
             row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:8px;flex-wrap:wrap;';
             const commissionLabelText = dr2CurrentMode() === 'incl' ? 'Commission (Incl VAT)' : 'Commission (Excl VAT)';
+            const priceDisplay = fmt(price);
+            // Commission starts BLANK for the agent/BM to complete (Johan,
+            // point 3 — "exactly as the single-property flow leaves
+            // commission for the BM to fill") rather than showing "0.00".
+            const commDisplay = commissionIncl ? fmt(dr2ToDisplay(commissionIncl)) : '';
             row.innerHTML = '<div style="min-width:0;flex-shrink:0;"><span style="font-weight:600;color:var(--text-primary);">' + esc(label) + '</span>'
                 + (isPrimary ? ' <span title="Pick a different property as primary before removing this one" style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:#065f46;background:#ecfdf5;">Primary</span>' : '') + '</div>'
                 + '<div style="display:flex;align-items:center;gap:.5rem;flex-shrink:0;">'
-                + '<label class="text-[11px]" style="color:var(--text-muted);">Selling price <input type="number" step="0.01" min="0" class="input-base text-xs dr2-row-price" style="width:110px;" value="' + esc(fmt(price)) + '"></label>'
-                + '<label class="text-[11px]" style="color:var(--text-muted);"><span class="dr2-row-commission-label">' + esc(commissionLabelText) + '</span> <input type="number" step="0.01" min="0" class="input-base text-xs dr2-row-commission" style="width:110px;" value="' + esc(fmt(dr2ToDisplay(commissionIncl))) + '"></label>'
+                + '<label class="text-[11px]" style="color:var(--text-muted);">Selling price <input type="number" step="0.01" min="0" class="input-base text-xs dr2-row-price" style="width:110px;" value="' + esc(priceDisplay) + '"></label>'
+                + '<label class="text-[11px]" style="color:var(--text-muted);"><span class="dr2-row-commission-label">' + esc(commissionLabelText) + '</span> <input type="number" step="0.01" min="0" class="input-base text-xs dr2-row-commission" style="width:110px;" placeholder="0.00" value="' + esc(commDisplay) + '"></label>'
                 + (isPrimary ? '' : '<button type="button" class="dr2-row-remove text-xs" style="color:#b91c1c;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;">Remove</button>')
                 + '</div>';
-            row.querySelector('.dr2-row-price').addEventListener('input', e => { onPrice(parseFloat(e.target.value) || 0); dr2cpRecomputeSummary(); });
-            row.querySelector('.dr2-row-commission').addEventListener('input', e => { onCommissionIncl(dr2ToCanonicalIncl(parseFloat(e.target.value) || 0)); dr2cpRecomputeSummary(); });
+            row.querySelector('.dr2-row-price').addEventListener('input', e => { onPrice(parseFloat(e.target.value) || 0); dr2cpSyncMaster(); });
+            row.querySelector('.dr2-row-commission').addEventListener('input', e => { onCommissionIncl(dr2ToCanonicalIncl(parseFloat(e.target.value) || 0)); dr2cpSyncMaster(); });
             const removeBtn = row.querySelector('.dr2-row-remove');
             if (removeBtn) removeBtn.addEventListener('click', () => onRemove());
             return row;
         }
 
-        // AT-Focus-Fix, Johan 2026-09-16, verbatim: "as soon as you enter any
-        // digit of a number it loses focus" on all four price/commission
-        // fields. Root cause: the old dr2cpRecompute() did two jobs in one —
-        // updating the balance summary (needs to run on every keystroke) AND
-        // rebuilding dr2cpList's row markup from scratch via innerHTML = ''
-        // (needs to run ONLY when a property is added/removed). Because the
-        // per-row price/commission <input> 'input' listener called that same
-        // function, every keystroke destroyed the very DOM node the user was
-        // typing into and replaced it with a new one carrying the updated
-        // value — the number landed correctly, but focus was lost with the
-        // old node, so the browser dropped back to nothing and the next
-        // keystroke needed a click first. Split in two: dr2cpRecomputeSummary()
-        // never touches dr2cpList and is what every keystroke calls;
-        // dr2cpRenderRows() rebuilds the visible rows and is called ONLY on
-        // add/remove/primary-swap, never from a value-change listener. RULE
-        // FOR THE NEXT PERSON: any field that recalculates live as the user
-        // types must update a value/display, never rebuild the DOM subtree
-        // that field itself lives in — see .ai/specs/dr2-multi-property.md.
-        function dr2cpRecomputeSummary() {
+        // AT-Focus-Fix, Johan 2026-09-16 — see .ai/specs/dr2-multi-property.md
+        // §8c for the full history: any field that recalculates live as the
+        // user types must update a value/display, never rebuild the DOM
+        // subtree that field itself lives in. Still the rule here:
+        // dr2cpSyncMaster() never touches dr2cpList and is what every
+        // keystroke calls; dr2cpRenderRows() rebuilds the visible rows and
+        // is called ONLY on add/remove/basis-flip, never from a
+        // value-change listener.
+        //
+        // Does the job dr2cpRecomputeSummary() used to split off from row
+        // rendering, but the job itself changed: instead of computing a
+        // sum/total/diff verdict, it WRITES the sum directly into the
+        // (now read-only) Selling Price/Commission fields — they ARE the
+        // sum, live, per Johan's ruling. The multi branch derives
+        // incl/excl/pct/VAT display directly rather than calling
+        // recompute(); the single-mode revert branch DOES call
+        // recompute('amount') (simplest way to re-derive %/incl/excl/VAT
+        // display for the restored figures) — recompute() itself calls
+        // window.dr2cpRecomputeSummary?.() at its end, i.e. straight back
+        // into this function, so a re-entrancy guard is required or the
+        // two calls recurse forever (found live in browser verification,
+        // "Maximum call stack size exceeded", 2026-09-19).
+        let dr2cpSyncingMaster = false;
+        function dr2cpSyncMaster() {
+            if (dr2cpSyncingMaster) { return; }
+            dr2cpSyncingMaster = true;
+            try {
+                dr2cpSyncMasterBody();
+            } finally {
+                dr2cpSyncingMaster = false;
+            }
+        }
+        function dr2cpSyncMasterBody() {
             window.dr2cpAdditionalIds = dr2cpAdditional.map(p => p.propertyId);
             const multi = dr2cpAdditional.length > 0;
             dr2cpCount.textContent = String(1 + dr2cpAdditional.length);
             dr2cpSingleHint.style.display = multi ? 'none' : '';
-            dr2cpBanner.style.display = multi ? '' : 'none';
+            dr2EnsureSellingPriceMultiHint(multi);
+            propValueEl.readOnly = multi;
+            pctEl.readOnly = multi;
+            amtEl.readOnly = multi;
+            modeEl.disabled = multi;
 
-            if (!multi) { dr2cpHiddenInputs.innerHTML = ''; return; }
+            if (!multi) {
+                dr2cpHiddenInputs.innerHTML = '';
+                // Dropped back to one property (the last additional row was
+                // removed) — restore the master to the sole remaining
+                // property's own figures, not blank, matching how
+                // single-property mode already behaves.
+                if (dr2cpPrimary) {
+                    propValueEl.value = dr2cpPrimary.price > 0 ? fmt(dr2cpPrimary.price) : '';
+                    amtEl.value = dr2cpPrimary.commissionIncl > 0 ? fmt(dr2ToDisplay(dr2cpPrimary.commissionIncl)) : '';
+                    recompute('amount');
+                }
+                return;
+            }
 
-            const b = dr2cpBalanced();
-            dr2cpPriceStatus.style.color = b.priceOk ? '#065f46' : '#b91c1c';
-            dr2cpPriceStatus.textContent = b.priceOk
-                ? ('✓ Selling price balances — sum of properties R ' + fmt2(b.sumPrice) + ' matches the total above.')
-                : ('✗ Selling price does not balance — sum of properties R ' + fmt2(b.sumPrice) + ' vs R ' + fmt2(b.totalPrice) + ' entered above (off by R ' + fmt2(Math.abs(b.priceDiff)) + ').');
-            dr2cpCommStatus.style.color = b.commOk ? '#065f46' : '#b91c1c';
-            dr2cpCommStatus.textContent = b.commOk
-                ? ('✓ Commission balances — sum of properties R ' + fmt2(b.sumCommission) + ' matches the total above.')
-                : ('✗ Commission does not balance — sum of properties R ' + fmt2(b.sumCommission) + ' vs R ' + fmt2(b.totalCommission) + ' entered above (off by R ' + fmt2(Math.abs(b.commDiff)) + ').');
+            const sumPrice = (dr2cpPrimary ? dr2cpPrimary.price : 0) + dr2cpAdditional.reduce((s, p) => s + (parseFloat(p.price) || 0), 0);
+            const sumCommissionIncl = (dr2cpPrimary ? dr2cpPrimary.commissionIncl : 0) + dr2cpAdditional.reduce((s, p) => s + (parseFloat(p.commissionIncl) || 0), 0);
+
+            propValueEl.value = sumPrice > 0 ? fmt(sumPrice) : '';
+            const mode = modeEl.value;
+            const displayedComm = dr2ToDisplay(sumCommissionIncl);
+            amtEl.value = sumCommissionIncl > 0 ? fmt(displayedComm) : '';
+            pctEl.value = (sumCommissionIncl > 0 && sumPrice > 0) ? fmt((displayedComm / sumPrice) * 100) : '';
+            const excl = sumCommissionIncl / (1 + vatRate / 100);
+            totalEl.value = sumCommissionIncl > 0 ? fmt(sumCommissionIncl) : '';
+            inclDisp.textContent = zar(sumCommissionIncl); exclDisp.textContent = zar(excl); vatDisp.textContent = zar(sumCommissionIncl - excl);
+            dr2FinCanonicalIncl = sumCommissionIncl; // keep the shared canonical in sync with the derived master
 
             dr2cpHiddenInputs.innerHTML = '';
             dr2cpAdditional.forEach((p, idx) => {
@@ -1994,20 +2026,20 @@
             });
         }
         // recompute() (outer scope, runs when the Financials Commission %/
-        // amount fields are edited directly) calls this via window — see its
-        // own docblock for exactly why that indirection exists.
-        window.dr2cpRecomputeSummary = dr2cpRecomputeSummary;
+        // amount fields are edited directly — only reachable in single-
+        // property mode now that they're read-only otherwise) calls this
+        // via window — see its own docblock for exactly why that
+        // indirection exists.
+        window.dr2cpRecomputeSummary = dr2cpSyncMaster;
 
         // Rebuilds the VISIBLE rows — the DOM subtree the user's cursor can
         // actually be inside. Only ever called on a structural change (a
-        // property added or removed, the primary property changing, or the
-        // commission basis flipping — which changes what's DISPLAYED, never
-        // the canonical Incl-VAT value stored) — never from a value-change
-        // keystroke. See dr2cpRecomputeSummary()'s own docblock above for why
-        // that split exists.
+        // property added or removed, or the commission basis flipping,
+        // which changes what's DISPLAYED, never the canonical Incl-VAT
+        // value stored) — never from a value-change keystroke.
         function dr2cpRenderRows() {
             dr2cpList.innerHTML = '';
-            dr2cpRecomputeSummary();
+            dr2cpSyncMaster();
             if (!dr2cpAdditional.length) { return; }
 
             dr2cpList.appendChild(dr2cpRenderRow(
@@ -2020,8 +2052,15 @@
                     v => { p.price = v; }, v => { p.commissionIncl = v; },
                     () => {
                         dr2cpAdditional.splice(idx, 1);
-                        if (dr2cpAdditional.length === 0) { dr2cpPrimary = null; }
+                        // dr2cpRenderRows() -> dr2cpSyncMaster() reads
+                        // dr2cpPrimary to restore the single-mode master
+                        // fields to the remaining property's own figures —
+                        // it must still be set when that runs. Null it out
+                        // ONLY after, or the revert silently no-ops and the
+                        // master is left showing stale, pre-removal values
+                        // (found live in browser verification, 2026-09-19).
                         dr2cpRenderRows();
+                        if (dr2cpAdditional.length === 0) { dr2cpPrimary = null; }
                         dr2cpRefreshPicker();
                     },
                 ));
@@ -2031,85 +2070,46 @@
         // selector changes — see point 5 in .ai/specs/dr2-multi-property.md.
         window.dr2cpRerenderRowsForBasisFlip = () => { if (dr2cpAdditional.length) dr2cpRenderRows(); };
 
-        function dr2cpAddConfirmed(id, address, price, commissionDisplayed) {
-            if (dr2cpAdditional.length === 0) {
-                // First addition — freeze whatever's currently in the main
-                // Selling Price/Commission fields as the PRIMARY's own row.
-                // Those fields now mean "the deal's total" from this point on;
-                // their current value is a reasonable starting point for the
-                // total (sum-of-one-property-so-far), edited from here by the BM.
-                dr2cpPrimary = { price: parseFloat(propValueEl.value) || 0, commissionIncl: parseFloat(totalCommEl.value) || 0 };
-            }
-            dr2cpAdditional.push({ propertyId: id, address, price, commissionIncl: dr2ToCanonicalIncl(commissionDisplayed) });
-            dr2cpRenderRows();
-            dr2cpRefreshPicker();
-        }
-
         // "Add another property," Johan 2026-09-16 — a plain dropdown of
         // gate-eligible properties, populated by the SAME
-        // loadEligibleDropdown() edit mode uses above. The dropdown's own
+        // loadEligibleDropdown() edit mode uses. The dropdown's own
         // server-side filtering (DealPropertyOwnerGate::ownerSetsMatch(),
         // exact-set equality) IS the eligibility check — nothing offered
-        // here can ever fail the gate at save time, so there is no
-        // separate "pick then get refused" step to build; picking an
-        // option and confirming price/commission is the whole flow.
+        // here can ever fail the gate at save time.
         function dr2cpRefreshPicker() {
             const excludeIds = dr2cpAdditional.map(p => p.propertyId);
             const dr2AcceptedStatusEl = document.querySelector('[name="accepted_status"]');
             loadEligibleDropdown(dr2cpPicker, dr2cpPickerEmpty, pId.value, excludeIds, { accepted_status: dr2AcceptedStatusEl?.value || 'P' });
         }
+
+        // AT-flow-fix, Johan 2026-09-19, verbatim: "Picking the 2nd property
+        // is the trigger to load both, show them and show their selling
+        // price and comm fields to be completed." Selecting IS adding — no
+        // separate "Add to deal" confirm step. Price prefills from the
+        // property record (its own advertised price, same source the
+        // primary property picker already uses); commission starts blank.
         dr2cpPicker.addEventListener('change', () => {
             const opt = dr2cpPicker.selectedOptions[0];
-            if (!opt || !opt.value) { dr2cpAddForm.style.display = 'none'; return; }
-            dr2cpPendingPick = { id: opt.value, address: opt.dataset.address || opt.textContent };
-            dr2cpAddLabel.textContent = 'Adding ' + dr2cpPendingPick.address;
-            dr2cpAddPrice.value = opt.dataset.price ? Number(opt.dataset.price) : '';
-            dr2cpAddCommission.value = '';
-            dr2cpAddForm.style.display = '';
-            // Johan's ruling, 2026-09-19 — the money for a picked property is
-            // entered here in Financials, not at the top; scroll it into view
-            // so the user isn't left hunting for where to type it.
-            dr2cpAddForm.scrollIntoView({ block: 'center', behavior: 'smooth' });
-        });
+            if (!opt || !opt.value) { return; }
+            const id = opt.value;
+            const address = opt.dataset.address || opt.textContent;
+            const priceFromRecord = opt.dataset.price ? Number(opt.dataset.price) : 0;
 
-        document.getElementById('dr2cp_add_confirm').addEventListener('click', () => {
-            if (!dr2cpPendingPick) return;
-            dr2cpAddConfirmed(dr2cpPendingPick.id, dr2cpPendingPick.address, parseFloat(dr2cpAddPrice.value) || 0, parseFloat(dr2cpAddCommission.value) || 0);
-            dr2cpAddForm.style.display = 'none'; dr2cpPendingPick = null; dr2cpPicker.value = '';
-            dr2cpAddPrice.value = ''; dr2cpAddCommission.value = '';
-        });
-        document.getElementById('dr2cp_add_cancel').addEventListener('click', () => {
-            dr2cpAddForm.style.display = 'none'; dr2cpPendingPick = null; dr2cpPicker.value = '';
-            dr2cpAddPrice.value = ''; dr2cpAddCommission.value = '';
+            if (dr2cpAdditional.length === 0) {
+                // First addition — freeze whatever's currently in the main
+                // Selling Price/Commission fields as the PRIMARY's own row
+                // (its own captured figures so far, from the single-property
+                // flow) before those fields become the derived master.
+                dr2cpPrimary = { price: parseFloat(propValueEl.value) || 0, commissionIncl: parseFloat(totalCommEl.value) || 0 };
+            }
+            dr2cpAdditional.push({ propertyId: id, address, price: priceFromRecord, commissionIncl: 0 });
+            dr2cpRenderRows();
+            dr2cpRefreshPicker();
+            dr2cpPicker.value = ''; // always resets to "Choose a property…" — picking again adds a THIRD, doesn't re-open anything
+            dr2cpList.scrollIntoView({ block: 'center', behavior: 'smooth' });
         });
 
         dr2cpRefreshPicker();
-
-        // Live balance recompute as the TOTAL fields themselves are edited —
-        // not just when a property row changes. Summary-only: these fields
-        // aren't rows in dr2cpList, but the same rule applies — never call
-        // dr2cpRenderRows() from a per-keystroke listener. (Commission-side
-        // edits to these totals go through recompute()'s own
-        // window.dr2cpRecomputeSummary?.() call, not this listener — see
-        // recompute()'s docblock for why that path used to go stale.)
-        propValueEl.addEventListener('input', () => { if (dr2cpAdditional.length) dr2cpRecomputeSummary(); });
-
-        // Block the ONE save if it doesn't balance — client-side backstop only;
-        // store() is the real, unconditional enforcement (see its own docblock).
-        // Price and commission are reported as separate reasons, never merged
-        // into one sentence — same rule as the banner itself.
-        document.getElementById('dr2-main-form').addEventListener('submit', e => {
-            if (!dr2cpAdditional.length) return;
-            const b = dr2cpBalanced();
-            if (!b.priceOk || !b.commOk) {
-                e.preventDefault();
-                dr2cpBanner.scrollIntoView({ block: 'center' });
-                const reasons = [];
-                if (!b.priceOk) reasons.push("the selling price doesn't match the sum of the properties' own prices");
-                if (!b.commOk) reasons.push("the commission doesn't match the sum of the properties' own commissions");
-                alert('This deal cannot be saved yet — ' + reasons.join(', and ') + '. Fix the figures below before saving.');
-            }
-        });
     }
 })();
 </script>

@@ -480,45 +480,24 @@ class DealRegisterController extends Controller
             ]);
         }
 
-        // Johan's own principle, this same week, on this same feature: "a
-        // deal register must never carry figures that do not balance." The
-        // TOTAL (property_value/total_commission — the BM's own entered
-        // figure once 2+ properties exist, per his ruling: "bm or admin can
-        // capture total and on properties... has to verify that the price
-        // balances") must equal the sum of every property's own allocation,
-        // primary included. Blocking, not warning — this is enforcement of
-        // his own stated rule, not a new one.
-        //
-        // Price and commission are two INDEPENDENT captured figures, per
-        // Johan's later ruling, verbatim: "we don't work with the R240000 at
-        // all, we work with the R24000, that's the agency money" — neither
-        // is derived from the other, and one balancing does not imply the
-        // other does. Checked and reported as two SEPARATE errors, under
-        // separate keys, never combined into one sentence — a deal that's
-        // out on price but correct on commission (or vice versa) must read
-        // as exactly that, both here and in the matching client-side check.
-        $sumPrice = array_sum(array_column($validated, 'allocated_price'));
-        $sumCommission = array_sum(array_column($validated, 'allocated_commission'));
-        $totalPrice = (float) $request->input('property_value');
-        $totalCommission = (float) $request->input('total_commission');
-
-        $errors = [];
-        if (abs($totalPrice - $sumPrice) >= 0.01) {
-            $errors['property_value'] = sprintf(
-                "The selling price (R %s) doesn't match the sum of the %d properties' own prices (R %s). Fix the figures before saving — a deal register must never carry numbers that don't balance.",
-                number_format($totalPrice, 2), count($validated), number_format($sumPrice, 2)
-            );
-        }
-        if (abs($totalCommission - $sumCommission) >= 0.01) {
-            $errors['total_commission'] = sprintf(
-                "The commission (R %s) doesn't match the sum of the %d properties' own commissions (R %s). Fix the figures before saving — a deal register must never carry numbers that don't balance.",
-                number_format($totalCommission, 2), count($validated), number_format($sumCommission, 2)
-            );
-        }
-        if ($errors) {
-            throw \Illuminate\Validation\ValidationException::withMessages($errors);
-        }
-
+        // AT-flow-fix, Johan 2026-09-19 — SUPERSEDES the sum-vs-total
+        // balance check that used to live here. His own correction: "the
+        // master must never be a second, independently-typed figure — it
+        // IS the sum, displayed." The client no longer submits a competing
+        // property_value/total_commission for a multi-property deal (those
+        // fields are read-only, JS-derived from these same rows) — there is
+        // no longer a second number that could disagree with this one to
+        // validate against. A crafted request that posts a mismatched
+        // top-level total anyway is already harmless: applyCreateTimeMultiProperty()
+        // calls DealPropertyPricingService::recalculateTotals() unconditionally,
+        // inside the same transaction, which force-overwrites
+        // property_value/total_commission from the REAL sum of the
+        // persisted deal_properties rows regardless of what was submitted —
+        // the same mechanism the edit screen has relied on as its sole
+        // integrity guarantee since the original split-pricing build, with
+        // no client-side check of its own. Do NOT reinstate a sum-vs-total
+        // comparison here — see .ai/specs/dr2-multi-property.md §8e for the
+        // full reasoning; it is a superseded design, not a gap.
         return $validated;
     }
 

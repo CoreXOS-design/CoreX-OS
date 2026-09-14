@@ -653,6 +653,17 @@ per-keystroke value-change listener.
 
 ## 8d. Financials rebuild — every reconciling figure lives together, labelled by what it feeds (2026-09-19)
 
+> **PARTIALLY SUPERSEDED by §8e, same day.** The LAYOUT and LABELLING rules
+> in this section still stand and are unchanged — property selection stays
+> at the top, money lives together in Financials, labels match the total
+> they feed and follow the basis live. What's superseded is the
+> RECONCILIATION MODEL described below: an independently-typed master,
+> checked against the sum, with a live balance banner and a
+> submit-blocking check. Johan ruled that model wrong on the same day he
+> approved it — see §8e for why, and do not reinstate `dr2cpBalanced()`,
+> the balance banner, or the sum-vs-total server validation this section
+> describes. They were removed deliberately, not left out by omission.
+
 Johan, testing the create-time build live: entered two properties at
 100,000 each and a 220,000 selling price — genuinely R20,000 out, correctly
 flagged. But the SAME screen also reported "commission off by R17,800.00"
@@ -835,6 +846,142 @@ equivalent while the underlying canonical value did not; confirmed
 Johan's own numbers (price wrong, commission correct) still correctly
 blocks the save (price genuinely doesn't balance) while reporting the
 commission line as balanced, never mentioning it in the price error.
+
+## 8e. The master is derived, not reconciled — §8d's balance model superseded (2026-09-19)
+
+Same day as §8d, re-verifying it live, Johan ruled the flow itself wrong —
+correctly. His words: **"select property, seller gets assigned, agent
+links buyer, auto fills selling price from deal, bm fills comm. Now we add
+a 2nd property. so why don't we display the 2 properties — each with their
+selling price and blank comms that agents can complete to fill 'master'
+selling and comm? ... Picking the 2nd property is the trigger to load
+both, show them and show their selling price and comm fields to be
+completed."**
+
+**The change that matters**: Selling Price and Commission above are no
+longer a second, independently-typed figure checked against the sum of
+the rows — they ARE the sum, derived and displayed, read-only the moment a
+second property exists. Johan's own correction on his own earlier ruling
+(§8a: "captured per property, total DISPLAYED, a human checks it looks
+right"): "I got this wrong... it was always meant to be additive." Once
+the master can't diverge from the parts by construction, there is nothing
+left to check, warn about, or block a save over.
+
+**REMOVED, not left inert** — reinstating any of this reintroduces a
+solved problem, it does not restore a safeguard:
+- `dr2cpBalanced()`, the two-line verdict banner (`dr2cp_balance_banner`,
+  `dr2cp_price_status`, `dr2cp_comm_status`), and the submit-time block on
+  `dr2-main-form` — all dead the moment the master can't disagree with the
+  sum.
+- The separate "Adding X — Price/Commission — Add to deal/Cancel"
+  mini-form (`dr2cp_add_form` and its fields) — picking a property IS
+  adding it now; there is no confirm step to gate.
+- The sum-vs-total comparison half of
+  `DealRegisterController::validateAdditionalPropertiesPayload()` (the
+  `$errors['property_value']`/`$errors['total_commission']` block) — the
+  client no longer submits a competing total to compare against.
+
+**What genuinely still needs to exist, and does, unchanged**: server-side
+integrity against a crafted request. Checked, not assumed:
+`applyCreateTimeMultiProperty()` calls
+`DealPropertyPricingService::recalculateTotals()` unconditionally, inside
+the same transaction, immediately after every property row is persisted —
+it force-overwrites `deals.property_value`/`total_commission` from the
+REAL sum of the `deal_properties` rows regardless of what the request
+submitted for the top-level fields. This has been true since the original
+split-pricing build (§7) and is exactly how the edit screen has been
+correct all along despite never having had a client-side balance check of
+its own. A crafted request posting a top-level total that disagrees with
+its own `properties[]` array is already harmless — not because it's
+rejected, but because it's silently corrected before the transaction
+commits. `test_a_mismatched_submitted_total_is_overridden_by_the_true_sum_not_rejected()`
+and the commission-side equivalent in
+`CreateTimeMultiPropertyCommissionCheckTest.php` prove the override
+directly, not just its absence of an error.
+
+**The new flow**:
+
+1. Property SELECTION stays exactly where §8d put it — the primary search,
+   the eligible-properties dropdown (`dr2cp_picker` / `dr2mp_picker`), the
+   disabled owner-set-mismatch entries, removed-properties restore. None
+   of that moved or changed.
+2. Picking a property from the dropdown IS adding it — no separate confirm
+   step. The moment a second property is picked, BOTH rows render
+   immediately: the primary's own row (frozen from whatever was in the
+   single-property Selling Price/Commission fields at that instant, same
+   as before) and the new property's row.
+3. The new row's Selling price prefills from the property's own record
+   (the same `data-price` the eligible-properties endpoint already
+   returns — `Property::toSearchResult()`'s `price` field, no new data
+   source). Its Commission starts BLANK — `placeholder="0.00"`, no
+   `value` — for the agent/BM to complete, exactly mirroring how the
+   single-property flow already leaves commission for the BM to fill in
+   rather than guessing it.
+4. Selling Price/Commission above become read-only
+   (`propValueEl.readOnly`/`pctEl.readOnly`/`amtEl.readOnly` = true,
+   `modeEl.disabled` = true) the instant a second property exists — set
+   client-side in `dr2cpSyncMaster()`, mirroring the edit screen's own
+   long-standing server-rendered `$dr2MultiPriced ? readonly : ''` pattern
+   exactly (that pattern already existed for edit mode; create mode simply
+   never had a "multi" state to apply it to before this feature). They
+   update live as each row's own fields are completed — computed from
+   `dr2cpPrimary`/`dr2cpAdditional`'s current values on every keystroke,
+   same `dr2cpSyncMaster()` call the row inputs already trigger for the
+   focus-fix's own reasons.
+5. Removing back down to one property restores the master fields to
+   EDITABLE and repopulates them with the sole remaining property's own
+   figures (not blank) — found and fixed live in browser verification: the
+   first implementation nulled `dr2cpPrimary` BEFORE the re-render that
+   needed to read it to restore the fields, so the revert silently no-oped
+   and the master stayed stuck on its last pre-removal (multi) value. Fixed
+   by reordering — render first, null the now-unneeded reference after.
+6. A second bug found the same way: the single-mode revert branch calls
+   `recompute('amount')` to re-derive %/incl/excl/VAT display for the
+   restored figures, and `recompute()` itself calls
+   `window.dr2cpRecomputeSummary?.()` at its end — straight back into
+   `dr2cpSyncMaster()`, which recursed forever ("Maximum call stack size
+   exceeded", caught live in the browser walk). Fixed with a re-entrancy
+   guard (`dr2cpSyncingMaster`) around the function body, since duplicating
+   `recompute()`'s derivation a third time would have been worse than
+   guarding the one legitimate call-back into itself.
+
+**Scoping call, made explicitly and reported, not decided silently**: this
+"pick is add, no confirm" behaviour applies to CREATE mode only. Edit
+mode keeps its existing pick → fill price/commission → confirm → real
+`POST` flow, because that confirm step gates an actual server mutation
+over the network on an already-persisted deal, not client-side state —
+Johan's complaint was specifically about the create-time experience. Edit
+mode's rows/forms keep §8d's relocated-into-Financials layout and live
+basis-following labels unchanged; only create mode's trigger mechanism
+changed.
+
+**The VAT-basis canonical-value mechanism from §8d is unchanged and fully
+reused** — every property's commission is still stored canonically as
+Incl VAT (`dr2cpPrimary.commissionIncl`/`p.commissionIncl`), still
+converted for display via `dr2ToDisplay()`/`dr2ToCanonicalIncl()` using
+the shared `vatRate`. It answers an orthogonal question (which basis a
+number is CURRENTLY expressed in) to the one this section answers (WHO
+computes the total) — both were needed, and removing either would have
+been wrong.
+
+**Verified with a real browser session** (not unit tests — none of this
+is reachable through an HTTP feature test): single-property mode
+confirmed completely unaffected (fields editable, no rows rendered, no
+count/hint changes) before and after typing; picking a second property
+rendered both rows in the same instant with no separate confirm click,
+the new row's price prefilled and its commission genuinely blank; typed a
+full multi-digit number into all four price/commission fields (both
+rows) with no intervening click — every field kept focus, re-proving
+AT-Focus-Fix survived this second rewrite; completed both commissions and
+confirmed the master updated live to the exact sum each time; removed the
+second property and confirmed both the row list AND the master fields
+correctly reverted to the remaining property's own figures, editable
+again; re-added the property, flipped the Commission basis, and confirmed
+every label switched instantly and the canonically-stored (submitted)
+values were untouched by the flip; inspected the actual hidden inputs a
+real two-property submission would post and confirmed `property_value`/
+`total_commission` and both properties' own `allocated_price`/
+`allocated_commission` were exactly correct.
 
 ## 9. Scoping
 

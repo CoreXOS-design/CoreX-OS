@@ -129,6 +129,10 @@ final class CreateTimeMultiPropertyTest extends TestCase
         // dropdown" — a <select>, never a text search input, on either screen.
         $response->assertSee('id="dr2cp_picker"', false);
         $response->assertDontSee('id="dr2cp_search"', false);
+        // AT-flow-fix, 2026-09-19 — picking a property IS adding it; there is
+        // no separate "Add to deal" confirm form to render anymore.
+        $response->assertDontSee('id="dr2cp_add_form"', false);
+        $response->assertDontSee('id="dr2cp_add_confirm"', false);
     }
 
     public function test_an_ordinary_agent_cannot_reach_the_create_screen(): void
@@ -171,55 +175,61 @@ final class CreateTimeMultiPropertyTest extends TestCase
         ]);
     }
 
-    public function test_a_mismatched_total_refuses_the_save_and_creates_nothing_at_all(): void
+    /**
+     * AT-flow-fix, 2026-09-19 — SUPERSEDES the earlier design this test
+     * used to guard (an independently-typed total, rejected when it
+     * disagreed with the sum). Johan's correction: the master is now
+     * DERIVED, never independently typed, so there is no longer a
+     * competing number that COULD disagree — a submitted top-level
+     * property_value/total_commission that doesn't match the properties[]
+     * sum is simply overridden by DealPropertyPricingService::recalculateTotals(),
+     * the same unconditional mechanism the edit screen has relied on since
+     * the original split-pricing build. This proves that override, not a
+     * rejection: a deliberately wrong top-level total still saves
+     * successfully, and the STORED figures are the true sum, not the
+     * submitted (wrong) one.
+     */
+    public function test_a_mismatched_submitted_total_is_overridden_by_the_true_sum_not_rejected(): void
     {
         $propA = $this->makeProperty('7b Mismatch A Rd');
         $propB = $this->makeProperty('7b Mismatch B Rd');
         $steve = $this->makeContact('Steve');
         $this->linkOwner($propA, $steve);
         $this->linkOwner($propB, $steve);
-        $countBefore = Deal::count();
 
         $response = $this->actingAs($this->bm)->post(route('deals-dr2.store'), array_merge($this->basePayload(), [
             'property_id' => $propA->id,
-            // Total says 1,500,000 but the parts only add up to 1,400,000 —
-            // deliberately off by 100,000. Commission, deliberately, DOES
-            // balance (57,500 + 28,750 = 86,250) — this is Johan's own
-            // real-world case (AT-focus-fix, 2026-09-18): price wrong,
-            // commission fine. Price and commission are independent checks
-            // (Johan: "we don't work with the R240000 at all, we work with
-            // the R24000, that's the agency money") — a price mismatch must
-            // report as a PRICE error only, never drag commission into the
-            // same sentence when commission is genuinely correct.
-            'property_value' => 1_500_000, 'total_commission' => 86_250,
+            // Deliberately wrong top-level totals — the parts actually sum
+            // to 1,400,000 / 86,250, not the 1,500,000 / 999 submitted here.
+            'property_value' => 1_500_000, 'total_commission' => 999,
             'properties' => [
                 ['property_id' => $propA->id, 'allocated_price' => 900_000, 'allocated_commission' => 57_500],
                 ['property_id' => $propB->id, 'allocated_price' => 500_000, 'allocated_commission' => 28_750],
             ],
         ]));
 
-        $response->assertSessionHasErrors('property_value');
-        $response->assertSessionDoesntHaveErrors('total_commission');
-        $this->assertStringContainsString('selling price', strtolower((string) session('errors')->first('property_value')));
-        $this->assertSame($countBefore, Deal::count(), "A deal register must never carry figures that don't balance — nothing should have been written at all, not even the deal itself.");
+        $response->assertSessionDoesntHaveErrors();
+        $deal = Deal::where('property_id', $propA->id)->latest('id')->first();
+        $this->assertNotNull($deal, 'The deal must save — a mismatched top-level total is no longer a save-blocking error.');
+        $this->assertSame('1400000.00', $deal->property_value, 'stored figure must be the TRUE sum of the properties, not the wrong 1,500,000 submitted');
+        $this->assertSame('86250.00', $deal->total_commission, 'stored figure must be the TRUE sum of the properties, not the wrong 999 submitted');
     }
 
     /**
-     * Johan's exact real-world numbers (AT-focus-fix, 2026-09-18): two
-     * properties at 100,000 each (200,000 total) against a 220,000 selling
-     * price — genuinely R20,000 out. Commission 10,000 + 10,000 = 20,000
-     * against a 20,000 deal commission — genuinely balanced. The bug this
-     * guards against reported BOTH as out (commission "off by R17,800",
-     * comparing against a stale value that existed nowhere on screen).
+     * Johan's exact real-world numbers (AT-focus-fix, 2026-09-18) — the
+     * scenario that surfaced the false "commission off by R17,800" banner
+     * bug in the now-superseded reconciliation design. Under the new
+     * additive-master design there is nothing to reconcile: the master IS
+     * the sum, so this simply saves, and the stored totals are exactly the
+     * sum of the two properties.
      */
-    public function test_johans_real_numbers_price_out_commission_balanced(): void
+    public function test_johans_real_numbers_now_simply_save_with_the_correct_derived_totals(): void
     {
         $propA = $this->makeProperty('Unit 5694, Serenity Hills Eco Estate');
         $propB = $this->makeProperty('Unit 2 door 11 + 11A, Natspat Door, 60 Lilliecrona Boulevard');
         $steve = $this->makeContact('Steve');
         $this->linkOwner($propA, $steve);
         $this->linkOwner($propB, $steve);
-        $countBefore = Deal::count();
 
         $response = $this->actingAs($this->bm)->post(route('deals-dr2.store'), array_merge($this->basePayload(), [
             'property_id' => $propA->id,
@@ -230,11 +240,11 @@ final class CreateTimeMultiPropertyTest extends TestCase
             ],
         ]));
 
-        $response->assertSessionHasErrors('property_value');
-        $response->assertSessionDoesntHaveErrors('total_commission');
-        $priceError = (string) session('errors')->first('property_value');
-        $this->assertStringContainsString('20,000.00', $priceError, 'must report the price genuinely off by R20,000');
-        $this->assertSame($countBefore, Deal::count());
+        $response->assertSessionDoesntHaveErrors();
+        $deal = Deal::where('property_id', $propA->id)->latest('id')->first();
+        $this->assertNotNull($deal);
+        $this->assertSame('200000.00', $deal->property_value);
+        $this->assertSame('20000.00', $deal->total_commission);
     }
 
     public function test_a_second_property_with_a_different_owner_is_refused_and_creates_nothing_at_all(): void
