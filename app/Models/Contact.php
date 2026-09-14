@@ -468,6 +468,31 @@ class Contact extends Model
         return $this->hasMany(ContactMatch::class)->latest();
     }
 
+    /**
+     * Buyer Pipeline fix, 2026-09-18 — Johan: rental pipeline showed a
+     * handful of sale-primary contacts; the reverse (sale-filtered board
+     * silently dropping contacts whose primary flipped to sale) turned out
+     * to be true too. Root cause: the pipeline's rental/sale FILTER asked
+     * "does this contact have ANY match of this type anywhere" while each
+     * card's own displayed label asked "is the PRIMARY match this type" —
+     * two different questions, silently disagreeing for any contact with a
+     * mixed (sale + rental) wishlist. This is now the ONE place either
+     * question is answered — `matches` must already be eager-loaded on the
+     * caller (this reads the collection already sorted by the `matches()`
+     * relation's own `->latest()`, never re-queries) — used by BOTH
+     * BuyerPipelineController's filter and every card's own label, so they
+     * can't independently drift again.
+     */
+    public function primaryMatch(): ?ContactMatch
+    {
+        return $this->matches->firstWhere('is_primary', true) ?? $this->matches->first();
+    }
+
+    public function primaryMatchIsRental(): bool
+    {
+        return ContactMatch::listingTypeIsRental($this->primaryMatch()?->listing_type);
+    }
+
     public function clientPageLink(): HasOne
     {
         return $this->hasOne(\App\Models\BuyerClientPageLink::class);
