@@ -28,25 +28,26 @@
         </div>
     </div>
 
-    {{-- Filters (§3.8 / §3.6) --}}
-    <form method="GET" class="rounded-md p-4 flex flex-wrap items-end gap-3"
-          style="background: var(--surface); border: 1px solid var(--border);" data-tour="pres-analytics-filters">
-        <div class="flex-1 min-w-[160px]">
-            <label for="filter-from" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">From</label>
+    {{-- Filters (§3.8 / §3.6) — inline row, no card: the box around three
+         inputs was pure chrome. Labels sit beside their inputs at the compact
+         32px control height. --}}
+    <form method="GET" class="flex flex-wrap items-center gap-3" data-tour="pres-analytics-filters">
+        <div class="flex items-center gap-2">
+            <label for="filter-from" class="text-xs font-medium" style="color: var(--text-secondary);">From</label>
             <input id="filter-from" type="date" name="from" value="{{ $from->toDateString() }}"
-                   class="w-full rounded-md px-3 py-2 text-sm"
+                   class="rounded-md px-2.5 py-1.5 text-[13px] leading-5 w-[150px]"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
-        <div class="flex-1 min-w-[160px]">
-            <label for="filter-to" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">To</label>
+        <div class="flex items-center gap-2">
+            <label for="filter-to" class="text-xs font-medium" style="color: var(--text-secondary);">To</label>
             <input id="filter-to" type="date" name="to" value="{{ $to->toDateString() }}"
-                   class="w-full rounded-md px-3 py-2 text-sm"
+                   class="rounded-md px-2.5 py-1.5 text-[13px] leading-5 w-[150px]"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         @if($isManager)
-            <div class="flex-1 min-w-[160px]">
-                <label for="filter-agent" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
-                <select id="filter-agent" name="agent_id" class="w-full rounded-md px-3 py-2 text-sm"
+            <div class="flex items-center gap-2">
+                <label for="filter-agent" class="text-xs font-medium" style="color: var(--text-secondary);">Agent</label>
+                <select id="filter-agent" name="agent_id" class="rounded-md px-2.5 py-1.5 text-[13px] leading-5 w-[150px]"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All</option>
                     @foreach($agents as $a)
@@ -56,7 +57,7 @@
             </div>
         @endif
         <div>
-            <button type="submit" class="corex-btn-primary">Apply</button>
+            <button type="submit" class="corex-btn-primary text-xs py-1.5">Apply</button>
         </div>
     </form>
 
@@ -75,81 +76,90 @@
             ['Win rate',             number_format($winRate, 1) . '%',     null,                                  ($wonCount > 0 ? number_format($wonCount) . ' won' : 'no wins yet')],
         ];
     @endphp
-    <div class="corex-kpi-grid" data-tour="pres-analytics-tiles">
+    {{-- One row of seven half-height tiles (was .corex-kpi-grid: 4-up at 20px
+         padding / 26px values, which pushed the seven tiles onto two rows). --}}
+    <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 gap-3" data-tour="pres-analytics-tiles">
         @foreach($tiles as [$label, $value, $pct, $sub])
-            <div class="corex-kpi-card">
-                <p class="corex-kpi-title">{{ $label }}</p>
-                <p class="corex-kpi-value">{{ $value }}</p>
-                @if($pct)
-                    <p class="text-[0.6875rem] mt-1" style="color: var(--text-muted);">{{ $pct }} {{ $sub }}</p>
-                @elseif($sub)
-                    <p class="text-[0.6875rem] mt-1" style="color: var(--text-muted);">{{ $sub }}</p>
-                @endif
+            <div class="rounded-md px-3 py-2.5 min-w-0" style="background: var(--surface); border: 1px solid var(--border);">
+                <p class="corex-kpi-title truncate" title="{{ $label }}">{{ $label }}</p>
+                <p class="text-lg font-semibold leading-tight" style="color: var(--text-primary);">{{ $value }}</p>
+                <p class="text-[0.6875rem] truncate min-h-[0.875rem]" style="color: var(--text-muted);">@if($pct){{ $pct }} {{ $sub }}@elseif($sub){{ $sub }}@endif</p>
             </div>
         @endforeach
     </div>
 
-    {{-- Funnel visualization --}}
-    @if($generatedCount > 0)
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="pres-analytics-funnel">
-            <h2 class="ds-section-header mb-3">Funnel</h2>
-            @php
-                $rows = [
-                    ['Generated',          $generatedCount,       'var(--text-faint)'],
-                    ['Shared with seller', $sharedCount,          'var(--brand-icon, #0ea5e9)'],
-                    ['Viewed by seller',   $viewedCount,          'var(--ds-cyan, #00b4d8)'],
-                    ['Outcome recorded',   $outcomeRecordedCount, 'var(--ds-amber, #f59e0b)'],
-                    ['Won mandate / sale', $wonCount,             'var(--ds-green, #059669)'],
-                ];
-            @endphp
-            <div class="flex flex-col gap-2.5">
-                @foreach($rows as [$lbl, $n, $colour])
-                    @php $w = $generatedCount > 0 ? max(2, round(($n / $generatedCount) * 100)) : 0; @endphp
-                    <div class="grid items-center gap-3" style="grid-template-columns: minmax(120px, 180px) 1fr 50px;">
-                        <div class="text-sm" style="color: var(--text-secondary);">{{ $lbl }}</div>
-                        <div class="ds-progress-track">
-                            <div class="ds-progress-bar" style="width: {{ $w }}%; background: {{ $colour }};"></div>
-                        </div>
-                        <div class="text-sm font-semibold text-right" style="color: var(--text-primary);">{{ number_format($n) }}</div>
-                    </div>
-                @endforeach
-            </div>
-        </div>
-    @endif
+    {{-- Funnel + per-agent leaderboard share one row on wide screens (5/12 + 7/12).
+         Either panel takes the full width when it is the only one rendered. --}}
+    @php $showLeaderboard = $isManager && $byAgent->isNotEmpty(); @endphp
+    @if($generatedCount > 0 || $showLeaderboard)
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
 
-    {{-- Per-agent leaderboard (managers only) (§3.7) --}}
-    @if($isManager && $byAgent->isNotEmpty())
-        <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-            <div class="p-4" style="border-bottom: 1px solid var(--border);">
-                <h2 class="ds-section-header">Per-agent breakdown</h2>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="min-w-full text-sm ds-table">
-                    <thead>
-                        <tr style="background: var(--surface-2);">
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
-                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Generated</th>
-                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Outcomes recorded</th>
-                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Won</th>
-                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Win rate</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    @foreach($byAgent as $a)
-                        <tr style="border-top: 1px solid var(--border);">
-                            <td class="px-4 py-3" style="color: var(--text-primary);">{{ $a['name'] }}</td>
-                            <td class="px-4 py-3 text-right font-medium" style="color: var(--text-primary);">{{ number_format($a['generated']) }}</td>
-                            <td class="px-4 py-3 text-right" style="color: var(--text-secondary);">{{ number_format($a['recorded']) }}</td>
-                            <td class="px-4 py-3 text-right font-semibold" style="color: var(--ds-green, #059669);">{{ number_format($a['won']) }}</td>
-                            <td class="px-4 py-3 text-right font-medium" style="color: var(--text-primary);">
-                                {{ $a['win_rate'] !== null ? number_format($a['win_rate'], 1) . '%' : '—' }}
-                            </td>
-                        </tr>
+        {{-- Funnel visualization --}}
+        @if($generatedCount > 0)
+            <div class="rounded-md p-4 {{ $showLeaderboard ? 'xl:col-span-5' : 'xl:col-span-12' }}"
+                 style="background: var(--surface); border: 1px solid var(--border);" data-tour="pres-analytics-funnel">
+                <h2 class="ds-section-header mb-3">Funnel</h2>
+                @php
+                    $rows = [
+                        ['Generated',          $generatedCount,       'var(--text-faint)'],
+                        ['Shared with seller', $sharedCount,          'var(--brand-icon, #0ea5e9)'],
+                        ['Viewed by seller',   $viewedCount,          'var(--ds-cyan, #00b4d8)'],
+                        ['Outcome recorded',   $outcomeRecordedCount, 'var(--ds-amber, #f59e0b)'],
+                        ['Won mandate / sale', $wonCount,             'var(--ds-green, #059669)'],
+                    ];
+                @endphp
+                <div class="flex flex-col gap-2.5">
+                    @foreach($rows as [$lbl, $n, $colour])
+                        @php $w = $generatedCount > 0 ? max(2, round(($n / $generatedCount) * 100)) : 0; @endphp
+                        <div class="grid items-center gap-3" style="grid-template-columns: minmax(120px, 140px) 1fr 44px;">
+                            <div class="text-[13px]" style="color: var(--text-secondary);">{{ $lbl }}</div>
+                            <div class="ds-progress-track" style="height: 6px;">
+                                <div class="ds-progress-bar" style="width: {{ $w }}%; background: {{ $colour }};"></div>
+                            </div>
+                            <div class="text-[13px] font-semibold text-right" style="color: var(--text-primary);">{{ number_format($n) }}</div>
+                        </div>
                     @endforeach
-                    </tbody>
-                </table>
+                </div>
             </div>
-        </div>
+        @endif
+
+        {{-- Per-agent leaderboard (managers only) (§3.7) --}}
+        @if($showLeaderboard)
+            <div class="rounded-md overflow-hidden {{ $generatedCount > 0 ? 'xl:col-span-7' : 'xl:col-span-12' }}"
+                 style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
+                    <h2 class="ds-section-header">Per-agent breakdown</h2>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full text-sm ds-table">
+                        <thead>
+                            <tr style="background: var(--surface-2);">
+                                <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
+                                <th class="text-right px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Generated</th>
+                                <th class="text-right px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Outcomes recorded</th>
+                                <th class="text-right px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Won</th>
+                                <th class="text-right px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Win rate</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @foreach($byAgent as $a)
+                            <tr style="border-top: 1px solid var(--border);">
+                                <td class="px-4 py-2" style="color: var(--text-primary);">{{ $a['name'] }}</td>
+                                <td class="px-4 py-2 text-right font-medium" style="color: var(--text-primary);">{{ number_format($a['generated']) }}</td>
+                                <td class="px-4 py-2 text-right" style="color: var(--text-secondary);">{{ number_format($a['recorded']) }}</td>
+                                <td class="px-4 py-2 text-right font-semibold" style="color: var(--ds-green, #059669);">{{ number_format($a['won']) }}</td>
+                                <td class="px-4 py-2 text-right font-medium" style="color: var(--text-primary);">
+                                    {{ $a['win_rate'] !== null ? number_format($a['win_rate'], 1) . '%' : '—' }}
+                                </td>
+                            </tr>
+                        @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        @endif
+
+    </div>
     @endif
 
     {{-- Empty state (§3.10) --}}

@@ -21,10 +21,6 @@
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
-                <a href="{{ route('corex.dashboard') }}" class="corex-btn-outline text-xs">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                    Back to Today
-                </a>
             </div>
         </div>
     </div>

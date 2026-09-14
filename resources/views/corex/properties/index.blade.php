@@ -6,7 +6,7 @@
     // '__ID__' placeholder — the panel URL is resolved per property in JS.
     $synPanelUrlTemplate = route('api.v1.properties.syndication-panel', ['property' => '__ID__']);
 @endphp
-<div class="w-full space-y-5 corex-props-v2"
+<div class="w-full h-full flex flex-col corex-props-v2"
      x-data="{
         view: localStorage.getItem('prop_view') || 'grid',
 
@@ -58,7 +58,7 @@
          break it out of <main>'s padding so the bottom border spans the full width
          and it sits flush at the top. No card fill, no rounded corners, no shadow,
          no brand block — neutral chrome only. --}}
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5"
+    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0"
          style="border-bottom: 1px solid var(--border);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-properties-intro">
@@ -211,7 +211,7 @@
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
     @endphp
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 xl:gap-4" data-tour="re-properties-kpis">
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3 flex-shrink-0" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
             $isActive = ($kpi['filter'] === '' && $currentStatus === '') || $kpi['filter'] === $currentStatus;
@@ -221,14 +221,14 @@
                 : $baseUrl . '?' . http_build_query(array_merge($preserveParams, ['status' => $kpi['filter']]));
         @endphp
         <a href="{{ $tileUrl }}"
-           class="pstat-v2 px-5 py-4 flex items-center justify-between gap-3 no-underline cursor-pointer"
+           class="pstat-v2 px-3.5 py-2 flex items-center justify-between gap-3 no-underline cursor-pointer"
            style="{{ $isActive ? 'border-color:color-mix(in srgb, var(--brand-icon,#6366f1) 40%, transparent);background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface));' : '' }}">
             <div class="min-w-0">
-                <div class="text-[1.625rem] font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format((int) $kpi['value']) }}</div>
-                <div class="text-[0.6875rem] font-medium mt-1.5 uppercase tracking-wider" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
+                <div class="text-lg font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format((int) $kpi['value']) }}</div>
+                <div class="text-[0.6875rem] font-medium mt-0.5 uppercase tracking-wider" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
             </div>
-            <span class="pstat-v2__tub {{ $isLive ? 'pstat-v2__tub--live' : '' }} inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <span class="pstat-v2__tub {{ $isLive ? 'pstat-v2__tub--live' : '' }} inline-flex items-center justify-center w-7 h-7 rounded-md flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
                     {!! $kpiIcons[$kpi['label']] ?? '' !!}
                 </svg>
             </span>
@@ -236,20 +236,9 @@
         @endforeach
     </div>
 
-    {{-- Flash --}}
-    @if(session('success'))
-    <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-         style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
-                border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
-                color: var(--text-primary);">
-        <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
-        </svg>
-        <div class="flex-1">{{ session('success') }}</div>
-    </div>
-    @endif
-
-    {{-- Filters --}}
+    {{-- Filters — directly under the stat tiles (AT-393). Header + tiles + filters are
+         frozen: the page wrapper is a full-height flex column and ONLY the scroll
+         region below (flash, cards/list, pagination) scrolls. --}}
     @php
         $dataScope = \App\Services\PermissionService::getDataScope(auth()->user(), 'properties');
         // Determine if any "advanced" filters are active so the panel auto-expands
@@ -293,7 +282,7 @@
             setSingle(id) { this.selected = (id === '' || id == null) ? [] : [parseInt(id)]; this.apply(); },
             selectAll() { this.selected = []; this.apply(); }
          }"
-         class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
+         class="rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
 
         <form method="GET" action="{{ route('corex.properties.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
@@ -684,6 +673,22 @@
         @endif
 
     </div>
+
+    {{-- Scroll region — everything from here down scrolls; header, tiles and filters stay put. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
+
+    {{-- Flash --}}
+    @if(session('success'))
+    <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+         style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
+                color: var(--text-primary);">
+        <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+        </svg>
+        <div class="flex-1">{{ session('success') }}</div>
+    </div>
+    @endif
 
     {{-- Cards grid --}}
     @if($properties->isEmpty())
@@ -1114,6 +1119,7 @@
     </div>
     @endif
     @endif
+    </div>{{-- /scroll region --}}
 
     {{-- Syndication — one modal, driven by every card/row trigger --}}
     @include('corex.properties.partials.syndication-modal')

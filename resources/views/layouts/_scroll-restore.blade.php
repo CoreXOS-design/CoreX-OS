@@ -39,8 +39,12 @@
 
     function keyFor() { return 'corexScroll:' + location.pathname + location.search; }
 
+    // A page may freeze its own header and scroll an inner region instead of <main>
+    // (contacts show, AT-393) — it marks that region `data-scroll-region` and we
+    // preserve/restore THAT element's scrollTop; every other page keeps #appScroll.
     function scroller() {
-        return document.getElementById('appScroll')
+        return document.querySelector('[data-scroll-region]')
+            || document.getElementById('appScroll')
             || document.querySelector('main.overflow-y-auto');
     }
 
