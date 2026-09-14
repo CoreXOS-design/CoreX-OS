@@ -86,7 +86,7 @@
     </form>
 
     {{-- Scroll region — everything from here down scrolls; header + filters stay put. --}}
-    <div class="flex-1 min-h-0 overflow-y-auto mt-4 space-y-5">
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
 
     {{-- Leads table --}}
     <div class="rounded-md overflow-hidden"

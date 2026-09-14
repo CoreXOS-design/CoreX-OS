@@ -675,7 +675,7 @@
     </div>
 
     {{-- Scroll region — everything from here down scrolls; header, tiles and filters stay put. --}}
-    <div class="flex-1 min-h-0 overflow-y-auto mt-4 space-y-5">
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
 
     {{-- Flash --}}
     @if(session('success'))
