@@ -645,10 +645,41 @@
         .rr-ledger-strike:disabled { cursor: default; opacity: 0.5; }
     </style>
 
+    @php
+        // 2026-09-14, Johan live on QA1: the collapsed document rail showed
+        // only a stray mark count (meaningless when blank/all-same) with no
+        // way to tell WHICH document a circle was. His ask: label each by
+        // its TAGGED TYPE, not the filename — but application 230 (his own
+        // test case) has three documents typed "Bank Statement", so type
+        // alone still collapses three circles to one meaningless label.
+        // Disambiguates by appending a 1-based ordinal ONLY within a type
+        // that repeats — "Bank Statement 1/2/3" — computed off document id
+        // (upload order), never display order, so it's stable across
+        // reloads exactly like the pen-letter assignment two sections
+        // below already is. A type that appears once stays bare. Untyped
+        // documents (documentType null) are never grouped against each
+        // other by this — each is its own group of one, since the filename
+        // fallback is already distinguishing.
+        $cvDocLabels = [];
+        foreach (
+            $documents->sortBy(fn ($row) => $row['document']->id)
+                ->groupBy(fn ($row) => $row['document']->document_type_id ?? ('untyped-' . $row['document']->id))
+            as $cvDocGroup
+        ) {
+            $cvDocMultiple = $cvDocGroup->count() > 1;
+            $cvDocOrdinal = 0;
+            foreach ($cvDocGroup as $cvDocRow) {
+                $cvDocOrdinal++;
+                $cvDocBase = $cvDocRow['document']->documentType->label ?? $cvDocRow['document']->original_name;
+                $cvDocLabels[$cvDocRow['document']->id] = $cvDocMultiple ? ($cvDocBase . ' ' . $cvDocOrdinal) : $cvDocBase;
+            }
+        }
+    @endphp
     <div class="rental-review-columns mt-5" x-data="rentalReviewLayout({
          initialCvDocs: {{ Js::from($documents->map(fn ($row) => [
              'id' => $row['document']->id,
-             'label' => $row['document']->documentType->label ?? $row['document']->original_name,
+             'label' => $cvDocLabels[$row['document']->id],
+             'original_name' => $row['document']->original_name,
              'mark_count' => $row['mark_count'],
          ])->values()) }},
      })">
@@ -1165,12 +1196,41 @@
                                 <button type="button" title="Show document list" @click="docsPanelExpanded = true; try { localStorage.setItem('rentalMarkupDocsExpanded', '1'); } catch (_) {}"
                                         class="flex-shrink-0 flex items-center justify-center rounded-md"
                                         style="width: 22px; height: 22px; color: var(--text-secondary); font-size: 13px; border-top: 1px solid var(--border); padding-top: 4px;">&rsaquo;</button>
+                                {{-- 2026-09-14, Johan live on QA1: "collapsed
+                                     shows garbage... some show a 1, some
+                                     blank, all the same colour means
+                                     nothing." The lone digit was mark_count
+                                     (real signal — how many capture marks
+                                     are on that document) with no label to
+                                     say what it was a count OF. Matches the
+                                     pen rail's own established treatment
+                                     (document-highlighter-pages.blade.php's
+                                     capturePickerHighlighters() loop, same
+                                     40px item width, same shrink-to-fit
+                                     label under a circle) rather than
+                                     inventing a second small-label pattern
+                                     on the same screen: circle stays a
+                                     plain click target, mark_count moves to
+                                     a small corner badge (same absolute
+                                     top/right positioning the pen rail's
+                                     own "active" checkmark badge already
+                                     uses) so it survives instead of being
+                                     thrown away, and the TYPE label (already
+                                     disambiguated server-side above for
+                                     repeated types) renders underneath,
+                                     auto-sized by computeCvDocLabelFontSize()
+                                     in init() below. --}}
                                 <template x-for="d in cvDocs" :key="d.id">
-                                    <button type="button" @click="scrollToDoc(d.id)" :title="d.label + (d.mark_count ? ' — ' + d.mark_count + ' mark' + (d.mark_count === 1 ? '' : 's') : '')"
-                                            class="flex-shrink-0 flex items-center justify-center rounded-full"
-                                            :style="{ width: '26px', height: '26px', fontSize: '10px', fontWeight: '700', border: (activeCvDocId === d.id) ? '2px solid var(--ds-blue, #2563eb)' : '1px solid var(--border)', color: (activeCvDocId === d.id) ? 'var(--ds-blue, #2563eb)' : 'var(--text-secondary)', background: 'var(--surface)' }">
-                                        <span x-text="d.mark_count || ''"></span>
-                                    </button>
+                                    <div class="flex-shrink-0 mx-auto" style="width: 40px;">
+                                        <button type="button" @click="scrollToDoc(d.id)" :title="d.label + ' (' + d.original_name + ')' + (d.mark_count ? ' — ' + d.mark_count + ' mark' + (d.mark_count === 1 ? '' : 's') : '')"
+                                                class="relative flex items-center justify-center rounded-full mx-auto"
+                                                :style="{ width: '26px', height: '26px', border: (activeCvDocId === d.id) ? '2px solid var(--ds-blue, #2563eb)' : '1px solid var(--border)', background: 'var(--surface)' }">
+                                            <template x-if="d.mark_count">
+                                                <span style="position: absolute; top: -4px; right: -4px; color: #fff; background: var(--ds-blue, #2563eb); border-radius: 9999px; min-width: 14px; height: 14px; padding: 0 2px; font-size: 9px; font-weight: 800; line-height: 14px; text-align: center;" x-text="d.mark_count"></span>
+                                            </template>
+                                        </button>
+                                        <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: cvDocLabelFontSizePx + 'px' }" :title="d.label" x-text="d.label"></p>
+                                    </div>
                                 </template>
                             </div>
                         </template>
@@ -2855,6 +2915,36 @@ function rentalReviewLayout({ initialCvDocs } = {}) {
         activeCvDocId: null,
         docsPanelExpanded: false,
         _cvScrollSpyObserver: null,
+        // 2026-09-14, Johan live on QA1 — same shrink-to-fit-then-ellipsis
+        // treatment as the pen rail's own computePenLabelFontSize()
+        // (document-highlighter-script.blade.php), reimplemented here
+        // rather than called directly: cvDocs lives on THIS component
+        // (rentalReviewLayout), the pen labels on a sibling/child
+        // rentalDocumentHighlighter() instance — different Alpine scopes,
+        // same algorithm. ONE shared size for the whole rail (not
+        // per-label) so it reads as one deliberate scale, chosen as the
+        // largest size at which the single longest label still fits the
+        // 40px item's real label width (36px, a couple px breathing room
+        // each side — same margin the pen rail uses for the same 40px
+        // column). Floors at 7px, then the label's own CSS ellipses —
+        // the full, disambiguated label is always in the title tooltip
+        // regardless of what's visibly truncated.
+        cvDocLabelFontSizePx: 7,
+        computeCvDocLabelFontSize() {
+            const labels = this.cvDocs.map(d => d.label || '').filter(Boolean);
+            if (!labels.length) return;
+            const MAX_SIZE = 8, MIN_SIZE = 7, AVAILABLE_WIDTH_PX = 36;
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext && canvas.getContext('2d');
+            if (!ctx) { this.cvDocLabelFontSizePx = MIN_SIZE; return; }
+            let chosen = MIN_SIZE;
+            for (let size = MAX_SIZE; size >= MIN_SIZE; size -= 0.5) {
+                ctx.font = size + 'px system-ui, -apple-system, sans-serif';
+                const widestPx = Math.max(...labels.map(l => ctx.measureText(l).width));
+                if (widestPx <= AVAILABLE_WIDTH_PX) { chosen = size; break; }
+            }
+            this.cvDocLabelFontSizePx = chosen;
+        },
         initDocsFold() {
             try { this.docsPanelExpanded = localStorage.getItem('rentalMarkupDocsExpanded') === '1'; } catch (_) {}
         },
@@ -3049,6 +3139,7 @@ function rentalReviewLayout({ initialCvDocs } = {}) {
                 if (value) { this.startCvScrollSpy(); } else { this.stopCvScrollSpy(); }
             });
             this.initDocsFold();
+            this.computeCvDocLabelFontSize();
 
             this.$el.style.setProperty('--rr-strip-h', this.stripHeight + 'px');
 
