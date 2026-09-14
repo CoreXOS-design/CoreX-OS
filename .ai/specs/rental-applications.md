@@ -6437,6 +6437,45 @@ actually clips its output to a lowered limit; a real browser pass on
 QA1 confirming the field renders, saves, and is found by the settings
 hub's search box.
 
+## Applicant-facing mail never carries a street address (AT-392, 2026-09-17)
+
+Johan, verbatim: **"approved email - we cannot show property addresses. so
+we can show - 3 bed house - I think property header but not the
+address."**
+
+**The rule:** any applicant-facing rental-application email that names a
+property identifies it by a structured, address-free descriptor — never
+`Property::buildDisplayAddress()`, never the free-text `title`/`headline`
+columns. Checked live on QA1 before writing this: both `title` and
+`headline` are agent-entered free text, and real records on this exact
+agency's stock carry a suburb (`"...for sale in Amanzimtoti"`) or even a
+full street address with house number (`"Section 19, NATSPAT, 60
+Lilliecrona Boulevard, MANABA BEACH"`, property 20818) inside `title` —
+swapping to either field naively would silently reintroduce the exact leak
+this rule exists to close on some real properties while looking fixed on
+others.
+
+**The fix:** `Property::addressFreeDescriptor()` (`app/Models/Property.php`,
+directly below `buildDisplayAddress()`), built from `beds` + `property_type`
+only — both structured columns that can never contain a street address by
+construction, however messy the free-text fields on that same record are.
+Fallback chain so the sentence never renders blank: beds+type present →
+`"{beds} Bedroom {type}"` (Johan's own example shape); type only → the type
+alone; beds only → `"{beds} Bedroom Property"`; neither → `"A property"`.
+
+**Where this applies today:** `RentalApplicationApprovedMail` /
+`emails/rental-application-approved.blade.php` — the applicant's approval
+email, the only place property content had leaked in. Swept every other
+applicant-facing rental-application mailable/template
+(`RentalApplicationInviteMail`, `...MoreInfoRequestMail`,
+`...ReopenedMail`, `...DeclineMail`, `...ReturnedMail`) for property/
+address/suburb/street content — none of the other six reference a
+property at all, so none needed a change. (`RentalApplicationDecisionMail`
+is the internal agent-notification, not applicant-facing, and also carries
+no property content.) If a future applicant-facing email needs to name a
+property, this is the method to reach for — not `buildDisplayAddress()`,
+not `title`/`headline` directly.
+
 ## Contact Rental History — own/branch/agency scope, Role Manager (AT-392, 2026-09-10)
 
 Johan answered the scoping question left open in the Contact status

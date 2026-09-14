@@ -39,9 +39,13 @@
 
         @if($properties->isNotEmpty())
             <p style="margin-top: 24px; font-weight: bold;">Properties that could work for you, within your approved amount:</p>
+            {{-- AT-392, 2026-09-17 — Johan: "we cannot show property
+                 addresses... 3 bed house... property header but not the
+                 address." addressFreeDescriptor() (Property model, see its
+                 own docblock) — never buildDisplayAddress() here. --}}
             @foreach($properties as $property)
                 <div style="border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px 16px; margin-bottom: 10px;">
-                    <div style="font-weight: bold;">{{ $property->buildDisplayAddress() }}</div>
+                    <div style="font-weight: bold;">{{ $property->addressFreeDescriptor() }}</div>
                     <div style="color: #555; font-size: 14px;">R{{ number_format($property->effectivePrice(), 0) }} per month</div>
                 </div>
             @endforeach

@@ -1171,6 +1171,41 @@ class Property extends Model
     }
 
     /**
+     * AT-392, 2026-09-17 — Johan, verbatim: "approved email - we cannot
+     * show property addresses. so we can show - 3 bed house - I think
+     * property header but not the address." Built from STRUCTURED columns
+     * (beds, property_type) rather than `title`/`headline` deliberately —
+     * both of those are agent-entered free text and checked live on QA1
+     * before this was written: several real properties carry a suburb or
+     * even a full street address inside `title` (e.g. "Section 19,
+     * NATSPAT, 60 Lilliecrona Boulevard, MANABA BEACH"), which would have
+     * silently reintroduced the exact leak this method exists to prevent.
+     * `property_type` is agent-selected, not a street/suburb by
+     * construction, so it can never carry an address regardless of data
+     * quality elsewhere on the record. For anywhere that must name a
+     * property WITHOUT identifying its location — currently the applicant
+     * approval email's matched-properties list; see
+     * RentalApplicationApprovedMail's own docblock.
+     */
+    public function addressFreeDescriptor(): string
+    {
+        $beds = (int) ($this->beds ?? 0);
+        $type = trim((string) ($this->property_type ?? ''));
+
+        if ($beds > 0 && $type !== '') {
+            return $beds . ' Bedroom ' . $type;
+        }
+        if ($type !== '') {
+            return $type;
+        }
+        if ($beds > 0) {
+            return $beds . ' Bedroom Property';
+        }
+
+        return 'A property';
+    }
+
+    /**
      * AT-266 — the ONE truth for `properties.address`.
      *
      * `address` is a DERIVED display string, composed from the structured address
