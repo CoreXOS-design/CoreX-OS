@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Events\Contact\ContactMarkedLostInBuyerPipeline;
+use App\Events\Contact\ContactRestoredFromLostInBuyerPipeline;
 use App\Models\AgencyContactSettings;
 use App\Models\BuyerActivityLog;
 use App\Models\BuyerStateTransition;
@@ -52,6 +54,18 @@ class BuyerStateService
         }
 
         $contact->updateQuietly(['buyer_state' => $newState]);
+
+        // AT-Core-Matches, Task 6 — updateQuietly() above suppresses
+        // Eloquent model events, so this is dispatched explicitly rather
+        // than relying on an observer that would never fire. Real column
+        // is buyer_state, not buyer_status (corex-domain-events-spec.md's
+        // ContactBuyerStatusChanged entry was stale/never built — see the
+        // corrected entry in that file).
+        if ($newState === 'lost') {
+            event(new ContactMarkedLostInBuyerPipeline($contact, $userId));
+        } elseif ($oldState === 'lost') {
+            event(new ContactRestoredFromLostInBuyerPipeline($contact, $userId));
+        }
 
         // AT-253 Rule 17 — a contact with no tenant has no history to file. Skip the row
         // (loudly, in the log) rather than file it under someone else's agency. The state

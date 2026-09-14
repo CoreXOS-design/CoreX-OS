@@ -182,6 +182,13 @@ class P24LeadService
             'contact_id'               => $contact?->id,
             'contact_exists'           => $existed,
             'existing_contact_agent_id'=> $existed ? $existingAgentId : null,
+            // AT-Core-Matches, Johan's ruling 6 — "the board shows WHO GOT
+            // IT FIRST." Frozen at arrival, both branches: the existing
+            // contact's own agent for a returning enquirer (same fact as
+            // existing_contact_agent_id above), or the listing's agent at
+            // this exact moment for a brand-new one — never re-derived
+            // later via a live join to the property's CURRENT agent.
+            'received_by_user_id'      => $existed ? $existingAgentId : $listingAgentId,
             'name'                     => $name,
             'email'                    => $email,
             'phone'                    => $phone,

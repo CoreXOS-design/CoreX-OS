@@ -60,6 +60,8 @@ class ContactGovernanceController extends Controller
             'buyer_warm_days' => 'required|integer|min:1|max:365',
             'buyer_cold_days' => 'required|integer|min:1|max:365',
             'buyer_lost_days' => 'required|integer|min:1|max:730',
+            // AT-Core-Matches, Johan's ruling 5 — the Core Matches working window, never hardcoded.
+            'core_matches_working_window_days' => 'required|integer|min:1|max:90',
             // AT-81 — no-response window before a pending outreach contact lapses.
             'outreach_no_response_days' => 'required|integer|min:1|max:365',
             'contact_retention_years' => 'required|integer|min:5|max:99',
@@ -80,6 +82,7 @@ class ContactGovernanceController extends Controller
                 'buyer_warm_days',
                 'buyer_cold_days',
                 'buyer_lost_days',
+                'core_matches_working_window_days',
                 'outreach_no_response_days',
                 'contact_retention_years',
                 'consent_retention_years',

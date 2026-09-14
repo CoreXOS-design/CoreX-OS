@@ -51,6 +51,8 @@ class ContactMatch extends Model
         'contact_id',
         'created_by_user_id',
         'updated_by_user_id',
+        'agent_id',
+        'set_aside_at',
         'name',
         'share_token',
         'share_slug',
@@ -112,6 +114,7 @@ class ContactMatch extends Model
         'property_view_counts'  => 'array',
         'last_engaged_at'       => 'datetime',
         'auto_archive_at'       => 'date',
+        'set_aside_at'          => 'datetime',
     ];
 
     protected static function boot(): void
@@ -239,6 +242,22 @@ class ContactMatch extends Model
         return $this->belongsTo(User::class, 'created_by_user_id');
     }
 
+    /** The OWNING agent — the field a reassignment moves. Distinct from createdBy(). */
+    public function agent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'agent_id');
+    }
+
+    public function reassignments(): HasMany
+    {
+        return $this->hasMany(ContactMatchReassignment::class)->latest('id');
+    }
+
+    public function shares(): HasMany
+    {
+        return $this->hasMany(ContactMatchShare::class)->latest('shared_at');
+    }
+
     public function updatedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'updated_by_user_id');
@@ -278,6 +297,81 @@ class ContactMatch extends Model
      * (ContactMatchObserver::$demoting). We set the flag here so the
      * observer's saved() returns early when our own $this->save() fires.
      */
+    /**
+     * AT-Core-Matches, Johan's ruling 1 + Task 3 — the ONLY path that may
+     * change agent_id. Server-enforced independently of the route's own
+     * `permission:core_matches.reassign` middleware (defense in depth —
+     * BUILD_STANDARD §1c: direct-URL access must be blocked, not just
+     * absent from a menu). $movedBy must hold core_matches.reassign
+     * (branch_manager/admin only, per Johan — never an agent, including
+     * reassigning to themselves). $reason is required: Johan's model is
+     * that the manager has the conversation with the agent first.
+     *
+     * @throws \App\Exceptions\CoreMatches\ReassignmentNotAuthorizedException
+     */
+    public function reassignTo(User $toAgent, User $movedBy, string $reason): ContactMatchReassignment
+    {
+        if (! $movedBy->hasPermission('core_matches.reassign')) {
+            throw new \App\Exceptions\CoreMatches\ReassignmentNotAuthorizedException(
+                'Only a branch manager or admin can move a buyer between agents.'
+            );
+        }
+
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new \InvalidArgumentException('A reason is required to reassign a buyer.');
+        }
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($toAgent, $movedBy, $reason) {
+            $record = ContactMatchReassignment::record(
+                $this,
+                $this->agent_id,
+                $toAgent->id,
+                $movedBy->id,
+                $reason,
+            );
+
+            $this->agent_id = $toAgent->id;
+            $this->updated_by_user_id = $movedBy->id;
+            $this->save();
+
+            return $record;
+        });
+    }
+
+    /**
+     * AT-Core-Matches, Task 6 — the buyer moved to Lost in the Buyer
+     * Pipeline. Set aside, never deleted; scopeVisible() (the screen
+     * owner's query) is expected to exclude set-aside rows by default.
+     */
+    public function setAside(): void
+    {
+        if ($this->set_aside_at === null) {
+            $this->forceFill(['set_aside_at' => now()])->save();
+        }
+    }
+
+    /**
+     * AT-Core-Matches, Task 6 — "comes back if the buyer does." The
+     * buyer moved OFF Lost in the Buyer Pipeline.
+     */
+    public function restoreFromSetAside(): void
+    {
+        if ($this->set_aside_at !== null) {
+            $this->forceFill(['set_aside_at' => null])->save();
+        }
+    }
+
+    public function scopeNotSetAside(Builder $q): Builder
+    {
+        return $q->whereNull('set_aside_at');
+    }
+
+    public function scopeSetAside(Builder $q): Builder
+    {
+        return $q->whereNotNull('set_aside_at');
+    }
+
     public function setAsPrimary(): void
     {
         DB::transaction(function () {
