@@ -7,10 +7,12 @@ use App\Models\CommandCenter\CalendarEvent;
 use App\Models\Contact;
 use App\Models\Document;
 use App\Models\Property;
+use App\Models\User;
 use App\Models\ViewingPack;
 use App\Models\ViewingPackDocument;
 use App\Models\ViewingPackProperty;
 use App\Services\CommandCenter\CalendarEventService;
+use App\Services\PermissionService;
 use App\Services\ViewingPack\ViewingPackAgentPdfService;
 use App\Services\ViewingPack\ViewingPackBuyerPdfService;
 use App\Services\ViewingPack\ViewingPackDocumentService;
@@ -52,11 +54,22 @@ class ViewingPackController extends Controller
     public function index(Request $request)
     {
         $showArchived = $request->boolean('archived');
+        $user = $request->user();
+
+        // AT-393 — list filters (spec .ai/specs/viewing-pack.md §"List page filters").
+        // All optional, '' = no filter; they compose with each other AND with the
+        // archived toggle, and the pagination carries them via withQueryString().
+        $status = (string) $request->query('status', '');
+        $filters = [
+            'q'        => trim((string) $request->query('q', '')),
+            'agent_id' => trim((string) $request->query('agent_id', '')),
+            'status'   => in_array($status, ViewingPack::STATUSES, true) ? $status : '',
+        ];
 
         // AT-112 — row-level visibility on top of the route's permission gate:
         // agent sees own, branch manager the branch, admin all.
         $query = ViewingPack::query()
-            ->visibleTo($request->user())
+            ->visibleTo($user)
             ->with(['contact', 'agent'])
             ->withCount('viewingPackProperties')
             ->latest();
@@ -65,11 +78,44 @@ class ViewingPackController extends Controller
             $query->onlyTrashed();
         }
 
+        if ($filters['q'] !== '') {
+            $q = $filters['q'];
+            // Pack title OR the buyer's name (person: first/last; entity: entity_name).
+            $query->where(function ($w) use ($q) {
+                $w->where('title', 'like', '%' . $q . '%')
+                  ->orWhereHas('contact', function ($c) use ($q) {
+                      $c->where('first_name', 'like', '%' . $q . '%')
+                        ->orWhere('last_name', 'like', '%' . $q . '%')
+                        ->orWhere('entity_name', 'like', '%' . $q . '%')
+                        ->orWhereRaw("CONCAT_WS(' ', first_name, last_name) LIKE ?", ['%' . $q . '%']);
+                  });
+            });
+        }
+        if ($filters['agent_id'] !== '') {
+            $query->where('agent_id', (int) $filters['agent_id']);
+        }
+        if ($filters['status'] !== '') {
+            $query->where('status', $filters['status']);
+        }
+
         $packs = $query->paginate(25)->withQueryString();
+
+        // Agent picker — only meaningful above 'own' scope (an own-scope agent's list is
+        // already theirs). Same agency; narrowed to the branch for branch scope.
+        $scope = PermissionService::getDataScope($user, 'viewing_packs');
+        $agents = $scope === 'own'
+            ? collect()
+            : User::query()
+                ->where('agency_id', $user->effectiveAgencyId() ?? $user->agency_id)
+                ->when($scope === 'branch', fn ($u) => $u->where('branch_id', $user->effectiveBranchId()))
+                ->orderBy('name')
+                ->get(['id', 'name']);
 
         return view('command-center.viewing-packs.index', [
             'packs'        => $packs,
             'showArchived' => $showArchived,
+            'filters'      => $filters,
+            'agents'       => $agents,
         ]);
     }
 

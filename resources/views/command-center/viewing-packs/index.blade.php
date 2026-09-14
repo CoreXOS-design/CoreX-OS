@@ -21,7 +21,56 @@
         </div>
     </div>
 
-    {{-- Scroll region (AT-393) — the header is frozen: the page wrapper is a full-height
+    {{-- Filters (AT-393, spec .ai/specs/viewing-pack.md §"List page filters") — directly
+         under the header; one GET form so search + agent + status compose with each other
+         AND with the archived toggle (carried as a hidden field). --}}
+    @php $filtersActive = ($filters['q'] ?? '') !== '' || ($filters['agent_id'] ?? '') !== '' || ($filters['status'] ?? '') !== ''; @endphp
+    <form method="GET" action="{{ route('corex.viewing-packs.index') }}"
+          class="rounded-md px-4 py-3 mt-3 flex-shrink-0 flex flex-wrap items-center gap-3"
+          style="background: var(--surface); border: 1px solid var(--border);">
+        @if($showArchived)
+            <input type="hidden" name="archived" value="1">
+        @endif
+
+        {{-- Pack title / buyer name --}}
+        <div class="relative flex-1 min-w-[180px] max-w-xs">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+            </svg>
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}"
+                   placeholder="Search pack or buyer…"
+                   class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
+                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+        </div>
+
+        {{-- Agent — only above 'own' scope (an own-scope agent's list is already theirs) --}}
+        @if($agents->isNotEmpty())
+        <select name="agent_id" onchange="this.form.submit()" class="list-header-filter">
+            <option value="">All agents</option>
+            @foreach($agents as $a)
+                <option value="{{ $a->id }}" {{ (string) ($filters['agent_id'] ?? '') === (string) $a->id ? 'selected' : '' }}>{{ $a->name }}</option>
+            @endforeach
+        </select>
+        @endif
+
+        {{-- Status --}}
+        <select name="status" onchange="this.form.submit()" class="list-header-filter">
+            <option value="" {{ ($filters['status'] ?? '') === '' ? 'selected' : '' }}>All statuses</option>
+            @foreach(\App\Models\ViewingPack::STATUSES as $s)
+                <option value="{{ $s }}" {{ ($filters['status'] ?? '') === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
+            @endforeach
+        </select>
+
+        <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+        @if($filtersActive)
+        <a href="{{ route('corex.viewing-packs.index', $showArchived ? ['archived' => 1] : []) }}"
+           class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
+        @endif
+
+        <span class="ml-auto text-xs" style="color:var(--text-muted);">{{ number_format($packs->total()) }} pack{{ $packs->total() === 1 ? '' : 's' }}</span>
+    </form>
+
+    {{-- Scroll region (AT-393) — header + filters are frozen: the page wrapper is a full-height
          flex column and ONLY this region (flash + packs table + pagination) scrolls. --}}
     <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
     @if(session('success'))
@@ -40,7 +89,7 @@
                     </svg>
                 </div>
                 <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">
-                    {{ $showArchived ? 'No archived packs' : 'No viewing packs yet' }}
+                    {{ $filtersActive ? 'No packs match these filters' : ($showArchived ? 'No archived packs' : 'No viewing packs yet') }}
                 </h3>
                 <p class="text-sm mb-4" style="color: var(--text-muted);">
                     {{ $showArchived ? 'Archived packs will appear here.' : 'Open a buyer in the Buyer Pipeline and click “Build Viewing Pack”.' }}
