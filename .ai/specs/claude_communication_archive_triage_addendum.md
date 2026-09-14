@@ -111,3 +111,26 @@ Phase A is the part you described and is independently shippable; Phase B is the
 ## 9. Done-criteria (every build prompt)
 
 `php -l` · `php artisan migrate` + `schema:dump` · `view:clear` · documented test command, full-suite failures stay at the 220 baseline (no new) · explicit short FK names · BelongsToAgency + SoftDeletes on new models · permissions added + granted · nav present (triage screen + BM register) · feature tests: per-agent flag isolation (Agent 1's discard doesn't bind Agent 2), agent_vs_agent alert fires on contradiction, agent_vs_ai alert fires when discard contradicts the stored AI verdict, register shows no message content. Report results, files, line counts. Update Jira.
+
+## 10. Triage screen — list filters, pagination, frozen header (AT-393, built 2026-09-14, QA1 only)
+
+Andre's standing rule for every list page: freeze the top, add search/filter if missing, page
+the list. Applied to `/corex/communications/triage` (`communications.triage.index`).
+
+- **Filters** — one GET form directly under the header + "Related" links; both optional,
+  compose, and are carried by the pagination links.
+  | Control | Key | Behaviour |
+  |---|---|---|
+  | Search | `q` | case-insensitive substring on sender identifier, subject, or preview/body |
+  | Channel | `channel` | one of the channels actually present in this agent's queue (built from the data, never a hard-coded list) |
+  "Clear" shows only while a filter is active; live "N messages" count on the right.
+- **Pagination** — 25 per page, `LengthAwarePaginator` over the collection, because the queue is
+  PHP-filtered (per-agent NOT-REAL-ESTATE suppression happens after the query in
+  `CommunicationTriageService::pendingForAgent()`); filters only ever narrow that per-agent
+  set, never widen it. Page links carry the query string.
+- **Layout** — full-height flex column; header, Related links and filter card `flex-shrink-0`;
+  flash + table + pagination in `flex-1 min-h-0 overflow-y-auto corex-brand-scroll`. The AT-274
+  no-context explanation renders inside the scroll region and suppresses the filter card.
+- **Empty state** distinguishes "no messages match these filters" from "nothing to triage".
+- **Tests** — `tests/Feature/Communications/CommunicationTriageIndexFilterTest.php`.
+- **Files** — `CommunicationTriageController::index`, `resources/views/communications/triage/index.blade.php`.
