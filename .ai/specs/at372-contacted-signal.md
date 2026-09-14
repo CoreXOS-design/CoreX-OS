@@ -53,3 +53,25 @@ calls `markContacted()`. Sync is by construction — one endpoint, one signal, o
 
 ## Deliberately NOT in scope
 The Performance-report prospected-vs-contacted split (cc3's lane). Email flows unchanged.
+
+## Relationship to Buyer Pipeline state — deliberately none (Johan ruling, 2026-09-14)
+
+`last_contacted_at` (this signal) and `Contact::buyer_state` (New/Warm/Cold/Lost, set by
+`BuyerStateService::resolveState()`) are two separate, intentionally-unconnected signals.
+Contacting a buyer — a sent WhatsApp/email, or an explicit "contacted" mark via this
+spec's own flow — never advances `buyer_state`. This was investigated on QA1 (2026-09-14)
+after a live report that the Rental Pipeline's "New" column looked implausibly large;
+97 of 150 New-state buyers turned out to have genuinely been contacted, some within the
+prior 8 days, yet still showed as untouched on the board.
+
+Johan's ruling — quoted, not paraphrased: "the pipeline is a manual agent action to move
+the buyers / tenants around. so nothing to do there. we not automating it. the problem is
+an agent has the responsibility to work with their buyers and the pipeline is where the
+buyers sit. not automatically be moved around as agents will not work with their buyers
+then."
+
+So: `last_contacted_at` answers "has anyone been in touch" (automatic, this spec).
+`buyer_state` answers "has an agent actually triaged this buyer" (manual only — see the
+matching comment on `BuyerStateService::resolveState()`). A contacted-but-still-New buyer
+is the board correctly showing an agent's outstanding responsibility, not a bug. Do not
+wire `markActivity()`/`resolveState()` to this signal.

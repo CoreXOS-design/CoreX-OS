@@ -450,6 +450,207 @@ edit mode only — these actions all route-model-bind to a real, already-saved
   no Blade view), unchanged from the prior revision of this spec, and still
   out of AT-398's scope.
 
+## 8b. "Add another property" is a plain dropdown of gate-eligible properties, not a search (2026-09-16)
+
+Johan, testing DR2 live, verbatim: **"add another property should only
+display the other properties on this seller. why offer a search, it can
+be a plain dropdown."** The reason is stronger than convenience: a search
+invites the user to pick something the owner gate will then reject,
+teaching them the system is broken when it is in fact working correctly.
+
+**What existed before this**, checked before anything was changed:
+`DealRegisterController::searchProperties()` — a free-text address search
+over the agency's ENTIRE visible stock (`Property::visibleTo($user)
+->searchAddress($search)`, on-market only by default), used identically,
+via two SEPARATE implementations, for both the create screen's own
+"Add another property" box and the edit screen's — neither one already
+did this correctly; there was no existing "right way" to reuse.
+
+**The one thing Johan asked to be thought through, not just implemented**:
+"properties on this seller" and "properties this deal will accept" are
+NOT the same set. `DealPropertyOwnerGate` compares exact OWNER SETS, not
+a single seller — a seller who owns one property solely and another
+jointly with a spouse has two DIFFERENT owner sets, and the second would
+still fail the gate even though it's genuinely "another property on this
+seller." **Sized on QA1's own real data before any code was written, per
+his explicit instruction not to decide this silently**: 81 sellers have
+2+ properties; of those, **31 individual properties fall in exactly this
+gap** — sharing a seller with another property, but not that property's
+exact owner set (e.g. a seller solely owning one Effingham Parade property
+and jointly owning an adjacent one via a different holding-company
+combination). Reported to Johan rather than decided.
+
+**Johan's ruling, 2026-09-16: "31 IS MEANINGFUL."** These 31 must NOT be
+silently absent. His reasoning, relayed by the conductor: "An agent who
+knows their seller owns three houses, opens the dropdown and sees two,
+will conclude the system lost one — and then either stops trusting the
+dropdown or goes hunting. Silence is the worst of the three options." So
+the shipped behaviour is not "excluded by construction" — see the revision
+immediately below.
+
+**What's built — ONE shared endpoint, ONE shared dropdown, for create AND
+edit (Johan: "same behaviour on create and on edit. One implementation,
+not two.")**:
+
+- `DealRegisterController::eligibleProperties()` (`GET
+  /deals-dr2/search/eligible-properties`) takes a `reference_property_id`
+  (the primary — passed explicitly rather than resolved from a `Deal`,
+  since create mode has no `Deal` yet) plus an `exclude[]` list (already-
+  staged/already-linked properties) and an optional `accepted_status`/
+  `deal_id`. It reuses `DealPropertyOwnerGate::sellerSideContactIds()`/
+  `ownerSetsMatch()` **verbatim** — never a second, looser owner-set
+  comparison written for this endpoint — after a cheap pre-filter (any
+  candidate must share at least one seller-side contact with the reference,
+  a necessary condition an exact-set match trivially satisfies) narrows a
+  whole-agency scan down to a small pool first. The existing on-market
+  default and `visibleTo()` agency/branch scoping are unchanged from
+  `searchProperties()`'s own convention. The G/R exclusivity check
+  `addProperty()` already runs (`DealPropertyStatusService::
+  committedDealOnProperty()`) is reused the same way, only when the
+  deal itself is already Granted/Registered — never a second status rule.
+  It remains a hard exclusion (never shown, not even disabled): Johan's
+  ruling below is scoped to the owner-set gap specifically, which is
+  genuinely confusing to an agent; G/R exclusivity, "already on this
+  deal", and wrong-status exclusions are not extended the same treatment
+  (see the reasoning immediately below).
+- **The owner-set gap (the 31) is returned, not excluded — marked
+  ineligible, with a plain-language reason, sorted after the real
+  choices.** Per Johan's ruling above, `eligibleProperties()` splits
+  candidates that pass the pre-filter/on-market/visibility/G-R checks
+  into `eligible`/`ineligible` by `ownerSetsMatch()`, and returns eligible
+  rows first, then ineligible rows, each carrying `'eligible' => bool`
+  and (for ineligible rows) `'reason' => string` — deliberately never the
+  gate's own vocabulary ("owner set" means nothing to a working agent):
+  *"Can't be added — the owners on this property aren't the same as the
+  owners on this deal."* The dropdown renders eligible rows as ordinary
+  selectable `<option>`s, then — only if any ineligible rows exist — a
+  `<optgroup label="Can't be added — different owners">` of `disabled`
+  `<option>`s carrying the reason as a `title` tooltip. A disabled
+  `<option>` is a UI hint only: `store()`'s own `DealPropertyOwnerGate::
+  assertCanAddToDeal()` call is completely unchanged and still refuses
+  any of these ids if posted directly, proven by a dedicated test (see
+  Tests below) — the dropdown never became the enforcement point.
+  **Reasoning on the other exclusion kinds, given to the conductor for
+  confirmation**: only the owner-set gap gets this treatment. "Already on
+  this deal" is self-evident to the agent (they just added it) and stays
+  hidden; wrong-status and G/R-exclusivity exclusions stay hidden too —
+  they are not something an agent looking at THIS seller would expect to
+  see offered at all, unlike the owner-set case where the property
+  visibly belongs to the same seller and its absence would look like data
+  loss.
+- **A plain `<select>`, on both screens** (`dr2mp_picker` in edit mode,
+  `dr2cp_picker` in create mode) — no search input, no autocomplete,
+  populated once via a single shared JS function, `loadEligibleDropdown()`
+  (`resources/views/dr2/create.blade.php`). Refreshed whenever the primary
+  property changes, and whenever a property is added to or removed from
+  the deal (create mode's own client-side staging list, or edit mode's
+  real linked-properties list on the next page load).
+- **Says so in plain words when there's nothing eligible**, never an
+  empty-looking dropdown (Johan: "Johan should never see a control that
+  looks broken when it is simply empty") — `#dr2mp_picker_empty`/
+  `#dr2cp_picker_empty`, shown instead of the `<select>` when the eligible
+  list comes back empty, or when no primary property has been picked yet.
+- **What each option shows**: address plus the property's own reference
+  number when it has one (`toSearchResult()`'s existing `label`/`ref`
+  shape, the same fields `searchProperties()` already surfaces) — enough
+  to tell two of the same seller's properties apart without a search.
+- The old free-text search JS (`dr2mp_search`/`dr2cp_search` and their
+  results-list rendering) is removed entirely on this control — the
+  primary property picker elsewhere on the same screen is UNCHANGED and
+  still a genuine search, since there is no "eligible set" concept for
+  picking the very first property on a deal.
+
+**Tests**: `tests/Feature/Dr2/PropertyEligibilityDropdownTest.php` — 9
+tests: an identical-owner-set property is returned; the exact gap Johan
+named (same seller, different owner set — one solely owned, one jointly)
+is returned but marked `eligible: false` with a plain-language reason and
+sorted after the real, pickable choices (updated 2026-09-16 per his
+ruling — previously asserted absence, which is now the wrong behaviour);
+the reference property itself is never offered; already-excluded/already-
+linked properties are never offered again; a reference with no resolvable
+owner returns nothing; a seller with no other properties returns an empty
+list; the response carries enough to distinguish two properties; the G/R
+exclusivity reuse is proven (still a hard exclusion, not shown even
+disabled); and the permission gate holds (an ordinary agent 403s).
+`CreateTimeMultiPropertyTest.php` updated to assert the create screen
+renders a `<select>` (`id="dr2cp_picker"`), never the old search input,
+plus a new test,
+`test_a_property_shown_disabled_in_the_dropdown_for_a_mismatched_owner_set_is_still_refused_when_posted_directly`,
+proving the server-side gate — not the disabled markup — is what actually
+refuses one of the 31 when POSTed directly to `store()`. Full DR2
+regression suite re-run — zero regressions.
+
+**Verified against real QA1 data, not synthetic fixtures only** — a real
+clean multi-property seller (contact #10298, four properties, one
+identical owner set) correctly returns zero eligible properties by
+default (all four are off-market) and correctly returns both siblings
+once `all=1` is set; a real seller sitting exactly in the reported gap
+(contact #10157, "Unit 4, Forest Walk") correctly excludes the property
+she jointly owns with another contact and correctly includes the one she
+owns solely.
+
+## 8c. Focus-loss bug class: a live-recalculating field must never rebuild its own DOM subtree (2026-09-14)
+
+Johan, testing the create-time multi-property build live, verbatim: **"trying
+the 2 properties on 1 deal - added 2nd property happy with that. now trying
+to update the price on property 1 - as soon as you enter any digit of a
+number it loses focus, so you have to click in the field again, and then
+type another digit. fix it - commission does the same, same on 2nd property
+price and commission."** All four fields — both properties' price and
+commission — on the CREATE screen only.
+
+**Root cause, confirmed by reading before anything was changed** (not a
+formatting/currency-mask issue, and not a browser quirk): every property
+row's price/commission `<input>` (rendered by `dr2cpRenderRow()`) had an
+`'input'` listener that called `dr2cpRecompute()` on every keystroke. That
+function started with `dr2cpList.innerHTML = ''` and then rebuilt EVERY row
+from scratch as fresh HTML — including the very `<input>` the user was
+typing into. The new node carried the correct, updated value (the number
+itself was never wrong), but it was a brand-new DOM element; the browser's
+focus was on the OLD, now-deleted node, so focus dropped to nothing and the
+next keystroke needed a click first. `dr2cpRecompute()` had been doing two
+unrelated jobs — updating the balance summary/banner/hidden form inputs
+(needs to run every keystroke) and rebuilding the visible row list (needs to
+run only when a property is actually added or removed) — and a per-keystroke
+listener called the combined function directly.
+
+**The fix**: split into `dr2cpRecomputeSummary()` (never touches `dr2cpList`,
+called on every price/commission keystroke and on every edit of the TOTAL
+fields) and `dr2cpRenderRows()` (rebuilds the visible rows, called ONLY on
+add/remove/primary-swap — never from a value-change listener). Verified with
+a real headless-browser session against QA1's own data (not a unit test,
+which cannot catch a focus bug): typed a full number into all four fields in
+one uninterrupted keystroke sequence with no intervening click and confirmed
+the whole number landed and focus never dropped; typed a number, moved the
+caret to the middle via keyboard navigation, typed one more digit, and
+confirmed it inserted in the middle rather than the value resetting or the
+digit landing at the end (the tell for a node-replacement regression); and
+confirmed the balance-mismatch banner still updates live throughout — the
+reconciliation feature itself was never removed, only decoupled from the row
+DOM.
+
+**Edit screen checked, not affected**: `dr2mp_edit_price`/`dr2mp_add_price`
+carry zero `'input'` listeners at all — they are plain fields set once when
+"Edit price" is clicked, submitted via a real `<form>` POST. There is no live
+total-balance reconciliation on the edit screen (properties are added one at
+a time via a real POST), so this bug class cannot occur there; confirmed by
+reading, and a live-browser spot check was attempted but blocked by
+unrelated pre-existing data corruption on QA1 (deal #178, the only
+multi-property deal that exists there, has BOTH its linked properties
+flagged `is_primary=1` — the "Edit price" button only renders for a
+non-primary row, so neither row's editor is reachable at all; reported here,
+not fixed, out of scope for this fix).
+
+**The bug CLASS, for the next person who adds a live-calculating field**: if
+a field's value change needs to update something displayed elsewhere on the
+page, the function it calls must update VALUES/TEXT CONTENT, never rebuild
+the DOM subtree the field itself lives inside — not `innerHTML = ''` +
+rebuild, not replacing a wrapping element, not anything that would destroy
+and recreate the input node currently holding focus. If the visible list
+genuinely needs to be rebuilt (a row added or removed), that rebuild must be
+triggered only by the add/remove action itself, never chained onto a
+per-keystroke value-change listener.
+
 ## 9. Scoping
 
 Every mutation above operates through `Deal`/`Property` models that already

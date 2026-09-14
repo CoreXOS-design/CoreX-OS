@@ -1037,6 +1037,140 @@ class DealRegisterController extends Controller
     }
 
     /**
+     * "Add another property" eligibility, Johan 2026-09-16 — his own
+     * finding, live: "add another property should only display the other
+     * properties on this seller. why offer a search, it can be a plain
+     * dropdown." Refined by him one step further before any code was
+     * written: "properties on this seller" and "properties this deal will
+     * accept" are not the same set — DealPropertyOwnerGate compares exact
+     * OWNER SETS, not a single seller, so a seller who owns one property
+     * solely and another jointly has two DIFFERENT owner sets, and a
+     * dropdown scoped to "linked to this seller" would still offer
+     * something the gate then refuses — the exact defect in a new shape.
+     * Reuses DealPropertyOwnerGate's own sellerSideContactIds()/
+     * ownerSetsMatch() verbatim, never a second, looser comparison
+     * invented for this endpoint.
+     *
+     * Johan's follow-up ruling, 2026-09-16, after being told how many real
+     * QA1 properties fall in exactly that gap (31 — sized on real data
+     * BEFORE this was built, per his own instruction not to decide it
+     * silently): "those properties must NOT be silently absent. An agent
+     * who knows their seller owns three houses, opens the dropdown and
+     * sees two, will conclude the system lost one." So a candidate sharing
+     * a seller but failing the owner-set match is still RETURNED, marked
+     * `eligible: false` with a plain-language `reason` — never the gate's
+     * own vocabulary — rather than dropped. G/R exclusivity remains a hard
+     * exclusion (see below) — a genuinely separate, still-open question,
+     * not decided the same way here.
+     *
+     * ONE shared endpoint for create AND edit (Johan: "same behaviour on
+     * create and on edit. One implementation, not two.") — the reference
+     * property is passed explicitly rather than resolved from a Deal,
+     * because create mode has no Deal yet; edit mode passes its own
+     * primary property_id the same way.
+     */
+    public function eligibleProperties(Request $request): JsonResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $reference = Property::find((int) $request->input('reference_property_id'));
+        if (! $reference) {
+            return response()->json(['properties' => []]);
+        }
+
+        $gate = app(\App\Services\Deal\DealPropertyOwnerGate::class);
+        $referenceOwnerIds = $gate->sellerSideContactIds($reference);
+        if (empty($referenceOwnerIds)) {
+            // No resolvable owner on the reference at all — nothing can
+            // ever match (assertHasKnownOwner()'s own precondition would
+            // refuse any candidate regardless of set comparison).
+            return response()->json(['properties' => []]);
+        }
+
+        $excludeIds = array_values(array_filter(array_map('intval', (array) $request->input('exclude', []))));
+        $excludeIds[] = $reference->id;
+
+        $showAll = $request->boolean('all');
+
+        // Cheap, necessary pre-filter: any candidate whose owner set
+        // exactly matches the reference's must share at least one contact
+        // with it. Narrows a whole-agency scan down to a small pool before
+        // the real (exact-set) comparison runs.
+        $candidateIds = DB::table('contact_property')
+            ->whereIn('contact_id', $referenceOwnerIds)
+            ->whereIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->whereNull('deleted_at')
+            ->whereNotIn('property_id', $excludeIds)
+            ->distinct()
+            ->pluck('property_id');
+
+        if ($candidateIds->isEmpty()) {
+            return response()->json(['properties' => []]);
+        }
+
+        $candidates = Property::query()
+            ->visibleTo($request->user())
+            ->whereIn('id', $candidateIds)
+            ->when(! $showAll, fn ($q) => $q->onMarket())
+            ->with('agent')
+            ->get();
+
+        // Same G/R exclusivity check addProperty() already runs (only ever
+        // relevant when the deal itself is already Granted/Registered) —
+        // reused verbatim, never a second set of status rules for this
+        // dropdown. $dealId is null on create (no Deal exists yet, so
+        // nothing to exclude the candidate FROM). Kept as a hard exclusion
+        // (never shown, not even disabled) — Johan's ruling on the
+        // owner-set gap below does not extend here automatically; whether
+        // this deserves the same disabled-with-reason treatment is a
+        // separate, explicitly open question (see the conductor's own
+        // brief and this endpoint's class-level docblock).
+        $acceptedStatus = (string) $request->input('accepted_status', 'P');
+        $dealId = $request->filled('deal_id') ? (int) $request->input('deal_id') : null;
+        $statusService = in_array($acceptedStatus, ['G', 'R'], true)
+            ? app(\App\Services\Deal\DealPropertyStatusService::class)
+            : null;
+        $candidates = $candidates
+            ->filter(fn (Property $p) => $statusService === null || $statusService->committedDealOnProperty($p->id, $dealId) === null)
+            ->values();
+
+        // Johan's ruling, 2026-09-16: "31 IS MEANINGFUL... those properties
+        // must NOT be silently absent. An agent who knows their seller
+        // owns three houses, opens the dropdown and sees two, will
+        // conclude the system lost one." So an owner-set MISMATCH is no
+        // longer filtered out — it's returned, marked ineligible, with a
+        // plain-language reason (never the gate's own vocabulary: "owner
+        // set" means nothing to a working agent). Sorted eligible-first so
+        // the real choices are never buried under the ones that can't be
+        // picked (his own explicit instruction).
+        $eligible = [];
+        $ineligible = [];
+        foreach ($candidates as $p) {
+            if ($gate->ownerSetsMatch($reference, $p)) {
+                $eligible[] = $p;
+            } else {
+                $ineligible[] = $p;
+            }
+        }
+
+        $toRow = fn (Property $p, bool $isEligible) => $p->toSearchResult([
+            // Enough to tell two of the same seller's properties apart
+            // without a search (Johan's own requirement) — same fields
+            // searchProperties() already surfaces for this reason.
+            'ref' => $p->property_number,
+            'price' => $p->listing_price ?? $p->price ?? null,
+            'eligible' => $isEligible,
+            'reason' => $isEligible ? null : "Can't be added — the owners on this property aren't the same as the owners on this deal.",
+        ]);
+
+        return response()->json([
+            'properties' => collect($eligible)->map(fn (Property $p) => $toRow($p, true))
+                ->concat(collect($ineligible)->map(fn (Property $p) => $toRow($p, false)))
+                ->values(),
+        ]);
+    }
+
+    /**
      * §2.3 — seller / buyer offered from the linked property. Returns the property's
      * contacts split by role so the capture screen can auto-fill the seller and
      * present a tick-list of linked buyers. Agency scope is structural (global scope).

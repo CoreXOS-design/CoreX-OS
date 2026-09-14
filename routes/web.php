@@ -827,6 +827,15 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // seller/buyer contacts + attorney supplier directory). Static paths declared
     // BEFORE the {deal} wildcards so they never shadow-capture.
     Route::get('/search/properties',            [\App\Http\Controllers\Dr2\DealRegisterController::class, 'searchProperties'])->middleware('permission:create_deals')->name('search.properties');
+    // "Add another property" eligibility, Johan 2026-09-16 — a plain
+    // dropdown of gate-eligible properties only, not a whole-book search.
+    // Same middleware convention as search.properties directly above
+    // (pre-existing note, not fixed here per anti-drift: this middleware
+    // key is stricter than the controller's own deals.create||deals.edit
+    // check, so a deals.edit-only user would 403 here before ever reaching
+    // that check — matched as-is for consistency, not introduced by this
+    // change).
+    Route::get('/search/eligible-properties',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'eligibleProperties'])->middleware('permission:create_deals')->name('search.eligible-properties');
     Route::get('/search/property-contacts/{property}', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'propertyContacts'])->middleware('permission:create_deals')->name('search.property-contacts');
     Route::get('/search/contacts',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactSearch'])->middleware('permission:create_deals')->name('search.contacts');
     Route::post('/contact/inline',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactInline'])->middleware('permission:create_deals')->name('contact.inline');
