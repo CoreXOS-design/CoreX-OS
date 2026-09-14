@@ -788,6 +788,16 @@ Same shape as Johan's standing rule against inventing problems from demo/import 
 
 ---
 
+## Standard −1r — The walk gate belongs at Staging, not at QA1 (2026-09-16, corrected by Johan)
+
+The conductor had been holding finished, tested work off QA1 until she had personally walked it in a browser first. Johan corrected her directly: **"why is saved parked. no one is using it. so get the work built."** He was right, and she said so herself: QA1 has one user, he isn't sitting on it, and nothing there is precious. A rule that belongs at Staging — nothing goes up without being verified first — had been applied one environment too early, and the result was finished work sitting motionless, including a fix that stops an agent losing typed work, waiting on a browser window nobody had free.
+
+**The rule, corrected: finished, tested work lands on QA1 as soon as it's ready — no one waits for a browser walk to land it there.** The walk happens AFTER it's live, on QA1 itself; if something's wrong, it gets fixed there, which is exactly what a dev environment is for. The walk gate moves to Staging, where it has always belonged — nothing goes to Staging without Johan's approval and without a real verification first, unchanged, not loosened at all. What still legitimately stops a landing on QA1, unchanged: a migration nobody has read, a real conflict between two lanes' work, tests that aren't green, or anything that touches a live/shared system. Those are correctness gates. A pre-landing browser walk on QA1 was ceremony wearing correctness's clothes.
+
+**The principle behind the correction, in the conductor's own words, worth carrying to the next gate someone proposes**: *"A verification gate in the wrong place is not caution, it is a bottleneck. The question to ask of any gate is what it protects."* Her gate was protecting a dev environment from a bug — which is the one thing a dev environment exists to absorb. Before adding or keeping any gate anywhere in this pipeline, name specifically what it protects and whether the environment it sits in front of is the environment that actually needs that protection. If the answer is "this environment is disposable/single-user/exists to catch exactly this," the gate belongs one step further down, not here.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
