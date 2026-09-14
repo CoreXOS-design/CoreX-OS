@@ -1792,27 +1792,39 @@
                 + '<label class="text-[11px]" style="color:var(--text-muted);">Commission <input type="number" step="0.01" min="0" class="input-base text-xs dr2cp-row-commission" style="width:110px;" value="' + esc(commission) + '"></label>'
                 + (isPrimary ? '' : '<button type="button" class="dr2cp-row-remove text-xs" style="color:#b91c1c;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;">Remove</button>')
                 + '</div>';
-            row.querySelector('.dr2cp-row-price').addEventListener('input', e => { onPrice(parseFloat(e.target.value) || 0); dr2cpRecompute(); });
-            row.querySelector('.dr2cp-row-commission').addEventListener('input', e => { onCommission(parseFloat(e.target.value) || 0); dr2cpRecompute(); });
+            row.querySelector('.dr2cp-row-price').addEventListener('input', e => { onPrice(parseFloat(e.target.value) || 0); dr2cpRecomputeSummary(); });
+            row.querySelector('.dr2cp-row-commission').addEventListener('input', e => { onCommission(parseFloat(e.target.value) || 0); dr2cpRecomputeSummary(); });
             const removeBtn = row.querySelector('.dr2cp-row-remove');
-            if (removeBtn) removeBtn.addEventListener('click', () => { onRemove(); dr2cpRecompute(); });
+            if (removeBtn) removeBtn.addEventListener('click', () => onRemove());
             return row;
         }
 
-        function dr2cpRecompute() {
-            // Exposed on window so loadPropContacts() (a different scope,
-            // fired on primary-property change) can exclude these from a
-            // dropdown refresh without depending on cross-block function
-            // hoisting.
+        // AT-Focus-Fix, Johan 2026-09-16, verbatim: "as soon as you enter any
+        // digit of a number it loses focus" on all four price/commission
+        // fields. Root cause: the old dr2cpRecompute() did two jobs in one —
+        // updating the balance summary (needs to run on every keystroke) AND
+        // rebuilding dr2cpList's row markup from scratch via innerHTML = ''
+        // (needs to run ONLY when a property is added/removed). Because the
+        // per-row price/commission <input> 'input' listener called that same
+        // function, every keystroke destroyed the very DOM node the user was
+        // typing into and replaced it with a new one carrying the updated
+        // value — the number landed correctly, but focus was lost with the
+        // old node, so the browser dropped back to nothing and the next
+        // keystroke needed a click first. Split in two: dr2cpRecomputeSummary()
+        // never touches dr2cpList and is what every keystroke calls;
+        // dr2cpRenderRows() rebuilds the visible rows and is called ONLY on
+        // add/remove/primary-swap, never from a value-change listener. RULE
+        // FOR THE NEXT PERSON: any field that recalculates live as the user
+        // types must update a value/display, never rebuild the DOM subtree
+        // that field itself lives in — see .ai/specs/dr2-multi-property.md.
+        function dr2cpRecomputeSummary() {
             window.dr2cpAdditionalIds = dr2cpAdditional.map(p => p.propertyId);
             const multi = dr2cpAdditional.length > 0;
             dr2cpCount.textContent = String(1 + dr2cpAdditional.length);
             dr2cpSingleHint.style.display = multi ? 'none' : '';
             dr2cpBanner.style.display = multi ? '' : 'none';
-            dr2cpList.innerHTML = '';
-            dr2cpHiddenInputs.innerHTML = '';
 
-            if (!multi) { return; }
+            if (!multi) { dr2cpHiddenInputs.innerHTML = ''; return; }
 
             const b = dr2cpBalanced();
             dr2cpSumPrice.textContent = fmt2(b.sumPrice);
@@ -1822,22 +1834,8 @@
                 ? '✓ Balances — matches the total above.'
                 : ('✗ Does not balance — price off by R ' + fmt2(Math.abs(b.priceDiff)) + (Math.abs(b.commDiff) >= 0.01 ? ', commission off by R ' + fmt2(Math.abs(b.commDiff)) : '') + '. Adjust the property prices or the total above before saving.');
 
-            dr2cpList.appendChild(dr2cpRenderRow(
-                pAddr.value || ('Property #' + pId.value), true, dr2cpPrimary.price, dr2cpPrimary.commission,
-                v => { dr2cpPrimary.price = v; }, v => { dr2cpPrimary.commission = v; }, () => {},
-            ));
+            dr2cpHiddenInputs.innerHTML = '';
             dr2cpAdditional.forEach((p, idx) => {
-                dr2cpList.appendChild(dr2cpRenderRow(
-                    p.address, false, p.price, p.commission,
-                    v => { p.price = v; }, v => { p.commission = v; },
-                    () => {
-                        dr2cpAdditional.splice(idx, 1);
-                        if (dr2cpAdditional.length === 0) { dr2cpPrimary = null; }
-                        dr2cpRecompute();
-                        dr2cpRefreshPicker();
-                    },
-                ));
-
                 ['property_id', 'allocated_price', 'allocated_commission'].forEach(field => {
                     const input = document.createElement('input');
                     input.type = 'hidden';
@@ -1860,6 +1858,35 @@
             });
         }
 
+        // Rebuilds the VISIBLE rows — the DOM subtree the user's cursor can
+        // actually be inside. Only ever called on a structural change (a
+        // property added or removed, or the primary property itself
+        // changing) — never from a price/commission keystroke. See
+        // dr2cpRecomputeSummary()'s own docblock above for why that split
+        // exists.
+        function dr2cpRenderRows() {
+            dr2cpList.innerHTML = '';
+            dr2cpRecomputeSummary();
+            if (!dr2cpAdditional.length) { return; }
+
+            dr2cpList.appendChild(dr2cpRenderRow(
+                pAddr.value || ('Property #' + pId.value), true, dr2cpPrimary.price, dr2cpPrimary.commission,
+                v => { dr2cpPrimary.price = v; }, v => { dr2cpPrimary.commission = v; }, () => {},
+            ));
+            dr2cpAdditional.forEach((p, idx) => {
+                dr2cpList.appendChild(dr2cpRenderRow(
+                    p.address, false, p.price, p.commission,
+                    v => { p.price = v; }, v => { p.commission = v; },
+                    () => {
+                        dr2cpAdditional.splice(idx, 1);
+                        if (dr2cpAdditional.length === 0) { dr2cpPrimary = null; }
+                        dr2cpRenderRows();
+                        dr2cpRefreshPicker();
+                    },
+                ));
+            });
+        }
+
         function dr2cpAddConfirmed(id, address, price, commission) {
             if (dr2cpAdditional.length === 0) {
                 // First addition — freeze whatever's currently in the main
@@ -1870,7 +1897,7 @@
                 dr2cpPrimary = { price: parseFloat(propValueEl.value) || 0, commission: parseFloat(totalCommEl.value) || 0 };
             }
             dr2cpAdditional.push({ propertyId: id, address, price, commission });
-            dr2cpRecompute();
+            dr2cpRenderRows();
             dr2cpRefreshPicker();
         }
 
@@ -1911,9 +1938,11 @@
         dr2cpRefreshPicker();
 
         // Live balance recompute as the TOTAL fields themselves are edited —
-        // not just when a property row changes.
-        propValueEl.addEventListener('input', () => { if (dr2cpAdditional.length) dr2cpRecompute(); });
-        totalCommEl.addEventListener('input', () => { if (dr2cpAdditional.length) dr2cpRecompute(); });
+        // not just when a property row changes. Summary-only: these fields
+        // aren't rows in dr2cpList, but the same rule applies — never call
+        // dr2cpRenderRows() from a per-keystroke listener.
+        propValueEl.addEventListener('input', () => { if (dr2cpAdditional.length) dr2cpRecomputeSummary(); });
+        totalCommEl.addEventListener('input', () => { if (dr2cpAdditional.length) dr2cpRecomputeSummary(); });
 
         // Block the ONE save if it doesn't balance — client-side backstop only;
         // store() is the real, unconditional enforcement (see its own docblock).
