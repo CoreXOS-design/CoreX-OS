@@ -11,6 +11,7 @@ use App\Services\CommandCenter\NotificationDispatcher;
 use App\Services\Prospecting\ProspectingClaimService;
 use App\Services\Prospecting\ProspectingConfigurationService;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -35,11 +36,22 @@ class StaleClaimController extends Controller
         $warnDays = (int) $thresholds->claim_warn_days;
         $releaseDays = (int) $thresholds->claim_release_days;
 
+        // Filters (spec .ai/specs/mic-stale-review-list.md §3) — all optional, '' = no filter.
+        // state: '' = warned + stale together (the default oversight view), 'warned' = at the
+        // warn line but not yet past release, 'stale' = past release (ready for move-or-keep).
+        $state = (string) $request->query('state', '');
+        $filters = [
+            'q'        => trim((string) $request->query('q', '')),
+            'agent_id' => trim((string) $request->query('agent_id', '')),
+            'state'    => in_array($state, ['warned', 'stale'], true) ? $state : '',
+        ];
+
         // Active, unworked claims at or past the WARN line — the BM sees warned + fully-stale together.
         $rows = ProspectingClaim::query()
             ->where('agency_id', $agencyId)
             ->where('is_active', true)
             ->whereNull('released_at')
+            ->when($filters['agent_id'] !== '', fn ($q) => $q->where('user_id', (int) $filters['agent_id']))
             ->get()
             ->filter(fn ($c) => $c->staleAgeDays() >= $warnDays)
             ->sortByDesc(fn ($c) => $c->staleAgeDays())
@@ -56,13 +68,38 @@ class StaleClaimController extends Controller
             'address'    => (string) ($addresses[$c->prospecting_listing_id] ?? '') ?: 'Property #' . ($c->property_id ?? $c->prospecting_listing_id),
             'days'       => $c->staleAgeDays(),
             'is_stale'   => $c->isStaleForReview($releaseDays),  // past release line = ready for move-or-keep
-        ]);
+        ])->filter(function (array $it) use ($filters): bool {
+            if ($filters['state'] === 'stale' && !$it['is_stale']) {
+                return false;
+            }
+            if ($filters['state'] === 'warned' && $it['is_stale']) {
+                return false;
+            }
+            if ($filters['q'] !== '' && !str_contains(mb_strtolower($it['address']), mb_strtolower($filters['q']))) {
+                return false;
+            }
+            return true;
+        })->values();
+
+        // Staleness is a per-claim PHP computation (last_updated_at vs now), so the page is cut
+        // from the filtered collection, not in SQL. Stale pools are small; this stays cheap.
+        // Query string is carried on every page link so a filtered page 2 stays filtered.
+        $perPage = 25;
+        $page = LengthAwarePaginator::resolveCurrentPage();
+        $items = new LengthAwarePaginator(
+            $items->forPage($page, $perPage)->values(),
+            $items->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()],
+        );
 
         // Agents in the agency to reassign TO.
         $agents = User::where('agency_id', $agencyId)->orderBy('name')->get(['id', 'name']);
 
         return view('corex.market-intelligence.stale-review', [
             'items'       => $items,
+            'filters'     => $filters,
             'agents'      => $agents,
             'warnDays'    => $warnDays,
             'releaseDays' => $releaseDays,
