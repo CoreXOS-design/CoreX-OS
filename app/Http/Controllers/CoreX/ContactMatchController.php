@@ -355,12 +355,28 @@ class ContactMatchController extends Controller
             ->groupBy('contact_id')
             ->map(fn ($leads) => $leads->pluck('listing')->filter()->unique('id')->values());
 
-        $hasWorkingWindowSetting = \Schema::hasTable('core_match_settings') && \Schema::hasColumn('core_match_settings', 'working_window_days');
+        $hasWorkingWindowSetting = \Schema::hasColumn('agency_contact_settings', 'core_matches_working_window_days');
         $workingWindowDays = null;
         if ($hasWorkingWindowSetting) {
-            $workingWindowDays = \DB::table('core_match_settings')
+            $workingWindowDays = \DB::table('agency_contact_settings')
                 ->where('agency_id', $user->effectiveAgencyId())
-                ->value('working_window_days');
+                ->value('core_matches_working_window_days');
+        }
+
+        // A REMAINING count, not a static label — the clock starts when the
+        // lead was first received (the fact Task 2 asked for), falling back
+        // to the match's own created_at when there's no portal lead behind
+        // it. Attached directly onto each match instance so the view's
+        // existing per-match loop can read it with no extra plumbing.
+        if ($hasWorkingWindowSetting && $workingWindowDays) {
+            foreach ($allMatches as $match) {
+                $firstReceived = $firstReceivedByContact->get($match->contact_id);
+                $clockStart = $firstReceived?->received_at
+                    ? \Carbon\Carbon::parse($firstReceived->received_at)
+                    : $match->created_at;
+                $elapsedDays = (int) floor($clockStart->diffInDays(now()));
+                $match->workingWindowRemainingDays = $workingWindowDays - $elapsedDays;
+            }
         }
 
         $rows = collect($contacts->items())->map(fn ($c) => [

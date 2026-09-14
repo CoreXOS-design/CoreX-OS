@@ -296,12 +296,26 @@
                     </span>
                     @endif
 
-                    {{-- Working window — cc4's clock, once it exists. --}}
-                    @if($hasWorkingWindowSetting && $workingWindowDays && $match->status === 'active')
-                    <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
-                          style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
-                        {{ $workingWindowDays }}d window
-                    </span>
+                    {{-- Working window remaining — cc4's clock, once it exists.
+                         A REMAINING count, not the static setting value: the
+                         clock started when the lead was first received (or
+                         the match was created, if there's no portal lead
+                         behind it). Lapsed renders as a distinct warning
+                         state, never a negative number. --}}
+                    @if($hasWorkingWindowSetting && $workingWindowDays && $match->status === 'active' && isset($match->workingWindowRemainingDays))
+                        @if($match->workingWindowRemainingDays > 0)
+                        <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
+                              style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                              title="{{ $workingWindowDays }}-day working window">
+                            {{ $match->workingWindowRemainingDays }}d left
+                        </span>
+                        @else
+                        <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
+                              style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 22%, transparent);"
+                              title="{{ $workingWindowDays }}-day working window">
+                            Window lapsed
+                        </span>
+                        @endif
                     @endif
 
                     {{-- Criteria --}}
