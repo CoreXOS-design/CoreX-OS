@@ -233,7 +233,7 @@
 
                 <div id="dr2mp_list" class="flex flex-col gap-1.5 mb-2">
                     @forelse($dr2ActiveProps as $p)
-                        <div class="dr2mp-row" data-address="{{ strtolower($p->address ?? '') }}" data-price="{{ (float) ($p->pivot->allocated_price ?? 0) }}" data-added="{{ optional($p->pivot->created_at)->timestamp ?? 0 }}"
+                        <div class="dr2mp-row" data-property-id="{{ $p->id }}" data-address="{{ strtolower($p->address ?? '') }}" data-price="{{ (float) ($p->pivot->allocated_price ?? 0) }}" data-added="{{ optional($p->pivot->created_at)->timestamp ?? 0 }}"
                              style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:8px;">
                             <div style="min-width:0;">
                                 <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;">
@@ -299,17 +299,20 @@
                 </div>
                 @endif
 
-                {{-- Add another property. Not a <form> here; its inputs/button are
-                     associated (form="dr2mp_add_form_real") to the real, standalone
-                     form declared outside the main form below. --}}
+                {{-- Add another property, Johan 2026-09-16 — "why offer a
+                     search, it can be a plain dropdown." Not a <form> here;
+                     its inputs/button are associated
+                     (form="dr2mp_add_form_real") to the real, standalone
+                     form declared outside the main form below. Populated by
+                     the SAME loadEligibleDropdown() JS both this screen and
+                     create mode call — one implementation, not two. --}}
                 <div style="border-top:1px dashed var(--border);padding-top:.6rem;">
                     <label class="text-xs font-semibold block mb-1" style="color:var(--text-secondary);">Add another property</label>
-                    <div style="position:relative;">
-                        <input type="text" id="dr2mp_search" autocomplete="off" placeholder="Search a property by address, reference, complex…" class="input-base w-full text-xs">
-                        <div id="dr2mp_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:14rem;overflow:auto;display:none;"></div>
-                    </div>
+                    <select id="dr2mp_picker" name="property_id" form="dr2mp_add_form_real" class="input-base w-full text-xs">
+                        <option value="">Loading…</option>
+                    </select>
+                    <div id="dr2mp_picker_empty" class="text-xs mt-1" style="color:var(--text-faint);display:none;">No other properties share this deal's exact owner set — nothing eligible to add.</div>
                     <div id="dr2mp_add_form" style="display:none;margin-top:.5rem;">
-                        <input type="hidden" name="property_id" id="dr2mp_add_property_id" form="dr2mp_add_form_real">
                         <div class="text-xs mb-1" id="dr2mp_add_label" style="color:var(--text-muted);"></div>
                         <div style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;">
                             <div>
@@ -376,10 +379,10 @@
 
                 <div style="border-top:1px dashed var(--border);padding-top:.6rem;">
                     <label class="text-xs font-semibold block mb-1" style="color:var(--text-secondary);">Add another property</label>
-                    <div style="position:relative;">
-                        <input type="text" id="dr2cp_search" autocomplete="off" placeholder="Search a property by address, reference, complex…" class="input-base w-full text-xs">
-                        <div id="dr2cp_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:14rem;overflow:auto;display:none;"></div>
-                    </div>
+                    <select id="dr2cp_picker" class="input-base w-full text-xs">
+                        <option value="">Loading…</option>
+                    </select>
+                    <div id="dr2cp_picker_empty" class="text-xs mt-1" style="color:var(--text-faint);display:none;">No other properties share this deal's exact owner set — nothing eligible to add.</div>
                     <div id="dr2cp_add_form" style="display:none;margin-top:.5rem;">
                         <div class="text-xs mb-1" id="dr2cp_add_label" style="color:var(--text-muted);"></div>
                         <div style="display:flex;gap:.6rem;align-items:end;flex-wrap:wrap;">
@@ -971,10 +974,71 @@
         attorneySearch: @json(route('deals-dr2.attorney.search')),
         attorneyInline: @json(route('deals-dr2.attorney.inline')),
         propertiesUpdatePrice: @json($deal->exists ? route('deals-dr2.properties.updatePrice', ['deal' => $deal->id, 'property' => '__ID__']) : null),
+        eligibleProperties: @json(route('deals-dr2.search.eligible-properties')),
     };
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
     const money = v => { const n = Number(v); return isNaN(n) ? '' : n.toLocaleString('en-ZA'); };
     const esc = s => String(s == null ? '' : s).replace(/"/g, '&quot;');
+
+    /**
+     * "Add another property" eligibility, Johan 2026-09-16, verbatim: "add
+     * another property should only display the other properties on this
+     * seller. why offer a search, it can be a plain dropdown." Refined by
+     * him before any code was written: the set that matters is whichever
+     * properties will actually PASS DealPropertyOwnerGate's exact-owner-set
+     * check, not merely "linked to this seller" — a seller who owns one
+     * property solely and another jointly has two DIFFERENT owner sets.
+     * ONE shared function for create AND edit (Johan: "same behaviour on
+     * create and on edit. One implementation, not two.") — populates a
+     * plain <select>, never a search box, and says so in plain words when
+     * nothing is eligible rather than presenting an empty dropdown
+     * (Johan: "the control must say so in plain words... should never see
+     * a control that looks broken when it is simply empty").
+     */
+    function loadEligibleDropdown(selectEl, emptyEl, referencePropertyId, excludeIds, extraParams) {
+        if (!referencePropertyId) {
+            selectEl.style.display = 'none';
+            emptyEl.textContent = 'Pick the primary property above first.';
+            emptyEl.style.display = '';
+            return;
+        }
+        selectEl.innerHTML = '<option value="">Loading…</option>';
+        selectEl.style.display = '';
+        emptyEl.style.display = 'none';
+        const params = new URLSearchParams(extraParams || {});
+        params.set('reference_property_id', referencePropertyId);
+        (excludeIds || []).forEach(id => params.append('exclude[]', id));
+        fetch(R.eligibleProperties + '?' + params.toString(), { headers: { Accept: 'application/json' } })
+            .then(r => r.ok ? r.json() : { properties: [] })
+            .then(data => {
+                const props = data.properties || [];
+                if (!props.length) {
+                    selectEl.style.display = 'none';
+                    emptyEl.textContent = "No other properties share this deal's exact owner set — nothing eligible to add.";
+                    emptyEl.style.display = '';
+                    return;
+                }
+                selectEl.style.display = '';
+                emptyEl.style.display = 'none';
+                selectEl.innerHTML = '';
+                selectEl.appendChild(new Option('Choose a property…', ''));
+                props.forEach(p => {
+                    // Enough to tell two of the same seller's properties
+                    // apart without a search — address plus the reference
+                    // number when there is one.
+                    const label = p.label + (p.ref ? ' (Ref ' + p.ref + ')' : '');
+                    const opt = new Option(label, p.id);
+                    opt.dataset.address = p.label;
+                    opt.dataset.price = p.price ?? '';
+                    selectEl.appendChild(opt);
+                });
+            })
+            .catch(() => {
+                selectEl.style.display = 'none';
+                emptyEl.textContent = 'Could not load eligible properties — reload the page and try again.';
+                emptyEl.style.display = '';
+            });
+    }
 
     // AT-334 — mode + the deal's saved parties (edit), so the picker seeds tokens/hidden ids
     // from deal_contacts and a create-deal auto-tokenizes the property's seller.
@@ -982,6 +1046,7 @@
         mode: @json($mode ?? 'create'),
         sellerParties: @json($sellerParties ?? []),
         buyerParties: @json($buyerParties ?? []),
+        dealId: @json($deal->exists ? $deal->id : null),
     };
 
     // ---------- Enhancement 1: property picker (splitter-parity rich rows) ----------
@@ -1275,13 +1340,26 @@
             .then(r => r.ok ? r.json() : { sellers: [], buyers: [] })
             .then(data => {
                 const sellers = data.sellers || [], buyers = data.buyers || [];
-                // Create-time multi-property (Johan, 2026-09-14/16) — the baseline
-                // seller-side set every additional property's own live check
-                // compares against. Same exact-set-equality rule as
-                // DealPropertyOwnerGate; this is a CLIENT-SIDE convenience only
-                // (immediate feedback), never the enforcement — store() re-runs
-                // the real gate server-side per property regardless.
-                DR2.primarySellerIds = sellers.map(s => s.id).sort((a, b) => a - b);
+                // "Add another property" eligibility, Johan 2026-09-16 —
+                // the primary property just changed (or loaded), so
+                // whichever properties are gate-eligible against it changed
+                // too. Refreshes whichever mode's dropdown exists on this
+                // page directly (rather than calling into the create-mode
+                // block's own scoped refresh function, which isn't reliably
+                // reachable from here across block scopes) — covers both
+                // the initial page load AND a mid-session primary change.
+                const dr2AcceptedStatusElNow = document.querySelector('[name="accepted_status"]');
+                const dr2PickerAcceptedStatus = dr2AcceptedStatusElNow?.value || 'P';
+                const dr2cpPickerEl = document.getElementById('dr2cp_picker');
+                if (dr2cpPickerEl) {
+                    const dr2cpExcludeNow = (window.dr2cpAdditionalIds || []);
+                    loadEligibleDropdown(dr2cpPickerEl, document.getElementById('dr2cp_picker_empty'), pid, dr2cpExcludeNow, { accepted_status: dr2PickerAcceptedStatus });
+                }
+                const dr2mpPickerEl = document.getElementById('dr2mp_picker');
+                if (dr2mpPickerEl) {
+                    const dr2mpActiveIdsNow = Array.from(document.querySelectorAll('.dr2mp-row[data-property-id]')).map(el => el.dataset.propertyId);
+                    loadEligibleDropdown(dr2mpPickerEl, document.getElementById('dr2mp_picker_empty'), pid, dr2mpActiveIdsNow, { accepted_status: dr2PickerAcceptedStatus, deal_id: DR2.dealId || '' });
+                }
                 // Seller: auto-fill the name when empty (never clobber a typed name).
                 const sName = document.getElementById('dr2_seller_name');
                 if (sellers.length && !sName.value.trim()) sName.value = sellers.map(s => s.name).filter(Boolean).join(', ');
@@ -1602,54 +1680,32 @@
             });
         });
 
-        // Add another property — same search idiom as the primary picker above,
-        // against the same endpoint, in its own results box.
-        const dr2mpSearch = document.getElementById('dr2mp_search');
-        const dr2mpResults = document.getElementById('dr2mp_results');
+        // Add another property, Johan 2026-09-16 — a plain dropdown of
+        // gate-eligible properties only, populated by the SAME
+        // loadEligibleDropdown() create mode uses below (one
+        // implementation, not two). Page reloads on every real add/remove
+        // here (edit mode's forms are real page-POSTs, not AJAX), so this
+        // only ever needs to load once.
+        const dr2mpPicker = document.getElementById('dr2mp_picker');
+        const dr2mpPickerEmpty = document.getElementById('dr2mp_picker_empty');
         const dr2mpAddForm = document.getElementById('dr2mp_add_form');
-        const dr2mpAddPropertyId = document.getElementById('dr2mp_add_property_id');
         const dr2mpAddPrice = document.getElementById('dr2mp_add_price');
         const dr2mpAddCommission = document.getElementById('dr2mp_add_commission');
         const dr2mpAddLabel = document.getElementById('dr2mp_add_label');
-        const closeDr2mp = () => { dr2mpResults.style.display = 'none'; dr2mpResults.innerHTML = ''; };
-        const runDr2mp = debounce(() => {
-            const q = dr2mpSearch.value.trim();
-            if (q.length < 2) { closeDr2mp(); return; }
-            fetch(R.properties + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
-                .then(r => r.ok ? r.json() : [])
-                .then(rows => {
-                    if (!Array.isArray(rows) || !rows.length) {
-                        dr2mpResults.innerHTML = '<div style="padding:.6rem .8rem;color:#9ca3af;font-size:.85rem;">No match.</div>';
-                        dr2mpResults.style.display = 'block'; return;
-                    }
-                    dr2mpResults.innerHTML = rows.map(row => {
-                        const addr = row.address || ('Property #' + row.id);
-                        const price = (row.price != null && row.price !== '') ? 'R ' + money(row.price) : '';
-                        return '<div class="dr2mp-arow" role="button" tabindex="0" data-id="' + row.id + '" data-address="' + esc(addr) + '" data-price="' + (row.price ?? '') + '" data-comm="' + (row.commission_percent ?? '') + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
-                            + '<div style="font-weight:600;color:#0b2a4a;">' + addr + '</div>'
-                            + (price ? '<div style="font-size:.78rem;color:#6b7280;">' + price + '</div>' : '') + '</div>';
-                    }).join('');
-                    dr2mpResults.style.display = 'block';
-                    dr2mpResults.querySelectorAll('.dr2mp-arow').forEach(el => {
-                        el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
-                        el.addEventListener('mouseout', () => el.style.background = '#fff');
-                        el.addEventListener('click', () => {
-                            dr2mpAddPropertyId.value = el.dataset.id;
-                            dr2mpAddLabel.textContent = 'Adding ' + el.dataset.address;
-                            if (el.dataset.price) dr2mpAddPrice.value = Number(el.dataset.price);
-                            dr2mpSearch.value = el.dataset.address;
-                            dr2mpAddForm.style.display = '';
-                            closeDr2mp();
-                        });
-                    });
-                }).catch(closeDr2mp);
-        }, 220);
-        dr2mpSearch.addEventListener('input', runDr2mp);
-        dr2mpSearch.addEventListener('focus', runDr2mp);
-        document.addEventListener('click', e => { if (!e.target.closest('#dr2mp_search') && !e.target.closest('#dr2mp_results')) closeDr2mp(); });
+        const dr2mpActiveIds = Array.from(dr2mpRoot.querySelectorAll('.dr2mp-row[data-property-id]')).map(el => el.dataset.propertyId);
+        const dr2AcceptedStatusEl = document.querySelector('[name="accepted_status"]');
+        loadEligibleDropdown(dr2mpPicker, dr2mpPickerEmpty, pId.value, dr2mpActiveIds, { accepted_status: dr2AcceptedStatusEl?.value || 'P', deal_id: DR2.dealId || '' });
+        dr2mpPicker.addEventListener('change', () => {
+            const opt = dr2mpPicker.selectedOptions[0];
+            if (!opt || !opt.value) { dr2mpAddForm.style.display = 'none'; return; }
+            dr2mpAddLabel.textContent = 'Adding ' + (opt.dataset.address || opt.textContent);
+            dr2mpAddPrice.value = opt.dataset.price ? Number(opt.dataset.price) : '';
+            dr2mpAddCommission.value = '';
+            dr2mpAddForm.style.display = '';
+        });
         const dr2mpAddCancel = document.getElementById('dr2mp_add_cancel');
         if (dr2mpAddCancel) dr2mpAddCancel.addEventListener('click', () => {
-            dr2mpAddForm.style.display = 'none'; dr2mpAddPropertyId.value = ''; dr2mpSearch.value = '';
+            dr2mpAddForm.style.display = 'none'; dr2mpPicker.value = '';
             dr2mpAddPrice.value = ''; dr2mpAddCommission.value = '';
         });
     }
@@ -1673,8 +1729,8 @@
         const dr2cpBalanceStatus = document.getElementById('dr2cp_balance_status');
         const dr2cpOwnerError = document.getElementById('dr2cp_owner_error');
         const dr2cpHiddenInputs = document.getElementById('dr2cp_hidden_inputs');
-        const dr2cpSearch = document.getElementById('dr2cp_search');
-        const dr2cpResults = document.getElementById('dr2cp_results');
+        const dr2cpPicker = document.getElementById('dr2cp_picker');
+        const dr2cpPickerEmpty = document.getElementById('dr2cp_picker_empty');
         const dr2cpAddForm = document.getElementById('dr2cp_add_form');
         const dr2cpAddPrice = document.getElementById('dr2cp_add_price');
         const dr2cpAddCommission = document.getElementById('dr2cp_add_commission');
@@ -1716,6 +1772,11 @@
         }
 
         function dr2cpRecompute() {
+            // Exposed on window so loadPropContacts() (a different scope,
+            // fired on primary-property change) can exclude these from a
+            // dropdown refresh without depending on cross-block function
+            // hoisting.
+            window.dr2cpAdditionalIds = dr2cpAdditional.map(p => p.propertyId);
             const multi = dr2cpAdditional.length > 0;
             dr2cpCount.textContent = String(1 + dr2cpAdditional.length);
             dr2cpSingleHint.style.display = multi ? 'none' : '';
@@ -1745,6 +1806,7 @@
                         dr2cpAdditional.splice(idx, 1);
                         if (dr2cpAdditional.length === 0) { dr2cpPrimary = null; }
                         dr2cpRecompute();
+                        dr2cpRefreshPicker();
                     },
                 ));
 
@@ -1781,83 +1843,44 @@
             }
             dr2cpAdditional.push({ propertyId: id, address, price, commission });
             dr2cpRecompute();
+            dr2cpRefreshPicker();
         }
 
-        // Live same-owner check — Johan's exact-set-equality rule
-        // (DealPropertyOwnerGate), reusing the SAME endpoint the primary
-        // picker already calls (R.propertyContacts) — no new endpoint. This
-        // is a convenience only: store() re-runs the real gate server-side
-        // per property regardless, never trusting this result.
-        function dr2cpCheckOwnerThenAdd(id, address, price, commission) {
-            dr2cpShowOwnerError(null);
-            const baseline = DR2.primarySellerIds || [];
-            fetch(R.propertyContacts.replace('__ID__', id), { headers: { Accept: 'application/json' } })
-                .then(r => r.ok ? r.json() : { sellers: [] })
-                .then(data => {
-                    const candidate = (data.sellers || []).map(s => s.id).sort((a, b) => a - b);
-                    if (baseline.length && (candidate.length !== baseline.length || !candidate.every((v, i) => v === baseline[i]))) {
-                        dr2cpShowOwnerError("Can't add " + address + " to this deal — its owner(s) don't exactly match the owner(s) already on this deal. A deal can only cover properties that share the exact same owners. This property needs its own, separate deal.");
-                        return;
-                    }
-                    dr2cpAddConfirmed(id, address, price, commission);
-                })
-                // A failed check must never silently block a legitimate add — the
-                // server re-checks unconditionally regardless of this call's outcome.
-                .catch(() => dr2cpAddConfirmed(id, address, price, commission));
+        // "Add another property," Johan 2026-09-16 — a plain dropdown of
+        // gate-eligible properties, populated by the SAME
+        // loadEligibleDropdown() edit mode uses above. The dropdown's own
+        // server-side filtering (DealPropertyOwnerGate::ownerSetsMatch(),
+        // exact-set equality) IS the eligibility check — nothing offered
+        // here can ever fail the gate at save time, so there is no
+        // separate "pick then get refused" step to build; picking an
+        // option and confirming price/commission is the whole flow.
+        function dr2cpRefreshPicker() {
+            const excludeIds = dr2cpAdditional.map(p => p.propertyId);
+            const dr2AcceptedStatusEl = document.querySelector('[name="accepted_status"]');
+            loadEligibleDropdown(dr2cpPicker, dr2cpPickerEmpty, pId.value, excludeIds, { accepted_status: dr2AcceptedStatusEl?.value || 'P' });
         }
-
-        const closeDr2cp = () => { dr2cpResults.style.display = 'none'; dr2cpResults.innerHTML = ''; };
-        const runDr2cp = debounce(() => {
-            const q = dr2cpSearch.value.trim();
-            if (q.length < 2) { closeDr2cp(); return; }
-            fetch(R.properties + '?q=' + encodeURIComponent(q), { headers: { Accept: 'application/json' } })
-                .then(r => r.ok ? r.json() : [])
-                .then(rows => {
-                    if (!Array.isArray(rows) || !rows.length) {
-                        dr2cpResults.innerHTML = '<div style="padding:.6rem .8rem;color:#9ca3af;font-size:.85rem;">No match.</div>';
-                        dr2cpResults.style.display = 'block'; return;
-                    }
-                    dr2cpResults.innerHTML = rows.map(row => {
-                        const addr = row.address || ('Property #' + row.id);
-                        const price = (row.price != null && row.price !== '') ? 'R ' + money(row.price) : '';
-                        return '<div class="dr2cp-arow" role="button" tabindex="0" data-id="' + row.id + '" data-address="' + esc(addr) + '" data-price="' + (row.price ?? '') + '" style="padding:.6rem .8rem;cursor:pointer;border-bottom:1px solid #f3f4f6;">'
-                            + '<div style="font-weight:600;color:#0b2a4a;">' + addr + '</div>'
-                            + (price ? '<div style="font-size:.78rem;color:#6b7280;">' + price + '</div>' : '') + '</div>';
-                    }).join('');
-                    dr2cpResults.style.display = 'block';
-                    dr2cpResults.querySelectorAll('.dr2cp-arow').forEach(el => {
-                        el.addEventListener('mouseover', () => el.style.background = '#f9fafb');
-                        el.addEventListener('mouseout', () => el.style.background = '#fff');
-                        el.addEventListener('click', () => {
-                            dr2cpPendingPick = { id: el.dataset.id, address: el.dataset.address };
-                            dr2cpAddLabel.textContent = 'Adding ' + el.dataset.address;
-                            dr2cpAddPrice.value = el.dataset.price || '';
-                            dr2cpAddCommission.value = '';
-                            dr2cpSearch.value = el.dataset.address;
-                            dr2cpAddForm.style.display = '';
-                            closeDr2cp();
-                        });
-                    });
-                }).catch(closeDr2cp);
-        }, 220);
-        dr2cpSearch.addEventListener('input', runDr2cp);
-        dr2cpSearch.addEventListener('focus', runDr2cp);
-        document.addEventListener('click', e => { if (!e.target.closest('#dr2cp_search') && !e.target.closest('#dr2cp_results')) closeDr2cp(); });
+        dr2cpPicker.addEventListener('change', () => {
+            const opt = dr2cpPicker.selectedOptions[0];
+            if (!opt || !opt.value) { dr2cpAddForm.style.display = 'none'; return; }
+            dr2cpPendingPick = { id: opt.value, address: opt.dataset.address || opt.textContent };
+            dr2cpAddLabel.textContent = 'Adding ' + dr2cpPendingPick.address;
+            dr2cpAddPrice.value = opt.dataset.price ? Number(opt.dataset.price) : '';
+            dr2cpAddCommission.value = '';
+            dr2cpAddForm.style.display = '';
+        });
 
         document.getElementById('dr2cp_add_confirm').addEventListener('click', () => {
             if (!dr2cpPendingPick) return;
-            if (dr2cpAdditional.some(p => String(p.propertyId) === String(dr2cpPendingPick.id))) {
-                dr2cpShowOwnerError('That property is already on this deal.');
-                return;
-            }
-            dr2cpCheckOwnerThenAdd(dr2cpPendingPick.id, dr2cpPendingPick.address, parseFloat(dr2cpAddPrice.value) || 0, parseFloat(dr2cpAddCommission.value) || 0);
-            dr2cpAddForm.style.display = 'none'; dr2cpPendingPick = null; dr2cpSearch.value = '';
+            dr2cpAddConfirmed(dr2cpPendingPick.id, dr2cpPendingPick.address, parseFloat(dr2cpAddPrice.value) || 0, parseFloat(dr2cpAddCommission.value) || 0);
+            dr2cpAddForm.style.display = 'none'; dr2cpPendingPick = null; dr2cpPicker.value = '';
             dr2cpAddPrice.value = ''; dr2cpAddCommission.value = '';
         });
         document.getElementById('dr2cp_add_cancel').addEventListener('click', () => {
-            dr2cpAddForm.style.display = 'none'; dr2cpPendingPick = null; dr2cpSearch.value = '';
+            dr2cpAddForm.style.display = 'none'; dr2cpPendingPick = null; dr2cpPicker.value = '';
             dr2cpAddPrice.value = ''; dr2cpAddCommission.value = '';
         });
+
+        dr2cpRefreshPicker();
 
         // Live balance recompute as the TOTAL fields themselves are edited —
         // not just when a property row changes.

@@ -125,7 +125,10 @@ final class CreateTimeMultiPropertyTest extends TestCase
         $response->assertOk();
         $response->assertSee('Properties on this deal', false);
         $response->assertSee('Add another property', false);
-        $response->assertSee('id="dr2cp_search"', false);
+        // Johan, 2026-09-16 — "why offer a search, it can be a plain
+        // dropdown" — a <select>, never a text search input, on either screen.
+        $response->assertSee('id="dr2cp_picker"', false);
+        $response->assertDontSee('id="dr2cp_search"', false);
     }
 
     public function test_an_ordinary_agent_cannot_reach_the_create_screen(): void

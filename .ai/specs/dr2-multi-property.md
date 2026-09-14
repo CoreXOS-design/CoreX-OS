@@ -450,6 +450,105 @@ edit mode only — these actions all route-model-bind to a real, already-saved
   no Blade view), unchanged from the prior revision of this spec, and still
   out of AT-398's scope.
 
+## 8b. "Add another property" is a plain dropdown of gate-eligible properties, not a search (2026-09-16)
+
+Johan, testing DR2 live, verbatim: **"add another property should only
+display the other properties on this seller. why offer a search, it can
+be a plain dropdown."** The reason is stronger than convenience: a search
+invites the user to pick something the owner gate will then reject,
+teaching them the system is broken when it is in fact working correctly.
+
+**What existed before this**, checked before anything was changed:
+`DealRegisterController::searchProperties()` — a free-text address search
+over the agency's ENTIRE visible stock (`Property::visibleTo($user)
+->searchAddress($search)`, on-market only by default), used identically,
+via two SEPARATE implementations, for both the create screen's own
+"Add another property" box and the edit screen's — neither one already
+did this correctly; there was no existing "right way" to reuse.
+
+**The one thing Johan asked to be thought through, not just implemented**:
+"properties on this seller" and "properties this deal will accept" are
+NOT the same set. `DealPropertyOwnerGate` compares exact OWNER SETS, not
+a single seller — a seller who owns one property solely and another
+jointly with a spouse has two DIFFERENT owner sets, and the second would
+still fail the gate even though it's genuinely "another property on this
+seller." **Sized on QA1's own real data before any code was written, per
+his explicit instruction not to decide this silently**: 81 sellers have
+2+ properties; of those, **31 individual properties fall in exactly this
+gap** — sharing a seller with another property, but not that property's
+exact owner set (e.g. a seller solely owning one Effingham Parade property
+and jointly owning an adjacent one via a different holding-company
+combination). Reported to Johan rather than decided — the built baseline
+excludes these by construction (a dropdown scoped to owner-set equality
+never offers them in the first place, no separate rule invented for it);
+whether he wants them shown-but-disabled-with-a-reason instead of silently
+absent is his call, not built here.
+
+**What's built — ONE shared endpoint, ONE shared dropdown, for create AND
+edit (Johan: "same behaviour on create and on edit. One implementation,
+not two.")**:
+
+- `DealRegisterController::eligibleProperties()` (`GET
+  /deals-dr2/search/eligible-properties`) takes a `reference_property_id`
+  (the primary — passed explicitly rather than resolved from a `Deal`,
+  since create mode has no `Deal` yet) plus an `exclude[]` list (already-
+  staged/already-linked properties) and an optional `accepted_status`/
+  `deal_id`. It reuses `DealPropertyOwnerGate::sellerSideContactIds()`/
+  `ownerSetsMatch()` **verbatim** — never a second, looser owner-set
+  comparison written for this endpoint — after a cheap pre-filter (any
+  candidate must share at least one seller-side contact with the reference,
+  a necessary condition an exact-set match trivially satisfies) narrows a
+  whole-agency scan down to a small pool first. The existing on-market
+  default and `visibleTo()` agency/branch scoping are unchanged from
+  `searchProperties()`'s own convention. The G/R exclusivity check
+  `addProperty()` already runs (`DealPropertyStatusService::
+  committedDealOnProperty()`) is reused the same way, only when the
+  deal itself is already Granted/Registered — never a second status rule.
+- **A plain `<select>`, on both screens** (`dr2mp_picker` in edit mode,
+  `dr2cp_picker` in create mode) — no search input, no autocomplete,
+  populated once via a single shared JS function, `loadEligibleDropdown()`
+  (`resources/views/dr2/create.blade.php`). Refreshed whenever the primary
+  property changes, and whenever a property is added to or removed from
+  the deal (create mode's own client-side staging list, or edit mode's
+  real linked-properties list on the next page load).
+- **Says so in plain words when there's nothing eligible**, never an
+  empty-looking dropdown (Johan: "Johan should never see a control that
+  looks broken when it is simply empty") — `#dr2mp_picker_empty`/
+  `#dr2cp_picker_empty`, shown instead of the `<select>` when the eligible
+  list comes back empty, or when no primary property has been picked yet.
+- **What each option shows**: address plus the property's own reference
+  number when it has one (`toSearchResult()`'s existing `label`/`ref`
+  shape, the same fields `searchProperties()` already surfaces) — enough
+  to tell two of the same seller's properties apart without a search.
+- The old free-text search JS (`dr2mp_search`/`dr2cp_search` and their
+  results-list rendering) is removed entirely on this control — the
+  primary property picker elsewhere on the same screen is UNCHANGED and
+  still a genuine search, since there is no "eligible set" concept for
+  picking the very first property on a deal.
+
+**Tests**: `tests/Feature/Dr2/PropertyEligibilityDropdownTest.php` — 9
+tests: an identical-owner-set property is returned; the exact gap Johan
+named (same seller, different owner set — one solely owned, one jointly)
+is excluded; the reference property itself is never offered; already-
+excluded/already-linked properties are never offered again; a reference
+with no resolvable owner returns nothing; a seller with no other
+properties returns an empty list; the response carries enough to
+distinguish two properties; the G/R exclusivity reuse is proven; and the
+permission gate holds (an ordinary agent 403s). `CreateTimeMultiPropertyTest.php`
+updated to assert the create screen renders a `<select>`
+(`id="dr2cp_picker"`), never the old search input. Full pre-existing DR2
+regression suite re-run (52 tests total across all seven files) — zero
+regressions.
+
+**Verified against real QA1 data, not synthetic fixtures only** — a real
+clean multi-property seller (contact #10298, four properties, one
+identical owner set) correctly returns zero eligible properties by
+default (all four are off-market) and correctly returns both siblings
+once `all=1` is set; a real seller sitting exactly in the reported gap
+(contact #10157, "Unit 4, Forest Walk") correctly excludes the property
+she jointly owns with another contact and correctly includes the one she
+owns solely.
+
 ## 9. Scoping
 
 Every mutation above operates through `Deal`/`Property` models that already
