@@ -19,10 +19,36 @@ class DownloadListingThumbnail implements ShouldQueue
     public int $timeout = 60;
     public int $tries = 2;
 
+    /**
+     * Its own lane; a worker must drain `thumbnails` or these strand. Set via
+     * onQueue() (not a redeclared $queue property, which conflicts with the
+     * Queueable trait).
+     *
+     * WHY NOT `default` (2026-09-14): this job is network-bound (~1-2s of CDN
+     * fetch + GD downscale each) and arrives in BULK — a single
+     * `prospecting:rehydrate-thumbnails` run dispatches one per listing. On
+     * 2026-09-14 such a run put 5,226 of them on `default`, whose worker is
+     * numprocs=1, and head-of-line-blocked every fast scheduled job behind
+     * ~2h15m of image downloads. The casualty that mattered: PullP24LeadsJob /
+     * PullPpLeadsJob run every 5 minutes, so each new portal lead check joined
+     * the back of the queue — inbound buyer enquiries stopped reaching CoreX
+     * for the duration.
+     *
+     * This is exactly the TranscribeVoiceNoteJob story of 2026-08-27 (see
+     * config/queue_alerting.php) and it gets the same answer: slow bulk work
+     * does not share a lane with latency-sensitive scheduled work.
+     *
+     * NOT `p24images` either — that lane is deliberately narrow to stay under
+     * P24's per-IP limiter (see DownloadP24RowImagesJob); borrowing it would
+     * starve the P24 import gallery pipeline instead. Different upstream,
+     * different lane.
+     */
     public function __construct(
         public ProspectingListing $listing,
         public string $thumbnailUrl,
-    ) {}
+    ) {
+        $this->onQueue('thumbnails');
+    }
 
     public function handle(): void
     {

@@ -109,6 +109,21 @@ return [
                 'progress_window'   => 1500,
                 'supervisor'        => 'corex-worker-live-transcription:*',
             ],
+
+            // BATCH lane, same shape and same reason as `transcription`
+            // (2026-09-14). DownloadListingThumbnail is network-bound (~1-2s
+            // each) and arrives in bulk — one `prospecting:rehydrate-thumbnails`
+            // run dispatches thousands. A deep queue here is the normal steady
+            // state and proves nothing; what proves a fault is the head not
+            // advancing. progress_window 300 comfortably exceeds the job's own
+            // $timeout = 60, so a lane that is merely slow never alarms while a
+            // genuinely wedged one still surfaces in ~5 minutes.
+            'thumbnails'     => [
+                'max_age'           => 1800,
+                'requires_progress' => true,
+                'progress_window'   => 300,
+                'supervisor'        => 'corex-worker-live-thumbnails:*',
+            ],
         ],
     ],
 
