@@ -5,30 +5,30 @@
 **Author:** cc4
 **Pillar:** Property (`Property`) — every work order anchors to a property; Contact (owner, tenant,
 supplier's own contact person) is who is notified and who reported it; touches Lease (`.ai/specs/
-leases.md`, branch `cc5-leases-spec`) and Rental Inspections (`.ai/specs/rental-inspections.md`,
-branch `cc5-rental-inspections-spec`) as its two structural dependencies.
+leases.md`, branch `cc5-leases-spec`) and Rental Inspections (`.ai/specs/rental-inspections.md`, base
+branch `cc5-rental-inspections-spec` @ `9e9be1e7f`, plus the follow-up lease-id amendment on branch
+`cc5-rental-inspections-lease-amendment` @ `3b1e57bb7`) as its two structural dependencies.
 **Sequencing:** Johan's ruling — core matches/pipeline → inspections → **work orders (this spec)**.
 Both dependencies are read, coordinated on directly, and cited below; neither is re-designed here.
 
 ---
 
-## 0. A flag on the ground this spec stands on, stated plainly before anything else
+## 0. Dependency status — settled, updated from the original draft of this section
 
-While writing this, two things were confirmed directly with cc5 (who authored both dependency specs):
+`rental-inspections.md`'s required `lease_id` amendment (originally flagged in this section as a
+pending, unresolved item between cc3 and cc5) **is now applied and pushed**: branch
+`cc5-rental-inspections-lease-amendment`, commit `3b1e57bb7`, a follow-up commit on top of the
+original `9e9be1e7f` (history intact, not a rewrite). `rental_inspections` now carries a required
+`lease_id`; `property_id` is denormalized-only. `rental_inspection_items` is unchanged — still
+property-scoped, exactly as this spec already assumed. The conductor separately ruled the earlier
+inspections-assignment confusion was her own error, not cc3's or this spec's, and cc3 is stood down
+from a competing inspections draft — cc5's `leases.md`/`rental-inspections.md` are authoritative.
 
-1. **`rental-inspections.md` (branch `cc5-rental-inspections-spec`, commit `9e9be1e7f`) is real and
-   internally consistent, but is NOT yet the final shape of the `rental_inspections` table.** cc5's own
-   `leases.md` §9 names a required amendment (`rental_inspections` gains a required `lease_id`) that
-   was deliberately written but not yet applied to the committed inspections file, pending Johan's
-   review of the lease-ordering change. This is a live, open item between cc3 and cc5 as of this
-   writing — not resolved here, not this spec's decision.
-2. **This does not block this spec.** The FK this spec depends on — `rental_inspection_items` — is
-   property-scoped and explicitly unaffected by that pending amendment (confirmed directly by cc5:
-   "you're not blocked on it"). Everything below is built against `rental_inspection_items` as
-   currently specced, and against `leases`/`lease_tenants` as currently specced.
-
-If the pending inspections amendment changes shape before build time, re-check this spec's §3
-against it — but as of today, nothing here needs to change.
+**Confirmed directly with cc5, in writing, after the amendment landed: this spec's two FK shapes on
+`rental_work_orders` are unaffected and correct as designed** — nullable `rental_inspection_item_id`
+(WHAT/WHERE, stable across every tenancy) and nullable `lease_id` (WHO/WHEN, null for the
+vacancy-repair case, §3.1a). Nothing below needed to change once the amendment landed; this section is
+updated only so the spec doesn't carry a stale "unresolved" flag now that it is resolved.
 
 ---
 
