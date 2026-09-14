@@ -1,10 +1,10 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5">
+<div class="w-full h-full flex flex-col">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-portal-leads-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Portal Leads</h1>
@@ -19,10 +19,12 @@
         </div>
     </div>
 
-    {{-- Filters --}}
+    {{-- Filters — directly under the header (AT-393). Header + filters are frozen: the
+         page wrapper is a full-height flex column and ONLY the scroll region below
+         (leads table + pagination) scrolls. --}}
     <form method="GET" action="{{ route('corex.portal-leads.index') }}"
           data-tour="re-portal-leads-filters"
-          class="rounded-md p-4 grid grid-cols-1 md:grid-cols-6 gap-3 transition-all duration-300"
+          class="rounded-md p-4 mt-3 flex-shrink-0 grid grid-cols-1 md:grid-cols-6 gap-3 transition-all duration-300"
           style="background: var(--surface); border: 1px solid var(--border);">
 
         <div>
@@ -82,6 +84,9 @@
                class="corex-btn-outline text-xs whitespace-nowrap">Reset</a>
         </div>
     </form>
+
+    {{-- Scroll region — everything from here down scrolls; header + filters stay put. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto mt-4 space-y-5">
 
     {{-- Leads table --}}
     <div class="rounded-md overflow-hidden"
@@ -220,6 +225,7 @@
     </div>
 
     <div>{{ $leads->links() }}</div>
+    </div>{{-- /scroll region --}}
 </div>
 
 {{-- Deep-link highlight: email "Open the lead" links and the in-app toast both land
