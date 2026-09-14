@@ -471,6 +471,17 @@ class RentalApplicationAuthorisationController extends Controller
         $rentalApplication->decline_reason_template_id = $template->id;
         $rentalApplication->decline_email_subject = $draft['subject'];
         $rentalApplication->decline_email_body = $draft['body'];
+        // Applicant link lifetime, 2026-09-14 — Johan, final version after
+        // two rejected designs (a 7-day grace window, then a revive link in
+        // the decline email): "the link dies. done. declined is declined.
+        // if the applicant wants to do anything it will be from the
+        // agent's side sending a new link to reopen the application."
+        // Unconditional, no setting, no exposure window. The existing
+        // token_expires_at->isPast() check show()/pdf()/viewDocument()
+        // already run on every request is the only enforcement needed —
+        // reopen() (already unconditional on this column, already extends
+        // the SAME token) remains the one way back in, exactly as today.
+        $rentalApplication->token_expires_at = now();
         $rentalApplication->save();
 
         RentalApplicationStatusHistory::record(

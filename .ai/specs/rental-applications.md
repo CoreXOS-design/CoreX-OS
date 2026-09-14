@@ -13504,6 +13504,91 @@ RentalApplicationIdentityGateTest.php`.
 - Clicked through in a real browser, unauthenticated, before being
   reported done — per standing rule, PHPUnit is not the proof.
 
+## Applicant link lifetime on withdraw/decline (2026-09-14)
+
+The conductor found, walking a seller's live property link, that removing
+a seller from a property does not revoke a link already issued to them —
+an unauthenticated fetch still returns 200 with the full property. Asked
+whether rental applications have the same defect in a second place:
+checked, not assumed. `RentalApplication::findByToken()` never filtered
+by status, and `updateStatus()`/`decline()` never touched `token` or
+`token_expires_at` — so a withdrawn or declined application's link kept
+resolving for the rest of its normal 14-day window (or indefinitely, if
+ever reopened), gated only by the Return Gate's default method, which the
+codebase's own docblock calls "a speed bump, not authentication... an ID
+number is not a secret." Less wide-open than the seller-link defect (there
+IS a gate), but the same shape: status change achieved nothing, and what's
+behind it — income, bank details, ID number, uploaded documents — belongs
+to the one person with no ongoing relationship to the agency and no reason
+to expect their file is still reachable.
+
+**Two designs were proposed and rejected before this one, on the record so
+neither reappears as a justification:**
+
+1. A 7-day grace window on declined links (withdrawn dying immediately,
+   declined staying live 7 days so the applicant could "resubmit or add
+   more docs"). Rejected after tracing that the premise didn't hold:
+   `reopen()` (`RentalApplicationReviewController.php:684-758`) already
+   works on a declined application at ANY time, regardless of the link's
+   current expiry — it never checks `token_expires_at` before running, and
+   unconditionally extends it on success. The 7 days would have protected
+   nothing the applicant could actually use, since a declined application
+   is 100% read-only from their side either way (`documentUploadsOpen()`
+   returns `false` unconditionally for declined — no setting can override
+   it — and `submit()` redirects a declined application straight back to
+   `show()` without processing anything).
+2. A revive link in the decline email, reviving the applicant's own
+   access via a fresh identity check and a bounded window. Solved the
+   "no expiry window sitting open" problem but replaced it with a
+   different one Johan named directly: "the revive link is itself a key,
+   and it lives in an inbox forever." Cut in favour of the simpler design
+   below before any of it was built.
+
+**What's actually built, Johan's final words: "the link dies. done.
+declined is declined. if the applicant wants to do anything it will be
+from the agent's side sending a new link to reopen the application. easy
+simple and nothing open for whatever time period."**
+
+- `updateStatus()` (`app/Http/Controllers/CoreX/RentalApplicationController.php`)
+  sets `token_expires_at = now()` in the same transaction as the status
+  write, when `$to === 'withdrawn'`.
+- `decline()` (`app/Http/Controllers/CoreX/RentalApplicationAuthorisationController.php`,
+  line ~470) sets `token_expires_at = now()` alongside the status write.
+- No new setting. No configurable window. No email link. Unconditional,
+  for both statuses, no exceptions.
+- No new enforcement mechanism either — this reuses the EXACT
+  `token_expires_at->isPast()` check `show()`/`pdf()`/`viewDocument()`
+  already run on every request (the same check that already governs the
+  original 14-day send-expiry and every reopen's own extension). Setting
+  the value into the past is the entire mechanism; there is no scheduled
+  job and none is needed.
+- The way back in is unchanged and was never gated by any of this:
+  `reopen()` already works on a withdrawn or declined application at any
+  time, link-expired or not, extends the SAME token, and is the ONLY path
+  back — an agent action, override-tier gated for these two statuses,
+  exactly as it works today. Nothing here weakens or duplicates that
+  control.
+- The expired visit lands on `rental-applications.public.unavailable`
+  (reason `expired`) — the same screen every other expiry on this feature
+  already uses. That screen's own content today is bare ("This link has
+  expired. Please contact your agent for a new link.") — checked, not
+  assumed, and it is NOT the branded, "entice business" screen Johan was
+  picturing (that screen exists, but on a different feature entirely —
+  `resources/views/seller-link/unavailable.blade.php`, agency-branded,
+  with a "View current listings" / "Visit our site" / "Call {agent}"
+  pattern). Upgrading rental applications' own unavailable screen to that
+  standard is cc5's, not built here — this feature only needs the
+  existing plain screen to fire correctly, which it does with zero new
+  wiring, since it's the same `token_expires_at` check already in place.
+
+**FICA records and documents are untouched by any of this, stated
+explicitly so nobody later tidies them up alongside an expired link:**
+`fica_submissions` and its uploaded documents live in their own table, on
+their own 5-year retention policy, entirely independent of
+`rental_applications.token_expires_at`. Killing or expiring an applicant's
+rental-application link has zero effect on their FICA record — it is not
+touched, referenced, or cleaned up by any code path in this change.
+
 ## `require_fica_before_authorisation` — what it actually does (2026-09-15/16, cc5, INVESTIGATION ONLY, NOTHING BUILT)
 
 Johan noticed "Approve & continue" was clickable on an application badged

@@ -1,4 +1,4 @@
-<!--
+{{--
     Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is not
     gated but if the applicant submits... after initial submission we can
     gate on ID." Deliberately a SHORT, single-purpose page — no internal
@@ -12,7 +12,16 @@
     $lockedOut renders the "contact your agent" way-forward Johan required
     — never a bare refusal, never a technical error, and the SAME plain
     sentence whether the ID was close or not (no oracle).
--->
+
+    Conductor, 2026-09-13 — this WAS a raw HTML comment (`<!-- -->`),
+    which ships to every visitor's page source verbatim, unlike a Blade
+    comment. It named the default gate method and called it out
+    explicitly as "not authentication" — accurate, but not something an
+    unauthenticated visitor needs handed to them in view-source. Same
+    class of lesson as tonight's contact-property finding: check what
+    actually reaches the browser, not just what the rendered page shows.
+    No behaviour change — Blade comments are stripped server-side.
+--}}
 <!DOCTYPE html>
 <html lang="en">
 <head>

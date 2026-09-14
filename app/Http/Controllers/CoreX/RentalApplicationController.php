@@ -1021,7 +1021,24 @@ class RentalApplicationController extends Controller
         }
 
         DB::transaction(function () use ($rentalApplication, $from, $to, $validated) {
-            $rentalApplication->update(['status' => $to]);
+            // Applicant link lifetime, 2026-09-14 — Johan, final version
+            // after two rejected designs (a 7-day grace window, then a
+            // revive-link-in-the-email): "the link dies. done. declined is
+            // declined. if the applicant wants to do anything it will be
+            // from the agent's side sending a new link to reopen the
+            // application." Withdrawn dies unconditionally, immediately,
+            // no setting — this is the only place that status is reachable
+            // from. Reuses the EXACT expiry check show()/pdf()/
+            // viewDocument() already run on every request
+            // (token_expires_at->isPast()) — no new enforcement mechanism,
+            // no scheduled job. If the agent wants the applicant back in,
+            // reopen() (already unconditional on token_expires_at, already
+            // extends this same token) is the only way back — unchanged.
+            $updates = ['status' => $to];
+            if ($to === 'withdrawn') {
+                $updates['token_expires_at'] = now();
+            }
+            $rentalApplication->update($updates);
 
             RentalApplicationStatusHistory::record(
                 $rentalApplication,
