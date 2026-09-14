@@ -76,7 +76,11 @@ final class PortalLeadReceivedByTest extends TestCase
 
     public function test_p24_new_contact_receives_by_the_listing_agent(): void
     {
-        Event::fake();
+        // Deliberately no blanket Event::fake() — it suppresses Eloquent's
+        // own internal `creating` event too, which is how BelongsToBranch
+        // auto-fills a new Contact's branch_id from the acting user. A
+        // scoped fake (Event::fake([SomeEvent::class])) would be fine; a
+        // bare one silently breaks this fixture's Contact creation.
         $lead = app(P24LeadService::class)->processLead([
             'listingNumber' => 'RJ12345',
             'leadName'      => 'New Buyer',
@@ -97,7 +101,9 @@ final class PortalLeadReceivedByTest extends TestCase
             'email' => 'returning@example.co.za',
         ]);
 
-        Event::fake();
+        // Same bare-Event::fake() hazard as the new-contact test above —
+        // harmless here only because this branch never creates a new
+        // Contact, but fixed for consistency (BUILD_STANDARD §6).
         $lead = app(P24LeadService::class)->processLead([
             'listingNumber' => 'RJ12345',
             'leadName'      => 'Returning Buyer',
@@ -141,7 +147,9 @@ final class PortalLeadReceivedByTest extends TestCase
             'email' => 'webhook@example.co.za',
         ]);
 
-        Event::fake();
+        // Deliberately NOT Event::fake() here — CommandTaskPortalLeadObserver
+        // hooks CommandTask's real `created` Eloquent event; faking events
+        // would suppress it entirely and this test would prove nothing.
         CommandTask::create([
             'title'         => 'New PP lead — Webhook Lead',
             'description'   => 'Private Property lead for 2 bed apartment.',
