@@ -218,6 +218,41 @@ final class CreateTimeMultiPropertyTest extends TestCase
         $this->assertDatabaseMissing('deal_properties', ['property_id' => $propA->id]);
     }
 
+    /**
+     * The exact "31-gap" scenario the eligibility dropdown now shows as a
+     * DISABLED option with a reason (PropertyEligibilityDropdownTest)
+     * rather than hiding it. A disabled <option> is a client-side hint
+     * only — Conductor's explicit requirement, 2026-09-16: prove the same
+     * property id is refused when POSTed directly, by the same
+     * DealPropertyOwnerGate the dropdown itself queries, not a second,
+     * looser check. Steve owns the reference solely; Steve+Dave jointly
+     * own the candidate — same seller, different owner SET.
+     */
+    public function test_a_property_shown_disabled_in_the_dropdown_for_a_mismatched_owner_set_is_still_refused_when_posted_directly(): void
+    {
+        $steve = $this->makeContact('Steve');
+        $dave = $this->makeContact('Dave');
+        $propA = $this->makeProperty('7e Same Seller Different Set A Rd');
+        $jointlyOwned = $this->makeProperty('7e Same Seller Different Set B Rd');
+        $this->linkOwner($propA, $steve);
+        $this->linkOwner($jointlyOwned, $steve);
+        $this->linkOwner($jointlyOwned, $dave);
+        $countBefore = Deal::count();
+
+        $response = $this->actingAs($this->bm)->post(route('deals-dr2.store'), array_merge($this->basePayload(), [
+            'property_id' => $propA->id,
+            'property_value' => 1_500_000, 'total_commission' => 86_250,
+            'properties' => [
+                ['property_id' => $propA->id, 'allocated_price' => 1_000_000, 'allocated_commission' => 57_500],
+                ['property_id' => $jointlyOwned->id, 'allocated_price' => 500_000, 'allocated_commission' => 28_750],
+            ],
+        ]));
+
+        $response->assertSessionHasErrors('property_id');
+        $this->assertSame($countBefore, Deal::count(), 'Disabled in the dropdown is a UI hint only — the gate itself must still refuse this id and roll back the whole transaction when posted directly.');
+        $this->assertDatabaseMissing('deal_properties', ['property_id' => $propA->id]);
+    }
+
     public function test_an_ordinary_single_property_submission_is_completely_unaffected(): void
     {
         $propA = $this->makeProperty('7d Single Unaffected Rd');

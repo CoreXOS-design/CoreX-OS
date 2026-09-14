@@ -478,11 +478,15 @@ his explicit instruction not to decide this silently**: 81 sellers have
 gap** — sharing a seller with another property, but not that property's
 exact owner set (e.g. a seller solely owning one Effingham Parade property
 and jointly owning an adjacent one via a different holding-company
-combination). Reported to Johan rather than decided — the built baseline
-excludes these by construction (a dropdown scoped to owner-set equality
-never offers them in the first place, no separate rule invented for it);
-whether he wants them shown-but-disabled-with-a-reason instead of silently
-absent is his call, not built here.
+combination). Reported to Johan rather than decided.
+
+**Johan's ruling, 2026-09-16: "31 IS MEANINGFUL."** These 31 must NOT be
+silently absent. His reasoning, relayed by the conductor: "An agent who
+knows their seller owns three houses, opens the dropdown and sees two,
+will conclude the system lost one — and then either stops trusting the
+dropdown or goes hunting. Silence is the worst of the three options." So
+the shipped behaviour is not "excluded by construction" — see the revision
+immediately below.
 
 **What's built — ONE shared endpoint, ONE shared dropdown, for create AND
 edit (Johan: "same behaviour on create and on edit. One implementation,
@@ -504,6 +508,36 @@ not two.")**:
   `addProperty()` already runs (`DealPropertyStatusService::
   committedDealOnProperty()`) is reused the same way, only when the
   deal itself is already Granted/Registered — never a second status rule.
+  It remains a hard exclusion (never shown, not even disabled): Johan's
+  ruling below is scoped to the owner-set gap specifically, which is
+  genuinely confusing to an agent; G/R exclusivity, "already on this
+  deal", and wrong-status exclusions are not extended the same treatment
+  (see the reasoning immediately below).
+- **The owner-set gap (the 31) is returned, not excluded — marked
+  ineligible, with a plain-language reason, sorted after the real
+  choices.** Per Johan's ruling above, `eligibleProperties()` splits
+  candidates that pass the pre-filter/on-market/visibility/G-R checks
+  into `eligible`/`ineligible` by `ownerSetsMatch()`, and returns eligible
+  rows first, then ineligible rows, each carrying `'eligible' => bool`
+  and (for ineligible rows) `'reason' => string` — deliberately never the
+  gate's own vocabulary ("owner set" means nothing to a working agent):
+  *"Can't be added — the owners on this property aren't the same as the
+  owners on this deal."* The dropdown renders eligible rows as ordinary
+  selectable `<option>`s, then — only if any ineligible rows exist — a
+  `<optgroup label="Can't be added — different owners">` of `disabled`
+  `<option>`s carrying the reason as a `title` tooltip. A disabled
+  `<option>` is a UI hint only: `store()`'s own `DealPropertyOwnerGate::
+  assertCanAddToDeal()` call is completely unchanged and still refuses
+  any of these ids if posted directly, proven by a dedicated test (see
+  Tests below) — the dropdown never became the enforcement point.
+  **Reasoning on the other exclusion kinds, given to the conductor for
+  confirmation**: only the owner-set gap gets this treatment. "Already on
+  this deal" is self-evident to the agent (they just added it) and stays
+  hidden; wrong-status and G/R-exclusivity exclusions stay hidden too —
+  they are not something an agent looking at THIS seller would expect to
+  see offered at all, unlike the owner-set case where the property
+  visibly belongs to the same seller and its absence would look like data
+  loss.
 - **A plain `<select>`, on both screens** (`dr2mp_picker` in edit mode,
   `dr2cp_picker` in create mode) — no search input, no autocomplete,
   populated once via a single shared JS function, `loadEligibleDropdown()`
@@ -529,16 +563,22 @@ not two.")**:
 **Tests**: `tests/Feature/Dr2/PropertyEligibilityDropdownTest.php` — 9
 tests: an identical-owner-set property is returned; the exact gap Johan
 named (same seller, different owner set — one solely owned, one jointly)
-is excluded; the reference property itself is never offered; already-
-excluded/already-linked properties are never offered again; a reference
-with no resolvable owner returns nothing; a seller with no other
-properties returns an empty list; the response carries enough to
-distinguish two properties; the G/R exclusivity reuse is proven; and the
-permission gate holds (an ordinary agent 403s). `CreateTimeMultiPropertyTest.php`
-updated to assert the create screen renders a `<select>`
-(`id="dr2cp_picker"`), never the old search input. Full pre-existing DR2
-regression suite re-run (52 tests total across all seven files) — zero
-regressions.
+is returned but marked `eligible: false` with a plain-language reason and
+sorted after the real, pickable choices (updated 2026-09-16 per his
+ruling — previously asserted absence, which is now the wrong behaviour);
+the reference property itself is never offered; already-excluded/already-
+linked properties are never offered again; a reference with no resolvable
+owner returns nothing; a seller with no other properties returns an empty
+list; the response carries enough to distinguish two properties; the G/R
+exclusivity reuse is proven (still a hard exclusion, not shown even
+disabled); and the permission gate holds (an ordinary agent 403s).
+`CreateTimeMultiPropertyTest.php` updated to assert the create screen
+renders a `<select>` (`id="dr2cp_picker"`), never the old search input,
+plus a new test,
+`test_a_property_shown_disabled_in_the_dropdown_for_a_mismatched_owner_set_is_still_refused_when_posted_directly`,
+proving the server-side gate — not the disabled markup — is what actually
+refuses one of the 31 when POSTed directly to `store()`. Full DR2
+regression suite re-run — zero regressions.
 
 **Verified against real QA1 data, not synthetic fixtures only** — a real
 clean multi-property seller (contact #10298, four properties, one

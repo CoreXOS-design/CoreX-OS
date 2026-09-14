@@ -1047,10 +1047,21 @@ class DealRegisterController extends Controller
      * solely and another jointly has two DIFFERENT owner sets, and a
      * dropdown scoped to "linked to this seller" would still offer
      * something the gate then refuses — the exact defect in a new shape.
-     * So this returns only properties whose owner set EXACTLY matches the
-     * reference property's — reusing DealPropertyOwnerGate's own
-     * sellerSideContactIds()/ownerSetsMatch() verbatim, never a second,
-     * looser comparison invented for this endpoint.
+     * Reuses DealPropertyOwnerGate's own sellerSideContactIds()/
+     * ownerSetsMatch() verbatim, never a second, looser comparison
+     * invented for this endpoint.
+     *
+     * Johan's follow-up ruling, 2026-09-16, after being told how many real
+     * QA1 properties fall in exactly that gap (31 — sized on real data
+     * BEFORE this was built, per his own instruction not to decide it
+     * silently): "those properties must NOT be silently absent. An agent
+     * who knows their seller owns three houses, opens the dropdown and
+     * sees two, will conclude the system lost one." So a candidate sharing
+     * a seller but failing the owner-set match is still RETURNED, marked
+     * `eligible: false` with a plain-language `reason` — never the gate's
+     * own vocabulary — rather than dropped. G/R exclusivity remains a hard
+     * exclusion (see below) — a genuinely separate, still-open question,
+     * not decided the same way here.
      *
      * ONE shared endpoint for create AND edit (Johan: "same behaviour on
      * create and on edit. One implementation, not two.") — the reference
@@ -1108,26 +1119,54 @@ class DealRegisterController extends Controller
         // relevant when the deal itself is already Granted/Registered) —
         // reused verbatim, never a second set of status rules for this
         // dropdown. $dealId is null on create (no Deal exists yet, so
-        // nothing to exclude the candidate FROM).
+        // nothing to exclude the candidate FROM). Kept as a hard exclusion
+        // (never shown, not even disabled) — Johan's ruling on the
+        // owner-set gap below does not extend here automatically; whether
+        // this deserves the same disabled-with-reason treatment is a
+        // separate, explicitly open question (see the conductor's own
+        // brief and this endpoint's class-level docblock).
         $acceptedStatus = (string) $request->input('accepted_status', 'P');
         $dealId = $request->filled('deal_id') ? (int) $request->input('deal_id') : null;
         $statusService = in_array($acceptedStatus, ['G', 'R'], true)
             ? app(\App\Services\Deal\DealPropertyStatusService::class)
             : null;
-
-        $eligible = $candidates
-            ->filter(fn (Property $p) => $gate->ownerSetsMatch($reference, $p))
+        $candidates = $candidates
             ->filter(fn (Property $p) => $statusService === null || $statusService->committedDealOnProperty($p->id, $dealId) === null)
             ->values();
 
+        // Johan's ruling, 2026-09-16: "31 IS MEANINGFUL... those properties
+        // must NOT be silently absent. An agent who knows their seller
+        // owns three houses, opens the dropdown and sees two, will
+        // conclude the system lost one." So an owner-set MISMATCH is no
+        // longer filtered out — it's returned, marked ineligible, with a
+        // plain-language reason (never the gate's own vocabulary: "owner
+        // set" means nothing to a working agent). Sorted eligible-first so
+        // the real choices are never buried under the ones that can't be
+        // picked (his own explicit instruction).
+        $eligible = [];
+        $ineligible = [];
+        foreach ($candidates as $p) {
+            if ($gate->ownerSetsMatch($reference, $p)) {
+                $eligible[] = $p;
+            } else {
+                $ineligible[] = $p;
+            }
+        }
+
+        $toRow = fn (Property $p, bool $isEligible) => $p->toSearchResult([
+            // Enough to tell two of the same seller's properties apart
+            // without a search (Johan's own requirement) — same fields
+            // searchProperties() already surfaces for this reason.
+            'ref' => $p->property_number,
+            'price' => $p->listing_price ?? $p->price ?? null,
+            'eligible' => $isEligible,
+            'reason' => $isEligible ? null : "Can't be added — the owners on this property aren't the same as the owners on this deal.",
+        ]);
+
         return response()->json([
-            'properties' => $eligible->map(fn (Property $p) => $p->toSearchResult([
-                // Enough to tell two of the same seller's properties apart
-                // without a search (Johan's own requirement) — same fields
-                // searchProperties() already surfaces for this reason.
-                'ref' => $p->property_number,
-                'price' => $p->listing_price ?? $p->price ?? null,
-            ]))->values(),
+            'properties' => collect($eligible)->map(fn (Property $p) => $toRow($p, true))
+                ->concat(collect($ineligible)->map(fn (Property $p) => $toRow($p, false)))
+                ->values(),
         ]);
     }
 

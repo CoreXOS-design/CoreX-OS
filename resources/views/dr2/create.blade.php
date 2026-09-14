@@ -1022,16 +1022,44 @@
                 emptyEl.style.display = 'none';
                 selectEl.innerHTML = '';
                 selectEl.appendChild(new Option('Choose a property…', ''));
-                props.forEach(p => {
-                    // Enough to tell two of the same seller's properties
-                    // apart without a search — address plus the reference
-                    // number when there is one.
+
+                // Johan's ruling, 2026-09-16: a property sharing this
+                // seller but failing the owner-set match must NOT be
+                // silently absent — "an agent who knows their seller owns
+                // three houses, opens the dropdown and sees two, will
+                // conclude the system lost one." Shown disabled, with a
+                // plain-language reason (never "owner set" — the server
+                // already writes this in the agent's own language), kept
+                // BELOW every real, pickable option so the actual choices
+                // are never buried (his own explicit instruction). A
+                // disabled <option> is genuinely unselectable by the
+                // browser itself — no click, no keyboard nav lands on it —
+                // but that is a convenience only: store()/applyCreateTime
+                // MultiProperty() re-run the real gate server-side
+                // regardless of anything this dropdown shows.
+                const eligibleRows = props.filter(p => p.eligible !== false);
+                const ineligibleRows = props.filter(p => p.eligible === false);
+
+                const makeOption = p => {
                     const label = p.label + (p.ref ? ' (Ref ' + p.ref + ')' : '');
                     const opt = new Option(label, p.id);
                     opt.dataset.address = p.label;
                     opt.dataset.price = p.price ?? '';
-                    selectEl.appendChild(opt);
-                });
+                    return opt;
+                };
+
+                eligibleRows.forEach(p => selectEl.appendChild(makeOption(p)));
+                if (ineligibleRows.length) {
+                    const group = document.createElement('optgroup');
+                    group.label = "Can't be added — different owners";
+                    selectEl.appendChild(group);
+                    ineligibleRows.forEach(p => {
+                        const opt = makeOption(p);
+                        opt.disabled = true;
+                        opt.title = p.reason || "Can't be added — the owners on this property aren't the same as the owners on this deal.";
+                        group.appendChild(opt);
+                    });
+                }
             })
             .catch(() => {
                 selectEl.style.display = 'none';

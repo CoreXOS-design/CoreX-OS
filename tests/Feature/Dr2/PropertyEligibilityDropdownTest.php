@@ -122,23 +122,44 @@ final class PropertyEligibilityDropdownTest extends TestCase
      * THE gap Johan named specifically: "properties on this seller" and
      * "properties this deal will accept" are not the same set. Steve owns
      * the reference solely; Steve+Dave jointly own the candidate. Same
-     * seller, different owner SET — must be excluded.
+     * seller, different owner SET.
+     *
+     * Johan's ruling, 2026-09-16: this must NOT be silently absent — an
+     * agent who knows their seller owns several houses and sees fewer in
+     * the dropdown will conclude the system lost one. So the property IS
+     * returned, marked ineligible, with a plain-language reason (never
+     * "owner set" — that means nothing to a working agent) — sorted after
+     * the real, pickable choices.
      */
-    public function test_a_property_sharing_the_seller_but_with_a_different_owner_set_is_excluded(): void
+    public function test_a_property_sharing_the_seller_but_with_a_different_owner_set_is_shown_disabled_with_a_reason(): void
     {
         $steve = $this->makeContact('Steve');
         $dave = $this->makeContact('Dave');
         $reference = $this->makeProperty('1 Elig Gap Rd');
         $jointlyOwned = $this->makeProperty('2 Elig Gap Rd');
+        $match = $this->makeProperty('3 Elig Gap Rd');
         $this->linkOwner($reference, $steve);
         $this->linkOwner($jointlyOwned, $steve);
         $this->linkOwner($jointlyOwned, $dave);
+        $this->linkOwner($match, $steve);
 
         $response = $this->actingAs($this->bm)->getJson(route('deals-dr2.search.eligible-properties', ['reference_property_id' => $reference->id]));
 
         $response->assertOk();
-        $ids = collect($response->json('properties'))->pluck('id');
-        $this->assertFalse($ids->contains($jointlyOwned->id), 'Same seller, different owner set — the gate would refuse this, so the dropdown must never offer it.');
+        $rows = collect($response->json('properties'));
+        $gapRow = $rows->firstWhere('id', $jointlyOwned->id);
+        $this->assertNotNull($gapRow, 'Same seller, different owner set — must still appear, not vanish, per Johan\'s 2026-09-16 ruling.');
+        $this->assertFalse($gapRow['eligible']);
+        $this->assertStringNotContainsString('owner set', strtolower($gapRow['reason']), 'Reason text must be in plain agent language, never the gate\'s own vocabulary.');
+        $this->assertNotEmpty($gapRow['reason']);
+
+        $matchRow = $rows->firstWhere('id', $match->id);
+        $this->assertNotNull($matchRow);
+        $this->assertTrue($matchRow['eligible']);
+
+        // Eligible-first: real choices are never buried under ones that can't be picked.
+        $ids = $rows->pluck('id')->values()->all();
+        $this->assertTrue(array_search($match->id, $ids, true) < array_search($jointlyOwned->id, $ids, true));
     }
 
     public function test_the_reference_property_itself_is_never_offered(): void
