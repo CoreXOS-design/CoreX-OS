@@ -589,6 +589,68 @@ once `all=1` is set; a real seller sitting exactly in the reported gap
 she jointly owns with another contact and correctly includes the one she
 owns solely.
 
+## 8c. Focus-loss bug class: a live-recalculating field must never rebuild its own DOM subtree (2026-09-14)
+
+Johan, testing the create-time multi-property build live, verbatim: **"trying
+the 2 properties on 1 deal - added 2nd property happy with that. now trying
+to update the price on property 1 - as soon as you enter any digit of a
+number it loses focus, so you have to click in the field again, and then
+type another digit. fix it - commission does the same, same on 2nd property
+price and commission."** All four fields — both properties' price and
+commission — on the CREATE screen only.
+
+**Root cause, confirmed by reading before anything was changed** (not a
+formatting/currency-mask issue, and not a browser quirk): every property
+row's price/commission `<input>` (rendered by `dr2cpRenderRow()`) had an
+`'input'` listener that called `dr2cpRecompute()` on every keystroke. That
+function started with `dr2cpList.innerHTML = ''` and then rebuilt EVERY row
+from scratch as fresh HTML — including the very `<input>` the user was
+typing into. The new node carried the correct, updated value (the number
+itself was never wrong), but it was a brand-new DOM element; the browser's
+focus was on the OLD, now-deleted node, so focus dropped to nothing and the
+next keystroke needed a click first. `dr2cpRecompute()` had been doing two
+unrelated jobs — updating the balance summary/banner/hidden form inputs
+(needs to run every keystroke) and rebuilding the visible row list (needs to
+run only when a property is actually added or removed) — and a per-keystroke
+listener called the combined function directly.
+
+**The fix**: split into `dr2cpRecomputeSummary()` (never touches `dr2cpList`,
+called on every price/commission keystroke and on every edit of the TOTAL
+fields) and `dr2cpRenderRows()` (rebuilds the visible rows, called ONLY on
+add/remove/primary-swap — never from a value-change listener). Verified with
+a real headless-browser session against QA1's own data (not a unit test,
+which cannot catch a focus bug): typed a full number into all four fields in
+one uninterrupted keystroke sequence with no intervening click and confirmed
+the whole number landed and focus never dropped; typed a number, moved the
+caret to the middle via keyboard navigation, typed one more digit, and
+confirmed it inserted in the middle rather than the value resetting or the
+digit landing at the end (the tell for a node-replacement regression); and
+confirmed the balance-mismatch banner still updates live throughout — the
+reconciliation feature itself was never removed, only decoupled from the row
+DOM.
+
+**Edit screen checked, not affected**: `dr2mp_edit_price`/`dr2mp_add_price`
+carry zero `'input'` listeners at all — they are plain fields set once when
+"Edit price" is clicked, submitted via a real `<form>` POST. There is no live
+total-balance reconciliation on the edit screen (properties are added one at
+a time via a real POST), so this bug class cannot occur there; confirmed by
+reading, and a live-browser spot check was attempted but blocked by
+unrelated pre-existing data corruption on QA1 (deal #178, the only
+multi-property deal that exists there, has BOTH its linked properties
+flagged `is_primary=1` — the "Edit price" button only renders for a
+non-primary row, so neither row's editor is reachable at all; reported here,
+not fixed, out of scope for this fix).
+
+**The bug CLASS, for the next person who adds a live-calculating field**: if
+a field's value change needs to update something displayed elsewhere on the
+page, the function it calls must update VALUES/TEXT CONTENT, never rebuild
+the DOM subtree the field itself lives inside — not `innerHTML = ''` +
+rebuild, not replacing a wrapping element, not anything that would destroy
+and recreate the input node currently holding focus. If the visible list
+genuinely needs to be rebuilt (a row added or removed), that rebuild must be
+triggered only by the add/remove action itself, never chained onto a
+per-keystroke value-change listener.
+
 ## 9. Scoping
 
 Every mutation above operates through `Deal`/`Property` models that already
