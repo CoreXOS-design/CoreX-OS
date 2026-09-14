@@ -145,6 +145,12 @@ class CandidatePractitionerService
             return false;
         }
         $agencyId = $candidate->effectiveAgencyId();
+        // Ruling 10 — on the RO / CO route only a full-status e-sign officer may authorise.
+        if ($agencyId && $this->esignRouteIsRoCo((int) $agencyId)) {
+            if (! in_array((int) $viewer->id, $this->esignOfficerIds((int) $agencyId), true) || ! $this->isFullStatus($viewer)) {
+                return false;
+            }
+        }
         if ($this->isAgencyAdmin($viewer)
             && $agencyId
             && (int) $viewer->effectiveAgencyId() === (int) $agencyId) {
@@ -210,9 +216,24 @@ class CandidatePractitionerService
             ->filter(fn ($u) => $this->isAgencyAdmin($u));
         $pool = $pool->merge($agencyAdmins);
 
+        // Compliance approval gate, ruling 10 (spec esign-compliance-approval-gate.md §6.5): on the
+        // RO / CO route the Reporting Officer stands where the full-status practitioner stood, so the
+        // pool narrows to e-sign officers (RO or CO) who are themselves full status — their
+        // co-signature IS the approval. Branch rule above still applies.
+        if ($this->esignRouteIsRoCo((int) $agencyId)) {
+            $officerIds = $this->esignOfficerIds((int) $agencyId);
+            $pool = $pool->filter(fn ($u) => in_array((int) $u->id, $officerIds, true) && $this->isFullStatus($u));
+        }
+
         $allAuthorisers = $pool->unique('id')->sortBy('name')->values();
 
         if ($allAuthorisers->isEmpty()) {
+            if ($this->esignRouteIsRoCo((int) $agencyId)) {
+                throw new \RuntimeException(
+                    "No full-status Reporting Officer is appointed for e-sign to authorise \"{$candidateUser->name}\"'s documents. "
+                    . 'Appoint one under Company Settings › Compliance officers, or switch the e-sign approval route.'
+                );
+            }
             throw new \RuntimeException(
                 "No eligible authorisers found for candidate practitioner \"{$candidateUser->name}\". "
                 . 'Ensure at least one Branch Manager or full-status practitioner exists in the branch, '
@@ -221,6 +242,20 @@ class CandidatePractitionerService
         }
 
         return $allAuthorisers;
+    }
+
+    /** Compliance approval gate — is this agency on the RO / CO e-sign route? */
+    public function esignRouteIsRoCo(int $agencyId): bool
+    {
+        return $agencyId > 0 && app(\App\Services\Compliance\OfficerRegistry::class)->esignRouteIsRoCo($agencyId);
+    }
+
+    /** @return array<int,int> user ids of the agency's active e-sign officers (CO + ROs). */
+    private function esignOfficerIds(int $agencyId): array
+    {
+        return app(\App\Services\Compliance\OfficerRegistry::class)
+            ->officers($agencyId, \App\Models\Compliance\OfficerAppointment::MODULE_ESIGN)
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
     /**

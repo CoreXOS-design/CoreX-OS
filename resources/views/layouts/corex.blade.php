@@ -164,6 +164,7 @@
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
         @include('components.reminder-toast')
+        @include('components.approvals-toast')
 
         {{-- AT-220 — global session armour + persistent connection indicator on
              every long-lived authenticated screen (spec: .ai/specs/session-armour.md). --}}

@@ -1242,6 +1242,9 @@
                     </form>
                 </div>
             </div>
+
+            {{-- Compliance approval gate (spec esign-compliance-approval-gate.md §7) — per-module RO / CO --}}
+            @include('corex.settings.partials.officer-sections')
             @endpermission
 
             {{-- Phase 9c-2: Information Officers (POPIA s55) — mirrors FICA pattern --}}
@@ -3849,24 +3852,12 @@
                     @endif
                 </div>
 
-                {{-- Approvers --}}
-                <div>
-                    <label class="text-sm font-semibold" style="color:var(--text-primary);">Approval Authority</label>
-                    <p class="text-xs mb-3" style="color:var(--text-muted);">These users can approve and send PPRA complaints. If none selected, all users with role Admin or Branch Manager can approve by default.</p>
-                    @php
-                        $agencyUsers = \App\Models\User::where('agency_id', auth()->user()->agency_id ?? 0)->where('is_active', true)->whereNull('deleted_at')->orderBy('name')->get();
-                        $currentApprovers = $agency->whistleblow_approver_user_ids ?? [];
-                    @endphp
-                    <div class="space-y-1.5 max-h-48 overflow-y-auto rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                        @foreach($agencyUsers as $au)
-                        <label class="flex items-center gap-2 cursor-pointer text-sm" style="color:var(--text-primary);">
-                            <input type="checkbox" name="whistleblow_approver_user_ids[]" value="{{ $au->id }}"
-                                   {{ in_array($au->id, $currentApprovers) ? 'checked' : '' }}>
-                            {{ $au->name }}
-                            <span class="text-xs" style="color:var(--text-muted);">({{ $au->role ?? 'agent' }})</span>
-                        </label>
-                        @endforeach
-                    </div>
+                {{-- Approval authority moved (compliance approval gate, spec §7): one Compliance
+                     Officer + Reporting Officers per module live under Company Settings › Users ›
+                     "Compliance reporting — Reporting Officers and Compliance Officer". --}}
+                <div class="rounded-md p-3 text-xs" style="border:1px solid var(--border); background:var(--surface-2); color:var(--text-secondary);">
+                    <strong style="color:var(--text-primary);">Who decides reports</strong> — the Compliance Officer and Reporting Officers for compliance reporting are appointed under
+                    <a href="{{ route('corex.settings', ['s' => 'user']) }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Users › Compliance officers</a>.
                 </div>
 
                 {{-- Compliance officer email --}}

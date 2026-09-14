@@ -336,6 +336,12 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Docuperfect\SupportingBatchFiled::class,
             \App\Listeners\Document\FileSupportingBatchOnSplitterCompletion::class,
         );
+        // Compliance approval gate + officer notifications (spec esign-compliance-approval-gate.md
+        // §6 / §8 / §9). All sync; each is idempotent through the gateway's dedup key.
+        Event::listen(\App\Events\Esign\ComplianceApprovalRequested::class,        \App\Listeners\Esign\NotifyOfficersOfApprovalRequest::class);
+        Event::listen(\App\Events\Esign\ComplianceApprovalDecided::class,          \App\Listeners\Esign\NotifySenderOfApprovalDecision::class);
+        Event::listen(\App\Events\Compliance\WhistleblowReportSubmitted::class,    \App\Listeners\Compliance\NotifyOfficersOfWhistleblowSubmission::class);
+        Event::listen(\App\Events\Compliance\WhistleblowReportReturned::class,     \App\Listeners\Compliance\NotifyFilerOfWhistleblowReturn::class);
 
         // The domain-event logging family — every one of these was discovery-only.
         Event::listen(\App\Events\AbstractDomainEvent::class, \App\Listeners\Agent\LogAgentEvent::class);

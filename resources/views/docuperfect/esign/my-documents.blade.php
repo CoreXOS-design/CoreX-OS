@@ -119,6 +119,22 @@
             <div class="text-xs mt-1 font-semibold" style="color: var(--ds-amber);">Needs Approval</div>
         </a>
         @endif
+        @if(($counts['approval_pending'] ?? 0) > 0)
+        <a href="#section-approval-pending" onclick="event.preventDefault(); scrollToSection('section-approval-pending')"
+           class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"
+           style="border: 2px solid var(--ds-amber); background: color-mix(in srgb, var(--ds-amber) 10%, transparent);">
+            <div class="text-[1.625rem] font-semibold" style="color: var(--ds-amber);">{{ number_format($counts['approval_pending']) }}</div>
+            <div class="text-xs mt-1 font-semibold" style="color: var(--ds-amber);">Awaiting Compliance</div>
+        </a>
+        @endif
+        @if(($counts['approval_declined'] ?? 0) > 0)
+        <a href="#section-approval-declined" onclick="event.preventDefault(); scrollToSection('section-approval-declined')"
+           class="rounded-md p-4 text-center cursor-pointer block transition-all duration-300 hover:opacity-90"
+           style="border: 2px solid var(--ds-crimson); background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);">
+            <div class="text-[1.625rem] font-semibold" style="color: var(--ds-crimson);">{{ number_format($counts['approval_declined']) }}</div>
+            <div class="text-xs mt-1 font-semibold" style="color: var(--ds-crimson);">Declined by Compliance</div>
+        </a>
+        @endif
         <a href="#section-draft" onclick="event.preventDefault(); scrollToSection('section-draft')"
            class="ds-status-card p-4 text-center transition-all duration-300 cursor-pointer block"
            style="border-left-color: var(--border);">
@@ -467,6 +483,9 @@
         </div>
     </div>
     @endif
+
+    {{-- Compliance approval gate — held / declined sections (spec §8.4) --}}
+    @include('docuperfect.esign.partials.compliance-approval-sections')
 
     {{-- ===== AWAITING SIGNATURES ===== --}}
     @if($groups['awaiting']->isNotEmpty())

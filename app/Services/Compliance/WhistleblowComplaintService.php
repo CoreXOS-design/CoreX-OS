@@ -2,7 +2,10 @@
 
 namespace App\Services\Compliance;
 
+use App\Events\Compliance\WhistleblowReportReturned;
+use App\Events\Compliance\WhistleblowReportSubmitted;
 use App\Models\Agency;
+use App\Services\Compliance\ApprovalQueueCounts;
 use App\Models\Compliance\WhistleblowAuditLog;
 use App\Models\Compliance\WhistleblowComplaint;
 use App\Models\Compliance\WhistleblowComplaintEvidence;
@@ -100,6 +103,9 @@ class WhistleblowComplaintService
         $complaint->update(['status' => 'pending_approval']);
         $this->writeAudit($complaint, 'submitted', $submittedBy);
 
+        // Compliance approval gate §9.2 — the officers are told, not left to go looking.
+        event(new WhistleblowReportSubmitted($complaint->fresh(), $submittedBy->id));
+
         return $complaint->fresh();
     }
 
@@ -183,6 +189,8 @@ class WhistleblowComplaintService
             'reason' => $reason,
         ]);
 
+        event(new WhistleblowReportReturned($complaint->fresh(), 'rejected', $reason, $rejector->id));
+
         return $complaint->fresh();
     }
 
@@ -205,6 +213,9 @@ class WhistleblowComplaintService
         $this->writeAudit($complaint, 'changes_requested', $requester, [
             'notes' => $notes,
         ]);
+
+        // §9.2 — "agent has been notified" is now true: the filer gets the approver's notes.
+        event(new WhistleblowReportReturned($complaint->fresh(), 'changes_requested', $notes, $requester->id));
 
         return $complaint->fresh();
     }
@@ -686,22 +697,14 @@ class WhistleblowComplaintService
      */
     private function validateApproverPermission(WhistleblowComplaint $complaint, User $user): void
     {
-        // Check agency approver list first
-        $agency = Agency::withoutGlobalScopes()->find($complaint->agency_id);
-        $approverIds = $agency->whistleblow_approver_user_ids ?? [];
-
-        if (!empty($approverIds) && in_array($user->id, $approverIds)) {
-            return; // Explicitly listed as approver
-        }
-
-        // Fallback: admin, branch_manager, super_admin roles
-        $allowedRoles = ['admin', 'branch_manager', 'super_admin'];
-        $userRole = $user->role ?? 'agent';
-
-        if (in_array($userRole, $allowedRoles)) {
+        // Compliance approval gate §9.1 — ONE rule, shared with the controller, the sidebar badge and
+        // the Approvals hub: the compliance-reporting CO; ROs only when the agency lets them send
+        // onward; the legacy admin / BM / super_admin roles only while no CO is appointed.
+        if (app(ApprovalQueueCounts::class)->whistleblowMayDecide($user, (int) $complaint->agency_id)) {
             return;
         }
 
+        $userRole = $user->role ?? 'agent';
         throw new \InvalidArgumentException(
             "User #{$user->id} ({$userRole}) is not authorised to approve complaints for agency #{$complaint->agency_id}."
         );

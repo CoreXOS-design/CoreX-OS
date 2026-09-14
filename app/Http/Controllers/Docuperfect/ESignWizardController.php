@@ -8241,6 +8241,17 @@ class ESignWizardController extends Controller
                 ->filter(fn ($tpl) => ($tpl->amendment_node_role ?? 'agent') === 'agent')
                 ->values(),
             'pending_approval' => $allTemplates->where('status', SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL)->values(),
+            // Compliance approval gate (spec esign-compliance-approval-gate.md §8.4) — the sender's
+            // own view of a HELD document, and of one an officer DECLINED (with the reason).
+            'approval_pending'  => $allTemplates->where('status', SignatureTemplate::STATUS_APPROVAL_PENDING)->values(),
+            'approval_declined' => $allTemplates->where('status', SignatureTemplate::STATUS_APPROVAL_DECLINED)
+                ->each(function ($tpl) {
+                    $tpl->compliance_decline_reason = \App\Models\Docuperfect\EsignApproval::withoutGlobalScopes()
+                        ->where('signature_template_id', $tpl->id)
+                        ->where('status', \App\Models\Docuperfect\EsignApproval::STATUS_DECLINED)
+                        ->latest('id')->value('decision_note');
+                })
+                ->values(),
             'draft'            => $allTemplates->where('status', SignatureTemplate::STATUS_DRAFT)->values(),
             'ready_to_sign'    => $allTemplates->where('status', SignatureTemplate::STATUS_READY)->values(),
             'awaiting'         => $allTemplates->whereIn('status', $awaitingStatuses)->values(),
@@ -8338,6 +8349,8 @@ class ESignWizardController extends Controller
             'finalization_failed' => $groups['finalization_failed']->count(),
             'flagged'             => $groups['flagged']->count(), // AT-299
             'returned'            => $groups['returned']->count(), // BUG 2 — returned-to-candidate
+            'approval_pending'    => $groups['approval_pending']->count(),  // compliance approval gate
+            'approval_declined'   => $groups['approval_declined']->count(), // compliance approval gate
             'amendment_approval'  => $groups['amendment_approval']->count(), // AT-373 — recipient amendment returned to agent
             'needs_authorisation' => $groups['needs_authorisation']->count(),
             'pending_approval'    => $groups['pending_approval']->count(),

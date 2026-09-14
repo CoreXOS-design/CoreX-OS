@@ -140,8 +140,21 @@ class AgencySetupWizardController extends Controller
             'compliance' => [
                 'whistleblow' => [
                     'officer_email' => $agency->whistleblow_compliance_officer_email ?? null,
-                    'approver_ids'  => (array) ($agency->whistleblow_approver_user_ids ?? []),
                 ],
+                // Compliance approval gate (spec §7.1) — per-module RO / CO + the two switches.
+                'officers' => (function () use ($agency) {
+                    $reg = app(\App\Services\Compliance\OfficerRegistry::class);
+                    $esign = \App\Models\Compliance\OfficerAppointment::MODULE_ESIGN;
+                    $wb    = \App\Models\Compliance\OfficerAppointment::MODULE_WHISTLEBLOW;
+                    return [
+                        'esign_co'         => $reg->currentCo($agency->id, $esign)?->user_id,
+                        'esign_ros'        => $reg->activeRos($agency->id, $esign)->pluck('user_id')->filter()->values()->all(),
+                        'wb_co'            => $reg->currentCo($agency->id, $wb)?->user_id,
+                        'wb_ros'           => $reg->activeRos($agency->id, $wb)->pluck('user_id')->filter()->values()->all(),
+                        'esign_route'      => $reg->esignRoute($agency->id),
+                        'wb_ro_can_submit' => $reg->whistleblowRosMaySubmit($agency->id),
+                    ];
+                })(),
                 'agencyMembers' => \App\Models\User::withoutGlobalScopes()
                     ->where('agency_id', $agency->id)
                     ->whereIn('role', ['admin', 'branch_manager', 'agent'])

@@ -50,6 +50,42 @@ class SignatureActivityNotification extends Notification
         );
     }
 
+    // ── Compliance approval gate (spec .ai/specs/esign-compliance-approval-gate.md §8.1) ──
+
+    public static function complianceApprovalRequested(string $senderName, string $documentName, int $documentId, string $queueUrl): self
+    {
+        return new self(
+            type: 'compliance_approval_requested',
+            message: "{$senderName} is waiting for compliance approval to send: {$documentName}",
+            url: $queueUrl,
+            documentId: $documentId,
+        );
+    }
+
+    public static function complianceApprovalGranted(string $officerName, string $documentName, int $documentId, string $url, bool $isOverride = false): self
+    {
+        return new self(
+            type: 'compliance_approval_granted',
+            message: $isOverride
+                ? "{$officerName} (Compliance Officer) overrode the decline and released {$documentName} — it has been sent"
+                : "{$officerName} approved {$documentName} — it has been sent to the first party",
+            url: $url,
+            documentId: $documentId,
+            metadata: ['is_override' => $isOverride],
+        );
+    }
+
+    public static function complianceApprovalDeclined(string $officerName, string $documentName, int $documentId, string $url, string $reason): self
+    {
+        return new self(
+            type: 'compliance_approval_declined',
+            message: "{$officerName} declined to release {$documentName} — reason: {$reason}",
+            url: $url,
+            documentId: $documentId,
+            metadata: ['reason' => $reason],
+        );
+    }
+
     public static function candidateNeedsAuthorisation(string $candidateName, string $documentName, int $documentId, string $reviewUrl, string $reviewType = 'initial_review'): self
     {
         return new self(

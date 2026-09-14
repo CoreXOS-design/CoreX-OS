@@ -101,6 +101,14 @@ class SignatureTemplate extends Model
     const STATUS_AMENDMENT_INITIALING = 'amendment_initialing';
     const STATUS_CANCELLED = 'cancelled';
 
+    // Compliance approval gate (spec .ai/specs/esign-compliance-approval-gate.md §5.4).
+    // approval_pending  — the sender has signed; HELD before it leaves the agency until a
+    //                     Reporting Officer approves (agency esign_approval_route = ro_co).
+    // approval_declined — an officer declined with a reason; the sender may ask again or cancel,
+    //                     and the Compliance Officer may override.
+    const STATUS_APPROVAL_PENDING  = 'approval_pending';
+    const STATUS_APPROVAL_DECLINED = 'approval_declined';
+
     // AT-373 (recipient wet-ink amend → edit-re-enters-the-loop). Generic over the approval chain.
     // amendment_chain_review — a wet-ink edit authored at a party's turn is walking the approval
     //   chain (A1..Am) for approval; each node places its initial before the sequential recipient

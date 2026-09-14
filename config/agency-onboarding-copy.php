@@ -523,6 +523,14 @@ return [
             // spec §5.1. Guarded internally by the 'fica_referral_settings_present'
             // hidden marker (§6.1) — the partial always renders it.
             ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveReferralSettings'],
+            // Compliance approval gate (spec esign-compliance-approval-gate.md §7.1, Non-negotiable
+            // #10a) — e-sign approval route (explain: who may send an e-sign document; affects: on
+            // the Reporting Officer route every document waits for an officer after the sender
+            // signs), the e-sign CO + ROs, the compliance-reporting CO + ROs, and "ROs may send to
+            // the PPRA" (affects: widens who may decide a report; filing is unchanged). Rendered by
+            // the step partial with the same explain / "What this changes" copy; every list and
+            // boolean carries its own _present marker so a subset post never wipes a setting.
+            ['controller' => \App\Http\Controllers\Compliance\OfficerAppointmentsController::class, 'method' => 'onboardingSave'],
         ],
     ],
 

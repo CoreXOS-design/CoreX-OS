@@ -113,6 +113,13 @@ class NotificationEventTypeSeeder extends Seeder implements SyncableReferenceSee
             $this->row('fica.referred_to_co', 'contact', 'Compliance', 'FICA referred to you (Compliance Officer)', 'none', null, null, null, 40, false, null, inApp: true, email: true, push: false),
             // AT-269 — a referral was returned to its referrer (by the CO, or auto when the CO designation changed).
             $this->row('fica.referral_returned', 'contact', 'Compliance', 'FICA referral returned to you', 'none', null, null, null, 41, false, null, inApp: true, email: true, push: false),
+            // Compliance approval gate (spec esign-compliance-approval-gate.md §5.6). The e-sign classes
+            // are in-app only (SignatureActivityNotification has no toMail); the report ones carry mail.
+            $this->row('esign.approval_requested',      'document', 'Compliance', 'E-sign document waiting for your approval', 'none', null, null, null, 44, false, null, inApp: true, email: false, push: false),
+            $this->row('esign.approval_decided',        'document', 'Compliance', 'Your e-sign document was approved or declined', 'none', null, null, null, 45, false, null, inApp: true, email: false, push: false),
+            $this->row('whistleblow.report_submitted',  'contact',  'Compliance', 'Compliance report waiting for your decision', 'none', null, null, null, 46, false, null, inApp: true, email: true, push: false),
+            $this->row('whistleblow.changes_requested', 'contact',  'Compliance', 'Changes requested on your compliance report', 'none', null, null, null, 47, false, null, inApp: true, email: true, push: false),
+            $this->row('whistleblow.rejected',          'contact',  'Compliance', 'Your compliance report was rejected', 'none', null, null, null, 48, false, null, inApp: true, email: true, push: false),
             // AT-236 — company document expiry engine. Lead time is the doc-type's own renewal_days (agency-configurable), NOT a per-user threshold → unit 'none'.
             $this->row('compliance.document_expiring', 'agent', 'Compliance', 'Company document expiring soon', 'none', null, null, null, 42, false, null, inApp: true, email: true, push: false),
             $this->row('compliance.document_expired',  'agent', 'Compliance', 'Company document expired', 'none', null, null, null, 43, false, null, inApp: true, email: true, push: false),

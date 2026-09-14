@@ -1412,6 +1412,18 @@
                 <a href="{{ route('docuperfect.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.create') ? 'active' : '' }}">Create Document</a>
                 <a href="{{ route('docuperfect.esign.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.create') ? 'active' : '' }}">E-Sign Document</a>
                 <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') !== 'authorisation' ? 'active' : '' }}">My E-Sign Documents</a>
+                {{-- Compliance approval gate (spec §8.2) — the officer queue, only for appointed e-sign officers --}}
+                @permission('esign_approvals.view')
+                @if(app(\App\Services\Compliance\OfficerRegistry::class)->isOfficer(auth()->user(), \App\Models\Compliance\OfficerAppointment::MODULE_ESIGN))
+                @php $esignApprovalBadge = app(\App\Services\Docuperfect\EsignApprovalService::class)->pendingCountFor(auth()->user()); @endphp
+                <a href="{{ route('docuperfect.approvals.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.approvals.*') ? 'active' : '' }}">
+                    Approvals
+                    @if($esignApprovalBadge > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($esignApprovalBadge) }}</span>
+                    @endif
+                </a>
+                @endif
+                @endpermission
                 @if(app(\App\Services\CandidatePractitionerService::class)->canAuthorise(auth()->user()))
                 <a href="{{ route('docuperfect.esign.myDocuments', ['filter' => 'authorisation']) }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') === 'authorisation' ? 'active' : '' }}">Authorise Documents</a>
                 @endif
@@ -1479,7 +1491,24 @@
                     <span>Back</span>
                 </button>
                 <div class="corex-nav-panel-title">Compliance</div>
-                <a href="{{ route('compliance.fica.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.fica.*') ? 'active' : '' }}">FICA</a>
+                {{-- Compliance approval gate (spec §8.2) — one query set per page, computed fresh per
+                     viewer (same reasoning as the Verification Queue / Compliance Reporting badges
+                     below: the cache store is the DB and the count varies by viewer's scope). --}}
+                @php $approvalCounts = app(\App\Services\Compliance\ApprovalQueueCounts::class)->forUser(auth()->user()); @endphp
+                @permission('approvals.view')
+                <a href="{{ route('corex.approvals.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.approvals.*') ? 'active' : '' }}">
+                    Approvals
+                    @if($approvalCounts['total'] > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($approvalCounts['total']) }}</span>
+                    @endif
+                </a>
+                @endpermission
+                <a href="{{ route('compliance.fica.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.fica.*') ? 'active' : '' }}">
+                    FICA
+                    @if(($approvalCounts['fica']['ro'] + $approvalCounts['fica']['co']) > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($approvalCounts['fica']['ro'] + $approvalCounts['fica']['co']) }}</span>
+                    @endif
+                </a>
                 @permission('access_rmcp')
                 <a href="{{ route('compliance.rmcp.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.*') && !request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP</a>
                 @endpermission
@@ -1535,14 +1564,10 @@
                      so two users in the same agency could read each other's cached scope.
                      Computing fresh removes that collision as a side effect. --}}
                 @php
-                    $wbPendingCount = (function () {
-                        $q = \App\Models\Compliance\WhistleblowComplaint::where('status', 'pending_approval');
-                        $u = auth()->user();
-                        if (!$u->hasPermission('compliance.whistleblow.view_all_agency')) {
-                            $q->where('reported_by_user_id', $u->id);
-                        }
-                        return $q->count();
-                    })();
+                    // Compliance approval gate §9.3 — same own / branch / all rule as the list and the page.
+                    $wbPendingCount = \App\Models\Compliance\WhistleblowComplaint::where('status', 'pending_approval')
+                        ->visibleTo(auth()->user())
+                        ->count();
                 @endphp
                 <a href="{{ route('compliance.whistleblow.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.whistleblow.*') ? 'active' : '' }}">
                     Compliance Reporting

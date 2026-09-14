@@ -643,6 +643,15 @@ return [
         ['key' => 'compliance.whistleblow.view_all_agency','label' => 'View All Agency Complaints',            'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 53],
         ['key' => 'compliance.whistleblow.configure',      'label' => 'Configure Approvers & PPRA Email',      'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 54],
 
+        // ── Approvals (compliance approval gate — spec esign-compliance-approval-gate.md §10) ──
+        // approvals.view       : the Approvals hub (three separately counted groups).
+        // esign_approvals.view : documents awaiting compliance approval — a SCOPED .view key
+        //                        (own / branch / all via scope_defaults) read by
+        //                        EsignApproval::scopeVisibleTo(). Deciding is by officer
+        //                        appointment, never by permission alone.
+        ['key' => 'approvals.view',        'label' => 'See the Approvals hub',                          'section' => 'compliance', 'type' => 'access', 'module' => 'approvals',       'sort_order' => 55],
+        ['key' => 'esign_approvals.view',  'label' => 'See documents awaiting compliance approval (own/branch/company)', 'section' => 'compliance', 'type' => 'access', 'module' => 'esign_approvals', 'sort_order' => 56],
+
         // ── Branches — Split Branches (Phase 2 branch isolation) ──
         // view_all = bypass BranchScope (see all branches in the agency)
         // switch   = use the "View as Branch" dropdown to impersonate a branch
@@ -744,6 +753,8 @@ return [
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
                 'compliance.whistleblow.configure',
+                // Approvals hub + e-sign approval queue (compliance approval gate)
+                'approvals.view', 'esign_approvals.view',
                 // Seller Outreach
                 'outreach.compose', 'outreach_templates.manage', 'outreach.summary.view',
                 // MIC (Phase A2) — admin gets every MIC permission
@@ -883,6 +894,8 @@ return [
                 // Whistleblower
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
                 'compliance.whistleblow.approve', 'compliance.whistleblow.view_all_agency',
+                // Approvals hub + e-sign approval queue (scope: branch via scope_defaults)
+                'approvals.view', 'esign_approvals.view',
                 // Seller Outreach
                 'outreach.compose', 'outreach.summary.view',
                 // AT-120 — Outreach Queue: .view scope (branch_manager→branch, agent→own via
@@ -976,6 +989,9 @@ return [
                 'sidebar.section.agents', 'sidebar.section.tools',
                 // Whistleblower
                 'compliance.whistleblow.view', 'compliance.whistleblow.create',
+                // Approvals hub + e-sign approval queue (scope: own — an agent appointed as an
+                // officer only ever sees documents they are already party to)
+                'approvals.view', 'esign_approvals.view',
                 // Seller Outreach — composer only; template management is admin.
                 // Summary board: agent sees their OWN row (ContactScope-enforced).
                 'outreach.compose', 'outreach.summary.view',

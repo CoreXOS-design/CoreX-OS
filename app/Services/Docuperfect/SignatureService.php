@@ -1169,6 +1169,12 @@ class SignatureService
                 // dispatched so the controller can verify invite_send_status
                 // before flashing "Document sent for signing." (same bug class
                 // as the other advanceToNextParty()-driven success flashes).
+                //
+                // Compliance approval gate (spec esign-compliance-approval-gate.md §6.1, point 2):
+                // on the RO / CO route the pre-signed document is HELD here instead of released.
+                if ($this->complianceGateHolds($template, 'agent')) {
+                    return null;
+                }
                 return $this->advanceToNextParty($template, 'agent');
             } elseif ($agentRequest) {
                 // Agent signs in-app — no email needed.
@@ -1655,6 +1661,14 @@ class SignatureService
             // route up the chain; otherwise release straight to the recipients. Chain-derived
             // replacement for the former is_candidate_flow branch (equivalent: a candidate flow
             // has authoriser node(s), a plain flow has none).
+            // Compliance approval gate (spec esign-compliance-approval-gate.md §6.1, point 1):
+            // on the RO / CO route a plain (non-candidate) document is HELD here — the sender has
+            // signed, nothing has left the agency — until an officer approves. A candidate flow is
+            // gated by the supervisor co-signature below instead (ruling 10), never twice.
+            if ($this->complianceGateHolds($template, $completedParty)) {
+                return;
+            }
+
             if ($this->chainHasAuthoriser($template)) {
                 // Chain continues: route to the authoriser for review (not directly to recipients).
                 $this->advanceToSupervisor($template);
@@ -1663,6 +1677,43 @@ class SignatureService
                 $this->advanceToNextParty($template, $completedParty);
             }
         });
+    }
+
+    /**
+     * Compliance approval gate — returns true (and HOLDS the ceremony) when the agency's e-sign
+     * approval route is ro_co and the document has no authoriser node of its own. Runs inside the
+     * caller's transaction. Spec .ai/specs/esign-compliance-approval-gate.md §6.1 / §6.2.
+     */
+    private function complianceGateHolds(SignatureTemplate $template, string $completedParty): bool
+    {
+        $gate = app(\App\Services\Docuperfect\EsignApprovalService::class);
+        if (! $gate->gateApplies($template)) {
+            return false;
+        }
+        $gate->hold($template, $completedParty);
+
+        return true;
+    }
+
+    /**
+     * Compliance approval gate — an officer approved a HELD document: run exactly the release the
+     * gate pre-empted (spec §6.3). Public because EsignApprovalService drives it.
+     */
+    public function releaseAfterComplianceApproval(SignatureTemplate $template): void
+    {
+        $template->refresh();
+        if (! in_array($template->status, [SignatureTemplate::STATUS_APPROVAL_PENDING, SignatureTemplate::STATUS_APPROVAL_DECLINED], true)) {
+            return; // already released (idempotent) — never dispatch twice
+        }
+
+        // Back to the live ceremony state the gate interrupted, then the normal release path.
+        $template->update(['status' => SignatureTemplate::STATUS_SIGNING]);
+
+        if ($this->chainHasAuthoriser($template)) {
+            $this->advanceToSupervisor($template);
+        } else {
+            $this->advanceToNextParty($template, 'agent');
+        }
     }
 
     /**

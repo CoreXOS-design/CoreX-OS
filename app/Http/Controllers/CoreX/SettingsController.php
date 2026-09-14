@@ -1226,11 +1226,16 @@ class SettingsController extends Controller
             $tierRecipients[$tier] = array_values($emails);
         }
 
-        $agency->update([
-            'whistleblow_approver_user_ids'        => !empty($approverIds) ? array_map('intval', $approverIds) : null,
+        $update = [
             'whistleblow_compliance_officer_email'  => $request->input('whistleblow_compliance_officer_email'),
             'whistleblow_tier_recipients'           => !empty(array_filter($tierRecipients, fn($a) => !empty($a))) ? $tierRecipients : null,
-        ]);
+        ];
+        // Compliance approval gate (spec §5.3): the approver list is retention-only — decisions
+        // read officer_appointments now. Only write it when a form actually posts it (§6.1 rule).
+        if ($request->has('whistleblow_approver_user_ids')) {
+            $update['whistleblow_approver_user_ids'] = !empty($approverIds) ? array_map('intval', $approverIds) : null;
+        }
+        $agency->update($update);
 
         \Illuminate\Support\Facades\Log::info('Whistleblow settings updated', [
             'user_id'   => auth()->id(),

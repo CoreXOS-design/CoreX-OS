@@ -23,11 +23,9 @@ class WhistleblowController extends Controller
         $query = WhistleblowComplaint::query()
             ->with(['reporter', 'approvedBy', 'subjects']);
 
-        // Scope: approvers see all agency complaints, agents see only their own
-        $canViewAll = $user->hasPermission('compliance.whistleblow.view_all_agency');
-        if (!$canViewAll) {
-            $query->where('reported_by_user_id', $user->id);
-        }
+        // Ruling 5 (compliance approval gate spec §9.3) — the standing own / branch / all rule,
+        // shared by show() and the sidebar badge (WhistleblowComplaint::scopeVisibleTo).
+        $query->visibleTo($user);
 
         // Filters
         if ($request->filled('status')) {
@@ -187,6 +185,12 @@ class WhistleblowController extends Controller
      */
     public function show(WhistleblowComplaint $complaint)
     {
+        // §9.3 — the page applies exactly the scope the list applies (was: none at all).
+        abort_unless(
+            WhistleblowComplaint::query()->whereKey($complaint->id)->visibleTo(Auth::user())->exists(),
+            404
+        );
+
         $complaint->load(['reporter', 'approvedBy', 'rejectedBy', 'evidence', 'sellerContact', 'subjects', 'emailLogs.sentBy']);
         $auditLog = $complaint->auditLog()->with('user')->orderBy('created_at')->get();
         $agency = \App\Models\Agency::withoutGlobalScopes()->find($complaint->agency_id);
@@ -262,17 +266,8 @@ class WhistleblowController extends Controller
      */
     private function canApprove(WhistleblowComplaint $complaint, $user): bool
     {
-        if (!$user->hasPermission('compliance.whistleblow.approve')) {
-            return false;
-        }
-
-        $agency = \App\Models\Agency::withoutGlobalScopes()->find($complaint->agency_id);
-        $approverIds = $agency->whistleblow_approver_user_ids ?? [];
-
-        if (!empty($approverIds)) {
-            return in_array($user->id, $approverIds);
-        }
-
-        return in_array($user->role ?? 'agent', ['admin', 'branch_manager', 'super_admin']);
+        // One rule everywhere (spec §9.1): CO; ROs when allowed; legacy roles while no CO exists.
+        return app(\App\Services\Compliance\ApprovalQueueCounts::class)
+            ->whistleblowMayDecide($user, (int) $complaint->agency_id);
     }
 }

@@ -1,0 +1,124 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * E-sign compliance approval gate — spec .ai/specs/esign-compliance-approval-gate.md §5.1 / §5.3.
+ *
+ * Per-module RO / CO registry (ruling 3: one CO + unlimited ROs per module, for e-sign and for
+ * compliance reporting). Mirrors the shape of fica_officer_appointments (which stays untouched):
+ * an appointment row per person per role, ended by date, never deleted.
+ *
+ * Backfill: the legacy whistleblow_approver_user_ids JSON list becomes appointments — first id →
+ * CO, the rest → RO — and whistleblow_ro_can_submit is switched on when there was more than one,
+ * so everyone who could send onward yesterday still can today. The JSON column is left in place
+ * for retention; nothing reads it for a decision any more.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('officer_appointments', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('agency_id')->constrained('agencies')->cascadeOnDelete();
+            $table->foreignId('branch_id')->nullable()->constrained('branches')->nullOnDelete();
+            $table->foreignId('user_id')->nullable()->constrained('users')->nullOnDelete();
+
+            $table->string('module', 32);   // esign | whistleblow
+            $table->string('role', 16);     // ro | co
+
+            // Historical copies — the user row may change or leave.
+            $table->string('full_name', 200);
+            $table->string('email', 255)->nullable();
+
+            $table->date('appointed_on');
+            $table->date('ended_on')->nullable();
+            $table->foreignId('appointed_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->text('notes')->nullable();
+
+            $table->timestamps();
+            $table->softDeletes();
+
+            $table->index(['agency_id', 'module', 'role', 'ended_on'], 'officer_appt_agency_module_role_idx');
+            $table->index(['user_id', 'module', 'ended_on'], 'officer_appt_user_module_idx');
+        });
+
+        // The agencies column the backfill flips must exist before we run it. It is added by
+        // 2026_09_14_100002 — but a fresh migrate runs files in name order, so guard here too.
+        if (! Schema::hasColumn('agencies', 'whistleblow_ro_can_submit')) {
+            Schema::table('agencies', function (Blueprint $table) {
+                $table->boolean('whistleblow_ro_can_submit')->default(false)->after('whistleblow_tier_recipients');
+            });
+        }
+
+        $this->backfillWhistleblowApprovers();
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('officer_appointments');
+    }
+
+    private function backfillWhistleblowApprovers(): void
+    {
+        if (! Schema::hasColumn('agencies', 'whistleblow_approver_user_ids')) {
+            return;
+        }
+
+        $agencies = DB::table('agencies')
+            ->whereNotNull('whistleblow_approver_user_ids')
+            ->get(['id', 'whistleblow_approver_user_ids']);
+
+        $today = now()->toDateString();
+
+        foreach ($agencies as $agency) {
+            $ids = json_decode((string) $agency->whistleblow_approver_user_ids, true);
+            if (! is_array($ids)) {
+                continue;
+            }
+            $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+            if ($ids === []) {
+                continue;
+            }
+
+            $users = DB::table('users')
+                ->whereIn('id', $ids)
+                ->where('agency_id', $agency->id)
+                ->whereNull('deleted_at')
+                ->get(['id', 'name', 'email', 'branch_id'])
+                ->keyBy('id');
+
+            $first = true;
+            foreach ($ids as $userId) {
+                $u = $users->get($userId);
+                if (! $u) {
+                    continue; // foreign or deleted id — never appoint it
+                }
+                DB::table('officer_appointments')->insert([
+                    'agency_id'    => $agency->id,
+                    'branch_id'    => $u->branch_id,
+                    'user_id'      => $u->id,
+                    'module'       => 'whistleblow',
+                    'role'         => $first ? 'co' : 'ro',
+                    'full_name'    => $u->name,
+                    'email'        => $u->email,
+                    'appointed_on' => $today,
+                    'appointed_by' => null,
+                    'notes'        => 'Backfilled from the legacy approver list (2026-09-14).',
+                    'created_at'   => now(),
+                    'updated_at'   => now(),
+                ]);
+                $first = false;
+            }
+
+            if (count($ids) > 1) {
+                DB::table('agencies')->where('id', $agency->id)->update(['whistleblow_ro_can_submit' => true]);
+            }
+        }
+    }
+};

@@ -404,6 +404,9 @@ Route::middleware('auth')->group(function () {
         // session-authenticated group, NOT under api.php's auth:sanctum (token-only,
         // stateful session disabled) which 401'd every poll. Self-scoped per user.
         Route::get('/command-center/reminders/due',           [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'due'])->name('command-center.reminders.due');
+        // Approvals toast feed (spec esign-compliance-approval-gate.md §8.5) — same session-auth
+        // group as the reminders feed, for the same reason. Self-scoped per user.
+        Route::get('/approvals/pending', [\App\Http\Controllers\Api\ApprovalsController::class, 'pending'])->name('approvals.pending');
         Route::post('/command-center/reminders/{log}/read',   [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'read'])->whereNumber('log')->name('command-center.reminders.read');
         Route::post('/command-center/reminders/{log}/snooze', [\App\Http\Controllers\Api\CommandCenter\ReminderController::class, 'snooze'])->whereNumber('log')->name('command-center.reminders.snooze');
 
@@ -2454,6 +2457,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{complaint}/request-changes', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'requestChanges'])->name('request-changes')->middleware('permission:compliance.whistleblow.approve');
     });
 
+    // ── Approvals hub — three separately counted groups (compliance approval gate, spec §8.3) ──
+    Route::get('/approvals', [\App\Http\Controllers\Compliance\ApprovalsHubController::class, 'index'])
+        ->middleware(['agency.required', 'permission:approvals.view'])->name('corex.approvals.index');
+
     // ── Seller Information Pack ──
     // AT-161 — gate fix: this is a SEND action (the legal-info email for sellers who
     // won't sign), not a whistleblow surface. Repointed off the borrowed
@@ -3012,6 +3019,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── Whistleblower Settings ──
     Route::post('/settings/whistleblow', [CoreXSettingsController::class, 'saveWhistleblowSettings'])->middleware('permission:compliance.whistleblow.configure')->name('corex.settings.whistleblow.save');
+
+    // ── Per-module RO / CO officers + the two switches (compliance approval gate, spec §7) ──
+    Route::post('/settings/officers/{module}/co',  [\App\Http\Controllers\Compliance\OfficerAppointmentsController::class, 'saveCo'])
+        ->where('module', 'esign|whistleblow')->middleware('permission:manage_compliance_officer')->name('corex.settings.officers.co');
+    Route::post('/settings/officers/{module}/ros', [\App\Http\Controllers\Compliance\OfficerAppointmentsController::class, 'saveRos'])
+        ->where('module', 'esign|whistleblow')->middleware('permission:manage_compliance_officer')->name('corex.settings.officers.ros');
+    Route::post('/settings/esign-approval-route',  [\App\Http\Controllers\Compliance\OfficerAppointmentsController::class, 'saveEsignRoute'])
+        ->middleware('permission:manage_compliance_officer')->name('corex.settings.esign-approval-route');
+    Route::post('/settings/whistleblow-submit-policy', [\App\Http\Controllers\Compliance\OfficerAppointmentsController::class, 'saveWhistleblowSubmitPolicy'])
+        ->middleware('permission:manage_compliance_officer')->name('corex.settings.whistleblow-submit-policy');
 
     // ── FICA Officer Appointments (unified) ──
     Route::post('/settings/fica-officers/primary', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'savePrimary'])
@@ -4349,6 +4366,12 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
 
     // ===== E-SIGN WIZARD =====
     Route::get('/esign/my-documents', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'myDocuments'])->name('docuperfect.esign.myDocuments');
+    // Compliance approval gate (spec esign-compliance-approval-gate.md §8.4) — the officer queue.
+    Route::get('/approvals',                       [\App\Http\Controllers\Docuperfect\EsignApprovalController::class, 'index'])->middleware('permission:esign_approvals.view')->name('docuperfect.approvals.index');
+    Route::post('/approvals/{approval}/approve',   [\App\Http\Controllers\Docuperfect\EsignApprovalController::class, 'approve'])->middleware('permission:esign_approvals.view')->name('docuperfect.approvals.approve');
+    Route::post('/approvals/{approval}/decline',   [\App\Http\Controllers\Docuperfect\EsignApprovalController::class, 'decline'])->middleware('permission:esign_approvals.view')->name('docuperfect.approvals.decline');
+    Route::post('/approvals/{approval}/override',  [\App\Http\Controllers\Docuperfect\EsignApprovalController::class, 'override'])->middleware('permission:esign_approvals.view')->name('docuperfect.approvals.override');
+    Route::post('/approvals/{approval}/resubmit',  [\App\Http\Controllers\Docuperfect\EsignApprovalController::class, 'resubmit'])->name('docuperfect.approvals.resubmit');
     Route::get('/esign/test-render/{templateId}', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'testRender'])->name('docuperfect.esign.testRender');
     Route::get('/esign/create', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'create'])->name('docuperfect.esign.create');
     Route::post('/esign/store', [\App\Http\Controllers\Docuperfect\ESignWizardController::class, 'store'])->name('docuperfect.esign.store');

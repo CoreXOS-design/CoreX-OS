@@ -49,6 +49,34 @@ class WhistleblowComplaint extends Model
         'ppra_acknowledged_at' => 'datetime',
     ];
 
+    // ── Scopes ──
+
+    /**
+     * Ruling 5 (spec esign-compliance-approval-gate.md §9.3) — agent own, branch manager branch,
+     * admin all. Owners resolve to all; otherwise the Role Manager scope on
+     * compliance.whistleblow.view (scope_defaults: admin=all, branch_manager=branch, agent=own),
+     * fail-closed to own. The legacy binary view_all_agency grant no longer widens this — the
+     * standing rule is the build spec. Applied by index(), show() and the sidebar badge alike —
+     * deliberately NOT a global BranchScope (the complaint stays agency-wide by design; see
+     * BranchSplitIsolationTest).
+     */
+    public function scopeVisibleTo($query, User $user)
+    {
+        if ($user->isOwnerRole()) {
+            return $query;
+        }
+
+        $scope = \App\Services\PermissionService::getDataScope($user, 'compliance.whistleblow') ?? 'own';
+
+        return match ($scope) {
+            'all'    => $query,
+            'branch' => $user->effectiveBranchId()
+                ? $query->where($this->getTable() . '.branch_id', $user->effectiveBranchId())
+                : $query->whereIn($this->getTable() . '.reported_by_user_id', $user->dataIdentityIds()),
+            default  => $query->whereIn($this->getTable() . '.reported_by_user_id', $user->dataIdentityIds()),
+        };
+    }
+
     // ── Relationships ──
 
     public function branch(): BelongsTo

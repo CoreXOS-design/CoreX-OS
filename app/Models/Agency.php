@@ -284,6 +284,9 @@ class Agency extends Model
         'whistleblow_approver_user_ids',
         'whistleblow_compliance_officer_email',
         'whistleblow_tier_recipients',
+        // Compliance approval gate (spec esign-compliance-approval-gate.md §5.2).
+        'esign_approval_route',
+        'whistleblow_ro_can_submit',
         // Communication Archive ingestion filter (AT-43).
         'communication_ingest_drop_noreply',
         'communication_ingest_blocklist_domains',
@@ -446,6 +449,7 @@ class Agency extends Model
         'pp_locations_synced_at' => 'datetime',
         'whistleblow_approver_user_ids' => 'array',
         'whistleblow_tier_recipients' => 'array',
+        'whistleblow_ro_can_submit' => 'boolean',
         // AT-50 — per-agency override of which deals_v2 statuses count as live.
         'outreach_live_deal_statuses' => 'array',
         // Properties list default ordering (agency-wide).

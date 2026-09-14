@@ -120,7 +120,7 @@
                                     $sigTemplate = $doc->signatureTemplate;
                                     $isInActiveWorkflow = $sigTemplate && in_array($sigTemplate->status, [
                                         'awaiting_tenant', 'awaiting_landlord', 'signing',
-                                        'pending_agent_approval', 'completed', 'sent',
+                                        'pending_agent_approval', 'approval_pending', 'approval_declined', 'completed', 'sent',
                                     ]);
                                 @endphp
                                 @if($isInActiveWorkflow)

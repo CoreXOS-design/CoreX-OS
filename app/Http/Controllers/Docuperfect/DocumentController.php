@@ -302,6 +302,8 @@ class DocumentController extends Controller
                 'awaiting_landlord',
                 'signing',
                 'pending_agent_approval',
+                'approval_pending',
+                'approval_declined',
                 'completed',
                 'sent',
             ];
@@ -312,6 +314,8 @@ class DocumentController extends Controller
                     'awaiting_landlord' => 'awaiting landlord signature',
                     'signing' => 'currently being signed',
                     'pending_agent_approval' => 'pending your approval',
+                    'approval_pending' => 'awaiting compliance approval',
+                    'approval_declined' => 'declined by compliance (ask again or cancel first)',
                     'completed' => 'a completed active lease',
                     'sent' => 'sent for signing',
                 ];
