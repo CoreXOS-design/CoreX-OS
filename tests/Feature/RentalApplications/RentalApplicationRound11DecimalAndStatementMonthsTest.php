@@ -452,4 +452,56 @@ final class RentalApplicationRound11DecimalAndStatementMonthsTest extends TestCa
         $response->assertOk();
         $this->assertSame('2026-08-20', $response->json('item.entry_date'));
     }
+
+    // ── Elapsed months, not calendar months touched (2026-09-14) ─────────
+    //
+    // Johan, live on QA1, exact words: "entered 25 may to 25 august - in my
+    // count thats 3 months correct? system shows 4." He was right — the
+    // original rule counted calendar months TOUCHED (May, Jun, Jul, Aug =
+    // 4) instead of months ELAPSED between the two dates (3). Named after
+    // the real case deliberately: this is a regression guard against
+    // reintroducing calendar-months-touched counting, not a trivial
+    // arithmetic check to prune later. statement_months is a DIVISOR
+    // (total_captured_income ÷ statement_months) — an inflated count
+    // understates a real applicant's monthly income and fails people who
+    // can actually afford the rent, never the reverse.
+    public function test_johans_25_may_to_25_august_statement_period_is_three_months_not_four(): void
+    {
+        $this->assertSame(
+            3,
+            RentalApplicationAssessment::calculateStatementMonths('2026-05-25', '2026-08-25'),
+            'the underlying calculation must give 3, not the old calendar-months-touched 4'
+        );
+
+        $agent = $this->agent();
+        $app = $this->application();
+
+        $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
+            'statement_period_from' => '2026-05-25',
+            'statement_period_to' => '2026-08-25',
+        ]);
+
+        $response->assertOk();
+        $this->assertSame(3, $response->json('statement_months'), 'the saved endpoint response must reflect the same corrected count');
+
+        $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
+        $this->assertSame(3, $assessment->statement_months, 'the number stored must be the number displayed — no drift');
+    }
+
+    // The spec's own original worked example (2026-09-10), corrected here
+    // alongside the fix rather than left standing as a wrong reference —
+    // 15 Jan to 20 Mar is 2 full elapsed months (Jan 15→Feb 15, Feb 15→Mar
+    // 15), not 3; the range is 5 days short of a third.
+    public function test_the_original_spec_worked_example_is_now_two_months_not_three(): void
+    {
+        $this->assertSame(2, RentalApplicationAssessment::calculateStatementMonths('2026-01-15', '2026-03-20'));
+    }
+
+    // The short-range floor (any range of 31 days or fewer reads as "1")
+    // must survive this fix untouched — it guards a different, unrelated
+    // defect and was never part of the calendar-months-touched bug.
+    public function test_the_short_range_floor_is_unaffected_by_the_elapsed_months_fix(): void
+    {
+        $this->assertSame(1, RentalApplicationAssessment::calculateStatementMonths('2026-06-28', '2026-07-03'));
+    }
 }

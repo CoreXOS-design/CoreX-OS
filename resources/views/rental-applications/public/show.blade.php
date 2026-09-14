@@ -116,9 +116,23 @@
         dead code — this template is never reached in that state — removed
         rather than left as misleading, unreachable duplication.
     --}}
+    {{--
+        Submission hard floor, AT-392 round 5, 2026-09-13 — Johan: "a silent
+        refusal or a generic error is worse than what we have now." Named
+        fields, not a generic "check the highlighted fields" line — the
+        attribute names come from RentalApplication::submissionFieldRegistry()
+        (passed as validate()'s $attributes), so this already reads "The
+        Full name field is required.", not "The full_name field is
+        required." data-rental-error-banner is the scroll target below.
+    --}}
     @if($errors->any())
-        <div class="p-3 rounded-xl bg-red-50 border border-red-100 text-red-700 text-sm mb-4">
-            Please check the highlighted field{{ $errors->count() > 1 ? 's' : '' }} below.
+        <div data-rental-error-banner class="p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm mb-4" tabindex="-1">
+            <p class="font-semibold mb-1">Please complete the following before submitting:</p>
+            <ul class="list-disc list-inside space-y-0.5">
+                @foreach ($errors->all() as $message)
+                    <li>{{ $message }}</li>
+                @endforeach
+            </ul>
         </div>
     @endif
 
@@ -135,18 +149,63 @@
                         <input type="text" value="{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '' }}" disabled
                                class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
                     </div>
-                    <x-rental-application-field name="full_name" label="Full name and surname" :value="$application->full_name" />
-                    <x-rental-application-field name="id_number" label="ID number" :value="$application->id_number" />
-                    <x-rental-application-field name="marital_status" label="Marital status" :value="$application->marital_status" />
-                    <x-rental-application-field name="citizenship" label="Citizenship" :value="$application->citizenship" />
-                    <x-rental-application-field name="spouse_name" label="Spouse full name" :value="$application->spouse_name" />
-                    <x-rental-application-field name="spouse_id" label="Spouse ID number" :value="$application->spouse_id" />
-                    <x-rental-application-field name="email" label="Email address" type="email" :value="$application->email" />
-                    <x-rental-application-field name="cell" label="Cell number" :value="$application->cell" />
+                    <x-rental-application-field name="full_name" label="Full name and surname" :value="$application->full_name" :required="in_array('full_name', $requiredFieldKeys, true)" />
+                    <x-rental-application-field name="id_number" label="ID number" :value="$application->id_number" :required="in_array('id_number', $requiredFieldKeys, true)" />
+                    {{--
+                        Ruling 1, AT-392 round 5, 2026-09-13 — marital_status
+                        converts from free text to a real select (agency-
+                        configurable option list, RentalApplicationQualifying
+                        Setting::maritalStatusOptionsFor()) so the spouse-
+                        fields condition below can actually fire. A stored
+                        value that predates this select (or that doesn't
+                        match the agency's current option list) is SHOWN, not
+                        blanked — Johan: existing values "must not be
+                        destroyed."
+                    --}}
+                    <div x-data="{
+                            maritalStatus: {{ Js::from(old('marital_status', $application->marital_status)) }},
+                            spouseImplyingLabels: {{ Js::from(collect($maritalStatusOptions)->where('implies_spouse', true)->pluck('label')->values()) }}
+                         }" class="contents">
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">Marital status @if(in_array('marital_status', $requiredFieldKeys, true)) *@endif</label>
+                            <select name="marital_status" x-model="maritalStatus"
+                                    @if(in_array('marital_status', $requiredFieldKeys, true)) required aria-required="true" @endif
+                                    class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('marital_status') ? 'border-red-400' : 'border-slate-300' }}">
+                                <option value="">— Select —</option>
+                                @foreach($maritalStatusOptions as $option)
+                                    <option value="{{ $option['label'] }}">{{ $option['label'] }}</option>
+                                @endforeach
+                                @php $knownLabels = collect($maritalStatusOptions)->pluck('label'); @endphp
+                                @if($application->marital_status && ! $knownLabels->contains($application->marital_status))
+                                    <option value="{{ $application->marital_status }}" selected>{{ $application->marital_status }} (previously recorded)</option>
+                                @endif
+                            </select>
+                            @error('marital_status') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                        <x-rental-application-field name="citizenship" label="Citizenship" :value="$application->citizenship" :required="in_array('citizenship', $requiredFieldKeys, true)" />
+                        {{--
+                            x-show (not x-if), same reasoning as the landlord
+                            section below — never destroys data the applicant
+                            already typed just because they're mid-selecting.
+                        --}}
+                        <div x-show="spouseImplyingLabels.includes(maritalStatus)" x-cloak class="contents">
+                            <x-rental-application-field name="spouse_name" label="Spouse full name" :value="$application->spouse_name"
+                                required-expr="spouseImplyingLabels.includes(maritalStatus) && {{ in_array('spouse_name', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                            <x-rental-application-field name="spouse_id" label="Spouse ID number" :value="$application->spouse_id"
+                                required-expr="spouseImplyingLabels.includes(maritalStatus) && {{ in_array('spouse_id', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                        </div>
+                    </div>
+                    <x-rental-application-field name="email" label="Email address" type="email" :value="$application->email" :required="in_array('email', $requiredFieldKeys, true)" />
+                    <x-rental-application-field name="cell" label="Cell number" :value="$application->cell" :required="in_array('cell', $requiredFieldKeys, true)" />
+                    @if(in_array('contact_method', $requiredFieldKeys, true) && ! in_array('email', $requiredFieldKeys, true) && ! in_array('cell', $requiredFieldKeys, true))
+                        <p class="text-[11px] text-slate-400 sm:col-span-2 -mt-2">At least one of email or cell number is required.</p>
+                    @endif
                     <x-rental-application-field name="work_number" label="Work number" :value="$application->work_number" />
                     <div class="sm:col-span-2">
-                        <label class="block text-xs text-slate-500 mb-1">Current residential address</label>
-                        <textarea name="current_residential_address" rows="2" class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('current_residential_address') ? 'border-red-400' : 'border-slate-300' }}">{{ old('current_residential_address', $application->current_residential_address) }}</textarea>
+                        <label class="block text-xs text-slate-500 mb-1">Current residential address @if(in_array('current_residential_address', $requiredFieldKeys, true)) *@endif</label>
+                        <textarea name="current_residential_address" rows="2"
+                                  @if(in_array('current_residential_address', $requiredFieldKeys, true)) required aria-required="true" @endif
+                                  class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('current_residential_address') ? 'border-red-400' : 'border-slate-300' }}">{{ old('current_residential_address', $application->current_residential_address) }}</textarea>
                         @error('current_residential_address') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
                 </div>
@@ -176,8 +235,9 @@
                 <h2 class="font-semibold text-slate-700 mb-3">Current Living Situation</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div class="sm:col-span-2">
-                        <label class="block text-xs text-slate-500 mb-1">Which best describes your situation right now?</label>
+                        <label class="block text-xs text-slate-500 mb-1">Which best describes your situation right now?@if(in_array('current_living_situation', $requiredFieldKeys, true)) *@endif</label>
                         <select name="current_living_situation" x-model="situation"
+                                @if(in_array('current_living_situation', $requiredFieldKeys, true)) required aria-required="true" @endif
                                 class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('current_living_situation') ? 'border-red-400' : 'border-slate-300' }}">
                             <option value="">— Select —</option>
                             @foreach(\App\Models\RentalApplication::CURRENT_LIVING_SITUATION_LABELS as $value => $label)
@@ -200,12 +260,17 @@
                     genuinely optional server-side either way.
                 --}}
                 <div x-show="situation === 'renting'" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                    <x-rental-application-field name="current_landlord_name" label="Landlord name" :value="$application->current_landlord_name" />
-                    <x-rental-application-field name="current_landlord_tel" label="Landlord tel" :value="$application->current_landlord_tel" />
-                    <x-rental-application-field name="current_rental_amount" label="Current rental amount (R)" type="text" inputmode="decimal" :value="$application->current_rental_amount" />
+                    <x-rental-application-field name="current_landlord_name" label="Landlord name" :value="$application->current_landlord_name"
+                        required-expr="situation === 'renting' && {{ in_array('current_landlord_name', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                    <x-rental-application-field name="current_landlord_tel" label="Landlord tel" :value="$application->current_landlord_tel"
+                        required-expr="situation === 'renting' && {{ in_array('current_landlord_tel', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                    <x-rental-application-field name="current_rental_amount" label="Current rental amount (R)" type="text" inputmode="decimal" :value="$application->current_rental_amount"
+                        required-expr="situation === 'renting' && {{ in_array('current_rental_amount', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
                     <x-rental-application-field name="current_rental_due_day" label="Rent due on which day of the month?" type="number" min="1" max="31" :value="$application->current_rental_due_day"
-                        hint="e.g. 1 if your rent is due on the 1st of every month." />
-                    <x-rental-application-field name="current_rental_from" label="From" type="date" :value="optional($application->current_rental_from)->format('Y-m-d')" />
+                        hint="e.g. 1 if your rent is due on the 1st of every month."
+                        required-expr="situation === 'renting' && {{ in_array('current_rental_due_day', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                    <x-rental-application-field name="current_rental_from" label="From" type="date" :value="optional($application->current_rental_from)->format('Y-m-d')"
+                        required-expr="situation === 'renting' && {{ in_array('current_rental_from', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
                     <div x-data="{ stillLiving: {{ old('current_rental_still_living', $application->current_rental_still_living) ? 'true' : 'false' }} }">
                         <label class="block text-xs text-slate-500 mb-1">To</label>
                         <input type="date" name="current_rental_to" x-ref="currentRentalTo"
@@ -238,13 +303,15 @@
                 </div>
             </section>
 
-            <section data-progress-section="Employment">
+            <section data-progress-section="Employment" x-data="{ employmentType: {{ Js::from(old('employment_type', $application->employment_type)) }} }">
                 <h2 class="font-semibold text-slate-700 mb-3">Employment</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div class="sm:col-span-2">
-                        <label class="block text-xs text-slate-500 mb-1">Employment type</label>
+                        <label class="block text-xs text-slate-500 mb-1">Employment type @if(in_array('employment_type', $requiredFieldKeys, true)) *@endif</label>
                         @php $employmentType = old('employment_type', $application->employment_type) @endphp
-                        <select name="employment_type" class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('employment_type') ? 'border-red-400' : 'border-slate-300' }}">
+                        <select name="employment_type" x-model="employmentType"
+                                @if(in_array('employment_type', $requiredFieldKeys, true)) required aria-required="true" @endif
+                                class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('employment_type') ? 'border-red-400' : 'border-slate-300' }}">
                             <option value="">— Select —</option>
                             <option value="permanently_employed" @selected($employmentType === 'permanently_employed')>Permanently employed</option>
                             <option value="business_owner_personal_account" @selected($employmentType === 'business_owner_personal_account')>Business owner — personal account</option>
@@ -252,14 +319,29 @@
                         </select>
                         @error('employment_type') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
-                    <x-rental-application-field name="employer_name" label="Employer" :value="$application->employer_name" />
-                    <x-rental-application-field name="employer_position" label="Position" :value="$application->employer_position" />
-                    <x-rental-application-field name="employer_tel" label="Employer tel" :value="$application->employer_tel" />
+                    {{--
+                        Employer fields only apply when permanently employed
+                        — Johan: "a ticked employer field must never block a
+                        self-employed applicant." x-show (not x-if) so a
+                        business owner who briefly picked the wrong option
+                        never loses what they'd already typed here.
+                    --}}
+                    <div x-show="employmentType === 'permanently_employed'" x-cloak class="contents">
+                        <x-rental-application-field name="employer_name" label="Employer" :value="$application->employer_name"
+                            required-expr="employmentType === 'permanently_employed' && {{ in_array('employer_name', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                        <x-rental-application-field name="employer_position" label="Position" :value="$application->employer_position"
+                            required-expr="employmentType === 'permanently_employed' && {{ in_array('employer_position', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                        <x-rental-application-field name="employer_tel" label="Employer tel" :value="$application->employer_tel"
+                            required-expr="employmentType === 'permanently_employed' && {{ in_array('employer_tel', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
+                    </div>
                     <x-rental-application-field name="monthly_salary" label="Gross monthly income, before deductions (R)" type="text" inputmode="decimal" :value="$application->monthly_salary"
-                        hint="The amount on your payslip BEFORE tax and other deductions — not what actually lands in your bank account." />
-                    <div class="sm:col-span-2">
+                        hint="The amount on your payslip BEFORE tax and other deductions — not what actually lands in your bank account."
+                        :required="in_array('monthly_salary', $requiredFieldKeys, true)" />
+                    <div x-show="employmentType === 'permanently_employed'" x-cloak class="sm:col-span-2">
                         <label class="block text-xs text-slate-500 mb-1">Employer address</label>
-                        <textarea name="employer_address" rows="2" class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('employer_address') ? 'border-red-400' : 'border-slate-300' }}">{{ old('employer_address', $application->employer_address) }}</textarea>
+                        <textarea name="employer_address" rows="2"
+                                  x-bind:required="employmentType === 'permanently_employed' && {{ in_array('employer_address', $requiredFieldKeys, true) ? 'true' : 'false' }}"
+                                  class="w-full rounded-lg border px-3 py-2 text-sm {{ $errors->has('employer_address') ? 'border-red-400' : 'border-slate-300' }}">{{ old('employer_address', $application->employer_address) }}</textarea>
                         @error('employer_address') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
                 </div>
@@ -268,9 +350,20 @@
             <section data-progress-section="Lease Requirement">
                 <h2 class="font-semibold text-slate-700 mb-3">Lease Requirement</h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <x-rental-application-field name="occupation_date" label="Effective date of occupation" type="date" :value="optional($application->occupation_date)->format('Y-m-d')" />
-                    <div x-data="{ months: {{ old('rental_term_months', $application->rental_term_months) ?: 'null' }} }" class="sm:col-span-2">
-                        <label class="block text-xs text-slate-500 mb-1">Rental terms required</label>
+                    <x-rental-application-field name="occupation_date" label="Effective date of occupation" type="date" :value="optional($application->occupation_date)->format('Y-m-d')"
+                        :required="in_array('occupation_date', $requiredFieldKeys, true)" />
+                    {{--
+                        No native `required` on the hidden input driving this
+                        button group — a hidden control can't receive focus,
+                        so the browser's own validation bubble would silently
+                        block submit with nothing visible to the applicant,
+                        which is worse than no client-side check at all
+                        (server-side + the error banner/scroll-to-error below
+                        are the real, always-visible check for this field).
+                    --}}
+                    <div x-data="{ months: {{ old('rental_term_months', $application->rental_term_months) ?: 'null' }} }"
+                         class="sm:col-span-2 {{ $errors->has('rental_term_months') ? 'border border-red-400 rounded-lg p-2' : '' }}">
+                        <label class="block text-xs text-slate-500 mb-1">Rental term required @if(in_array('rental_term_months', $requiredFieldKeys, true)) *@endif</label>
                         <input type="hidden" name="rental_term_months" :value="months">
                         <div class="flex gap-2">
                             <template x-for="m in [6, 12, 24]" :key="m">
@@ -299,19 +392,21 @@
             </section>
 
             <section data-progress-section="Declaration">
-                <h2 class="font-semibold text-slate-700 mb-2">Declaration</h2>
+                <h2 class="font-semibold text-slate-700 mb-2">Declaration @if(in_array('declaration_signature', $requiredFieldKeys, true)) *@endif</h2>
                 <p class="text-xs text-slate-500 mb-2">I hereby declare that all the above information given is true and accurate.</p>
                 @include('rental-applications.public._signature-pad', ['field' => 'declaration_signature', 'label' => 'declaration'])
+                @error('declaration_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
             </section>
 
             <section data-progress-section="Tenant Profile Network Consent">
-                <h2 class="font-semibold text-slate-700 mb-2">Tenant Profile Network Consent</h2>
+                <h2 class="font-semibold text-slate-700 mb-2">Tenant Profile Network Consent @if(in_array('tpn_consent_signature', $requiredFieldKeys, true)) *@endif</h2>
                 <p class="text-xs text-slate-500 mb-2">
                     The tenant hereby consents that, and authorises the Landlord or agent to, at all times contact,
                     request and obtain information from any credit provider or registered credit bureau relevant to
                     an assessment of the tenant's creditworthiness.
                 </p>
                 @include('rental-applications.public._signature-pad', ['field' => 'tpn_consent_signature', 'label' => 'TPN consent'])
+                @error('tpn_consent_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
             </section>
 
             <input type="hidden" name="declaration_signature" value="{{ old('declaration_signature') }}" x-ref="declaration_signature_input">
@@ -765,5 +860,37 @@ function rentalApplicationForm() {
     };
 }
 </script>
+@if ($errors->any())
+    {{--
+        Submission hard floor, AT-392 round 5, 2026-09-13 — Johan: the
+        applicant "must be taken to the first one." Deliberately a small,
+        standalone script rather than woven into rentalApplicationForm()
+        above — this only ever needs to run once, on a page load that
+        already failed validation, and keeping it separate keeps the merge
+        surface small on a heavily-touched file. Scrolls to the error
+        banner itself (which already names every missing field in plain
+        language) rather than guessing which individual input is "first" —
+        several missing fields live inside hidden inputs (rental_term_months,
+        the signatures) that can't be focused at all.
+    --}}
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Prefer the first genuinely focusable errored field (any real
+            // text/select/textarea input carries this class whenever
+            // $errors->has() is true for it) — falls back to the banner
+            // itself for an error whose field is a hidden input (the
+            // signatures, the rental-term button group) that can't be
+            // scrolled to as a focus target at all.
+            var target = document.querySelector('input.border-red-400, select.border-red-400, textarea.border-red-400')
+                || document.querySelector('[data-rental-error-banner]');
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (typeof target.focus === 'function') {
+                    target.focus({ preventScroll: true });
+                }
+            }
+        });
+    </script>
+@endif
 </body>
 </html>

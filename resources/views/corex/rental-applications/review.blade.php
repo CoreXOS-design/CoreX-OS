@@ -508,6 +508,31 @@
            by .dr2-distribute/.dr2-pipeline elsewhere in this codebase. */
         .rental-review-aside .corex-input { padding: 4px 6px; }
 
+        /* FIX (2026-09-14, Johan live on QA1) — per-document Save button was
+           scrolling off with the rest of the document, exactly the same
+           class of "control stranded off-screen while scrolling" problem
+           the sticky action bar at the top of this page already solved
+           once (see that component's own comment above). Same mechanism
+           here, not a new one: position:sticky against #continuousViewScroll
+           — the nearest scrolling ancestor — identical in shape to
+           .rental-review-aside's own sticky rule just above, just a
+           different scroll container. Stays pinned to the TOP of that
+           document's own section only while it's the one in view; the next
+           document's own bar takes over once scrolled past, same as an
+           agent would expect. Solid background + a bottom border, since
+           this now sits ON TOP of the document's own page images while
+           pinned, not beside them. */
+        .rr-doc-save-bar {
+            position: sticky; top: 0; z-index: 5;
+            background: var(--surface); padding: 6px 2px;
+            border-bottom: 1px solid transparent;
+        }
+        /* Loud only while there's something to lose — see the button's own
+           :class binding for the quiet/outline default. The bar's own
+           bottom border picks up colour too, so the "something needs
+           attention" read isn't riding on the button alone. */
+        .rr-doc-save-bar-dirty { border-bottom-color: var(--ds-amber, #f59e0b); }
+
         /* The capture-ledger tally — numbered rows, INCOME then EXPENSES,
            each a single grid line: badge | date | amount | jump glyph. */
         .rr-ledger-group-label {
@@ -656,10 +681,41 @@
         .rr-ledger-strike:disabled { cursor: default; opacity: 0.5; }
     </style>
 
+    @php
+        // 2026-09-14, Johan live on QA1: the collapsed document rail showed
+        // only a stray mark count (meaningless when blank/all-same) with no
+        // way to tell WHICH document a circle was. His ask: label each by
+        // its TAGGED TYPE, not the filename — but application 230 (his own
+        // test case) has three documents typed "Bank Statement", so type
+        // alone still collapses three circles to one meaningless label.
+        // Disambiguates by appending a 1-based ordinal ONLY within a type
+        // that repeats — "Bank Statement 1/2/3" — computed off document id
+        // (upload order), never display order, so it's stable across
+        // reloads exactly like the pen-letter assignment two sections
+        // below already is. A type that appears once stays bare. Untyped
+        // documents (documentType null) are never grouped against each
+        // other by this — each is its own group of one, since the filename
+        // fallback is already distinguishing.
+        $cvDocLabels = [];
+        foreach (
+            $documents->sortBy(fn ($row) => $row['document']->id)
+                ->groupBy(fn ($row) => $row['document']->document_type_id ?? ('untyped-' . $row['document']->id))
+            as $cvDocGroup
+        ) {
+            $cvDocMultiple = $cvDocGroup->count() > 1;
+            $cvDocOrdinal = 0;
+            foreach ($cvDocGroup as $cvDocRow) {
+                $cvDocOrdinal++;
+                $cvDocBase = $cvDocRow['document']->documentType->label ?? $cvDocRow['document']->original_name;
+                $cvDocLabels[$cvDocRow['document']->id] = $cvDocMultiple ? ($cvDocBase . ' ' . $cvDocOrdinal) : $cvDocBase;
+            }
+        }
+    @endphp
     <div class="rental-review-columns mt-5" x-data="rentalReviewLayout({
          initialCvDocs: {{ Js::from($documents->map(fn ($row) => [
              'id' => $row['document']->id,
-             'label' => $row['document']->documentType->label ?? $row['document']->original_name,
+             'label' => $cvDocLabels[$row['document']->id],
+             'original_name' => $row['document']->original_name,
              'mark_count' => $row['mark_count'],
          ])->values()) }},
      })">
@@ -1176,12 +1232,41 @@
                                 <button type="button" title="Show document list" @click="docsPanelExpanded = true; try { localStorage.setItem('rentalMarkupDocsExpanded', '1'); } catch (_) {}"
                                         class="flex-shrink-0 flex items-center justify-center rounded-md"
                                         style="width: 22px; height: 22px; color: var(--text-secondary); font-size: 13px; border-top: 1px solid var(--border); padding-top: 4px;">&rsaquo;</button>
+                                {{-- 2026-09-14, Johan live on QA1: "collapsed
+                                     shows garbage... some show a 1, some
+                                     blank, all the same colour means
+                                     nothing." The lone digit was mark_count
+                                     (real signal — how many capture marks
+                                     are on that document) with no label to
+                                     say what it was a count OF. Matches the
+                                     pen rail's own established treatment
+                                     (document-highlighter-pages.blade.php's
+                                     capturePickerHighlighters() loop, same
+                                     40px item width, same shrink-to-fit
+                                     label under a circle) rather than
+                                     inventing a second small-label pattern
+                                     on the same screen: circle stays a
+                                     plain click target, mark_count moves to
+                                     a small corner badge (same absolute
+                                     top/right positioning the pen rail's
+                                     own "active" checkmark badge already
+                                     uses) so it survives instead of being
+                                     thrown away, and the TYPE label (already
+                                     disambiguated server-side above for
+                                     repeated types) renders underneath,
+                                     auto-sized by computeCvDocLabelFontSize()
+                                     in init() below. --}}
                                 <template x-for="d in cvDocs" :key="d.id">
-                                    <button type="button" @click="scrollToDoc(d.id)" :title="d.label + (d.mark_count ? ' — ' + d.mark_count + ' mark' + (d.mark_count === 1 ? '' : 's') : '')"
-                                            class="flex-shrink-0 flex items-center justify-center rounded-full"
-                                            :style="{ width: '26px', height: '26px', fontSize: '10px', fontWeight: '700', border: (activeCvDocId === d.id) ? '2px solid var(--ds-blue, #2563eb)' : '1px solid var(--border)', color: (activeCvDocId === d.id) ? 'var(--ds-blue, #2563eb)' : 'var(--text-secondary)', background: 'var(--surface)' }">
-                                        <span x-text="d.mark_count || ''"></span>
-                                    </button>
+                                    <div class="flex-shrink-0 mx-auto" style="width: 40px;">
+                                        <button type="button" @click="scrollToDoc(d.id)" :title="d.label + ' (' + d.original_name + ')' + (d.mark_count ? ' — ' + d.mark_count + ' mark' + (d.mark_count === 1 ? '' : 's') : '')"
+                                                class="relative flex items-center justify-center rounded-full mx-auto"
+                                                :style="{ width: '26px', height: '26px', border: (activeCvDocId === d.id) ? '2px solid var(--ds-blue, #2563eb)' : '1px solid var(--border)', background: 'var(--surface)' }">
+                                            <template x-if="d.mark_count">
+                                                <span style="position: absolute; top: -4px; right: -4px; color: #fff; background: var(--ds-blue, #2563eb); border-radius: 9999px; min-width: 14px; height: 14px; padding: 0 2px; font-size: 9px; font-weight: 800; line-height: 14px; text-align: center;" x-text="d.mark_count"></span>
+                                            </template>
+                                        </button>
+                                        <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: cvDocLabelFontSizePx + 'px' }" :title="d.label" x-text="d.label"></p>
+                                    </div>
                                 </template>
                             </div>
                         </template>
@@ -1279,13 +1364,29 @@
                                                 }, { root: cvScroll, rootMargin: '1000px 0px' });
                                                 cvIo.observe($el);
                                              ">
-                                            <div class="flex items-center gap-3 mb-2">
+                                            {{-- FIX (2026-09-14, Johan live on QA1): "the save button next to
+                                                 2 markers shows save. which scrolls off the screen again and
+                                                 by the time you get to the bottom of the document you dont
+                                                 know about it." rr-doc-save-bar (own <style> rule above) pins
+                                                 this row to the top of #continuousViewScroll — the same
+                                                 position:sticky mechanism .rental-review-aside already uses on
+                                                 this exact screen, not a new floating/following control. Stays
+                                                 pinned only while THIS document's own section is in view,
+                                                 which is exactly the scenario he described (one long document,
+                                                 not needing to chase a control across documents). Label folds
+                                                 in the count ("Save 2 marks", not just "Save" — his own words:
+                                                 "tells an agent something Save does not"), and the button
+                                                 itself is loud (filled) while dirty, quiet (outline) once
+                                                 everything's saved — the absence of urgency is itself the
+                                                 signal, same instinct as justSaved's own quiet confirmation
+                                                 just below. --}}
+                                            <div class="flex items-center gap-3 mb-2 rr-doc-save-bar" :class="{ 'rr-doc-save-bar-dirty': dirty }">
                                                 <span class="text-xs font-semibold" style="color: var(--text-secondary);" x-show="!loading">
                                                     <span x-text="markCount()"></span> mark<span x-show="markCount() !== 1">s</span>
                                                 </span>
-                                                <button type="button" class="corex-btn-primary text-xs" x-show="!loading && !loadError"
-                                                        :disabled="applying || pagesLoading" :title="pagesLoading ? 'Still loading the rest of this document' : ''"
-                                                        x-text="applying ? 'Saving…' : (pagesLoading ? 'Loading…' : 'Save')" @click="applyHighlights()"></button>
+                                                <button type="button" :class="dirty ? 'corex-btn-primary' : 'corex-btn-outline'" class="text-xs" x-show="!loading && !loadError"
+                                                        :disabled="applying || pagesLoading" :title="pagesLoading ? 'Still loading the rest of this document' : (dirty ? 'Unsaved highlights or notes on this document' : 'Everything on this document is saved')"
+                                                        x-text="applying ? 'Saving…' : (pagesLoading ? 'Loading…' : (dirty ? ('Save ' + markCount() + ' mark' + (markCount() === 1 ? '' : 's')) : 'Save'))" @click="applyHighlights()"></button>
                                                 <span class="text-xs" x-show="justSaved" x-cloak style="color: var(--ds-emerald, #059669);">&check; Saved</span>
                                             </div>
                                             @include('corex.rental-applications.partials.document-highlighter-pages')
@@ -2600,6 +2701,13 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         // Short-range floor (2026-09-13) — must stay in sync with
         // RentalApplicationAssessment::calculateStatementMonths()'s own
         // copy of this same rule; see that method's docblock for why.
+        //
+        // ELAPSED-MONTHS FIX (2026-09-14, Johan, live on QA1: 25 May to 25
+        // Aug read as 4, should be 3) — this used to count calendar months
+        // TOUCHED by the range instead of months ELAPSED between the two
+        // dates. Mirrors the server fix exactly: a month only counts once
+        // the day-of-month it started on has been reached again (matching
+        // Carbon's int-truncated diffInMonths() on the PHP side).
         calculatedStatementMonths() {
             if (!this.statementPeriodFrom || !this.statementPeriodTo) return null;
             const from = new Date(this.statementPeriodFrom + 'T00:00:00');
@@ -2607,7 +2715,8 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
             if (isNaN(from) || isNaN(to)) return null;
             const totalDays = Math.round((to - from) / 86400000) + 1;
             if (totalDays <= 31) return 1;
-            const months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1;
+            let months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+            if (to.getDate() < from.getDate()) months -= 1;
             return Math.max(1, months);
         },
         // Round 16 — the unpaid-transactions red flag.
@@ -2679,11 +2788,79 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
             }
             this.doSubmitForApproval();
         },
+        // 2026-09-14, Johan live on QA1, overruling the warn-before-submit
+        // design agreed earlier the same day: "why click save and then
+        // submit. pure submit calls a save action already." Asking an
+        // agent "you have unsaved work, save it?" has exactly one sane
+        // answer — so submit now DOES the saving itself, in order, and
+        // only proceeds to the actual submission once every save has
+        // genuinely succeeded. Reuses the two save actions that already
+        // exist (performSave() for the assessment fields, each open
+        // document's own applyHighlights() for its marks) rather than a
+        // third, parallel save path — "extend it, don't bolt a second one
+        // on." The standalone Save button next to each document is
+        // unchanged and still useful mid-document; submit simply no
+        // longer depends on an agent having remembered to use it.
+        //
+        // THE ONE THING THAT MUST BE RIGHT: if any save fails —
+        // validation, network, anything — submission aborts right there.
+        // Nothing is sent, the work stays exactly as it was on screen, and
+        // agentActionStatus says plainly what happened and why nothing
+        // went through. A save that silently "succeeds" into a submission
+        // regardless would just rebuild the same data loss with extra
+        // steps and a false sense of safety.
+        /** Wait out any already-in-flight autosave, then call performSave() fresh and await its real result — never the stale "already in progress" placeholder performSave() returns to a call that arrived mid-flight. */
+        async saveFieldsAwaitable() {
+            while (this.saveInFlight) {
+                await new Promise((r) => setTimeout(r, 50));
+            }
+            return this.performSave();
+        },
+        /** Every currently-mounted, genuinely dirty document highlighter, saved in turn via its OWN applyHighlights() — stops at the first failure and names which document it was. */
+        async saveAllDirtyDocuments() {
+            const roots = Array.from(document.querySelectorAll('[x-data]'));
+            for (const el of roots) {
+                // Only a real, section-mounted highlighter instance — see
+                // .ai/audits/2026-09-14-rental-highlighter-instance-count-
+                // testability-gap.md: this page carries some [x-data]
+                // matches that expose the same methods but sit outside any
+                // <section>, and behave nothing like the real, visible
+                // per-document instances an agent actually interacts with.
+                if (!el.closest('section')) continue;
+                let inst = null;
+                try { inst = window.Alpine.$data(el); } catch (_) { continue; }
+                if (!inst || typeof inst.applyHighlights !== 'function' || !inst.dirty) continue;
+                await inst.applyHighlights();
+                if (inst.applyError) {
+                    return { ok: false, label: inst.label || 'a document', error: inst.applyError };
+                }
+            }
+            return { ok: true };
+        },
         async doSubmitForApproval() {
             if (this.submittingForApproval) return;
             this.incompleteSubmitWarningOpen = false;
             this.submittingForApproval = true;
-            this.agentActionStatus = '';
+            this.agentActionError = false;
+            this.agentActionStatus = 'Saving…';
+
+            const fieldsResult = await this.saveFieldsAwaitable();
+            if (!fieldsResult.ok) {
+                this.submittingForApproval = false;
+                this.agentActionError = true;
+                this.agentActionStatus = 'Could not submit — saving the assessment failed (' + (fieldsResult.error || 'unknown error') + '). Nothing was submitted; fix this and try again.';
+                return;
+            }
+
+            const marksResult = await this.saveAllDirtyDocuments();
+            if (!marksResult.ok) {
+                this.submittingForApproval = false;
+                this.agentActionError = true;
+                this.agentActionStatus = 'Could not submit — saving highlights/notes on "' + marksResult.label + '" failed (' + (marksResult.error || 'unknown error') + '). Nothing was submitted; fix this and try again.';
+                return;
+            }
+
+            this.agentActionStatus = 'Submitting…';
             try {
                 const res = await fetch(submitForApprovalUrl, {
                     method: 'POST',
@@ -2743,7 +2920,7 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         performSave() {
             if (this.saveInFlight) {
                 this.saveQueued = true;
-                return;
+                return Promise.resolve({ ok: false, error: 'save already in progress' });
             }
             this.saveInFlight = true;
             this.saveStatus = 'Saving…';
@@ -2757,7 +2934,15 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
             // is now empty" and soft-deleted every existing row — see
             // RentalApplicationReviewController::saveAssessment()'s own
             // comment for the full reasoning.
-            fetch(saveUrl, {
+            // 2026-09-14, Johan live on QA1 — now RETURNS a
+            // Promise<{ok, error}>, additive: the debounced autosave via
+            // save() still fires-and-forgets exactly as before (it never
+            // reads the return value), but submitForApproval() below awaits
+            // this same, unmodified save path instead of inventing a
+            // second one — "pure submit calls a save action already", his
+            // words — to know definitively whether the assessment actually
+            // persisted before it lets a submission proceed.
+            return fetch(saveUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -2790,9 +2975,11 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
                         this.statementMonths = data.statement_months;
                     }
                     this.saveStatus = data.saved_at ? ('Saved at ' + formatTime(data.saved_at)) : 'Saved';
+                    return { ok: true };
                 } else if (status === 409 && data.reason === 'generation_conflict') {
                     this.saveError = true;
                     this.saveStatus = 'This application changed since you opened it — reload to see the new version.';
+                    return { ok: false, error: this.saveStatus };
                 } else {
                     // CORRECTION (2026-09-13, QA1 item 5, fixed on Johan's
                     // go) — this used to always show the generic "Could not
@@ -2812,10 +2999,12 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
                     this.saveError = true;
                     this.saveStatus = data.error || data.message || this.firstValidationMessage(data.errors)
                         || 'Something went wrong saving this — reload and try again.';
+                    return { ok: false, error: this.saveStatus };
                 }
             }).catch(() => {
                 this.saveError = true;
                 this.saveStatus = 'Could not save — check your connection';
+                return { ok: false, error: this.saveStatus };
             }).finally(() => {
                 this.saveInFlight = false;
                 if (this.saveQueued) {
@@ -2866,6 +3055,36 @@ function rentalReviewLayout({ initialCvDocs } = {}) {
         activeCvDocId: null,
         docsPanelExpanded: false,
         _cvScrollSpyObserver: null,
+        // 2026-09-14, Johan live on QA1 — same shrink-to-fit-then-ellipsis
+        // treatment as the pen rail's own computePenLabelFontSize()
+        // (document-highlighter-script.blade.php), reimplemented here
+        // rather than called directly: cvDocs lives on THIS component
+        // (rentalReviewLayout), the pen labels on a sibling/child
+        // rentalDocumentHighlighter() instance — different Alpine scopes,
+        // same algorithm. ONE shared size for the whole rail (not
+        // per-label) so it reads as one deliberate scale, chosen as the
+        // largest size at which the single longest label still fits the
+        // 40px item's real label width (36px, a couple px breathing room
+        // each side — same margin the pen rail uses for the same 40px
+        // column). Floors at 7px, then the label's own CSS ellipses —
+        // the full, disambiguated label is always in the title tooltip
+        // regardless of what's visibly truncated.
+        cvDocLabelFontSizePx: 7,
+        computeCvDocLabelFontSize() {
+            const labels = this.cvDocs.map(d => d.label || '').filter(Boolean);
+            if (!labels.length) return;
+            const MAX_SIZE = 8, MIN_SIZE = 7, AVAILABLE_WIDTH_PX = 36;
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext && canvas.getContext('2d');
+            if (!ctx) { this.cvDocLabelFontSizePx = MIN_SIZE; return; }
+            let chosen = MIN_SIZE;
+            for (let size = MAX_SIZE; size >= MIN_SIZE; size -= 0.5) {
+                ctx.font = size + 'px system-ui, -apple-system, sans-serif';
+                const widestPx = Math.max(...labels.map(l => ctx.measureText(l).width));
+                if (widestPx <= AVAILABLE_WIDTH_PX) { chosen = size; break; }
+            }
+            this.cvDocLabelFontSizePx = chosen;
+        },
         initDocsFold() {
             try { this.docsPanelExpanded = localStorage.getItem('rentalMarkupDocsExpanded') === '1'; } catch (_) {}
         },
@@ -3060,6 +3279,7 @@ function rentalReviewLayout({ initialCvDocs } = {}) {
                 if (value) { this.startCvScrollSpy(); } else { this.stopCvScrollSpy(); }
             });
             this.initDocsFold();
+            this.computeCvDocLabelFontSize();
 
             this.$el.style.setProperty('--rr-strip-h', this.stripHeight + 'px');
 

@@ -260,7 +260,13 @@ class PropertyWizardController extends Controller
             $contact = \App\Models\Contact::find($contactId);
             if ($contact) {
                 $role = ($property->listing_type ?? 'sale') === 'rental' ? 'landlord' : 'seller';
-                $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
+                // ContactPropertyLinker, not syncWithoutDetaching() —
+                // `property_id` can resume/edit an EXISTING draft (AT-210,
+                // validated above), a real risk of colliding with a
+                // soft-deleted contact_property row. See .ai/specs/
+                // rental-applications.md, "The contact_property hard-delete
+                // fix".
+                \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $role);
                 \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
                 event(new \App\Events\Contact\ContactLinkedToProperty(
                     contact: $contact,

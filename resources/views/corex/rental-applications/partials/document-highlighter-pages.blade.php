@@ -285,8 +285,12 @@
          rounded-md + explicit `background: var(--surface)` +
          `border: 1px solid var(--border)` pattern, never a `.corex-card`
          class — matched here instead of inventing a new convention. --}}
+    {{-- data-capture-chip-form — measured by measureCaptureChip() (see the
+         script partial) for the chip's REAL rendered height, replacing a
+         hardcoded 240px guess that under-estimated tall content and was
+         the actual cause of Johan's "runs off the bottom" report. --}}
     <form x-show="captureChip" x-cloak :style="captureChipStyle()" @submit.prevent="confirmCaptureChip()"
-          @keydown.escape.prevent="cancelCaptureChip()"
+          @keydown.escape.prevent="cancelCaptureChip()" data-capture-chip-form
           class="rounded-md p-3" style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
         <template x-if="captureChip">
             <div class="space-y-2">

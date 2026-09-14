@@ -1275,7 +1275,14 @@ class DealRegisterController extends Controller
             // here while another deal is open is exactly what must be caught.
             app(\App\Services\Property\PropertyOwnershipGuard::class)
                 ->assertCanLink($property, $role, $excludingDealId);
-            $property->contacts()->attach($cid, ['role' => $role]);
+            // ContactPropertyLinker, not a bare attach() — the exists()
+            // check above already preserves this method's own "no silent
+            // re-roling" rule for an ACTIVE link (we never reach this line
+            // for one); what a plain attach() would still get wrong is a
+            // TRASHED row for this exact pair, which a blind insert would
+            // collide with. The linker restores it instead. See .ai/specs/
+            // rental-applications.md, "The contact_property hard-delete fix".
+            \App\Services\Property\ContactPropertyLinker::link($cid, $property->id, $role);
             if ($role === 'seller') {
                 \App\Models\PropertySellerLink::ensureExists((int) $property->id, $cid);
             }

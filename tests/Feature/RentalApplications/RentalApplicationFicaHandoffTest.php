@@ -73,9 +73,18 @@ final class RentalApplicationFicaHandoffTest extends TestCase
 
     private function submitPayload(): array
     {
+        // AT-392 round 5, 2026-09-13 — submit() now enforces the agency's
+        // default-required fields; this file's tests are about the FICA
+        // hand-off, not field completeness, so every default-required
+        // field is supplied here (full_name/id_number were already
+        // present since other assertions in this file depend on them).
         return [
             'full_name' => 'Sipho Ndlovu',
             'id_number' => '8501015800083',
+            'email' => 'sipho@example.co.za',
+            'current_residential_address' => '1 Example Road, Ramsgate',
+            'monthly_salary' => 20000,
+            'rental_term_months' => 12,
             'declaration_signature' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
             'tpn_consent_signature' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         ];

@@ -359,11 +359,20 @@ class P24LeadService
             $c->agency_id = $agencyId;
             $c->save();
 
-            // Attach to property as a 'lead' role if we have one.
+            // Attach to property as a 'lead' role if we have one. Never a
+            // bare syncWithoutDetaching() — an inbound, unattended webhook
+            // is the one place a blind-insert collision against a
+            // soft-deleted contact_property row would fail silently
+            // (highest-risk item, .ai/specs/rental-applications.md, "The
+            // contact_property hard-delete fix"). $c is always a brand-new
+            // contact here so this specific call can't actually collide,
+            // but every write to this pivot goes through the linker
+            // regardless — no future code path near it gets to reintroduce
+            // this class of bug by looking "the same" as this one.
             if ($listingId) {
                 $property = Property::query()->withoutGlobalScopes()->find($listingId);
                 if ($property) {
-                    $property->contacts()->syncWithoutDetaching([$c->id => ['role' => 'lead']]);
+                    \App\Services\Property\ContactPropertyLinker::link($c->id, $property->id, 'lead');
                 }
             }
             return $c;

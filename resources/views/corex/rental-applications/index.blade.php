@@ -394,6 +394,26 @@
                              naming fix for that button specifically. --}}
                         @if(in_array($application->status, \App\Http\Controllers\CoreX\RentalApplicationController::REVIEWABLE_STATUSES, true))
                             <a href="{{ route('corex.rental-applications.review', $application) }}" class="corex-btn-outline text-xs">Review &amp; Assess</a>
+                        @elseif($application->status === 'approved' && ! $application->applicant_notified_at)
+                            {{-- FIX (2026-09-14, Johan live on QA1: "says
+                                 approved, ready to send. how do I now send
+                                 it?") — the row already says "Approved —
+                                 ready to send" (see the badge above), but
+                                 REVIEWABLE_STATUSES doesn't include
+                                 'approved', so this list never linked to
+                                 the one screen that actually has the send
+                                 control — RentalApplicationReviewController::
+                                 show() has always allowed it in for exactly
+                                 this state ($canStillActHere, that
+                                 controller's own comment), the list just
+                                 never offered the door. "Send approval" —
+                                 not "Review & Assess" — because there is
+                                 nothing left to review or assess once
+                                 approved; naming the actual destination
+                                 (the wishlist-confirm-then-send step) per
+                                 this file's own labelling-fix convention
+                                 above. --}}
+                            <a href="{{ route('corex.rental-applications.review', $application) }}" class="corex-btn-outline text-xs">Send approval</a>
                         @endif
                         <a href="{{ route('corex.rental-applications.show', $application) }}" class="corex-btn-outline text-xs">{{ in_array($application->status, \App\Models\RentalApplication::AGENT_EDIT_LOCKED_STATUSES, true) ? 'View' : 'Edit' }}</a>
                         {{-- REGRESSION FIX (2026-09-11, broadened 2026-09-12) —
@@ -401,8 +421,30 @@
                              Review is deliberately never offered on either row.
                              See _reopen-terminal.blade.php. --}}
                         @include('corex.rental-applications._reopen-terminal', ['application' => $application])
+                        {{-- FIX (2026-09-14, Johan live on QA1) — this
+                             button posts to RentalApplicationController::
+                             send(), which calls RentalApplicationMailer::
+                             sendInvite() — it resends the ORIGINAL
+                             APPLICATION INVITE, never the approval. That's
+                             legitimate for every pre-decision status
+                             (draft/sent/in_progress/returned/under_assessment
+                             /reopened — the application itself hasn't been
+                             decided yet, so "here's your link to fill it
+                             in again" still makes sense). It is NOT
+                             legitimate once approved: an agent reading
+                             "Resend" on an approved row, wanting to tell
+                             the applicant they got the place, was sending
+                             them the invitation to apply again instead — a
+                             wrong action behind a plausible label, not a
+                             missing feature. Excluded here; the approved,
+                             not-yet-notified case now has its own correct
+                             "Send approval" link above instead. Declined
+                             deliberately left untouched — separate finding,
+                             not part of this fix (permissions question for
+                             Johan to rule on, see that finding's own
+                             write-up). --}}
                         @permission('rental_applications.create')
-                            @if($application->recipientEmail())
+                            @if($application->recipientEmail() && $application->status !== 'approved')
                                 <form method="POST" action="{{ route('corex.rental-applications.send', $application) }}" class="inline">
                                     @csrf
                                     <button type="submit" class="corex-btn-outline text-xs">{{ $application->status === 'draft' ? 'Send' : 'Resend' }}</button>

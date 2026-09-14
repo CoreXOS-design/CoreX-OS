@@ -202,8 +202,13 @@ class WebsiteLeadService
             $c->agency_id = $agencyId;
             $c->save();
 
+            // $c is always a brand-new contact here so this pair can't
+            // collide in practice, but goes through the linker rather than
+            // a bare syncWithoutDetaching() for consistency — see
+            // .ai/specs/rental-applications.md, "The contact_property
+            // hard-delete fix".
             if ($listing) {
-                $listing->contacts()->syncWithoutDetaching([$c->id => ['role' => 'lead']]);
+                \App\Services\Property\ContactPropertyLinker::link($c->id, $listing->id, 'lead');
             }
 
             return $c;

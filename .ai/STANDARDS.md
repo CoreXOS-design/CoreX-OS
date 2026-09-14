@@ -512,6 +512,22 @@ ever touches `migrate*` against `corex_qa1` specifically, never
 `hfc_dash_test_N`, which is what PHPUnit actually uses. Stated here
 plainly so the two aren't conflated later.
 
+**See also −1k**: a lane colliding with itself (two test processes
+against its own worktree database at once) produces the same symptoms —
+`ERROR 1213` deadlocks, long DDL waits — and was initially misdiagnosed
+as this. Two different mechanisms, both real; this entry's own evidence
+(a different lane's schema, directly observed via `SHOW FULL
+PROCESSLIST`) stands unchanged. Don't conclude cross-lane contention
+from an `ERROR 1213` alone — check which schema was actually involved.
+
+**Independently reconfirmed the same night** (cc4, own isolated
+`hfc_dash_test_4`): 183–247s per test on schema bootstrap under
+tonight's multi-lane load, checked live via `PROCESSLIST` — state
+`Query`, mid `CREATE TABLE`, not `Waiting for table lock`, i.e. genuine
+contention slowing bootstrap, not a hang. This is the "slow" claim this
+standard makes; −1k's retraction was about "stuck" (deadlock), a
+different claim entirely — see −1k for why the two must not be conflated.
+
 ## Standard −1i — Disk headroom, tracked as a data point (not yet a decision)
 
 Measured 2026-09-13: `/mnt/HC_Volume_103099143` at **86% full — 161G of
@@ -624,6 +640,161 @@ capture-chip mark overlay, already flagged `[KNOWN ISSUE, not gating]`),
 which does use the fully synthetic `dispatchEvent` form. Answered for the
 record — not a gap that needs closing on the strength of anything found
 today.
+
+---
+
+## Standard −1k — A lane must never run two test processes against its own worktree database concurrently (2026-09-16)
+
+cc6 re-checked two deadlock incident logs and found both name
+`hfc_dash_test_6` — cc6's OWN worktree database, not another lane's. The
+conductor's earlier diagnosis of these two incidents as cross-lane
+contention was wrong, and has been retracted directly to cc2, cc3, and
+cc4. The real cause is self-collision: a foreground `php artisan test`
+running while a fork or background agent the SAME lane dispatched is
+also testing against the same database. Symptoms seen: two `ERROR 1213`
+deadlocks, and one unbounded metadata-lock wait on schema-load DDL (the
+schema load is itself DDL, so it waits forever behind the other
+process's own open transaction rather than timing out promptly).
+
+**The rule: one test process per worktree database at a time.** If a
+lane dispatches a subagent or fork to run tests, that lane does not ALSO
+run tests in the foreground until the dispatched one finishes, and vice
+versa. Per-lane test databases (`hfc_dash_test_1`..`hfc_dash_test_6`,
+Standard −1a) already isolate lanes from EACH OTHER — they do nothing to
+isolate a lane from ITSELF running two things at once against the one
+database it owns.
+
+This is a distinct mechanism from Standard −1h (shared-`mysqld`-resource
+contention ACROSS different lanes' schemas, directly observed via a
+different lane's `migrate:fresh` blocking an unrelated query) — that
+finding stands on its own evidence and is not what this retraction
+concerns. This standard is about a single lane colliding with itself.
+
+**Scope of the retraction, stated precisely so this isn't misread in
+either direction**: what got retracted was specifically the DEADLOCK
+diagnosis for these two incidents — cross-lane contention was not, in
+fact, what caused those two `ERROR 1213`s. It is NOT a finding that
+cross-lane contention doesn't exist. The same night, independently, cc4
+ran a real test against its own isolated `hfc_dash_test_4` and observed
+183–247s per test on schema bootstrap, checked live via MySQL's
+`PROCESSLIST` — state was `Query`, mid `CREATE TABLE`, not `Waiting for
+table lock` — confirming genuine shared-host contention slowing schema
+bootstrap under tonight's multi-lane load, not a hang and not a
+deadlock. Six lanes sharing one MySQL host measurably slows schema
+bootstrap (Standard −1h) — that is real and still true. Six lanes
+sharing one MySQL host do NOT deadlock each other by simply coexisting
+(what this standard retracts) — a deadlock traced back to one lane's
+own concurrent test processes, every time it's been checked tonight.
+Slow is not the same claim as stuck; don't let evidence for one stand
+in for the other.
+
+---
+
+## Standard −1l — Only cc1 writes to origin/QA1 (2026-09-16)
+
+The conductor's own correction, recorded here so it isn't re-litigated:
+"only cc1 performs git operations that move HEAD on /corex-qa1" left a
+gap — a lane could read that as "the deploy CHECKOUT is cc1's, the
+origin/QA1 BRANCH is fair game." It is not what was meant, and the gap
+was real: cc1 asked cc2 to push two migration FILES to `origin/QA1` so
+cc1 could pull and run the guarded migrate; cc2 widened that on its own
+inference and attempted to push its whole feature branch straight to
+`origin/QA1`. Git rejected it non-fast-forward and the conductor caught
+it before anything landed — confirmed clean, read-only, the same night
+(see the QA1-tip verification this standard sits next to in history).
+No harm done, but the near-miss is the reason this rule exists in
+writing now rather than staying an assumption.
+
+**The rule, stated without the gap this time: only cc1 writes to
+`origin/QA1`. No other lane pushes to `origin/QA1`, ever, for any
+reason, however small the change** — not a migration file, not a
+one-line doc fix, nothing. Lanes push to their OWN branch only. cc1 is
+the single hand that moves anything onto `origin/QA1` and onto
+`/corex-qa1`. If cc1 needs something from a lane, the lane pushes it to
+its own branch and tells cc1 the branch name and SHA; cc1 fetches and
+lands it through the usual worktree → commit → push → fast-forward-pull
+cycle.
+
+**Why this is worth being strict about, not just tidy**: it means there
+is exactly one place a bad landing on QA1 can ever come from, and
+exactly one person who can answer "what's on that branch and why" from
+their own records without having to reconstruct it. That answer took
+under a minute the night this rule was written, precisely because it
+was already true in practice — this standard just closes the wording
+gap that let it almost stop being true.
+
+## Standard −1m — A lane's branch name must begin with the lane that owns it (2026-09-16)
+
+The conductor read a branch named `cc4-rentals-contacts-2026-09-13`,
+inside a worktree named `rentals-contacts-cc4-2026-09-13`, concluded
+cc2 (who was actually pushing it) must be pushing another lane's
+branch, and said so directly to cc2 — wrongly. The branch was cc2's own
+work; the name just didn't say so. Retracted directly to cc2 by the
+conductor. A branch name that doesn't match its owning lane is a trap —
+it fooled a careful, fast read in under ten seconds, and the same
+mismatch could just as easily cause a lane to git-operate on the wrong
+branch, not just cause a wrong accusation.
+
+**The rule: a lane's branch name must begin with the lane that owns
+it** (e.g. `cc2-rentals-contacts-2026-09-13`, not
+`cc4-rentals-contacts-2026-09-13` for cc2's own work) — the worktree
+directory name is free to describe the FEATURE, but the branch name
+itself must identify the LANE first.
+
+**Applies to new branches from today (2026-09-16) onward. Do NOT rename
+any existing branch mid-build** — renaming a branch a lane is actively
+committing to is how work gets lost or orphaned, a far worse outcome
+than a misleading name. The known existing mismatch, noted here so
+nobody else makes the conductor's mistake this week: cc2's worktree
+`rentals-contacts-cc4-2026-09-13` (branch `cc4-rentals-contacts-2026-09-13`)
+is cc2's own work, not cc4's, despite the name.
+
+---
+
+## Standard −1n — Check the raw HTML, not the rendered text, when verifying removed data is gone (2026-09-16)
+
+The conductor's own walk of tonight's contact_property no-delete fix, five real-mouse screens deep: three of the five only became conclusive by reading the actual HTML response, not what the page visually showed. The live-links finding came directly out of doing this — a removed seller's live property link page still returned a real `HTTP 200` with a full render, unauthenticated, even though the seller's name was gone from every visible screen.
+
+**The rule: when verifying that removed data is gone, check the raw HTML
+(or the raw API response), not the rendered page as a human sees it.** A name absent from what's visually on screen is not proof of anything — it can still be sitting in a hidden field, an unauthenticated side-channel route, a data attribute never displayed, or a page nobody thought to look at that renders it in full. "I don't see it on the page" and "it's gone" are different claims; only checking the actual payload proves the second one.
+
+This is the same family as Standard −1f ("proving an endpoint is not proving a feature") and Standard −1j (prove the input arrived before blaming the code) — a different instrument, the same principle: know what your verification method can and cannot see, and don't let "looks right on screen" stand in for "the underlying data is actually gone."
+
+## Standard −1o — Capture the BEFORE before you change anything (2026-09-16)
+
+Two outcomes from the same night, side by side: cc5 captured a real before-picture on the DR2 refusal-wording finding before touching anything, unprompted — the after became verifiable proof (the owner's name genuinely replaced by "one of the sellers on this deal", not just plausible-looking new copy). The conductor did not capture a before-picture on the tenant-unlink walk, and said so plainly rather than claim a baseline she didn't have — a `Schema::hasColumn()` check stood in as indirect evidence instead (no `deleted_at` column existed on the old schema, so a hard delete was the only possible prior outcome), which was sufficient evidence to proceed but is a strictly weaker form of proof than an actual before-screenshot or before-response would have been.
+
+**The rule: capture the actual before-state — a screenshot, a saved response body, a raw query result — before making the change you're about to verify, whenever that capture is possible.** An after-only comparison against memory or assumption is an argument, not proof; a real before-and-after pair is proof. This costs almost nothing when the target is still reachable, and the cost of skipping it is exactly what happened tonight: an honest gap in the record, disclosed rather than papered over, but a gap all the same. If the before is genuinely unreachable (the case that forced the tenant-unlink workaround: the very confirm() being fixed was itself blocking the capture), say so explicitly and name the indirect evidence used instead — do not claim a baseline that wasn't actually taken.
+
+---
+
+## Standard −1p — A QA1 freeze holds behaviour, not documentation (2026-09-16)
+
+The conductor froze QA1 at `13251f7cb` after walking it, to keep her verification attached to the exact behaviour she'd checked. cc1 then landed a docs-only Standards addition (`8fca05d5b`) on top, told her immediately, and she confirmed this was correct rather than a violation — but wanted the principle stated exactly rather than left to be guessed at next time.
+
+**The rule, in the conductor's own words: "the freeze is on anything that can change what a user sees or what the system does. Documentation, standards, audit write-ups and spec notes are not that, and you may land them. Code, views, migrations, config and anything that alters behaviour may not — those park on their own branches until I lift the freeze."**
+
+Why the line sits exactly there: a walk verifies specific behaviour at a specific SHA, and that verification has to stay attached to that behaviour for as long as the freeze holds. A docs commit changes nothing a user can see or the system can do, so it cannot detach the verification from what was walked. A one-line Blade change would — even a trivial-looking one — because "it was only a small change" is exactly how a walked state quietly stops being the walked state. When in doubt whether something crosses the line, it doesn't matter how small the change looks — if it touches code, a view, a migration, config, or anything else that can alter behaviour, it parks on its own branch and waits, same as everything else does during a freeze.
+
+---
+
+## Standard −1q — Ask whether the data is real before designing a backfill (2026-09-16, relayed via cc6)
+
+The conductor's own words, relayed through cc6 while landing the statement-period elapsed-months fix: **"TEST DATA NEVER NEEDS TO BE REWORKED. When a calculation changes, the question 'what about the existing records' only deserves engineering effort if those records are real. On QA they are not. Ask whether the data is real BEFORE designing a backfill."** Relayed in spirit, not claimed as a literal transcript — flagged here plainly per how this project handles attribution, and recorded because it names a real, twice-repeated mistake rather than a hypothetical one: the conductor says she walked into this exact trap twice in two days before it was ever written down.
+
+Same shape as Johan's standing rule against inventing problems from demo/import stock (P24 property-health numbers, the contacts-importer's FICA auto-approve) — a number or a record that only exists because a seeder, an import, or a throwaway QA fixture put it there does not deserve the same engineering care as a number a real agency is depending on. A recalculation bug fix on QA1 does not need a backfill migration for QA1's own existing rows just because "what about the old data" is a reflex question — if those old rows are QA fixtures and throwaway test records, not live agency data, the honest answer is that there is no real data to migrate, and designing a backfill for rows nobody depends on is effort spent solving a problem that was never actually there.
+
+**The rule: before designing a backfill, recalculation script, or "existing records" migration for any bug fix, ask first whether the affected records are real.** On a QA/dev database, default to assuming they are not, and confirm rather than assume before building anything to fix them retroactively. This is not a license to skip backfills on live/production data — Johan's own "no shortcuts" principle and the no-hard-delete rule still apply in full wherever real agency data is at stake. It is a license to stop treating QA1's own fixture rows as if they carried the same weight as a real agency's records, which they don't.
+
+---
+
+## Standard −1r — The walk gate belongs at Staging, not at QA1 (2026-09-16, corrected by Johan)
+
+The conductor had been holding finished, tested work off QA1 until she had personally walked it in a browser first. Johan corrected her directly: **"why is saved parked. no one is using it. so get the work built."** He was right, and she said so herself: QA1 has one user, he isn't sitting on it, and nothing there is precious. A rule that belongs at Staging — nothing goes up without being verified first — had been applied one environment too early, and the result was finished work sitting motionless, including a fix that stops an agent losing typed work, waiting on a browser window nobody had free.
+
+**The rule, corrected: finished, tested work lands on QA1 as soon as it's ready — no one waits for a browser walk to land it there.** The walk happens AFTER it's live, on QA1 itself; if something's wrong, it gets fixed there, which is exactly what a dev environment is for. The walk gate moves to Staging, where it has always belonged — nothing goes to Staging without Johan's approval and without a real verification first, unchanged, not loosened at all. What still legitimately stops a landing on QA1, unchanged: a migration nobody has read, a real conflict between two lanes' work, tests that aren't green, or anything that touches a live/shared system. Those are correctness gates. A pre-landing browser walk on QA1 was ceremony wearing correctness's clothes.
+
+**The principle behind the correction, in the conductor's own words, worth carrying to the next gate someone proposes**: *"A verification gate in the wrong place is not caution, it is a bottleneck. The question to ask of any gate is what it protects."* Her gate was protecting a dev environment from a bug — which is the one thing a dev environment exists to absorb. Before adding or keeping any gate anywhere in this pipeline, name specifically what it protects and whether the environment it sits in front of is the environment that actually needs that protection. If the answer is "this environment is disposable/single-user/exists to catch exactly this," the gate belongs one step further down, not here.
 
 ---
 

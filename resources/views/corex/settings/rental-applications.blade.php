@@ -331,6 +331,108 @@
         </form>
     </div>
 
+    {{--
+        Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
+        ruled: every field on the applicant form gets its own compulsory
+        tick, no locked set — "we provide the system, they set it up the
+        way they want to use it." Grouped by when a field actually applies,
+        with the condition spelled out in plain words next to it, so ticking
+        "Employer name" can never be misread as "always required" — a
+        self-employed applicant must never be blocked by it.
+    --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Compulsory Fields</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Tick anything the applicant must fill in before they can submit. Everything else stays optional —
+            an incomplete application is still received, and your team can follow up on any gaps from the
+            review screen. Signatures aside, nothing here is required by CoreX itself; it is entirely your call.
+        </p>
+
+        @php
+            $alwaysFields = collect($fieldRegistry)->whereNull('group');
+            $groupedFields = [
+                'employed' => ['label' => 'Only applies if the applicant says they are permanently employed', 'fields' => collect($fieldRegistry)->where('group', 'employed')],
+                'renting' => ['label' => 'Only applies if the applicant says they are currently renting', 'fields' => collect($fieldRegistry)->where('group', 'renting')],
+                'married' => ['label' => 'Only applies if the applicant\'s marital status is one you\'ve marked as implying a spouse (see Marital Status Options below)', 'fields' => collect($fieldRegistry)->where('group', 'married')],
+            ];
+        @endphp
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.required-fields') }}">
+            @csrf
+            <input type="hidden" name="required_fields_submitted" value="1">
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+                @foreach($alwaysFields as $field)
+                    <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                        <input type="checkbox" name="required_field_keys[]" value="{{ $field['key'] }}"
+                               @checked(in_array($field['key'], old('required_field_keys', $requiredFieldKeys), true))>
+                        {{ $field['label'] }}
+                    </label>
+                @endforeach
+            </div>
+
+            @foreach($groupedFields as $groupKey => $group)
+                @if($group['fields']->isNotEmpty())
+                    <div class="mb-4 pl-3" style="border-left: 2px solid var(--border);">
+                        <p class="text-[11px] mb-2 italic" style="color: var(--text-muted);">{{ $group['label'] }}</p>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            @foreach($group['fields'] as $field)
+                                <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                                    <input type="checkbox" name="required_field_keys[]" value="{{ $field['key'] }}"
+                                           @checked(in_array($field['key'], old('required_field_keys', $requiredFieldKeys), true))>
+                                    {{ $field['label'] }}
+                                </label>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+            @endforeach
+
+            <p class="text-[11px] mb-3" style="color: var(--text-muted);">
+                Both signatures (Declaration and TPN Consent) are compulsory by default and can be unticked
+                like any other field above — but a signature that IS provided must always be a real, drawn
+                signature; a blank or corrupted one is never accepted either way.
+            </p>
+
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
+    {{--
+        Ruling 1, AT-392 round 5, 2026-09-13 — Johan: marital_status
+        converts from free text to a real select so the spouse-fields
+        condition above can actually fire. Option list is agency-
+        configurable, this is the sensible default.
+    --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" x-data="{
+            options: {{ Js::from(old('marital_status_options', $maritalStatusOptions)) }}
+         }">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Marital Status Options</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            What the applicant can choose from for marital status. Tick "Implies spouse" for any option where
+            the spouse fields above should apply — normally just "Married".
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.marital-status-options') }}">
+            @csrf
+            <template x-for="(option, index) in options" :key="index">
+                <div class="flex items-center gap-2 mb-2">
+                    <input type="text" :name="'marital_status_options[' + index + '][label]'" x-model="option.label"
+                           class="corex-input text-sm flex-1" placeholder="e.g. Married">
+                    <label class="flex items-center gap-1 text-xs whitespace-nowrap" style="color: var(--text-secondary);">
+                        <input type="checkbox" :name="'marital_status_options[' + index + '][implies_spouse]'" value="1" x-model="option.implies_spouse">
+                        Implies spouse
+                    </label>
+                    <button type="button" @click="options.splice(index, 1)" class="text-xs" style="color: var(--danger, #dc2626);">Remove</button>
+                </div>
+            </template>
+            <button type="button" @click="options.push({ label: '', implies_spouse: false })" class="text-xs mb-3" style="color: var(--accent);">+ Add option</button>
+            <div>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </div>
+        </form>
+    </div>
+
     {{-- Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
          not gated but if the applicant submits... after initial submission
          we can gate on ID." The ID number is a speed bump (it is on every

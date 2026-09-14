@@ -194,6 +194,17 @@ truth the six listeners and the exclusivity service read from.
 - Migration backfilled all pre-existing deals on deploy — verified 16/16 on
   QA1 (`deal_properties` row count matched `deals.property_id IS NOT NULL`
   count exactly after migrating).
+- **Fixture/seeder trap (found 2026-09-13):** because the mirror above fires
+  automatically off `Deal::created`, a fixture or seeder that sets
+  `property_id` on a new `Deal` and then ALSO calls
+  `DealProperty::create(['deal_id' => ..., 'property_id' => ..., 'is_primary'
+  => true])` explicitly ends up with two `is_primary = true` rows for the
+  same property — the automatic one (price/commission mirrored from
+  `property_value`/`total_commission`) and a redundant manual one (nulls).
+  Nothing validates against it (no hard unique constraint, by design — see
+  above), so it fails silently rather than erroring. If you're constructing
+  a `Deal` with `property_id` set directly, `syncPrimaryPropertyPivot()` has
+  already created its `deal_properties` row — do not create a second one.
 
 ## 6. Branch sharing
 

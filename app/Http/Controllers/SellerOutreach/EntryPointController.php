@@ -158,10 +158,10 @@ final class EntryPointController extends Controller
         app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'seller');
 
         // Link contact ↔ existing property via the seller pivot. Idempotent.
-        DB::table('contact_property')->updateOrInsert(
-            ['contact_id' => $contact->id, 'property_id' => $property->id],
-            ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],
-        );
+        // ContactPropertyLinker, not a raw updateOrInsert() — see
+        // .ai/specs/rental-applications.md, "The contact_property
+        // hard-delete fix".
+        \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, 'seller');
 
         $name = trim($contact->first_name . ' ' . (string) $contact->last_name);
 
@@ -347,7 +347,8 @@ final class EntryPointController extends Controller
 
         $linkedPropertyId = ! empty($listing->matched_property_id) ? (int) $listing->matched_property_id : null;
         $hasLinkedSellers = $linkedPropertyId !== null && DB::table('contact_property')
-            ->where('property_id', $linkedPropertyId)->where('role', 'seller')->exists();
+            ->where('property_id', $linkedPropertyId)->where('role', 'seller')
+            ->whereNull('deleted_at')->exists();
 
         $linked = $this->resolveLinkedExistingContact($request, $agencyId);
         if ($linked !== null) {
@@ -545,10 +546,10 @@ final class EntryPointController extends Controller
             if ($contact) {
                 // AT-398 — the owner set behind an open deal cannot move underneath it.
                 app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'seller');
-                DB::table('contact_property')->updateOrInsert(
-                    ['contact_id' => $contact->id, 'property_id' => $property->id],
-                    ['role' => 'seller', 'updated_at' => now(), 'created_at' => now()],
-                );
+                // ContactPropertyLinker, not a raw updateOrInsert() — see
+                // .ai/specs/rental-applications.md, "The contact_property
+                // hard-delete fix".
+                \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, 'seller');
             }
 
             // Close the loop: mark the listing as matched to the promoted Property
@@ -1269,6 +1270,10 @@ final class EntryPointController extends Controller
             ->where('contacts.agency_id', $agencyId)
             ->whereNull('contacts.deleted_at')
             ->wherePivotIn('role', self::SELLER_ROLES)
+            // withoutGlobalScopes() above strips even the pivot-level deleted_at
+            // filter stage 1 adds to Property::contacts()'s own definition — same
+            // reason contacts.deleted_at is manually re-added above.
+            ->wherePivotNull('deleted_at')
             ->orderBy('contacts.first_name')
             ->get();
     }
@@ -1419,7 +1424,8 @@ final class EntryPointController extends Controller
 
         $isSeller = DB::table('contact_property')
             ->where('property_id', (int) $listing->matched_property_id)
-            ->where('contact_id', $contactId)->where('role', 'seller')->exists();
+            ->where('contact_id', $contactId)->where('role', 'seller')
+            ->whereNull('deleted_at')->exists();
         abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
 
         return [$agencyId, $listing, $contact, app(\App\Services\Prospecting\ComposeSellerService::class)];
@@ -1539,7 +1545,18 @@ final class EntryPointController extends Controller
         if (! empty($listing->matched_property_id)) {
             $idNumber = Contact::withoutGlobalScope(\App\Models\Scopes\ContactScope::class)
                 ->where('agency_id', $agencyId)->where('id', (int) $data['contact_id'])->value('id_number');
-            $svc->unlinkSeller((int) $data['contact_id'], (int) $listing->matched_property_id);
+            try {
+                $svc->unlinkSeller((int) $data['contact_id'], (int) $listing->matched_property_id);
+            } catch (\App\Exceptions\Property\ContactPropertyRoleMismatchException $e) {
+                \Illuminate\Support\Facades\Log::warning('Seller unlink: role mismatch, refusing to unlink silently', [
+                    'prospecting_listing_id' => $prospectingListingId,
+                    'contact_id' => $e->contactId,
+                    'property_id' => $e->propertyId,
+                    'expected_role' => $e->expectedRole,
+                    'actual_role' => $e->actualRole,
+                ]);
+                return response()->json(['message' => 'This contact\'s role on this property has changed (now "' . $e->actualRole . '") — refresh and try again.'], 409);
+            }
             $svc->recordRemoval($agencyId, (int) $listing->id, $idNumber ? (string) $idNumber : null, (int) $request->user()->id);
         }
 
@@ -1574,6 +1591,7 @@ final class EntryPointController extends Controller
             ->where('property_id', (int) $listing->matched_property_id)
             ->where('contact_id', (int) $contact->id)
             ->where('role', 'seller')
+            ->whereNull('deleted_at')
             ->exists();
         abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
 
@@ -1597,7 +1615,8 @@ final class EntryPointController extends Controller
         if (! empty($listing->matched_property_id)) {
             $isSeller = DB::table('contact_property')
                 ->where('property_id', (int) $listing->matched_property_id)
-                ->where('contact_id', (int) $data['contact_id'])->where('role', 'seller')->exists();
+                ->where('contact_id', (int) $data['contact_id'])->where('role', 'seller')
+                ->whereNull('deleted_at')->exists();
             abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
             $svc->markPrimary((int) $listing->matched_property_id, (int) $data['contact_id']);
         }
@@ -1622,7 +1641,8 @@ final class EntryPointController extends Controller
         abort_if(empty($listing->matched_property_id), 422, 'Link the seller to the property first.');
         $isSeller = DB::table('contact_property')
             ->where('property_id', (int) $listing->matched_property_id)
-            ->where('contact_id', (int) $data['contact_id'])->where('role', 'seller')->exists();
+            ->where('contact_id', (int) $data['contact_id'])->where('role', 'seller')
+            ->whereNull('deleted_at')->exists();
         abort_unless($isSeller, 422, 'That contact is not a seller on this property.');
 
         $svc = app(\App\Services\Prospecting\ComposeSellerService::class);

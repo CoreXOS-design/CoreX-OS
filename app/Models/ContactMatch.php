@@ -31,6 +31,21 @@ class ContactMatch extends Model
     public const STATUS_FULFILLED = 'fulfilled';
     public const STATUS_EXPIRED   = 'expired';
 
+    /**
+     * Buyer Pipeline fix, 2026-09-18 — the one vocabulary of "this listing
+     * type counts as rental" everything checks against. Previously this
+     * exact array was duplicated inline in BuyerPipelineController's filter
+     * AND in the kanban card's own per-row label — same list, two places,
+     * no way to notice if a third value ever needed adding to one and not
+     * the other.
+     */
+    public const RENTAL_LISTING_TYPES = ['rental', 'rent', 'to_let', 'to let', 'letting'];
+
+    public static function listingTypeIsRental(?string $listingType): bool
+    {
+        return in_array(strtolower((string) $listingType), self::RENTAL_LISTING_TYPES, true);
+    }
+
     protected $fillable = [
         'agency_id',
         'contact_id',

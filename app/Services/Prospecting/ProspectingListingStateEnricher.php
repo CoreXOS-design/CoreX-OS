@@ -395,6 +395,7 @@ final class ProspectingListingStateEnricher
             ->whereIn('cp.property_id', $propertyIds)
             ->where('c.agency_id', $agencyId)
             ->whereNull('c.deleted_at')
+            ->whereNull('cp.deleted_at')
             ->select('cp.property_id', DB::raw('COUNT(DISTINCT cp.contact_id) as cnt'))
             ->groupBy('cp.property_id')
             ->get();

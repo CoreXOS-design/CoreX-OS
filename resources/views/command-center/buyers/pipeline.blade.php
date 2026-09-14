@@ -161,12 +161,16 @@
                         @forelse($stateItems as $buyer)
                             @php
                                 $buyerRisk = $riskScores[$buyer->id] ?? null;
-                                $buyerPrimaryWishlist = $buyer->matches->firstWhere('is_primary', true) ?? $buyer->matches->first();
-                                // Same rental-lead test as applyLeadTypeFilter() above — the PERSON's
-                                // own wishlist decides tenant vs buyer, not which board/entry point
-                                // rendered them. A mixed "All" board can show both in one column, so
-                                // this must be evaluated per card, never fixed page-wide.
-                                $buyerIsRental = in_array(strtolower((string) ($buyerPrimaryWishlist->listing_type ?? '')), ['rental', 'rent', 'to_let', 'to let', 'letting'], true);
+                                // Same test applyLeadTypeFilter() uses to decide whether this contact
+                                // belongs on the board at all — Contact::primaryMatchIsRental(), the
+                                // ONE shared method both now read (2026-09-18 fix), so the filter and
+                                // this label can never independently disagree again. The PERSON's own
+                                // primary wishlist decides tenant vs buyer, not which board/entry
+                                // point rendered them — a mixed "All" board can show both in one
+                                // column, so this must still be evaluated per card, never fixed
+                                // page-wide.
+                                $buyerPrimaryWishlist = $buyer->primaryMatch();
+                                $buyerIsRental = $buyer->primaryMatchIsRental();
                             @endphp
                             <a href="{{ route('command-center.buyers.show', $buyer) }}"
                                draggable="true"
@@ -281,7 +285,7 @@
                                 'won' => 'ds-badge-success',
                                 default => 'ds-badge-default',
                             };
-                            $buyerPrimaryWishlist = $buyer->matches->firstWhere('is_primary', true) ?? $buyer->matches->first();
+                            $buyerPrimaryWishlist = $buyer->primaryMatch();
                         @endphp
                         <tr style="border-bottom: 1px solid var(--border);">
                             <td class="px-4 py-3">
