@@ -8,6 +8,7 @@ use App\Models\ContactMatch;
 use App\Models\Deal;
 use App\Models\Property;
 use App\Models\PropertySettingItem;
+use App\Models\Scopes\BranchScope;
 use App\Models\Scopes\ContactScope;
 use App\Models\User;
 use App\Services\Matching\MatchingService;
@@ -189,16 +190,30 @@ class ContactMatchController extends Controller
             $sort = 'priority';
         }
 
-        // Base match-level constraints, reused both to filter which
-        // contacts qualify and to load only the matching matches per
-        // contact — kept in one closure so the two never drift apart.
+        // Base match-level constraints. Applied ONLY at the top level of a
+        // fresh ContactMatch::query() everywhere it's used below — NEVER
+        // nested inside a whereHas()/withExists()/withMax() closure.
+        // Proven empirically (not assumed) that Eloquent does not reliably
+        // propagate a withoutGlobalScope() call made INSIDE those relation-
+        // constraint closures through to the compiled SQL: a disposable
+        // two-branch test agency showed a manager's cross-branch match
+        // still silently excluded even with the bypass written exactly
+        // there, while the identical bypass applied directly on a
+        // top-level ContactMatch::query() worked correctly every time. See
+        // .ai/specs/core-matches.md, "Screen & scoping" for the full
+        // before/after. No whereHas('contact', ...) here at all any more —
+        // it's redundant now every caller resolves contact_id from an
+        // ALREADY correctly-scoped Contact set (below), and it was the
+        // other half of this same nested-bypass trap.
         $matchConstraints = function ($q) use ($listingType, $statusFilter, $savedFrom, $savedTo, $scope, $branchId, $agentId) {
-            // Same ContactScope bypass as the contacts query below, and for
-            // the same reason: whereHas('contact') builds an EXISTS
-            // subquery against Contact's own default scopes, which would
-            // otherwise re-narrow an oversight scope back down to the
-            // viewer's personal Contacts-module visibility.
-            $q->whereHas('contact', fn ($q2) => $scope !== 'own' ? $q2->withoutGlobalScope(ContactScope::class) : $q2)
+            // ContactMatch carries BranchScope (via BelongsToBranch), NOT
+            // just BelongsToAgency — found during a same-class-bug sweep
+            // after the ContactScope fix below: an 'agency' scope
+            // selection would still be silently narrowed to the viewer's
+            // own branch by ContactMatch's OWN branch scope, for any
+            // manager who holds core_matches.all_view but not
+            // branches.view_all, on any agency with branch-split on.
+            $q->when($scope !== 'own', fn ($q2) => $q2->withoutGlobalScope(BranchScope::class))
                 ->when($listingType !== '', fn ($q2) => $q2->where('listing_type', $listingType))
                 ->when($statusFilter !== '', fn ($q2) => $q2->where('status', $statusFilter))
                 ->when($savedFrom !== '', fn ($q2) => $q2->whereDate('created_at', '>=', $savedFrom))
@@ -209,33 +224,30 @@ class ContactMatchController extends Controller
             } elseif ($scope === 'branch') {
                 $q->whereHas('createdBy', fn ($q2) => $q2->where('branch_id', $branchId));
             }
-            // scope === 'agency': no extra constraint — ContactMatch's own
-            // BelongsToAgency global scope is the outer boundary already.
+            // scope === 'agency': no extra constraint beyond the
+            // BranchScope bypass above — ContactMatch's BelongsToAgency
+            // global scope (untouched, never bypassed) is the real outer
+            // boundary an agency can never cross.
 
             if ($agentId !== null) {
                 $q->where('created_by_user_id', $agentId);
             }
         };
 
-        // CONTACT-LEVEL query — paginated here, not the raw match list, so
-        // a contact's matches never split across a page boundary and the
-        // page size actually bounds something meaningful on a 150+-row
-        // agency (Johan's own figure).
-        // ContactScope is a DIFFERENT module's visibility rule (the
-        // Contacts screen's own role-based own/branch/all), driven by a
-        // permission this controller never checks. Left in place, it
-        // would silently re-narrow a manager's Core Matches 'branch'/
-        // 'agency' oversight (granted by core_matches.all_view) back down
-        // to whatever their unrelated Contacts-module scope happens to
-        // be — exactly the kind of accidental, inconsistent scoping this
-        // rebuild exists to remove. Bypassed here only for scope !== 'own'
-        // — the documented "admin oversight query" case ContactScope's
-        // own docblock names — never for an ordinary agent's own board,
-        // which stays under Contacts' own visibility rules like every
-        // other screen. See .ai/specs/core-matches.md, "Screen & scoping".
+        // Qualifying contact ids — a plain, top-level ContactMatch query
+        // (the proven-safe pattern), never a whereHas('matches', ...) on
+        // Contact (the proven-BROKEN nested pattern this replaces).
+        $qualifyingContactIds = ContactMatch::query()->tap($matchConstraints)
+            ->pluck('contact_id')->unique()->values();
+
+        // Contact ALSO carries BranchScope (via BelongsToBranch), same as
+        // ContactMatch above and found the same way — bypassed alongside
+        // ContactScope for the same reason: an oversight scope must not
+        // be silently re-narrowed by either of Contact's own unrelated
+        // visibility rules.
         $contactsQuery = Contact::query()
-            ->when($scope !== 'own', fn ($q) => $q->withoutGlobalScope(ContactScope::class))
-            ->whereHas('matches', $matchConstraints)
+            ->when($scope !== 'own', fn ($q) => $q->withoutGlobalScope(ContactScope::class)->withoutGlobalScope(BranchScope::class))
+            ->whereIn('id', $qualifyingContactIds)
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($q2) use ($search) {
                     $q2->where('first_name', 'like', "%{$search}%")
@@ -247,9 +259,14 @@ class ContactMatchController extends Controller
             ->with('type')
             ->withCount('contactNotes');
 
+        // Sort aggregates — same rule: a plain correlated subquery via
+        // addSelect(), built from a top-level ContactMatch::query(), never
+        // withMax()/withExists() (the same broken-nested-bypass pattern).
         if ($sort === 'saved') {
-            $contactsQuery->withMax(['matches as core_matches_latest_saved' => $matchConstraints], 'created_at')
-                ->orderByDesc('core_matches_latest_saved');
+            $contactsQuery->addSelect(['core_matches_latest_saved' => ContactMatch::query()->tap($matchConstraints)
+                ->whereColumn('contact_id', 'contacts.id')
+                ->selectRaw('MAX(created_at)'),
+            ])->orderByDesc('core_matches_latest_saved');
         } elseif ($sort === 'contact') {
             // Longest-since-contact first; never-contacted floats to the
             // very top (nulls-first is MySQL's default ASC behaviour).
@@ -259,16 +276,17 @@ class ContactMatchController extends Controller
             // least one ACTIVE match ranks above one with only paused
             // matches, etc. — the same FIELD() ordering the match rows
             // already use, generalised to "does this contact have one of
-            // these" rather than sorting raw match rows. Each existence
-            // check reuses $matchConstraints, not a bare status lookup —
+            // these" rather than sorting raw match rows. Each count
+            // reuses $matchConstraints, not a bare status lookup —
             // otherwise a contact could rank as "has an active match"
             // because of a match the current filters have hidden.
             foreach ([ContactMatch::STATUS_ACTIVE, ContactMatch::STATUS_PAUSED, ContactMatch::STATUS_FULFILLED] as $i => $rankStatus) {
                 $flag = "core_matches_has_{$i}";
-                $contactsQuery->withExists(['matches as ' . $flag => function ($q) use ($matchConstraints, $rankStatus) {
-                    $matchConstraints($q);
-                    $q->where('status', $rankStatus);
-                }])->orderByDesc($flag);
+                $contactsQuery->addSelect([$flag => ContactMatch::query()->tap($matchConstraints)
+                    ->where('status', $rankStatus)
+                    ->whereColumn('contact_id', 'contacts.id')
+                    ->selectRaw('COUNT(*)'),
+                ])->orderByDesc($flag);
             }
         }
         $contactsQuery->orderBy('first_name');

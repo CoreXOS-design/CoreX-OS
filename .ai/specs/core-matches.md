@@ -80,7 +80,7 @@ enabled AND the viewer has a branch** — for a single-branch agency,
 `branch` and `agency` are the same thing, and offering both would be a
 distinction with no difference.
 
-### The ContactScope trap — found and fixed before it could ship
+### The ContactScope trap, and the deeper BranchScope collision it led to
 
 `Contact` carries its own, unrelated visibility scope (`ContactScope` —
 the Contacts module's own role-based own/branch/all, driven by a
@@ -94,16 +94,56 @@ defeating the oversight permission entirely and unpredictably (it would
 "work" for a manager whose contacts-scope happens to be `all`, and
 silently under-report for one whose isn't).
 
-Fixed by bypassing `ContactScope` explicitly (`Contact::
-withoutGlobalScope(ContactScope::class)`) whenever `$scope !== 'own'` —
-the exact "admin oversight query" bypass `ContactScope`'s own docblock
-names as the sanctioned escape hatch. Applied in three places that all
-needed it: the main contacts query, the `whereHas('matches', ...)`
-existence check inside the shared match-constraints closure, and (by
-reusing the already-correctly-scoped `Contact` models from the paginated
-page rather than re-eager-loading `contact` a second time) the match
-list itself. An ordinary agent's own board (`scope === 'own'`) is left
-entirely under Contacts' normal visibility rules, unchanged.
+First fix attempt bypassed `ContactScope` on `Contact` and, once the
+conductor's "hunt the same class" follow-up surfaced that `ContactMatch`
+ALSO carries `BranchScope` (via `BelongsToBranch` — the code's own
+original comment claiming "no extra constraint needed" was wrong), added
+a `withoutGlobalScope(BranchScope::class)` call inside the same
+`whereHas()`/match-constraints closures. That looked right and passed
+`removedScopes()` inspection on the closure's own builder — and still
+failed: against an isolated two-branch test agency built specifically
+because HFC's real data has `split_branches_enabled=false` and can't
+exercise this path, `scope=agency` still excluded a contact whose only
+qualifying match lived on the other branch.
+
+Root cause, confirmed empirically (a controlled A/B query, not a guess):
+**`withoutGlobalScope()` called inside a `whereHas()` / `withExists()` /
+`withMax()` closure registers on that closure's own builder instance but
+does not reliably propagate to the final compiled SQL** — the scope's
+filter still applies in the query Laravel actually runs. The identical
+bypass called directly on a fresh, top-level query works every time. This
+is a general Eloquent-internals limitation, not specific to this screen,
+and worth carrying forward: never bypass a global scope from inside a
+relation-constraint closure; only ever on a top-level `Model::query()`.
+
+`Contact` turned out to carry `BranchScope` too (via the same
+`BelongsToBranch` trait), a second instance of the identical collision on
+the identical model — caught by the same isolated-agency test still
+failing after the first patch.
+
+**The actual fix** replaced every nested scope-bypass attempt with a
+two-step, all-top-level query shape:
+
+1. `$qualifyingContactIds = ContactMatch::query()->tap($matchConstraints)
+   ->pluck('contact_id')->unique()->values();` — `$matchConstraints`
+   bypasses `BranchScope` on this fresh top-level `ContactMatch` query
+   when `$scope !== 'own'`.
+2. `Contact::query()->withoutGlobalScope(ContactScope::class)
+   ->withoutGlobalScope(BranchScope::class)->whereIn('id',
+   $qualifyingContactIds)` — both bypasses on a fresh top-level `Contact`
+   query, never inside a closure.
+3. The status-priority and most-recently-saved sorts, which previously
+   used `withExists()`/`withMax()` (the exact closure shape that doesn't
+   propagate a nested bypass), were rewritten as `addSelect()` correlated
+   subqueries — each one a fresh top-level `ContactMatch::query()
+   ->tap($matchConstraints)->whereColumn('contact_id', 'contacts.id')`
+   rather than a relation-closure method.
+
+Re-verified against the isolated cross-branch agency (agency scope now
+correctly shows the cross-branch contact, branch scope correctly excludes
+it) and re-ran the full HFC verification battery below with no
+regression. An ordinary agent's own board (`scope === 'own'`) is left
+entirely under Contacts' and Branch's normal visibility rules, unchanged.
 
 ### Search / sort / filter / pagination
 
@@ -269,11 +309,6 @@ view has no Alpine directives at all, so that specific gate's scope
 does not apply — verified instead via the real-HTTP-fetch process
 above, which is the broader principle that gate exists to enforce
 (never trust an HTTP 200 alone).
-
-**`scripts/dev-check.ps1`**: NOT run and not cited as having run —
-`.ai/BUILD_STANDARD.md` §0a and `.ai/STANDARDS.md` Standard −1 both
-state plainly it is PowerShell, there is no `pwsh` on this box, and it
-has never run here for any build. Citing it would be a false claim.
 
 ---
 
