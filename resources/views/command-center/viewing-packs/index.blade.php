@@ -2,10 +2,10 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-6">
+<div class="w-full h-full flex flex-col">
 
     {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Viewing Packs</h1>
@@ -21,6 +21,9 @@
         </div>
     </div>
 
+    {{-- Scroll region (AT-393) — the header is frozen: the page wrapper is a full-height
+         flex column and ONLY this region (flash + packs table + pagination) scrolls. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
             {{ session('success') }}
@@ -106,5 +109,6 @@
             @endif
         @endif
     </div>
+    </div>{{-- /scroll region --}}
 </div>
 @endsection
