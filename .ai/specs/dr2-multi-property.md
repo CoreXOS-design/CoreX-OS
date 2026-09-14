@@ -651,6 +651,191 @@ genuinely needs to be rebuilt (a row added or removed), that rebuild must be
 triggered only by the add/remove action itself, never chained onto a
 per-keystroke value-change listener.
 
+## 8d. Financials rebuild — every reconciling figure lives together, labelled by what it feeds (2026-09-19)
+
+Johan, testing the create-time build live: entered two properties at
+100,000 each and a 220,000 selling price — genuinely R20,000 out, correctly
+flagged. But the SAME screen also reported "commission off by R17,800.00"
+even though his own commission figures (10,000 + 10,000) exactly matched
+the 20,000 deal commission. He could not reconcile 17,800 from anything
+visible on screen, because it wasn't derived from anything visible —
+that was the actual defect.
+
+**Root cause, reproduced exactly in a real browser session against real
+QA1 data (properties #15936/#15937), not theorised**: `dr2_total_commission`
+is a HIDDEN field. Its value is only ever set programmatically, inside
+`recompute()`, whenever the visible Commission %/Commission (Incl VAT)
+fields are edited. Setting `.value` in JavaScript never fires that
+element's own `'input'` event — so the balance banner's listener on it
+could structurally never fire. The banner only ever refreshed when the
+Selling Price field or a property row was edited directly; editing the
+Financials commission fields updated the real, correct total internally
+but left the banner comparing the live sum against whatever stale figure
+happened to be sitting in that hidden field the last time something else
+triggered a refresh. Reproduced sequence that lands on the exact reported
+figure: set price total (refreshes banner, commission side still 0) → type
+Commission % = 1 as an early, since-abandoned guess (hidden field silently
+becomes 2,200.00) → touch the price field once more (banner refreshes,
+now comparing the correct 20,000 sum against the stale 2,200 — "off by
+R17,800", exact match) → finish typing the real commission, 20,000
+(hidden field correctly becomes 20,000.00, but nothing re-triggers the
+banner) → banner stays frozen at "off by R17,800" forever.
+
+**Fix**: `recompute()` now calls `window.dr2cpRecomputeSummary?.()`
+directly at the end of every run, for every reason it runs (`source` =
+`'pct'`, `'amount'`, or `'mode'`) — the hidden field's own dead listener is
+removed entirely rather than relied on. Window-scoped because
+`dr2cpRecomputeSummary` is declared inside a block (`if (dr2cpRoot) {...}`)
+and function declarations inside a block are not hoisted to the enclosing
+scope, and because the function legitimately does not exist at all on the
+edit screen, where there is no live balance concept.
+
+**Price and commission are independent, per Johan's own ruling** — "we
+don't work with the R240000 at all, we work with the R24000, that's the
+agency money": two separate captured figures, neither derived from the
+other. The old banner and the old server-side validation
+(`validateAdditionalPropertiesPayload()`) both combined price and
+commission into ONE verdict/message — meaning a deal that was wrong on
+price alone was reported (and would have been rejected) with a message
+that also mentioned commission, even when commission was exactly correct.
+Both are now two completely separate checks, each with its own sum/total/
+diff and its own error key (`property_value` vs `total_commission`) —
+never combined into one sentence, client or server side. The commission
+check gets the heavier weight in verification: Johan's own words, "the
+commission is the number that does the work... a wrong price on a property
+is untidy, a wrong commission split pays a real person the wrong amount."
+`tests/Feature/Dr2/CreateTimeMultiPropertyCommissionCheckTest.php` proves
+the server-side commission reconciliation across equal splits, unequal
+splits, one property carrying the whole commission, zero on one property,
+a missing/empty field (rejected outright, never silently coerced to zero),
+decimal splits to the cent, a one-cent mismatch still caught, and each
+combination of price-wrong/commission-wrong/both-wrong reporting
+independently. Johan's exact real numbers are a named regression test in
+both files.
+
+**Layout — Johan's ruling, verbatim: "you choose the properties at the top
+and have the financials together at the financials section."** Property
+SELECTION (the primary search box, the eligible-properties dropdown, the
+disabled owner-set-mismatch entries, removed-properties restore) stays at
+the top exactly where it was — nothing about picking or unlinking a
+property moved. Every figure that must RECONCILE — each property's own
+selling price and commission, the running totals, and (create mode) the
+live balance verdict — now lives together in the Financials section,
+immediately below the totals it feeds:
+
+```
+Financials
+  Selling Price · Commission basis · Commission % · Commission amount
+  Incl/Excl/VAT derived display
+  ── Properties on this deal ──
+  balance banner (create mode only — two independent lines, price and
+                  commission, never combined into one verdict)
+  property rows (each with its own Selling price / Commission input)
+  "adding X" price/commission entry (appears here once picked from the
+                                      dropdown up top; the page scrolls it
+                                      into view so the user isn't left
+                                      hunting for where to type it)
+```
+
+The balance banner sits BETWEEN the totals above and the rows below so
+neither can be edited with its verdict off screen — Johan: "a warning
+that's off screen that can't be seen" was the layout half of the same
+underlying defect as the stale-hidden-field bug above; both are now fixed
+together, not just the arithmetic.
+
+**Edit screen scope, explicitly not extended**: the edit screen's rows and
+add/edit-price forms moved into Financials and got the same live labelling
+(below), but it does NOT get a balance banner. Structurally it cannot need
+one: once a deal has 2+ properties, its Selling Price/Commission fields are
+already `readonly` and server-derived
+(`DealPropertyPricingService::recalculateTotals()` force-overwrites
+`property_value`/`total_commission` to the sum on every save) — there is no
+independently-entered total on the edit screen that could ever diverge
+from the sum in the first place, unlike create mode where the BM types the
+total by hand. Not a gap; there is nothing to reconcile against.
+
+**Labels — Johan's ruling, verbatim, and a correctness issue, not
+cosmetics: "an agent typing a number into a box marked 'Price' has no idea
+which price... the rule: the per-property field carries the SAME label as
+the total it feeds."**
+
+- Every "Price" label became "Selling price", matching the Financials
+  total's own label exactly. Selling price carries no VAT qualifier —
+  checked with Johan directly rather than assumed: "selling is the total
+  price incl comm, not vat" — there is no VAT dimension on price at all,
+  only on commission, so none was invented.
+- Every commission label — the Financials total, both create/edit
+  add-forms, the edit-price flyout, and every rendered row — now reads
+  "Commission (Incl VAT)" or "Commission (Excl VAT)" and FOLLOWS the
+  Commission basis selector live, in the same instant it changes. One
+  shared function, `dr2SetCommissionLabelText()`, sets every one of these
+  elements' text in one place so they can never drift out of sync with
+  each other or with the selector — the add-form's commission label was
+  previously hardcoded to "Incl VAT" regardless of the actual basis
+  selected, a real, separate labelling bug this fixes as the same class of
+  defect.
+
+**The VAT-basis-flip trap, decided deliberately (point 5 of the brief)**:
+what happens to a commission already typed into a property row when the
+basis flips from incl to excl or back? Chosen: CONVERT, never reinterpret,
+never leave silently mismatched. Every property's commission is stored
+CANONICALLY as Incl VAT internally — `dr2cpPrimary.commissionIncl`,
+`p.commissionIncl`, matching `total_commission`'s own established
+convention (already documented as "stored Incl-VAT total, DR1 truth" before
+this build). What's DISPLAYED in a row or add-form is derived from that
+canonical value at render time using the current basis
+(`dr2ToDisplay()`/`dr2ToCanonicalIncl()`, the same `vatRate` `recompute()`
+already reads from `PerformanceSetting`); what the user TYPES is converted
+back to canonical before being stored. A basis flip therefore needs only a
+RE-RENDER (`window.dr2cpRerenderRowsForBasisFlip()`), never a value
+mutation — the real Rand amount never changes, only which of its two
+equivalent representations is shown. Reasoning: this is not "reinterpreting"
+(treating the same digits as if they'd always meant something else, which
+Johan explicitly ruled out — "quietly changes a financial figure without
+anyone touching it") because the real commission amount stays byte-for-byte
+identical; only its displayed representation changes, which is the entire
+point of an incl/excl toggle. It also had to behave this way for
+consistency with point 4 above — labels that match the aggregate exactly
+but convert differently on a basis flip would be a worse trap than the
+mismatched labels this rebuild fixes. The edit screen's real-form
+submission converts the same way, in a `'submit'` listener, immediately
+before the browser reads the field — the server has never had a concept of
+"basis" and must always receive Incl VAT, same as every other commission
+figure.
+
+**A second, pre-existing instance of the exact same defect, found while
+re-verifying this in a real browser, not introduced by this build**: the
+Financials Commission Amount field ITSELF — the deal-level aggregate, not
+a per-property row — had the identical reinterpret bug already. Flipping
+`dr2_vat_mode` re-derived incl/excl from whatever raw digits were already
+sitting in the amount field, treating them as if they had always been
+denominated in the NEW basis: a 20,000 Incl-VAT commission silently became
+23,000 Incl-VAT purely from flipping the dropdown, with no digit touched.
+This existed before the per-property rows did and was never noticed
+because nothing downstream previously compared the aggregate against
+anything. Fixed the same way, for consistency: `recompute()` now preserves
+a `dr2FinCanonicalIncl` value across a `'mode'`-sourced call and derives
+the new basis's displayed amount/percent FROM that preserved value, never
+from the stale digits already on screen. Same rule, same fix, applied
+everywhere a commission figure exists on this screen — reported here
+because leaving the aggregate wrong while fixing only the rows would have
+been an inconsistency worse than not fixing either.
+
+**Verified with a real browser session** (not unit tests, which cannot
+prove a focus bug or a scroll-visibility bug): typed a full multi-digit
+number into every price and commission field on both the create screen
+(primary row, second-property row) with no intervening click — every field
+landed the full number and kept focus, confirming the original AT-Focus-Fix
+result held through the relocation; confirmed the balance banner is visible
+in the same viewport as both the totals above and the rows below without
+scrolling; flipped the Commission basis selector and confirmed every label
+(Financials total, both add-forms, every row) updated in the same instant,
+and confirmed a row's displayed commission number changed to its converted
+equivalent while the underlying canonical value did not; confirmed
+Johan's own numbers (price wrong, commission correct) still correctly
+blocks the save (price genuinely doesn't balance) while reporting the
+commission line as balanced, never mentioning it in the price error.
+
 ## 9. Scoping
 
 Every mutation above operates through `Deal`/`Property` models that already

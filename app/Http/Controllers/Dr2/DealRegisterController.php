@@ -488,19 +488,35 @@ class DealRegisterController extends Controller
         // balances") must equal the sum of every property's own allocation,
         // primary included. Blocking, not warning — this is enforcement of
         // his own stated rule, not a new one.
+        //
+        // Price and commission are two INDEPENDENT captured figures, per
+        // Johan's later ruling, verbatim: "we don't work with the R240000 at
+        // all, we work with the R24000, that's the agency money" — neither
+        // is derived from the other, and one balancing does not imply the
+        // other does. Checked and reported as two SEPARATE errors, under
+        // separate keys, never combined into one sentence — a deal that's
+        // out on price but correct on commission (or vice versa) must read
+        // as exactly that, both here and in the matching client-side check.
         $sumPrice = array_sum(array_column($validated, 'allocated_price'));
         $sumCommission = array_sum(array_column($validated, 'allocated_commission'));
         $totalPrice = (float) $request->input('property_value');
         $totalCommission = (float) $request->input('total_commission');
 
-        if (abs($totalPrice - $sumPrice) >= 0.01 || abs($totalCommission - $sumCommission) >= 0.01) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
-                'property_value' => sprintf(
-                    "The total (R %s price / R %s commission) doesn't match the sum of the %d properties' own prices (R %s price / R %s commission). Fix the figures before saving — a deal register must never carry numbers that don't balance.",
-                    number_format($totalPrice, 2), number_format($totalCommission, 2), count($validated),
-                    number_format($sumPrice, 2), number_format($sumCommission, 2)
-                ),
-            ]);
+        $errors = [];
+        if (abs($totalPrice - $sumPrice) >= 0.01) {
+            $errors['property_value'] = sprintf(
+                "The selling price (R %s) doesn't match the sum of the %d properties' own prices (R %s). Fix the figures before saving — a deal register must never carry numbers that don't balance.",
+                number_format($totalPrice, 2), count($validated), number_format($sumPrice, 2)
+            );
+        }
+        if (abs($totalCommission - $sumCommission) >= 0.01) {
+            $errors['total_commission'] = sprintf(
+                "The commission (R %s) doesn't match the sum of the %d properties' own commissions (R %s). Fix the figures before saving — a deal register must never carry numbers that don't balance.",
+                number_format($totalCommission, 2), count($validated), number_format($sumCommission, 2)
+            );
+        }
+        if ($errors) {
+            throw \Illuminate\Validation\ValidationException::withMessages($errors);
         }
 
         return $validated;

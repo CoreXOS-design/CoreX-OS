@@ -183,7 +183,14 @@ final class CreateTimeMultiPropertyTest extends TestCase
         $response = $this->actingAs($this->bm)->post(route('deals-dr2.store'), array_merge($this->basePayload(), [
             'property_id' => $propA->id,
             // Total says 1,500,000 but the parts only add up to 1,400,000 —
-            // deliberately off by 100,000.
+            // deliberately off by 100,000. Commission, deliberately, DOES
+            // balance (57,500 + 28,750 = 86,250) — this is Johan's own
+            // real-world case (AT-focus-fix, 2026-09-18): price wrong,
+            // commission fine. Price and commission are independent checks
+            // (Johan: "we don't work with the R240000 at all, we work with
+            // the R24000, that's the agency money") — a price mismatch must
+            // report as a PRICE error only, never drag commission into the
+            // same sentence when commission is genuinely correct.
             'property_value' => 1_500_000, 'total_commission' => 86_250,
             'properties' => [
                 ['property_id' => $propA->id, 'allocated_price' => 900_000, 'allocated_commission' => 57_500],
@@ -192,7 +199,42 @@ final class CreateTimeMultiPropertyTest extends TestCase
         ]));
 
         $response->assertSessionHasErrors('property_value');
+        $response->assertSessionDoesntHaveErrors('total_commission');
+        $this->assertStringContainsString('selling price', strtolower((string) session('errors')->first('property_value')));
         $this->assertSame($countBefore, Deal::count(), "A deal register must never carry figures that don't balance — nothing should have been written at all, not even the deal itself.");
+    }
+
+    /**
+     * Johan's exact real-world numbers (AT-focus-fix, 2026-09-18): two
+     * properties at 100,000 each (200,000 total) against a 220,000 selling
+     * price — genuinely R20,000 out. Commission 10,000 + 10,000 = 20,000
+     * against a 20,000 deal commission — genuinely balanced. The bug this
+     * guards against reported BOTH as out (commission "off by R17,800",
+     * comparing against a stale value that existed nowhere on screen).
+     */
+    public function test_johans_real_numbers_price_out_commission_balanced(): void
+    {
+        $propA = $this->makeProperty('Unit 5694, Serenity Hills Eco Estate');
+        $propB = $this->makeProperty('Unit 2 door 11 + 11A, Natspat Door, 60 Lilliecrona Boulevard');
+        $steve = $this->makeContact('Steve');
+        $this->linkOwner($propA, $steve);
+        $this->linkOwner($propB, $steve);
+        $countBefore = Deal::count();
+
+        $response = $this->actingAs($this->bm)->post(route('deals-dr2.store'), array_merge($this->basePayload(), [
+            'property_id' => $propA->id,
+            'property_value' => 220_000, 'total_commission' => 20_000,
+            'properties' => [
+                ['property_id' => $propA->id, 'allocated_price' => 100_000, 'allocated_commission' => 10_000],
+                ['property_id' => $propB->id, 'allocated_price' => 100_000, 'allocated_commission' => 10_000],
+            ],
+        ]));
+
+        $response->assertSessionHasErrors('property_value');
+        $response->assertSessionDoesntHaveErrors('total_commission');
+        $priceError = (string) session('errors')->first('property_value');
+        $this->assertStringContainsString('20,000.00', $priceError, 'must report the price genuinely off by R20,000');
+        $this->assertSame($countBefore, Deal::count());
     }
 
     public function test_a_second_property_with_a_different_owner_is_refused_and_creates_nothing_at_all(): void
