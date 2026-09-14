@@ -77,6 +77,11 @@ class CommandTaskPortalLeadObserver
                 'contact_id'               => $contact?->id,
                 'contact_exists'           => $exists,
                 'existing_contact_agent_id'=> $exists ? $existingAgentId : null,
+                // AT-Core-Matches, Johan's ruling 6 — frozen at arrival,
+                // same resolution as the two pull paths (P24LeadService /
+                // PpLeadService): the existing contact's own agent for a
+                // returning enquirer, the listing's agent for a new one.
+                'received_by_user_id'     => $exists ? $existingAgentId : $property?->agent_id,
                 'name'                     => $name,
                 'email'                    => $contact?->email,
                 'phone'                    => $contact?->phone,

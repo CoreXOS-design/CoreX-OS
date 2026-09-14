@@ -197,6 +197,9 @@ class PpLeadService
             'contact_id'                => $contact?->id,
             'contact_exists'            => $existed,
             'existing_contact_agent_id' => $existed ? $existingAgentId : null,
+            // AT-Core-Matches, Johan's ruling 6 — frozen at arrival, same
+            // resolution as P24LeadService::processLead().
+            'received_by_user_id'       => $existed ? $existingAgentId : $listingAgentId,
             'name'                      => $name,
             'email'                     => $email,
             'phone'                     => $phone,

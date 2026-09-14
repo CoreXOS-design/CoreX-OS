@@ -27,6 +27,9 @@ class AgencyContactSettings extends Model
         'buyer_warm_days',
         'buyer_cold_days',
         'buyer_lost_days',
+        // AT-Core-Matches, Johan's ruling 5 — "the working window is an
+        // agency SETTING, default 7 days, never hardcoded."
+        'core_matches_working_window_days',
         // AT-81 — days a contact may sit PENDING (consent-request sent, no reply)
         // before being lapsed to a no_response opt-out.
         'outreach_no_response_days',
@@ -60,6 +63,7 @@ class AgencyContactSettings extends Model
         'buyer_warm_days' => 'integer',
         'buyer_cold_days' => 'integer',
         'buyer_lost_days' => 'integer',
+        'core_matches_working_window_days' => 'integer',
         'outreach_no_response_days' => 'integer',
         'min_countable_criteria' => 'array',
         'mic_match_threshold' => 'integer',
@@ -119,6 +123,9 @@ class AgencyContactSettings extends Model
     /** Buyer/Rental Pipeline kanban: max cards shown per column before "View all in List". */
     public const DEFAULT_BUYER_KANBAN_COLUMN_LIMIT = 50;
 
+    /** AT-Core-Matches, Johan's ruling 5 — default working-window length (days). */
+    public const DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS = 7;
+
     /** Per-request cache of the resolved min-countable bar, keyed by agency id. */
     protected static array $minCountableCache = [];
 
@@ -144,6 +151,7 @@ class AgencyContactSettings extends Model
             'buyer_warm_days' => 14,
             'buyer_cold_days' => 30,
             'buyer_lost_days' => 60,
+            'core_matches_working_window_days' => self::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS,
             'outreach_no_response_days' => self::DEFAULT_OUTREACH_NO_RESPONSE_DAYS,
             'min_countable_criteria' => self::DEFAULT_MIN_COUNTABLE_CRITERIA,
             'mic_match_threshold' => self::DEFAULT_MIC_MATCH_THRESHOLD,
@@ -174,6 +182,18 @@ class AgencyContactSettings extends Model
     {
         $v = (int) ($this->buyer_kanban_column_limit ?? self::DEFAULT_BUYER_KANBAN_COLUMN_LIMIT);
         return max(10, min(500, $v));
+    }
+
+    /**
+     * AT-Core-Matches, Johan's ruling 5 — resolved working-window length in
+     * days (null-safe, clamped 1–90). The clock itself is
+     * Contact::last_contacted_at; this is only the length of the window
+     * before a buyer counts as "gone quiet."
+     */
+    public function coreMatchesWorkingWindowDays(): int
+    {
+        $v = (int) ($this->core_matches_working_window_days ?? self::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS);
+        return max(1, min(90, $v));
     }
 
     /** Recurring-events: resolved max occurrences per series per query (null-safe, clamped 1–1000). */

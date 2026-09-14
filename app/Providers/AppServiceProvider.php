@@ -248,6 +248,8 @@ class AppServiceProvider extends ServiceProvider
         CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
         CalendarEvent::observe(CalendarEventObserver::class);
         Contact::observe(ContactObserver::class);
+        // AT-Core-Matches, Johan's ruling 2 — a note added resets the working clock.
+        \App\Models\ContactNote::observe(\App\Observers\ContactNoteObserver::class);
         ContactPhone::observe(ContactPhoneObserver::class);
         ContactEmail::observe(ContactEmailObserver::class);
         ContactAccessLog::observe(ContactAccessLogObserver::class);
@@ -805,6 +807,22 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(
             \App\Events\Website\ArticleVisibilityChanged::class,
             \App\Listeners\Webhooks\DispatchArticleWebhooks::class,
+        );
+
+        // AT-Core-Matches, Task 6 — Buyer Pipeline "Lost" takes a buyer's
+        // matches off the Core Matches board; moving off "Lost" restores
+        // them. Fired explicitly from BuyerStateService::transitionTo()
+        // (updateQuietly() there suppresses model events, so no observer
+        // would ever see this). Replaces the never-built, wrongly-named
+        // ContactBuyerStatusChanged this file used to document — see the
+        // corrected entry in .ai/specs/corex-domain-events-spec.md.
+        Event::listen(
+            \App\Events\Contact\ContactMarkedLostInBuyerPipeline::class,
+            \App\Listeners\CoreMatches\SetAsideCoreMatchesOnBuyerLost::class,
+        );
+        Event::listen(
+            \App\Events\Contact\ContactRestoredFromLostInBuyerPipeline::class,
+            \App\Listeners\CoreMatches\RestoreCoreMatchesOnBuyerRestored::class,
         );
         \App\Models\AgentArticle::observe(\App\Observers\AgentArticleObserver::class);
 

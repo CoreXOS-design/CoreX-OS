@@ -4050,6 +4050,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.all_view')
         ->name('corex.rentals.core-matches.all');
 
+    // AT-Core-Matches, Johan's ruling 1 — server-enforced, not a hidden
+    // button. Route middleware is the FIRST gate; ContactMatch::reassignTo()
+    // re-checks the same permission independently (defense in depth, direct-
+    // URL access must be blocked, not just absent from a menu). One route
+    // serves both the sale and rental screens — the match itself carries its
+    // own listing_type, there is no separate rentals variant needed here.
+    Route::post('/core-matches/{match}/reassign', [\App\Http\Controllers\CoreX\ContactMatchReassignmentController::class, 'reassign'])
+        ->middleware('permission:core_matches.reassign')
+        ->name('corex.core-matches.reassign');
+
+    // AT-Core-Matches, Johan's ruling 4 — logs a share event (internal-only)
+    // and resets the buyer's working clock. Same core_matches.view gate as
+    // reading the match itself — anyone who can see a match and act on it
+    // may share its live link; reassignment is the privileged action, not this.
+    Route::post('/core-matches/{match}/record-share', [\App\Http\Controllers\CoreX\ContactMatchShareController::class, 'record'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.core-matches.record-share');
+
     // AT-403 — Rentals → Contacts. Johan: "rental menu - wheres my rental
     // contacts?" Same ContactController::index() as corex.contacts.index
     // above, detected by route NAME, locking the list to contacts holding a
