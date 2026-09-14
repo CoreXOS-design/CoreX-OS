@@ -75,7 +75,20 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         init() {
             this.computePenLabelFontSize();
             this.computePenLetterAssignments();
+            // 2026-09-14 — the capture chip is positioned in JS off
+            // window.innerWidth/innerHeight (see captureChipStyle()), which
+            // Alpine has no way to know to watch — nothing re-ran that
+            // method on its own when the window resized while the chip was
+            // open. captureChipResizeTick is read (unused otherwise) inside
+            // captureChipStyle() purely to give Alpine a reactive dependency
+            // to react to; incrementing it here is what forces a
+            // recomputation. Scoped to while a chip is actually open —
+            // no-op otherwise, same as the rest of this listener's cost.
+            window.addEventListener('resize', () => {
+                if (this.captureChip) this.captureChipResizeTick++;
+            });
         },
+        captureChipResizeTick: 0,
         markedUpDocIds: initialMarkedUpDocIds || [],
         currentUserId: currentUserId ?? null,
         currentUserName: currentUserName || '',
@@ -340,21 +353,62 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
         // instance per document), since a viewport-relative point means
         // the same thing in both.
         captureChip: null, // { mode:'create'|'edit', pendingMark, markId, page, entryType, clientX, clientY, date, description, amount, saving, error }
+        // 2026-09-14, Johan live on QA1: "adding a highlight to the bottom
+        // of the screen shows the popup but the bottom is off screen."
+        // Root cause was NOT the flip logic below (that shape was already
+        // right) — it was estHeight being a made-up constant (240) instead
+        // of the chip's real rendered height, so the "does it fit below"
+        // check confidently answered yes when the real, taller chip did
+        // not fit. Measured once per open, in the $nextTick right below
+        // (measureCaptureChip()), and used from here on instead of a guess.
+        captureChipMeasuredHeight: null,
+        /** Real rendered height of the open chip, via the same global-selector convention openCaptureChipFor{Create,Edit}() already use for focus (not x-ref — this file already reaches the chip by attribute selector, see below). Called from $nextTick so the DOM has actually painted the chip's real content (error text, etc.) before measuring. */
+        measureCaptureChip() {
+            const el = document.querySelector('[data-capture-chip-form]');
+            this.captureChipMeasuredHeight = el ? el.offsetHeight : null;
+        },
         // Returns an OBJECT, deliberately — Alpine's :style merges individual
         // properties when given an object, coexisting cleanly with x-show's
         // own display:none toggling on the same element; a STRING value
         // would replace the whole style attribute on every reactive
         // re-evaluation and could clobber x-show's display:none.
+        //
+        // Three edge cases added 2026-09-14 alongside the real-height fix,
+        // per Johan's explicit brief — each holds regardless of viewport
+        // size, not just the one he hit:
+        //  - Width is capped to the viewport (never just flipped) — a
+        //    narrower chip beats a sideways-scrolling one.
+        //  - Vertical flip is clamped so the TOP edge can never go above
+        //    the viewport either, once real height (not 240) changes the
+        //    numbers.
+        //  - maxHeight + overflowY is the last-resort case: a chip taller
+        //    than the whole viewport clamps and scrolls internally rather
+        //    than hanging off either edge. Resize handling lives in
+        //    init() below (a window 'resize' listener scoped to while the
+        //    chip is open) — this function itself just needs to read
+        //    window.innerWidth/innerHeight fresh on every call, which it
+        //    already does.
         captureChipStyle() {
             if (!this.captureChip) return {};
-            const width = 330, estHeight = 240, margin = 8;
+            void this.captureChipResizeTick; // read only to register as an Alpine reactive dependency — see init()'s resize listener
+            const margin = 8;
+            const vw = window.innerWidth, vh = window.innerHeight;
+            const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+            const width = Math.min(330, vw - margin * 2);
+            const height = this.captureChipMeasuredHeight || 240; // pre-measurement fallback for the first paint only
             let left = this.captureChip.clientX + 16;
-            if (left + width > window.innerWidth - margin) left = Math.max(margin, this.captureChip.clientX - width - 16);
+            if (left + width > vw - margin) left = this.captureChip.clientX - width - 16;
+            left = clamp(left, margin, vw - width - margin);
             let top = this.captureChip.clientY;
-            if (top + estHeight > window.innerHeight - margin) top = Math.max(margin, top - estHeight);
-            return { position: 'fixed', left: left + 'px', top: top + 'px', width: width + 'px', zIndex: 60 };
+            if (top + height > vh - margin) top = this.captureChip.clientY - height;
+            top = clamp(top, margin, vh - height - margin);
+            return {
+                position: 'fixed', left: left + 'px', top: top + 'px', width: width + 'px',
+                maxHeight: (vh - margin * 2) + 'px', overflowY: 'auto', zIndex: 60,
+            };
         },
         openCaptureChipForCreate(pendingMark, entryType, clientX, clientY) {
+            this.captureChipMeasuredHeight = null;
             this.captureChip = {
                 mode: 'create', pendingMark, markId: null, page: pendingMark.page, entryType,
                 clientX, clientY, date: '', description: '', amount: '', saving: false, error: '',
@@ -373,11 +427,13 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 priorTool: this.activeTool, priorHighlighterId: this.activeHighlighterId,
             };
             this.$nextTick(() => {
+                this.measureCaptureChip();
                 const el = document.querySelector('[data-capture-chip-amount]');
                 if (el) { el.focus(); el.select(); }
             });
         },
         openCaptureChipForEdit(mark, clientX, clientY) {
+            this.captureChipMeasuredHeight = null;
             this.captureChip = {
                 mode: 'edit', pendingMark: null, markId: mark.id, page: mark.page, entryType: mark.entry_type,
                 clientX, clientY, date: mark.entry_date || '', description: mark.entry_description || '',
@@ -386,6 +442,7 @@ function rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, curre
                 priorTool: this.activeTool, priorHighlighterId: this.activeHighlighterId,
             };
             this.$nextTick(() => {
+                this.measureCaptureChip();
                 const el = document.querySelector('[data-capture-chip-amount]');
                 if (el) { el.focus(); el.select(); }
             });
