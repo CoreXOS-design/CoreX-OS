@@ -20,152 +20,187 @@
     $lastSummary = $latestSnapshot ? $latestSnapshot->getOutputSummaryArray() : null;
 @endphp
 
-<div class="w-full space-y-6">
+{{-- Two-column workspace: a sticky identity rail on the left (title, status,
+     every action, the record facts) and the working sections on the right.
+     Replaces the flat page banner + separate action-button bar. --}}
+<div class="w-full grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start">
 
-{{-- Page header (AT-336 — flat neutral bar, matches Properties) --}}
-<div class="rounded-md px-6 py-5 corex-page-banner">
-    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+{{-- ── LEFT RAIL — identity, actions, quick facts (sticky on desktop) ────── --}}
+@php
+    // Build 1 — Str::humanType is the single source for
+    // property-type display. The legacy $propTypeLabels map
+    // is retained as a fine-grained override (e.g. "land" →
+    // "Vacant Land" rather than "Land") but falls through to
+    // humanType for unknown values.
+    $propTypeLabels = [
+        'house' => 'House', 'townhouse' => 'Townhouse', 'apartment' => 'Apartment/Flat',
+        'duplex' => 'Duplex', 'vacant_land' => 'Vacant Land', 'farm' => 'Farm',
+        'unit' => 'Unit/Apartment', 'land' => 'Vacant Land', 'other' => 'Other',
+    ];
+    $factProperty = implode(' · ', array_filter([
+        $presentation->property_type ? ($propTypeLabels[$presentation->property_type] ?? \Illuminate\Support\Str::humanType($presentation->property_type)) : null,
+        $presentation->bedrooms ? $presentation->bedrooms . ' bed' : null,
+        $presentation->bathrooms ? $presentation->bathrooms . ' bath' : null,
+        $presentation->garages_parking ? $presentation->garages_parking . ' garage' : null,
+    ]));
+    $factSize = implode(' · ', array_filter([
+        $presentation->erf_size_m2 ? number_format($presentation->erf_size_m2) . ' m² erf' : null,
+        $presentation->floor_area_m2 ? $presentation->floor_area_m2 . ' m² floor' : null,
+    ]));
+    $railAddress = $presentation->property_address ?? 'No address set';
+    if ($presentation->suburb && stripos($railAddress, $presentation->suburb) === false) {
+        $railAddress .= ' · ' . $presentation->suburb;
+    }
+@endphp
+<aside class="rounded-lg overflow-hidden lg:sticky lg:top-0" style="background:var(--surface); border:1px solid var(--border); box-shadow:0 1px 2px rgba(15,23,42,0.06);">
+    <div class="px-4 pt-4 pb-3 flex flex-col gap-2.5">
+        <a href="{{ route('presentations.index') }}" class="inline-flex items-center gap-1.5 text-xs font-medium hover:underline" style="color: var(--text-secondary);">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" /></svg>
+            All Presentations
+        </a>
         <div>
-            <div class="flex items-center gap-3 mb-1.5 flex-wrap">
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $presentation->title }}</h1>
-                <span class="ds-badge {{ $statusBadge }}">{{ ucfirst($presentation->status) }}</span>
-            </div>
-            <p class="text-xs font-medium" style="color: var(--text-muted);">{{ $presentation->property_address ?? 'No address set' }}</p>
-
-            {{-- Property details row --}}
-            @php
-                // Build 1 — Str::humanType is the single source for
-                // property-type display. The legacy $propTypeLabels map
-                // is retained as a fine-grained override (e.g. "land" →
-                // "Vacant Land" rather than "Land") but falls through to
-                // humanType for unknown values.
-                $propTypeLabels = [
-                    'house' => 'House', 'townhouse' => 'Townhouse', 'apartment' => 'Apartment/Flat',
-                    'duplex' => 'Duplex', 'vacant_land' => 'Vacant Land', 'farm' => 'Farm',
-                    'unit' => 'Unit/Apartment', 'land' => 'Vacant Land', 'other' => 'Other',
-                ];
-                $propDetails = array_filter([
-                    $presentation->suburb,
-                    $presentation->property_type ? ($propTypeLabels[$presentation->property_type] ?? \Illuminate\Support\Str::humanType($presentation->property_type)) : null,
-                    $presentation->bedrooms ? $presentation->bedrooms . ' bed' : null,
-                    $presentation->bathrooms ? $presentation->bathrooms . ' bath' : null,
-                    $presentation->garages_parking ? $presentation->garages_parking . ' garage' : null,
-                    $presentation->erf_size_m2 ? number_format($presentation->erf_size_m2) . ' m² erf' : null,
-                    $presentation->floor_area_m2 ? $presentation->floor_area_m2 . ' m² floor' : null,
-                    $presentation->asking_price_inc ? 'R ' . number_format($presentation->asking_price_inc, 0, '.', ' ') : null,
-                ]);
-            @endphp
-            @if(!empty($propDetails))
-                <p class="text-xs mt-1" style="color: var(--text-faint);">{{ implode(' · ', $propDetails) }}</p>
-            @endif
-
-            @if($presentation->seller_name)
-                <p class="text-xs mt-0.5" style="color: var(--text-faint);">Seller: {{ $presentation->seller_name }}</p>
-            @endif
-            <p class="text-xs mt-0.5" style="color: var(--text-faint);">Created {{ $presentation->created_at->format('Y-m-d') }}</p>
+            <span class="ds-badge {{ $statusBadge }}">{{ ucfirst($presentation->status) }}</span>
+            <h1 class="text-[17px] font-bold leading-snug mt-2" style="color: var(--text-primary);">{{ $presentation->title }}</h1>
+            <p class="text-[13px] mt-1" style="color: var(--text-secondary);">{{ $railAddress }}</p>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-            <a href="{{ route('presentations.analysis', [$presentation, 'refresh' => 1]) }}" class="corex-btn-primary text-xs">
+
+        {{-- ACTION BUTTONS — stacked, full width --}}
+        <div class="flex flex-col gap-1.5 mt-0.5">
+            @if($latestSnapshot)
+                <a href="{{ route('presentations.analysis', $presentation) }}"
+                   class="corex-btn-primary w-full justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>
+                    View Analysis
+                </a>
+            @endif
+            <a href="{{ route('presentations.analysis', [$presentation, 'refresh' => 1]) }}"
+               class="{{ $latestSnapshot ? 'corex-btn-outline' : 'corex-btn-primary' }} w-full justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" /></svg>
                 {{ $latestSnapshot ? 'Re-run Analysis' : 'Run Analysis' }}
             </a>
-            <a href="{{ route('presentations.index') }}"
-               class="corex-btn-outline text-xs">
-                &larr; All Presentations
-            </a>
+            @if(config('features.pricing_simulator_v1'))
+                <a href="{{ route('presentations.pricing-simulator', $presentation) }}"
+                   class="corex-btn-primary w-full justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>
+                    Pricing Simulator
+                </a>
+                <a href="{{ route('presentations.seller-live', $presentation) }}"
+                   class="corex-btn-outline w-full justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5" /></svg>
+                    Seller Live Test
+                </a>
+            @endif
+            @php
+                // PDF readiness gate — the auto-presentation flow guarantees
+                // data capture + auto-generates a default-tone Executive
+                // Summary at generate time, so under normal conditions
+                // ai_summary_text is populated before the agent reaches this
+                // screen. The gate only blocks when (a) Analysis hasn't been
+                // run yet OR (b) the AI was unreachable at generate time and
+                // the agent hasn't regenerated from the Exec Summary panel.
+                // Holding Cost does NOT gate — it's auto-filled by the Tier
+                // 0/1/2 chain and agent overrides happen inline.
+                $hasAiSummary = $latestVersion?->ai_summary_text;
+                $pdfReady     = $latestVersion && $hasAiSummary;
+                $pdfBlockMsg  = !$latestVersion
+                    ? 'Run Analysis first to produce a compiled snapshot'
+                    : (!$hasAiSummary ? 'Generate the Executive Summary to enable the PDF' : '');
+            @endphp
+            @if(config('features.presentation_blueprint'))
+                <form method="POST" action="{{ route('presentations.compile', $presentation) }}" class="block">
+                    @csrf
+                    <button type="submit"
+                            class="corex-btn-primary w-full justify-center" style="{{ $pdfReady ? '' : 'opacity:0.5;cursor:not-allowed;' }}"
+                            {{ $pdfReady ? '' : 'disabled title="' . e($pdfBlockMsg) . '"' }}>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+                        Compile Pack
+                    </button>
+                </form>
+            @endif
+            @if(config('features.presentation_pdf_v1') && isset($latestVersion) && $latestVersion)
+                @if($pdfReady)
+                    <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
+                       class="corex-btn-primary w-full justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                        Download PDF (v{{ $latestVersion->id }})
+                    </a>
+                    <a href="{{ route('presentations.versions.complete-pack', [$presentation, $latestVersion]) }}"
+                       class="corex-btn-primary w-full justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
+                        Complete Pack (ZIP)
+                    </a>
+                @else
+                    {{-- Disabled state for Download PDF + Complete Pack — share
+                         the same readiness boolean + tooltip as Compile Pack so
+                         the agent sees consistent messaging across all three. --}}
+                    <span class="corex-btn-primary w-full justify-center" style="opacity:0.5;cursor:not-allowed;"
+                          title="{{ $pdfBlockMsg }}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+                        Download PDF (v{{ $latestVersion->id }})
+                    </span>
+                    <span class="corex-btn-primary w-full justify-center" style="opacity:0.5;cursor:not-allowed;"
+                          title="{{ $pdfBlockMsg }}">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
+                        Complete Pack (ZIP)
+                    </span>
+                @endif
+            @endif
+            {{-- Edit Details button removed — property data has ONE source (the
+                 property page itself). Changes there flow through regenerate;
+                 no manual override on the presentation screen. --}}
         </div>
     </div>
-</div>
 
-{{-- Flash messages handled by global toast system --}}
-
-{{-- ACTION BUTTONS --}}
-<div class="ds-status-card">
-    <div class="flex flex-wrap items-center gap-3 px-5 py-3.5">
-        @if($latestSnapshot)
-            <a href="{{ route('presentations.analysis', $presentation) }}"
-               class="corex-btn-primary">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" /></svg>
-                View Analysis
-            </a>
-        @endif
-        <a href="{{ route('presentations.analysis', [$presentation, 'refresh' => 1]) }}"
-           class="{{ $latestSnapshot ? 'corex-btn-outline' : 'corex-btn-primary' }}">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" /></svg>
-            {{ $latestSnapshot ? 'Re-run Analysis' : 'Run Analysis' }}
-        </a>
-        @if(config('features.pricing_simulator_v1'))
-            <a href="{{ route('presentations.pricing-simulator', $presentation) }}"
-               class="corex-btn-primary">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>
-                Pricing Simulator
-            </a>
-            <a href="{{ route('presentations.seller-live', $presentation) }}"
-               class="corex-btn-outline">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 0 0 6 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0 1 18 16.5h-2.25m-7.5 0h7.5m-7.5 0-1 3m8.5-3 1 3m0 0 .5 1.5m-.5-1.5h-9.5m0 0-.5 1.5" /></svg>
-                Seller Live Test
-            </a>
-        @endif
-        @php
-            // PDF readiness gate — the auto-presentation flow guarantees
-            // data capture + auto-generates a default-tone Executive
-            // Summary at generate time, so under normal conditions
-            // ai_summary_text is populated before the agent reaches this
-            // screen. The gate only blocks when (a) Analysis hasn't been
-            // run yet OR (b) the AI was unreachable at generate time and
-            // the agent hasn't regenerated from the Exec Summary panel.
-            // Holding Cost does NOT gate — it's auto-filled by the Tier
-            // 0/1/2 chain and agent overrides happen inline.
-            $hasAiSummary = $latestVersion?->ai_summary_text;
-            $pdfReady     = $latestVersion && $hasAiSummary;
-            $pdfBlockMsg  = !$latestVersion
-                ? 'Run Analysis first to produce a compiled snapshot'
-                : (!$hasAiSummary ? 'Generate the Executive Summary to enable the PDF' : '');
-        @endphp
-        @if(config('features.presentation_blueprint'))
-            <form method="POST" action="{{ route('presentations.compile', $presentation) }}" class="inline">
-                @csrf
-                <button type="submit"
-                        class="corex-btn-primary" style="{{ $pdfReady ? '' : 'opacity:0.5;cursor:not-allowed;' }}"
-                        {{ $pdfReady ? '' : 'disabled title="' . e($pdfBlockMsg) . '"' }}>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-                    Compile Pack
-                </button>
-            </form>
-        @endif
-        @if(config('features.presentation_pdf_v1') && isset($latestVersion) && $latestVersion)
-            @if($pdfReady)
-                <a href="{{ route('presentations.versions.pdf', [$presentation, $latestVersion]) }}"
-                   class="corex-btn-primary">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                    Download PDF (v{{ $latestVersion->id }})
-                </a>
-                <a href="{{ route('presentations.versions.complete-pack', [$presentation, $latestVersion]) }}"
-                   class="corex-btn-primary">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
-                    Complete Pack (ZIP)
-                </a>
-            @else
-                {{-- Disabled state for Download PDF + Complete Pack — share
-                     the same readiness boolean + tooltip as Compile Pack so
-                     the agent sees consistent messaging across all three. --}}
-                <span class="corex-btn-primary" style="opacity:0.5;cursor:not-allowed;"
-                      title="{{ $pdfBlockMsg }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-                    Download PDF (v{{ $latestVersion->id }})
-                </span>
-                <span class="corex-btn-primary" style="opacity:0.5;cursor:not-allowed;"
-                      title="{{ $pdfBlockMsg }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg>
-                    Complete Pack (ZIP)
-                </span>
-            @endif
-        @endif
-        {{-- Edit Details button removed — property data has ONE source (the
-             property page itself). Changes there flow through regenerate;
-             no manual override on the presentation screen. --}}
+    {{-- FACTS — the record facts, hairline-separated --}}
+    <div class="px-4 py-1" style="background: var(--surface-2); border-top: 1px solid var(--border);">
+        <div class="py-2 min-w-0">
+            <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Property</div>
+            <div class="text-[13px] mt-0.5" style="color:var(--text-primary);">{!! $factProperty !== '' ? e($factProperty) : '<span style="color:var(--text-muted);">—</span>' !!}</div>
+        </div>
+        <div class="py-2 min-w-0 border-t" style="border-color:var(--border);">
+            <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Size</div>
+            <div class="text-[13px] mt-0.5" style="color:var(--text-primary);">{!! $factSize !== '' ? e($factSize) : '<span style="color:var(--text-muted);">—</span>' !!}</div>
+        </div>
+        <div class="py-2 min-w-0 border-t" style="border-color:var(--border);">
+            <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Asking price</div>
+            <div class="text-base font-semibold mt-0.5" style="color:var(--text-primary);">
+                @if($presentation->asking_price_inc)
+                    R {{ number_format($presentation->asking_price_inc, 0, '.', ' ') }}
+                @else
+                    <span class="text-[13px] font-normal" style="color:var(--text-muted);">—</span>
+                @endif
+            </div>
+        </div>
+        <div class="py-2 min-w-0 border-t" style="border-color:var(--border);">
+            <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Seller</div>
+            <div class="text-[13px] mt-0.5" style="color:var(--text-primary);">
+                @if($presentation->seller_name)
+                    {{ $presentation->seller_name }}
+                @else
+                    <span style="color:var(--text-muted);">Not set</span>
+                @endif
+            </div>
+        </div>
+        <div class="py-2 min-w-0 border-t" style="border-color:var(--border);">
+            <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Created</div>
+            <div class="text-[13px] mt-0.5" style="color:var(--text-primary);">{{ $presentation->created_at->format('d M Y') }}</div>
+        </div>
+        <div class="py-2 min-w-0 border-t" style="border-color:var(--border);">
+            <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Snapshots</div>
+            <div class="text-[13px] mt-0.5" style="color:var(--text-primary);">
+                {{ number_format($snapshotCount) }} saved
+                @if($latestSnapshot)
+                    <span style="color:var(--text-muted);">· {{ $latestSnapshot->created_at->format('d M H:i') }}</span>
+                    <a href="{{ route('presentations.snapshots.show', [$presentation, $latestSnapshot]) }}"
+                       class="ml-1 text-xs hover:underline font-medium" style="color: var(--brand-icon, #0ea5e9);">View latest →</a>
+                @endif
+            </div>
+        </div>
     </div>
-</div>
+</aside>
 
+{{-- ── MAIN COLUMN — the working sections ──────────────────────────────── --}}
+<div class="min-w-0 space-y-4">
 {{-- Error flash handled by global toast system --}}
 
 {{-- ── PHASE 8: OUTCOME PANEL ──────────────────────────────────────────── --}}
@@ -208,6 +243,254 @@
             Open inbox →
         </a>
     </div>
+</div>
+@endif
+
+{{-- ── POWER PANEL (UI1) ──────────────────────────────────────────────── --}}
+@if($powerPanel)
+<div class="ds-status-card">
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="ds-section-header" style="margin-bottom:0">Power Panel</h2>
+        <span class="text-xs font-medium" style="color: var(--text-muted);">Snapshot {{ $powerPanel['snapshot_at']->format('Y-m-d H:i') }}</span>
+    </div>
+    <div>
+
+    {{-- Row 1: Probability + Confidence + PPI --}}
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mb-5">
+        {{-- P30 --}}
+        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
+            <p class="ds-label mb-1">P30</p>
+            <p class="ds-value-lg" style="color: {{ ($powerPanel['p30'] ?? 0) >= 0.5 ? 'var(--ds-green, #059669)' : 'var(--text-primary)' }};">
+                @if($powerPanel['p30'] !== null)
+                    {{ number_format($powerPanel['p30'] * 100, 0) }}%
+                @else
+                    <span style="color: var(--text-muted);">--</span>
+                @endif
+            </p>
+        </div>
+        {{-- P60 --}}
+        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
+            <p class="ds-label mb-1">P60</p>
+            <p class="ds-value-lg" style="color: {{ ($powerPanel['p60'] ?? 0) >= 0.5 ? 'var(--ds-green, #059669)' : 'var(--text-primary)' }};">
+                @if($powerPanel['p60'] !== null)
+                    {{ number_format($powerPanel['p60'] * 100, 0) }}%
+                @else
+                    <span style="color: var(--text-muted);">--</span>
+                @endif
+            </p>
+        </div>
+        {{-- P90 --}}
+        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
+            <p class="ds-label mb-1">P90</p>
+            <p class="ds-value-lg" style="color: {{ ($powerPanel['p90'] ?? 0) >= 0.65 ? 'var(--ds-green, #059669)' : 'var(--text-primary)' }};">
+                @if($powerPanel['p90'] !== null)
+                    {{ number_format($powerPanel['p90'] * 100, 0) }}%
+                @else
+                    <span style="color: var(--text-muted);">--</span>
+                @endif
+            </p>
+        </div>
+        {{-- Expected Days --}}
+        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
+            <p class="ds-label mb-1">Exp. Days</p>
+            <p class="ds-value-lg" style="color: var(--text-primary);">
+                @if($powerPanel['expected_days'] !== null)
+                    {{ $powerPanel['expected_days'] }}
+                @else
+                    <span style="color: var(--text-muted);">--</span>
+                @endif
+            </p>
+        </div>
+        {{-- Confidence --}}
+        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
+            <p class="ds-label mb-1">Confidence</p>
+            @if($powerPanel['confidence'])
+                @php
+                    $confScore = $powerPanel['confidence']['confidence_score'] ?? 0;
+                    $confGrade = $powerPanel['confidence']['confidence_grade'] ?? '-';
+                    $confColor = match($confGrade) {
+                        'A' => 'var(--ds-green, #059669)',
+                        'B' => 'var(--ds-green, #059669)',
+                        'C' => 'var(--text-secondary)',
+                        default => 'var(--text-muted)',
+                    };
+                @endphp
+                <p class="ds-value-lg" style="color: {{ $confColor }};">{{ $confScore }} <span class="text-xs font-medium">({{ $confGrade }})</span></p>
+            @else
+                <p class="ds-value-lg" style="color: var(--text-muted);">--</p>
+            @endif
+        </div>
+        {{-- PPI --}}
+        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
+            <p class="ds-label mb-1">PPI</p>
+            @if($powerPanel['ppi'])
+                @php
+                    $ppiScore = $powerPanel['ppi']['ppi_score'] ?? 0;
+                    $ppiLabel = $powerPanel['ppi']['ppi_label'] ?? '-';
+                    $ppiColor = match($ppiLabel) {
+                        'Strong' => 'var(--ds-green, #059669)',
+                        'Balanced' => 'var(--text-secondary)',
+                        default => 'var(--text-muted)',
+                    };
+                @endphp
+                <p class="ds-value-lg" style="color: {{ $ppiColor }};">{{ $ppiScore }} <span class="text-xs font-medium">({{ $ppiLabel }})</span></p>
+            @else
+                <p class="ds-value-lg" style="color: var(--text-muted);">--</p>
+            @endif
+        </div>
+    </div>
+
+    {{-- Row 2: Competitive Stock + Holding Cost --}}
+    @php
+        $compStock = $powerPanel['competitive_stock'] ?? null;
+        $holdingCost = $powerPanel['holding_cost'] ?? null;
+    @endphp
+    @if($compStock || $holdingCost)
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-5 pt-4 border-t" style="border-color: var(--border);">
+        @if($compStock)
+            <div class="rounded-md px-3 py-2" style="background: var(--surface-2);">
+                <p class="ds-label">Active Stock</p>
+                <p class="text-sm font-bold mt-0.5" style="color: var(--text-primary);">{{ $compStock['total_active_stock'] ?? '--' }}</p>
+            </div>
+            <div class="rounded-md px-3 py-2" style="background: var(--surface-2);">
+                <p class="ds-label">Below Subject</p>
+                <p class="text-sm font-bold mt-0.5" style="color: var(--text-primary);">{{ $compStock['below_subject_count'] ?? '--' }}</p>
+            </div>
+            <div class="rounded-md px-3 py-2" style="background: var(--surface-2);">
+                <p class="ds-label">Above Subject</p>
+                <p class="text-sm font-bold mt-0.5" style="color: var(--text-primary);">{{ $compStock['above_subject_count'] ?? '--' }}</p>
+            </div>
+        @endif
+        @if($holdingCost)
+            <div class="rounded-md px-3 py-2" style="background: var(--surface-2);">
+                <p class="ds-label">Monthly Hold Cost</p>
+                <p class="text-sm font-bold mt-0.5" style="color: var(--text-primary);">R{{ number_format($holdingCost['monthly_total'] ?? 0, 0) }}</p>
+            </div>
+        @endif
+    </div>
+    @endif
+
+    {{-- Row 3: Explainability --}}
+    @if($powerPanel['explainability'])
+        @php $explain = $powerPanel['explainability']; @endphp
+        <div class="pt-4 border-t" style="border-color: var(--border);">
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {{-- Key Drivers --}}
+                @if(!empty($explain['key_drivers']))
+                    <div class="rounded-md p-3" style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">
+                        <p class="text-[11px] font-semibold mb-2 uppercase tracking-widest" style="color: var(--text-primary);">Key Drivers</p>
+                        <ul class="space-y-1.5">
+                            @foreach($explain['key_drivers'] as $driver)
+                                <li class="text-xs flex items-start gap-2" style="color: var(--text-secondary);">
+                                    <span class="mt-0.5 shrink-0 font-bold" style="color: var(--ds-green, #059669);">+</span>
+                                    {{ $driver }}
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+                {{-- Risk Factors --}}
+                @if(!empty($explain['risk_factors']))
+                    <div class="rounded-md p-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);">
+                        <p class="text-[11px] font-semibold mb-2 uppercase tracking-widest" style="color: var(--ds-amber, #f59e0b);">Risk Factors</p>
+                        <ul class="space-y-1.5">
+                            @foreach($explain['risk_factors'] as $risk)
+                                <li class="text-xs flex items-start gap-2" style="color: var(--text-secondary);">
+                                    <span class="mt-0.5 shrink-0 font-bold" style="color: var(--ds-amber, #f59e0b);">!</span>
+                                    {{ $risk }}
+                                </li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
+            </div>
+            {{-- Position summary --}}
+            @if(!empty($explain['position_summary']))
+                <p class="mt-3 text-xs italic rounded-md px-3 py-2" style="color: var(--text-secondary); background: var(--surface-2);">{{ $explain['position_summary'] }}</p>
+            @endif
+        </div>
+    @endif
+    </div>
+</div>
+@endif
+
+{{-- ═══════ BUYER DEMAND INTELLIGENCE (Module 13 · AT-74 honest split) ═══════ --}}
+@php
+    $bdActive    = (int) ($buyerDemand['active']['count'] ?? 0);
+    $bdHistoric  = (int) ($buyerDemand['historic']['count'] ?? 0);
+    $bdAreaCount = (int) ($buyerDemand['area']['area_buyers'] ?? 0);
+    $bdPreapp    = (int) ($buyerDemand['area']['preapproved_count'] ?? 0);
+    $bdSuburb    = $buyerDemand['area']['suburb'] ?? null;
+    $bdShow      = !empty($buyerDemand) && ($bdActive > 0 || $bdHistoric > 0 || $bdAreaCount > 0 || $bdPreapp > 0);
+@endphp
+@if($bdShow)
+<div class="ds-status-card">
+    <h2 class="ds-section-header mb-4">
+        <span class="flex items-center gap-2">
+            <svg class="w-5 h-5" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg>
+            Buyer Demand
+        </span>
+    </h2>
+
+    {{-- ── ACTIVE buyers matched to THIS property (canonical %) ── --}}
+    @if($bdActive > 0)
+    <div class="mb-5">
+        <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary, #1e293b);">Active buyers matched to your property</h3>
+        <p class="text-xs mb-3" style="color:var(--text-muted, #94a3b8);">{{ $bdActive }} {{ \Illuminate\Support\Str::plural('buyer', $bdActive) }} actively searching whose criteria match this property.</p>
+        @if(!empty($buyerDemand['active']['anonymised_buyers']))
+        <div class="space-y-2">
+            @foreach($buyerDemand['active']['anonymised_buyers'] as $buyer)
+            <div class="flex items-center justify-between py-2 px-3 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="flex items-center gap-2">
+                    <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">{{ $buyer['label'][strlen($buyer['label'])-1] }}</div>
+                    <span class="text-sm font-medium" style="color: var(--text-primary);">{{ $buyer['label'] }}</span>
+                </div>
+                @php
+                    $bdTierColor = $buyer['tier'] === 'strong'
+                        ? 'var(--ds-green, #059669)'
+                        : ($buyer['tier'] === 'good' ? 'var(--brand-icon, #0ea5e9)' : 'var(--ds-amber, #f59e0b)');
+                @endphp
+                <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
+                      style="background: color-mix(in srgb, {{ $bdTierColor }} 15%, transparent); color: {{ $bdTierColor }};">
+                    {{ $buyer['score'] }}% · {{ ucfirst($buyer['tier'] ?? 'match') }}
+                </span>
+            </div>
+            @endforeach
+        </div>
+        @endif
+    </div>
+    @endif
+
+    {{-- ── HISTORIC interest in THIS property ── --}}
+    @if($bdHistoric > 0)
+    <div class="mb-5">
+        <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary, #1e293b);">Past interest in your property</h3>
+        <p class="text-xs" style="color:var(--text-muted, #94a3b8);">{{ $bdHistoric }} {{ \Illuminate\Support\Str::plural('buyer', $bdHistoric) }} previously viewed or engaged this property but {{ $bdHistoric === 1 ? 'is' : 'are' }} not actively searching right now.</p>
+    </div>
+    @endif
+
+    {{-- ── WIDER AREA demand (explicitly labelled — NEVER "for this property") ── --}}
+    @if($bdAreaCount > 0 || $bdPreapp > 0)
+    <div class="mb-2 pt-3" style="border-top: 1px dashed var(--border, #e2e8f0);">
+        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary, #1e293b);">Wider market demand{{ $bdSuburb ? ' in ' . $bdSuburb : '' }}</h3>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            @if($bdAreaCount > 0)
+            <div class="rounded-md p-4 text-center" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 20%, transparent);">
+                <div class="text-2xl font-bold" style="color: var(--ds-amber, #f59e0b);">{{ number_format($bdAreaCount) }}</div>
+                <div class="text-xs mt-1" style="color: var(--text-muted);">buyers active in {{ $bdSuburb ?? 'this area' }}</div>
+            </div>
+            @endif
+            @if($bdPreapp > 0)
+            <div class="rounded-md p-4 text-center" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 20%, transparent);">
+                <div class="text-2xl font-bold" style="color: var(--brand-icon, #0ea5e9);">{{ number_format($bdPreapp) }}</div>
+                <div class="text-xs mt-1" style="color: var(--text-muted);">pre-approved buyers in your price band (agency-wide)</div>
+            </div>
+            @endif
+        </div>
+    </div>
+    @endif
+
+    <p class="text-[10px] mt-4" style="color: var(--text-muted, #94a3b8);">Data as of {{ now()->format('d M Y') }}. Buyer identities protected per POPIA requirements.</p>
 </div>
 @endif
 
@@ -1464,255 +1747,7 @@
      is intentionally retained — it's still consumed by analysis.blade.php
      and as a no-op gate inside PresentationController::compile(). --}}
 
-{{-- ── POWER PANEL (UI1) ──────────────────────────────────────────────── --}}
-@if($powerPanel)
-<div class="ds-status-card">
-    <div class="flex items-center justify-between mb-3">
-        <h2 class="ds-section-header" style="margin-bottom:0">Power Panel</h2>
-        <span class="text-xs font-medium" style="color: var(--text-muted);">Snapshot {{ $powerPanel['snapshot_at']->format('Y-m-d H:i') }}</span>
-    </div>
-    <div>
-
-    {{-- Row 1: Probability + Confidence + PPI --}}
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mb-5">
-        {{-- P30 --}}
-        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
-            <p class="ds-label mb-1">P30</p>
-            <p class="ds-value-lg" style="color: {{ ($powerPanel['p30'] ?? 0) >= 0.5 ? 'var(--ds-green, #059669)' : 'var(--text-primary)' }};">
-                @if($powerPanel['p30'] !== null)
-                    {{ number_format($powerPanel['p30'] * 100, 0) }}%
-                @else
-                    <span style="color: var(--text-muted);">--</span>
-                @endif
-            </p>
-        </div>
-        {{-- P60 --}}
-        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
-            <p class="ds-label mb-1">P60</p>
-            <p class="ds-value-lg" style="color: {{ ($powerPanel['p60'] ?? 0) >= 0.5 ? 'var(--ds-green, #059669)' : 'var(--text-primary)' }};">
-                @if($powerPanel['p60'] !== null)
-                    {{ number_format($powerPanel['p60'] * 100, 0) }}%
-                @else
-                    <span style="color: var(--text-muted);">--</span>
-                @endif
-            </p>
-        </div>
-        {{-- P90 --}}
-        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
-            <p class="ds-label mb-1">P90</p>
-            <p class="ds-value-lg" style="color: {{ ($powerPanel['p90'] ?? 0) >= 0.65 ? 'var(--ds-green, #059669)' : 'var(--text-primary)' }};">
-                @if($powerPanel['p90'] !== null)
-                    {{ number_format($powerPanel['p90'] * 100, 0) }}%
-                @else
-                    <span style="color: var(--text-muted);">--</span>
-                @endif
-            </p>
-        </div>
-        {{-- Expected Days --}}
-        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
-            <p class="ds-label mb-1">Exp. Days</p>
-            <p class="ds-value-lg" style="color: var(--text-primary);">
-                @if($powerPanel['expected_days'] !== null)
-                    {{ $powerPanel['expected_days'] }}
-                @else
-                    <span style="color: var(--text-muted);">--</span>
-                @endif
-            </p>
-        </div>
-        {{-- Confidence --}}
-        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
-            <p class="ds-label mb-1">Confidence</p>
-            @if($powerPanel['confidence'])
-                @php
-                    $confScore = $powerPanel['confidence']['confidence_score'] ?? 0;
-                    $confGrade = $powerPanel['confidence']['confidence_grade'] ?? '-';
-                    $confColor = match($confGrade) {
-                        'A' => 'var(--ds-green, #059669)',
-                        'B' => 'var(--ds-green, #059669)',
-                        'C' => 'var(--text-secondary)',
-                        default => 'var(--text-muted)',
-                    };
-                @endphp
-                <p class="ds-value-lg" style="color: {{ $confColor }};">{{ $confScore }} <span class="text-xs font-medium">({{ $confGrade }})</span></p>
-            @else
-                <p class="ds-value-lg" style="color: var(--text-muted);">--</p>
-            @endif
-        </div>
-        {{-- PPI --}}
-        <div class="text-center rounded-md py-3 px-2" style="background: var(--surface-2);">
-            <p class="ds-label mb-1">PPI</p>
-            @if($powerPanel['ppi'])
-                @php
-                    $ppiScore = $powerPanel['ppi']['ppi_score'] ?? 0;
-                    $ppiLabel = $powerPanel['ppi']['ppi_label'] ?? '-';
-                    $ppiColor = match($ppiLabel) {
-                        'Strong' => 'var(--ds-green, #059669)',
-                        'Balanced' => 'var(--text-secondary)',
-                        default => 'var(--text-muted)',
-                    };
-                @endphp
-                <p class="ds-value-lg" style="color: {{ $ppiColor }};">{{ $ppiScore }} <span class="text-xs font-medium">({{ $ppiLabel }})</span></p>
-            @else
-                <p class="ds-value-lg" style="color: var(--text-muted);">--</p>
-            @endif
-        </div>
-    </div>
-
-    {{-- Row 2: Competitive Stock + Holding Cost --}}
-    @php
-        $compStock = $powerPanel['competitive_stock'] ?? null;
-        $holdingCost = $powerPanel['holding_cost'] ?? null;
-    @endphp
-    @if($compStock || $holdingCost)
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 mb-5 pt-4 border-t" style="border-color: var(--border);">
-        @if($compStock)
-            <div class="rounded-md px-3 py-2" style="background: var(--surface-2);">
-                <p class="ds-label">Active Stock</p>
-                <p class="text-sm font-bold mt-0.5" style="color: var(--text-primary);">{{ $compStock['total_active_stock'] ?? '--' }}</p>
-            </div>
-            <div class="rounded-md px-3 py-2" style="background: var(--surface-2);">
-                <p class="ds-label">Below Subject</p>
-                <p class="text-sm font-bold mt-0.5" style="color: var(--text-primary);">{{ $compStock['below_subject_count'] ?? '--' }}</p>
-            </div>
-            <div class="rounded-md px-3 py-2" style="background: var(--surface-2);">
-                <p class="ds-label">Above Subject</p>
-                <p class="text-sm font-bold mt-0.5" style="color: var(--text-primary);">{{ $compStock['above_subject_count'] ?? '--' }}</p>
-            </div>
-        @endif
-        @if($holdingCost)
-            <div class="rounded-md px-3 py-2" style="background: var(--surface-2);">
-                <p class="ds-label">Monthly Hold Cost</p>
-                <p class="text-sm font-bold mt-0.5" style="color: var(--text-primary);">R{{ number_format($holdingCost['monthly_total'] ?? 0, 0) }}</p>
-            </div>
-        @endif
-    </div>
-    @endif
-
-    {{-- Row 3: Explainability --}}
-    @if($powerPanel['explainability'])
-        @php $explain = $powerPanel['explainability']; @endphp
-        <div class="pt-4 border-t" style="border-color: var(--border);">
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {{-- Key Drivers --}}
-                @if(!empty($explain['key_drivers']))
-                    <div class="rounded-md p-3" style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">
-                        <p class="text-[11px] font-semibold mb-2 uppercase tracking-widest" style="color: var(--text-primary);">Key Drivers</p>
-                        <ul class="space-y-1.5">
-                            @foreach($explain['key_drivers'] as $driver)
-                                <li class="text-xs flex items-start gap-2" style="color: var(--text-secondary);">
-                                    <span class="mt-0.5 shrink-0 font-bold" style="color: var(--ds-green, #059669);">+</span>
-                                    {{ $driver }}
-                                </li>
-                            @endforeach
-                        </ul>
-                    </div>
-                @endif
-                {{-- Risk Factors --}}
-                @if(!empty($explain['risk_factors']))
-                    <div class="rounded-md p-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);">
-                        <p class="text-[11px] font-semibold mb-2 uppercase tracking-widest" style="color: var(--ds-amber, #f59e0b);">Risk Factors</p>
-                        <ul class="space-y-1.5">
-                            @foreach($explain['risk_factors'] as $risk)
-                                <li class="text-xs flex items-start gap-2" style="color: var(--text-secondary);">
-                                    <span class="mt-0.5 shrink-0 font-bold" style="color: var(--ds-amber, #f59e0b);">!</span>
-                                    {{ $risk }}
-                                </li>
-                            @endforeach
-                        </ul>
-                    </div>
-                @endif
-            </div>
-            {{-- Position summary --}}
-            @if(!empty($explain['position_summary']))
-                <p class="mt-3 text-xs italic rounded-md px-3 py-2" style="color: var(--text-secondary); background: var(--surface-2);">{{ $explain['position_summary'] }}</p>
-            @endif
-        </div>
-    @endif
-    </div>
-</div>
-@endif
-
-{{-- ═══════ BUYER DEMAND INTELLIGENCE (Module 13 · AT-74 honest split) ═══════ --}}
-@php
-    $bdActive    = (int) ($buyerDemand['active']['count'] ?? 0);
-    $bdHistoric  = (int) ($buyerDemand['historic']['count'] ?? 0);
-    $bdAreaCount = (int) ($buyerDemand['area']['area_buyers'] ?? 0);
-    $bdPreapp    = (int) ($buyerDemand['area']['preapproved_count'] ?? 0);
-    $bdSuburb    = $buyerDemand['area']['suburb'] ?? null;
-    $bdShow      = !empty($buyerDemand) && ($bdActive > 0 || $bdHistoric > 0 || $bdAreaCount > 0 || $bdPreapp > 0);
-@endphp
-@if($bdShow)
-<div class="ds-status-card">
-    <h2 class="ds-section-header mb-4">
-        <span class="flex items-center gap-2">
-            <svg class="w-5 h-5" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg>
-            Buyer Demand
-        </span>
-    </h2>
-
-    {{-- ── ACTIVE buyers matched to THIS property (canonical %) ── --}}
-    @if($bdActive > 0)
-    <div class="mb-5">
-        <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary, #1e293b);">Active buyers matched to your property</h3>
-        <p class="text-xs mb-3" style="color:var(--text-muted, #94a3b8);">{{ $bdActive }} {{ \Illuminate\Support\Str::plural('buyer', $bdActive) }} actively searching whose criteria match this property.</p>
-        @if(!empty($buyerDemand['active']['anonymised_buyers']))
-        <div class="space-y-2">
-            @foreach($buyerDemand['active']['anonymised_buyers'] as $buyer)
-            <div class="flex items-center justify-between py-2 px-3 rounded-md" style="background: var(--surface-2); border: 1px solid var(--border);">
-                <div class="flex items-center gap-2">
-                    <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">{{ $buyer['label'][strlen($buyer['label'])-1] }}</div>
-                    <span class="text-sm font-medium" style="color: var(--text-primary);">{{ $buyer['label'] }}</span>
-                </div>
-                @php
-                    $bdTierColor = $buyer['tier'] === 'strong'
-                        ? 'var(--ds-green, #059669)'
-                        : ($buyer['tier'] === 'good' ? 'var(--brand-icon, #0ea5e9)' : 'var(--ds-amber, #f59e0b)');
-                @endphp
-                <span class="text-xs px-2 py-0.5 rounded-full font-semibold"
-                      style="background: color-mix(in srgb, {{ $bdTierColor }} 15%, transparent); color: {{ $bdTierColor }};">
-                    {{ $buyer['score'] }}% · {{ ucfirst($buyer['tier'] ?? 'match') }}
-                </span>
-            </div>
-            @endforeach
-        </div>
-        @endif
-    </div>
-    @endif
-
-    {{-- ── HISTORIC interest in THIS property ── --}}
-    @if($bdHistoric > 0)
-    <div class="mb-5">
-        <h3 class="text-sm font-semibold mb-1" style="color: var(--text-primary, #1e293b);">Past interest in your property</h3>
-        <p class="text-xs" style="color:var(--text-muted, #94a3b8);">{{ $bdHistoric }} {{ \Illuminate\Support\Str::plural('buyer', $bdHistoric) }} previously viewed or engaged this property but {{ $bdHistoric === 1 ? 'is' : 'are' }} not actively searching right now.</p>
-    </div>
-    @endif
-
-    {{-- ── WIDER AREA demand (explicitly labelled — NEVER "for this property") ── --}}
-    @if($bdAreaCount > 0 || $bdPreapp > 0)
-    <div class="mb-2 pt-3" style="border-top: 1px dashed var(--border, #e2e8f0);">
-        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary, #1e293b);">Wider market demand{{ $bdSuburb ? ' in ' . $bdSuburb : '' }}</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            @if($bdAreaCount > 0)
-            <div class="rounded-md p-4 text-center" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 20%, transparent);">
-                <div class="text-2xl font-bold" style="color: var(--ds-amber, #f59e0b);">{{ number_format($bdAreaCount) }}</div>
-                <div class="text-xs mt-1" style="color: var(--text-muted);">buyers active in {{ $bdSuburb ?? 'this area' }}</div>
-            </div>
-            @endif
-            @if($bdPreapp > 0)
-            <div class="rounded-md p-4 text-center" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 20%, transparent);">
-                <div class="text-2xl font-bold" style="color: var(--brand-icon, #0ea5e9);">{{ number_format($bdPreapp) }}</div>
-                <div class="text-xs mt-1" style="color: var(--text-muted);">pre-approved buyers in your price band (agency-wide)</div>
-            </div>
-            @endif
-        </div>
-    </div>
-    @endif
-
-    <p class="text-[10px] mt-4" style="color: var(--text-muted, #94a3b8);">Data as of {{ now()->format('d M Y') }}. Buyer identities protected per POPIA requirements.</p>
-</div>
-@endif
-
-<div class="grid grid-cols-1 gap-6 md:grid-cols-2">
+<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
 
     {{-- LAST ANALYSIS SUMMARY --}}
     <div class="ds-status-card">
@@ -1764,23 +1799,44 @@
         </div>
     </div>
 
-    {{-- SNAPSHOTS --}}
-    <div class="ds-status-card">
-        <h2 class="ds-section-header mb-3">Snapshots</h2>
-        <div class="flex flex-col items-start">
-            <p class="ds-value-lg mb-1" style="color: var(--text-primary);">{{ number_format($snapshotCount) }}</p>
-            <p class="text-xs font-medium" style="color: var(--text-muted);">
-                {{ $snapshotCount === 1 ? 'snapshot saved' : 'snapshots saved' }}
-            </p>
-            @if($latestSnapshot)
-                <a href="{{ route('presentations.snapshots.show', [$presentation, $latestSnapshot]) }}"
-                   class="mt-4 inline-block text-xs hover:underline font-medium" style="color: var(--brand-icon, #0ea5e9);">
-                    View latest →
-                </a>
-            @endif
-        </div>
-    </div>
 
+{{-- ── HOLDING COST INPUTS (read-only on Overview) ───────────────────────────
+     AT-27 fix 2 — holding costs are edited on the ANALYSIS screen, PRE-CONFIRM,
+     while the version is still a mutable draft. Editing them here (post-confirm,
+     after the snapshot freeze) would defeat the confirm model — confirmed means
+     final — so the Overview shows them READ-ONLY with a link back to Analysis. --}}
+<div id="holding-costs">
+    <div class="ds-status-card">
+        @php
+            $hcRows = [
+                'Bond payment'     => $presentation->monthly_bond,
+                'Rates'            => $presentation->monthly_rates,
+                'Levies'           => $presentation->monthly_levies,
+                'Insurance'        => $presentation->monthly_insurance,
+                'Utilities'        => $presentation->monthly_utilities,
+                'Opportunity cost' => $presentation->monthly_opportunity_cost,
+            ];
+            $hcTotal = collect($hcRows)->sum();
+        @endphp
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="ds-section-header">Holding Cost Inputs (monthly, ZAR)</h2>
+            <a href="{{ route('presentations.analysis', $presentation) }}" class="corex-btn-outline text-xs">Edit on Analysis</a>
+        </div>
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            @foreach($hcRows as $label => $val)
+            <div>
+                <div class="text-xs mb-1 font-medium" style="color: var(--text-secondary);">{{ $label }}</div>
+                <div class="text-sm font-semibold" style="color: var(--text-primary);">{{ $val ? 'R ' . number_format($val, 0) : '—' }}</div>
+            </div>
+            @endforeach
+        </div>
+        @if($hcTotal > 0)
+        <div class="pt-3 mt-2 border-t" style="border-color: var(--border);">
+            <span class="text-xs font-medium" style="color: var(--text-secondary);">Monthly total: <strong style="color: var(--text-primary);">R{{ number_format($hcTotal, 0) }}</strong></span>
+        </div>
+        @endif
+    </div>
+</div>
 </div>
 
 
@@ -1895,44 +1951,6 @@
      this screen. (Backend endpoint route('presentations.holding-cost.update')
      still accepts asking_price_inc for non-UI callers like the analysis
      edit form; the show screen just doesn't expose it.) --}}
-
-{{-- ── HOLDING COST INPUTS (read-only on Overview) ───────────────────────────
-     AT-27 fix 2 — holding costs are edited on the ANALYSIS screen, PRE-CONFIRM,
-     while the version is still a mutable draft. Editing them here (post-confirm,
-     after the snapshot freeze) would defeat the confirm model — confirmed means
-     final — so the Overview shows them READ-ONLY with a link back to Analysis. --}}
-<div id="holding-costs">
-    <div class="ds-status-card">
-        @php
-            $hcRows = [
-                'Bond payment'     => $presentation->monthly_bond,
-                'Rates'            => $presentation->monthly_rates,
-                'Levies'           => $presentation->monthly_levies,
-                'Insurance'        => $presentation->monthly_insurance,
-                'Utilities'        => $presentation->monthly_utilities,
-                'Opportunity cost' => $presentation->monthly_opportunity_cost,
-            ];
-            $hcTotal = collect($hcRows)->sum();
-        @endphp
-        <div class="flex items-center justify-between mb-3">
-            <h2 class="ds-section-header">Holding Cost Inputs (monthly, ZAR)</h2>
-            <a href="{{ route('presentations.analysis', $presentation) }}" class="corex-btn-outline text-xs">Edit on Analysis</a>
-        </div>
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            @foreach($hcRows as $label => $val)
-            <div>
-                <div class="text-xs mb-1 font-medium" style="color: var(--text-secondary);">{{ $label }}</div>
-                <div class="text-sm font-semibold" style="color: var(--text-primary);">{{ $val ? 'R ' . number_format($val, 0) : '—' }}</div>
-            </div>
-            @endforeach
-        </div>
-        @if($hcTotal > 0)
-        <div class="pt-3 mt-2 border-t" style="border-color: var(--border);">
-            <span class="text-xs font-medium" style="color: var(--text-secondary);">Monthly total: <strong style="color: var(--text-primary);">R{{ number_format($hcTotal, 0) }}</strong></span>
-        </div>
-        @endif
-    </div>
-</div>
 
 {{-- ── LIVE UPDATES POLLING (B1) ────────────────────────────────────────── --}}
 @if(config('features.presentation_live_updates_v1') && config('features.portal_extension_capture_v1'))
@@ -2355,6 +2373,8 @@
     });
 })();
 </script>
+
+</div>{{-- /main column --}}
 
 </div>{{-- /.w-full --}}
 

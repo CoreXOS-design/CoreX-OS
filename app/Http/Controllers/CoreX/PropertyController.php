@@ -134,22 +134,26 @@ class PropertyController extends Controller
         // — so a co-listed property appears under both agents' names. A property
         // is a single row, so an `OR` match still returns it exactly once even
         // when both the primary and secondary are in the selected set.
-        if ($search !== '') {
-            // AT-394 — a typed search ALWAYS widens to the whole agency, ahead of ANY agent/
-            // branch filter currently active — including a canPickAgent user's (admin/BM/owner)
-            // "Mine" default or an explicit agent_ids pick. (First cut of this fix only widened
-            // the plain-agent 'own' path below and left canPickAgent users' "Mine" view still
-            // narrowed — that is exactly the case Johan hit testing as an owner on his own
-            // "My Contacts"/listings.) Still bounded by AgencyScope (untouched), so this can
-            // never cross an agency boundary. Rows outside the agent's own/branch/selected-agent
-            // breadth render read-only below (see $restrictedPropertyIds).
-        } elseif ($canPickAgent && ! empty($filterAgentIds)) {
-            // Admin/BM viewing one or more specific agents
+        if ($canPickAgent && ! empty($filterAgentIds)) {
+            // An ACTIVE agent filter (the "My Properties" default, or one or more agents picked
+            // in the agent picker) is honoured until the user removes it — search or no search.
+            // A typed search NARROWS WITHIN the filtered set; it never silently widens past
+            // it (2026-09-13 ruling, reversing the second cut of AT-394 which let a search
+            // discard the agent pick — an admin filtered to one agent then searching a title
+            // saw every other agent's listings too). To search the whole agency, the user
+            // clicks "All Agents" — that removes the filter, and the branch below applies.
             $ids = array_map('intval', $filterAgentIds);
             $query->where(function ($q) use ($ids) {
                 $q->whereIn('agent_id', $ids)
                   ->orWhereIn('pp_second_agent_id', $ids);
             });
+        } elseif ($search !== '') {
+            // AT-394 — with NO agent filter active, a typed search widens to the whole agency
+            // past the user's role breadth (a plain agent's 'own' book, a BM's branch), so an
+            // agent typing a colleague's existing listing finds it instead of re-creating a
+            // duplicate. Still bounded by AgencyScope (untouched), so this can never cross an
+            // agency boundary. Rows outside the agent's own/branch breadth render read-only
+            // below (see $restrictedPropertyIds).
         } else {
             // No explicit agent pick: an admin/BM's role-default breadth (all/branch), or a
             // plain agent's "my listings" / "my branch" toggle. For an ASSISTANT "own" is the
@@ -1022,6 +1026,12 @@ class PropertyController extends Controller
         $property->dusk_images_json    = $this->storeImages($request, 'dusk_images',    $property->id);
         $property->gallery_images_json = $this->storeImages($request, 'gallery_images', $property->id);
 
+        // File every stored photo into gallery_categories_json (unsorted) so the
+        // mobile app — which reads categories ONLY — sees the same gallery the web
+        // does. No row lock needed here: the row was created inside this very
+        // transaction, so nothing else can hold it yet.
+        $property->syncGalleryCategories();
+
         // Agent images for portal syndication
         if ($request->hasFile('pp_agent_image')) {
             $property->pp_agent_image_path = $request->file('pp_agent_image')->store("properties/{$property->id}/agents", 'public');
@@ -1459,6 +1469,15 @@ class PropertyController extends Controller
 
         $previousP24SuburbId = $property->p24_suburb_id;
         $property->update($data);
+
+        // Whatever the form uploaded is now in gallery_images_json; make sure each
+        // photo is filed exactly once in gallery_categories_json — under the room
+        // chosen above, or in `unsorted` when no image_category was sent (the case
+        // that left web uploads invisible to the mobile app). Under the row lock the
+        // mobile upload uses: both columns feed galleryFingerprint().
+        if ($newGallery) {
+            $property->syncGalleryCategoriesLocked();
+        }
         if (isset($data['p24_suburb_id'])
             && (int) $data['p24_suburb_id'] > 0
             && (int) $previousP24SuburbId !== (int) $data['p24_suburb_id']) {
@@ -1895,6 +1914,13 @@ class PropertyController extends Controller
 
         if (!empty($updates)) {
             $property->update($updates);
+        }
+
+        // New gallery photos must be filed (into `unsorted`) so the mobile app,
+        // which reads gallery_categories_json only, sees them. Row-locked: both
+        // columns feed galleryFingerprint().
+        if (isset($updates['gallery_images_json'])) {
+            $property->syncGalleryCategoriesLocked();
         }
 
         if ($request->wantsJson()) {

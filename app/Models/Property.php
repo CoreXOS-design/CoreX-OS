@@ -2387,6 +2387,139 @@ class Property extends Model
     }
 
     /**
+     * Comparison key for "is this the same stored image?" — the URL path with
+     * any scheme/host stripped. The master list (gallery_images_json) holds
+     * host-relative `/storage/...` values while a category may hold the
+     * absolute URL the mobile app was handed, so the two must be compared on
+     * path, never on the raw string. Mirrors MobilePropertyController::imageMatchKey().
+     */
+    public static function imageMatchKey(string $url): string
+    {
+        $url  = trim($url);
+        $path = parse_url($url, PHP_URL_PATH);
+
+        return ltrim(is_string($path) && $path !== '' ? $path : $url, '/');
+    }
+
+    /**
+     * Re-establish the gallery invariant IN MEMORY: every URL in
+     * gallery_images_json appears exactly once in gallery_categories_json —
+     * either under one category's `images` or in `unsorted`.
+     *
+     * Why: the mobile app's room-by-room gallery is built from
+     * gallery_categories_json ALONE. The web create form and the web edit form
+     * wrote photos into gallery_images_json without filing them anywhere, so a
+     * listing with a full gallery read "0 photos" in the app. The mobile upload
+     * path always files a photo (room or unsorted); this makes every other
+     * writer agree with it.
+     *
+     *   - a master-list URL filed nowhere is appended to `unsorted`
+     *   - a URL filed in a category (or unsorted) that is no longer in the
+     *     master list is dropped
+     *   - a URL filed more than once keeps its FIRST placement (categories in
+     *     order, then unsorted) — a room wins over unsorted
+     *   - matching is by path (see imageMatchKey), stored strings are kept as-is
+     *   - empty categories are kept: their names are gallery tags
+     *
+     * Does NOT save. Callers persist under the same row lock the mobile upload
+     * uses (see syncGalleryCategoriesLocked) — galleryFingerprint() hashes both
+     * columns, so an unlocked read-modify-write here is the classic lost update.
+     *
+     * @return bool  true when gallery_categories_json was changed
+     */
+    public function syncGalleryCategories(): bool
+    {
+        $original = $this->gallery_categories_json;
+        $cats     = is_array($original) ? $original : [];
+
+        $master = [];
+        foreach ((array) ($this->gallery_images_json ?? []) as $u) {
+            if (is_string($u) && trim($u) !== '') {
+                $master[self::imageMatchKey($u)] ??= $u;
+            }
+        }
+
+        $seen = [];
+        $keep = function (mixed $urls) use (&$seen, $master): array {
+            $out = [];
+            foreach ((array) $urls as $u) {
+                if (! is_string($u) || trim($u) === '') {
+                    continue;
+                }
+                $key = self::imageMatchKey($u);
+                if (! isset($master[$key]) || isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $out[]      = $u;
+            }
+
+            return $out;
+        };
+
+        $categories = [];
+        foreach ((array) ($cats['categories'] ?? []) as $cat) {
+            if (! is_array($cat)) {
+                continue;
+            }
+            $categories[] = [
+                'name'   => (string) ($cat['name'] ?? ''),
+                'images' => $keep($cat['images'] ?? []),
+            ];
+        }
+
+        $unsorted = $keep($cats['unsorted'] ?? []);
+        foreach ($master as $key => $u) {
+            if (! isset($seen[$key])) {
+                $seen[$key] = true;
+                $unsorted[] = $u;
+            }
+        }
+
+        $result = ['categories' => array_values($categories), 'unsorted' => array_values($unsorted)];
+
+        // Nothing to file and nothing filed: leave a null column null rather
+        // than writing an empty structure to every photo-less listing.
+        if ($original === null && $result === ['categories' => [], 'unsorted' => []]) {
+            return false;
+        }
+        if ($original == $result) { // loose: key order inside the stored JSON is irrelevant
+            return false;
+        }
+
+        $this->gallery_categories_json = $result;
+
+        return true;
+    }
+
+    /**
+     * Persist syncGalleryCategories() under the row lock every gallery writer
+     * must use: re-read the row FOR UPDATE, sync against what is actually
+     * stored, saveQuietly. Concurrent writers to the same property queue;
+     * different properties never contend. The in-memory instance is brought in
+     * line with what was written.
+     *
+     * @return bool  true when the stored gallery_categories_json changed
+     */
+    public function syncGalleryCategoriesLocked(): bool
+    {
+        return \Illuminate\Support\Facades\DB::transaction(function (): bool {
+            /** @var static $locked */
+            $locked = static::withoutGlobalScopes()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+
+            $changed = $locked->syncGalleryCategories();
+            if ($changed) {
+                $locked->saveQuietly();
+            }
+
+            $this->setAttribute('gallery_categories_json', $locked->gallery_categories_json);
+            $this->syncOriginalAttribute('gallery_categories_json');
+
+            return $changed;
+        });
+    }
+
+    /**
      * Cheap fingerprint of the image set that goes to a portal (the ordered
      * syndication gallery + its caption/category map). Path-list based — NO file
      * reads — so it is safe to call on every submit. Changes when an image is

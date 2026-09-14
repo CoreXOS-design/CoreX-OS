@@ -40,12 +40,6 @@
     }
     unset($bk);
 
-    // At-risk strip: overdue + today, open only, sorted by due
-    $atRisk = $buckets['overdue']['tasks']->merge($buckets['today']['tasks'])
-        ->filter(fn($t) => !in_array($t->status, ['done','dismissed']))
-        ->sortBy(fn($t) => $t->due_date?->timestamp ?? PHP_INT_MAX)
-        ->values();
-
     $statusColumns = [
         'todo'        => ['label' => 'To Do',       'var' => '--text-muted'],
         'in_progress' => ['label' => 'In Progress', 'var' => '--ds-navy'],
@@ -62,7 +56,11 @@
     ];
 @endphp
 
-<div class="space-y-4" x-data="taskBoard()" x-init="init()">
+{{-- Board view fills the content area (h-full / min-h-0 at md+, same mechanism as
+     the Today page) so the four status columns are always viewport-tall and scroll
+     inside themselves; the List view keeps normal page flow. Below md the columns
+     stack and the page scrolls. --}}
+<div class="flex flex-col gap-4 {{ $currentView === 'kanban' ? 'md:h-full md:min-h-0' : '' }}" x-data="taskBoard()" x-init="init()">
 
     {{-- ══════ PAGE HEADER (Pattern A — branded) ══════ --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -116,58 +114,6 @@
             </div>
         </div>
     </div>
-
-    {{-- ══════ AT-RISK STRIP (Overdue + Today, pinned) — Alert block pattern ══════ --}}
-    @if($atRisk->isNotEmpty())
-        <div class="rounded-md px-4 py-3"
-             style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent);
-                    border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);"
-             x-show="!atRiskCollapsed" x-transition>
-            <div class="flex items-center justify-between mb-2">
-                <div class="flex items-center gap-2">
-                    <svg class="w-4 h-4 flex-shrink-0" style="color: var(--ds-crimson);" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
-                    <span class="text-sm font-semibold" style="color: var(--ds-crimson);">At Risk</span>
-                    <span class="ds-badge ds-badge-danger">{{ number_format($atRisk->count()) }}</span>
-                </div>
-                <button @click="atRiskCollapsed = true" type="button"
-                        class="text-xs font-semibold transition-colors"
-                        style="color: var(--ds-crimson);" title="Hide">Hide</button>
-            </div>
-            <div class="flex flex-wrap gap-2">
-                @foreach($atRisk as $task)
-                    @php
-                        $tag = $task->pillarTag();
-                        $taskLink = $task->property ? route('corex.properties.show', $task->property)
-                                  : ($task->contact  ? route('corex.contacts.show',  $task->contact)
-                                  : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id) : null));
-                    @endphp
-                    <a @if($taskLink) href="{{ $taskLink }}" @endif
-                       class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors"
-                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); white-space: nowrap;">
-                        <span class="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                              style="background: {{ $task->isOverdue() ? 'var(--ds-crimson)' : 'var(--ds-amber)' }};"></span>
-                        @if($tag && isset($pillarStyle[$tag]))
-                            <span class="text-[0.6875rem] font-bold uppercase tracking-wider"
-                                  style="color: var({{ $pillarStyle[$tag]['var'] }});">{{ $pillarStyle[$tag]['label'] }}</span>
-                        @endif
-                        <span>{{ \Illuminate\Support\Str::limit($task->title, 40) }}</span>
-                        @if($task->due_date)
-                            <span style="color: {{ $task->isOverdue() ? 'var(--ds-crimson)' : 'var(--text-muted)' }};">
-                                · {{ $task->isOverdue() ? $task->due_date->diffForHumans(['short' => true]) : 'Today' }}
-                            </span>
-                        @endif
-                    </a>
-                @endforeach
-            </div>
-        </div>
-        <div x-show="atRiskCollapsed" x-transition>
-            <button @click="atRiskCollapsed = false" type="button"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-colors"
-                    style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);">
-                Show At Risk ({{ number_format($atRisk->count()) }})
-            </button>
-        </div>
-    @endif
 
     {{-- ══════ FILTER BAR ══════ --}}
     <div class="rounded-md p-3 flex flex-wrap items-center gap-2"
@@ -235,17 +181,16 @@
     </div>
 
     @if($currentView === 'kanban')
-        {{-- ══════ KANBAN BOARD ══════ --}}
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        {{-- ══════ KANBAN BOARD — always all four columns, always viewport-tall ══════ --}}
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:flex-1 md:min-h-0">
             @foreach($statusColumns as $statusKey => $statusMeta)
                 @php
                     $colTasks    = $columns[$statusKey] ?? collect();
                     $statusLabel = $statusMeta['label'];
                     $colVar      = $statusMeta['var'];
                 @endphp
-                <div class="flex flex-col rounded-md overflow-hidden" data-kanban-column="{{ $statusKey }}"
-                     style="background: var(--surface); border: 1px solid var(--border);"
-                     x-show="!emptyColumnHidden('{{ $statusKey }}')">
+                <div class="flex flex-col rounded-md overflow-hidden md:min-h-0" data-kanban-column="{{ $statusKey }}"
+                     style="background: var(--surface); border: 1px solid var(--border);">
 
                     {{-- Header (click to toggle collapse) --}}
                     <button type="button"
@@ -267,11 +212,11 @@
                               data-col-count>{{ number_format($colTasks->count()) }}</span>
                     </button>
 
-                    {{-- Column body (scrollable, capped height) --}}
-                    <div class="flex-1 space-y-2 p-2 overflow-y-auto"
+                    {{-- Column body — fills the column and scrolls inside itself --}}
+                    <div class="flex-1 min-h-[8rem] md:min-h-0 space-y-2 p-2 overflow-y-auto"
                          data-drop-zone="{{ $statusKey }}"
                          x-show="!colCollapsed['{{ $statusKey }}']" x-transition
-                         style="background: var(--surface-2); max-height: calc(100vh - 320px); min-height: 8rem;">
+                         style="background: var(--surface-2);">
                         @forelse($colTasks as $task)
                             @include('command-center.partials.task-card', ['task' => $task, 'compact' => true, 'showPillar' => true, 'pillarStyle' => $pillarStyle, 'statusKey' => $statusKey])
                         @empty
@@ -607,9 +552,7 @@
 function taskBoard() {
     const LS = {
         density: 'hfc_tasks_density',
-        col:     'hfc_tasks_col_collapsed',
         bucket:  'hfc_tasks_bucket_collapsed',
-        atRisk:  'hfc_tasks_atrisk_collapsed',
     };
     const readJSON = (k, fb) => {
         try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch (e) { return fb; }
@@ -632,9 +575,12 @@ function taskBoard() {
         filters: { overdue: false, today: false, week: false, critical: false, high: false },
         pillars: [],
         density: localStorage.getItem(LS.density) || 'comfortable',
-        colCollapsed: readJSON(LS.col, { todo: false, in_progress: false, awaiting: false, done: true }),
+        // Every column — Done included — ALWAYS loads open so agents see what they
+        // have finished. Folding a column is an in-session convenience only; it is
+        // deliberately NOT remembered (a remembered "Done collapsed" hid the column
+        // on every visit, which is exactly what Andre asked to stop).
+        colCollapsed: { todo: false, in_progress: false, awaiting: false, done: false },
         bucketCollapsed: readJSON(LS.bucket, { overdue: false, today: false, tomorrow: false, week: false, later: true, none: true }),
-        atRiskCollapsed: localStorage.getItem(LS.atRisk) === '1',
         colShowAll: {},
         limitPerColumn: 10,
 
@@ -644,9 +590,10 @@ function taskBoard() {
 
         init() {
             this.$watch('density',         v => localStorage.setItem(LS.density, v));
-            this.$watch('colCollapsed',    v => localStorage.setItem(LS.col, JSON.stringify(v)), { deep: true });
+            // Clear the pre-2026-09-13 remembered column state so a stale "Done collapsed"
+            // never resurfaces if this key is ever read again.
+            try { localStorage.removeItem('hfc_tasks_col_collapsed'); } catch (e) {}
             this.$watch('bucketCollapsed', v => localStorage.setItem(LS.bucket, JSON.stringify(v)), { deep: true });
-            this.$watch('atRiskCollapsed', v => localStorage.setItem(LS.atRisk, v ? '1' : '0'));
 
             ['search', 'filters', 'pillars', 'colShowAll'].forEach(k => {
                 this.$watch(k, () => this.applyFilters(), { deep: true });
@@ -864,13 +811,6 @@ function taskBoard() {
             this.filters = { overdue: false, today: false, week: false, critical: false, high: false };
             this.pillars = [];
             this.colShowAll = {};
-        },
-
-        emptyColumnHidden(status) {
-            if (window.innerWidth >= 768) return false;
-            const col = document.querySelector(`[data-kanban-column="${status}"]`);
-            if (!col) return false;
-            return (col.dataset.visibleCount || '0') === '0';
         },
 
         matches(el) {

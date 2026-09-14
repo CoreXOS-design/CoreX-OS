@@ -69,17 +69,31 @@ class MobilePropertyController extends Controller
             $query->searchAddress($term);
         }
 
+        // Cover image resolved IN SQL. This used to select all five image JSON
+        // columns for every row and let allImages()[0] pick the cover in PHP.
+        // For "My properties" that is a few dozen rows and nobody noticed; for
+        // "All properties" on a real agency it is 5,000+ rows carrying 20–90
+        // photo URLs per column — tens of MB out of MySQL and ~25k json_decodes
+        // per request. The app's scope toggle sat for 30–40s and usually
+        // tripped its 15s client timeout. Same precedence as allImages():
+        // dawn → noon → dusk → gallery → images, first non-empty string wins.
+        // The columns are real JSON type, so JSON_EXTRACT never sees invalid
+        // text; JSON_TYPE guards against a leading JSON null / non-string.
+        $firstImage = fn (string $col) => "CASE WHEN JSON_TYPE(JSON_EXTRACT(`{$col}`, '$[0]')) = 'STRING'"
+            . " THEN NULLIF(JSON_UNQUOTE(JSON_EXTRACT(`{$col}`, '$[0]')), '') END";
+        $coverSql = 'COALESCE(' . implode(', ', array_map($firstImage, [
+            'dawn_images_json', 'noon_images_json', 'dusk_images_json',
+            'gallery_images_json', 'images_json',
+        ])) . ') AS cover_image';
+
         $properties = $query
             ->orderByDesc('updated_at')
             ->get([
                 'id', 'title', 'address', 'street_number', 'street_name',
                 'suburb', 'city', 'complex_name', 'unit_number',
                 'beds', 'baths', 'garages', 'status', 'property_type',
-                'category', 'listing_type', 'price', 'agent_id',
-                // All image groups so the thumbnail matches the web card,
-                // which uses allImages()[0] (dawn→noon→dusk→gallery→images).
-                'gallery_images_json', 'dawn_images_json', 'noon_images_json',
-                'dusk_images_json', 'images_json', 'updated_at',
+                'category', 'listing_type', 'price', 'agent_id', 'updated_at',
+                DB::raw($coverSql),
             ])
             ->map(fn (Property $p) => [
                 'id'            => $p->id,
@@ -93,9 +107,10 @@ class MobilePropertyController extends Controller
                 'listing_type'  => $p->listing_type,
                 'price'         => $p->price,
                 'price_display' => $p->formattedPrice(),
-                // Same first image as the web listing card, as an absolute URL
-                // so it loads on a mobile device (relative /storage paths don't).
-                'thumbnail'     => $this->coverImageUrl($p),
+                // Same first image as the web listing card (see $coverSql), as
+                // an absolute URL so it loads on a device (relative /storage
+                // paths don't).
+                'thumbnail'     => $this->absoluteImageUrl($p->getAttribute('cover_image')),
                 'updated_at'    => $p->updated_at?->toIso8601String(),
             ]);
 
@@ -1943,14 +1958,46 @@ class MobilePropertyController extends Controller
     {
         $raw = $property->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
         $mapped = [];
+        $filed  = [];
+
+        $note = function (array $urls) use (&$filed): void {
+            foreach ($urls as $u) {
+                if (is_string($u) && $u !== '') {
+                    $filed[$this->imageMatchKey($u)] = true;
+                }
+            }
+        };
 
         foreach ($raw['categories'] ?? [] as $cat) {
             $mapped[$cat['name']] = $this->absoluteImageUrls($cat['images'] ?? []);
+            $note($cat['images'] ?? []);
+        }
+
+        $unsorted = $this->absoluteImageUrls($raw['unsorted'] ?? []);
+        $note($raw['unsorted'] ?? []);
+
+        // Read-side safety net for rows written before every web writer filed
+        // its photos (Property::syncGalleryCategories): a photo that is in the
+        // master list but under no room and not in unsorted is still a photo the
+        // agent uploaded — it must be visible, so it surfaces here as unsorted.
+        // Matched on path: the master list is host-relative, a room may hold the
+        // absolute URL this API handed out. A GET never writes; the backfill
+        // (properties:sync-gallery-categories) fixes the stored row.
+        foreach ($property->gallery_images_json ?? [] as $u) {
+            if (! is_string($u) || $u === '') {
+                continue;
+            }
+            $key = $this->imageMatchKey($u);
+            if (isset($filed[$key])) {
+                continue;
+            }
+            $filed[$key] = true;
+            $unsorted[]  = $this->absoluteImageUrl($u);
         }
 
         return [
             'categories' => (object) $mapped,
-            'unsorted'   => $this->absoluteImageUrls($raw['unsorted'] ?? []),
+            'unsorted'   => array_values(array_filter($unsorted)),
         ];
     }
 

@@ -1282,6 +1282,29 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     color: #fff;
 }
 
+/* Daily Activity "Checklist + counters" layout (2026-09-14) — once-a-day rows
+   and the −/+ stepper around the qty input. Tint follows --brand-icon like the chips. */
+.ds-daily-check:hover {
+    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent);
+}
+.ds-daily-check:has(input:checked) {
+    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);
+}
+.ds-daily-stepper button {
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+.ds-daily-stepper button:hover {
+    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);
+    color: var(--text-primary);
+}
+.ds-daily-stepper:focus-within {
+    border-color: var(--brand-button, #0ea5e9);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 15%, transparent);
+}
+
 .ds-field {
     background: var(--surface);
     border: 1px solid var(--border);
