@@ -45,27 +45,38 @@ class RentalApplicationAssessment extends Model
     /**
      * "Dates on entries" (Johan, 2026-09-10) — "Months covered" stops being
      * a typed number and becomes a from/to date range; this is the ONLY
-     * place that number is derived. Calendar-month-inclusive count (a
-     * statement running 15 Jan to 20 Mar covers 3 months' worth of
-     * statements — Jan, Feb, Mar — regardless of which day within Jan or
-     * Mar the range starts/ends on), never a raw day-count divided by ~30
-     * (that would silently under/over-count on short months). Always at
-     * least 1 once both dates are present — a range within the same
-     * calendar month is still "1 month covered."
+     * place that number is derived.
+     *
+     * ELAPSED-MONTHS FIX (2026-09-14, Johan, live on QA1: "entered 25 may to
+     * 25 august - in my count thats 3 months correct? system shows 4"). He
+     * was right. The original rule counted calendar months TOUCHED by the
+     * range (May, Jun, Jul, Aug = 4 for his dates) instead of the number of
+     * months that actually ELAPSED between the two dates (3). That
+     * distinction matters here specifically because this number is a
+     * DIVISOR — `total_captured_income ÷ statement_months` — not a display
+     * label. It has to be the number of statement periods the captured
+     * income actually spans, not the count of calendar pages the range
+     * happens to cross. Getting it wrong in this direction (too many
+     * months) makes a real applicant's monthly income look SMALLER than it
+     * is, which fails people who can actually afford the rent — the wrong
+     * direction to be wrong in. Do not revert to counting touched calendar
+     * months; that is the bug this fix closes, not an equally-valid
+     * alternative. Elapsed months, via Carbon's own `diffInMonths()`
+     * (int-truncated — a month only counts once its day-of-month has been
+     * reached, matching how a human counts "three months" by hand): 25 May
+     * to 25 Aug is exactly 3 elapsed months; 15 Jan to 20 Mar is 2 (two
+     * full months elapsed — Jan 15→Feb 15, Feb 15→Mar 15 — with 5 days left
+     * over, not yet a third).
      *
      * SHORT-RANGE FLOOR (2026-09-13, cc5 — QA1 item 6 investigation, fixed
-     * on Johan's go): the calendar-inclusive rule above is correct for a
-     * genuine multi-month span, but on its own it also called a 6-day
-     * range crossing a single month boundary (28 Jun–3 Jul) "2 months" —
-     * proven live, a materially wrong "Monthly income" (halved) with no
-     * dash and no warning. No calendar month has more than 31 days, so any
-     * range of 31 days or fewer can never actually contain two distinct
-     * whole months' worth of statement data — it is always safe to call
-     * this "1", full stop, before the calendar-bucket rule below even
-     * runs. This floor does NOT touch the genuine multi-month case (15
-     * Jan–20 Mar is 65 days, well past the floor, still correctly "3" via
-     * the calendar rule) — it only catches ranges too short to legitimately
-     * be more than one month's statement in the first place.
+     * on Johan's go, UNCHANGED by the elapsed-months fix above): a 6-day
+     * range crossing a single month boundary (28 Jun–3 Jul) must never read
+     * as "2 months" — proven live, a materially wrong "Monthly income"
+     * (halved) with no dash and no warning. No calendar month has more
+     * than 31 days, so any range of 31 days or fewer can never actually
+     * contain two distinct whole months' worth of statement data — it is
+     * always safe to call this "1", full stop, before the elapsed-months
+     * rule below even runs.
      *
      * Returns null when either date is missing — the caller decides what
      * that means (for a fresh save it means "don't touch statement_months
@@ -85,7 +96,12 @@ class RentalApplicationAssessment extends Model
             return 1;
         }
 
-        $months = ($toDate->year - $fromDate->year) * 12 + ($toDate->month - $fromDate->month) + 1;
+        // Carbon's diffInMonths() returns an exact float (elapsed time ÷
+        // average month length); int-truncating it gives whole ELAPSED
+        // calendar months — a month only counts once the day-of-month it
+        // started on has been reached again — which is how a person counts
+        // "three months" by hand, and the correct semantics for a divisor.
+        $months = (int) $fromDate->diffInMonths($toDate);
 
         return max(1, $months);
     }
