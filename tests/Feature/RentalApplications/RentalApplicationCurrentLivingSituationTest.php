@@ -64,18 +64,36 @@ final class RentalApplicationCurrentLivingSituationTest extends TestCase
         ], $attrs));
     }
 
+    /**
+     * AT-392 round 5, 2026-09-13 — submit() now enforces the agency's
+     * default-required fields (full name, ID number, a contact method,
+     * address, income, rental term, both signatures — signatures already
+     * supplied by every test in this file via $this->sig). This file's own
+     * tests are about current_living_situation specifically, not field
+     * completeness, so every OTHER default-required field is supplied via
+     * this helper wherever a test asserts a successful submit().
+     */
+    private function requiredBaseline(): array
+    {
+        return [
+            'full_name' => 'Sipho Ndlovu', 'id_number' => '8501015800083',
+            'email' => 'sipho@example.co.za', 'current_residential_address' => '1 Example Road, Ramsgate',
+            'monthly_salary' => 20000, 'rental_term_months' => 12,
+        ];
+    }
+
     // ── The core gap Johan named ──────────────────────────────────────────
 
     public function test_an_applicant_who_just_sold_completes_the_form_without_any_landlord_fields(): void
     {
         $app = $this->application();
 
-        $response = $this->post(route('rental-applications.public.submit', $app->token), [
+        $response = $this->post(route('rental-applications.public.submit', $app->token), array_merge($this->requiredBaseline(), [
             'current_living_situation' => 'owns_or_selling',
             'current_living_situation_notes' => 'Sold my house in Ramsgate, need to move out by end of month.',
             'declaration_signature' => $this->sig,
             'tpn_consent_signature' => $this->sig,
-        ]);
+        ]));
 
         $response->assertSessionDoesntHaveErrors();
         $app->refresh();
@@ -89,14 +107,14 @@ final class RentalApplicationCurrentLivingSituationTest extends TestCase
     {
         $app = $this->application();
 
-        $response = $this->post(route('rental-applications.public.submit', $app->token), [
+        $response = $this->post(route('rental-applications.public.submit', $app->token), array_merge($this->requiredBaseline(), [
             'current_living_situation' => 'renting',
             'current_landlord_name' => 'ABC Rentals',
             'current_landlord_tel' => '0399123456',
             'current_rental_amount' => '8500',
             'declaration_signature' => $this->sig,
             'tpn_consent_signature' => $this->sig,
-        ]);
+        ]));
 
         $response->assertSessionDoesntHaveErrors();
         $app->refresh();
@@ -109,11 +127,11 @@ final class RentalApplicationCurrentLivingSituationTest extends TestCase
     {
         $app = $this->application();
 
-        $this->post(route('rental-applications.public.submit', $app->token), [
+        $this->post(route('rental-applications.public.submit', $app->token), array_merge($this->requiredBaseline(), [
             'current_living_situation' => 'living_with_family',
             'declaration_signature' => $this->sig,
             'tpn_consent_signature' => $this->sig,
-        ])->assertSessionDoesntHaveErrors();
+        ]))->assertSessionDoesntHaveErrors();
 
         $this->assertSame('living_with_family', $app->fresh()->current_living_situation);
     }
@@ -136,11 +154,11 @@ final class RentalApplicationCurrentLivingSituationTest extends TestCase
     {
         $app = $this->application();
 
-        $this->post(route('rental-applications.public.submit', $app->token), [
+        $this->post(route('rental-applications.public.submit', $app->token), array_merge($this->requiredBaseline(), [
             'current_living_situation' => 'other',
             'declaration_signature' => $this->sig,
             'tpn_consent_signature' => $this->sig,
-        ])->assertSessionDoesntHaveErrors();
+        ]))->assertSessionDoesntHaveErrors();
 
         $this->assertNull($app->fresh()->current_living_situation_notes);
     }
@@ -151,10 +169,10 @@ final class RentalApplicationCurrentLivingSituationTest extends TestCase
         // own absence, including the new field itself.
         $app = $this->application();
 
-        $this->post(route('rental-applications.public.submit', $app->token), [
+        $this->post(route('rental-applications.public.submit', $app->token), array_merge($this->requiredBaseline(), [
             'declaration_signature' => $this->sig,
             'tpn_consent_signature' => $this->sig,
-        ])->assertSessionDoesntHaveErrors();
+        ]))->assertSessionDoesntHaveErrors();
 
         $this->assertSame('returned', $app->fresh()->status);
     }
@@ -202,7 +220,7 @@ final class RentalApplicationCurrentLivingSituationTest extends TestCase
         // Simulates a real pre-feature record: landlord fields filled in,
         // current_living_situation genuinely never asked (null).
         $app = $this->application([
-            'status' => 'returned', 'submitted_at' => now(),
+            'status' => 'returned', 'submitted_at' => now(), 'identity_verified_at' => now(),
             'current_landlord_name' => 'Pre-Existing Landlord CC',
             'current_landlord_tel' => '0399991111',
             'current_rental_amount' => 7500,

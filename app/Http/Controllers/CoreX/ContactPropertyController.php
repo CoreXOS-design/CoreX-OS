@@ -69,11 +69,14 @@ class ContactPropertyController extends Controller
             }
         }
 
-        $alreadyLinked = $contact->properties()->where('properties.id', (int) $data['property_id'])->exists();
-
-        $contact->properties()->syncWithoutDetaching([
-            $data['property_id'] => ['role' => $role],
-        ]);
+        // ContactPropertyLinker, not a bare syncWithoutDetaching() — Johan:
+        // one contact holds exactly one role per property, ever ("if that
+        // scenario happens the contact will be changed"). Restores the one
+        // existing row (trashed or not) instead of ever blind-inserting a
+        // second one. See .ai/specs/rental-applications.md, "The
+        // contact_property hard-delete fix".
+        $linkResult = \App\Services\Property\ContactPropertyLinker::link($contact->id, (int) $data['property_id'], $role);
+        $alreadyLinked = ! $linkResult->isNew;
 
         // Auto-create seller live link if seller role
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
@@ -94,6 +97,23 @@ class ContactPropertyController extends Controller
             }
         }
 
+        // A role change (or a restore into a new role) is a real business
+        // event, not a silent field update — Johan's ruling, same as the
+        // rental tenant-link path. This controller had NO audit trail at
+        // all before this fix.
+        $auditEventType = $linkResult->isNew ? 'linked' : ($linkResult->roleChanged ? 'role_changed' : 'relinked_no_op');
+        app(\App\Services\Audit\ContactAuditService::class)->log(
+            $contact,
+            eventCategory: 'contact_property',
+            eventType: $auditEventType,
+            user: auth()->user(),
+            oldValues: $linkResult->roleChanged ? ['property_id' => (int) $data['property_id'], 'role' => $linkResult->previousRole] : null,
+            newValues: ['property_id' => (int) $data['property_id'], 'role' => $role],
+            humanSummary: $linkResult->roleChanged
+                ? "Role on property #{$data['property_id']} changed from {$linkResult->previousRole} to " . ($role ?? 'unknown')
+                : 'Linked to property #' . $data['property_id'] . ' as ' . ($role ?? 'unknown'),
+        );
+
         return back()->with('success', 'Property linked to contact.')->with('tab', 'properties');
     }
 
@@ -109,7 +129,22 @@ class ContactPropertyController extends Controller
             return back()->withErrors(['contact' => $e->getMessage()])->with('tab', 'properties');
         }
 
-        $contact->properties()->detach($property->id);
+        // Soft-delete via ContactPropertyLinker — Johan: "corex is a no
+        // delete system." See .ai/specs/rental-applications.md, "The
+        // contact_property hard-delete fix". This controller had NO audit
+        // trail at all before this fix.
+        $removed = \App\Services\Property\ContactPropertyLinker::unlink($contact->id, $property->id);
+        if ($removed !== null) {
+            app(\App\Services\Audit\ContactAuditService::class)->log(
+                $contact,
+                eventCategory: 'contact_property',
+                eventType: 'unlinked',
+                user: auth()->user(),
+                oldValues: ['property_id' => $property->id, 'role' => $removed->role],
+                newValues: ['property_id' => null],
+                humanSummary: 'Unlinked from property #' . $property->id . ' (was ' . ($removed->role ?? 'unknown') . ')',
+            );
+        }
 
         return back()->with('success', 'Property unlinked.')->with('tab', 'properties');
     }

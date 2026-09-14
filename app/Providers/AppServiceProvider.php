@@ -1134,5 +1134,32 @@ class AppServiceProvider extends ServiceProvider
                     ], 429);
                 });
         });
+
+        // Submission identity gate, 2026-09-13 — Johan found this hole
+        // himself walking the applicant link live: sign both pads, press
+        // submit, land straight in FICA with no identity challenge at all.
+        // Same two-layer shape and same "never a bare 429" rule as the
+        // Return Gate immediately above (sibling limiter, own settings,
+        // own lockout copy) — never shares the Return Gate's own attempt
+        // budget, since this fires at a different moment in the journey
+        // for a different reason. See .ai/specs/rental-applications.md,
+        // "Submission identity gate" section.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-identity-gate', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->with('createdBy')->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::identityGateAttemptMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::identityGateAttemptWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-identity-gate:' . $token)
+                ->response(function () use ($application) {
+                    return response()->view('rental-applications.public.gate', [
+                        'lockedOut' => true,
+                        'agentName' => $application?->createdBy?->name,
+                        'agentEmail' => $application?->createdBy?->email,
+                        'agentPhone' => $application?->createdBy?->cell ?: $application?->createdBy?->phone,
+                    ], 429);
+                });
+        });
     }
 }

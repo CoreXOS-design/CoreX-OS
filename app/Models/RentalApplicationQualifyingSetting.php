@@ -253,6 +253,65 @@ class RentalApplicationQualifyingSetting extends Model
 
     public const DEFAULT_RETURN_GATE_ATTEMPT_WINDOW_MINUTES = 15;
 
+    /**
+     * Submission identity gate, 2026-09-13 — Johan walked the applicant
+     * link himself, signed both pads, pressed submit, and landed straight
+     * in FICA with no identity challenge at all: "ON SUBMISSION THE ID /
+     * OTP GATE." Default ON — HFC's own instance is exactly the one this
+     * closes a live hole for; an agency that genuinely doesn't want it can
+     * turn it off, same as require_fica_before_authorisation's own default.
+     * Channel (email OTP vs ID-number fallback) is chosen per applicant at
+     * the moment of the gate, never a fixed agency setting — see
+     * RentalApplicationSigningController::identityGateChannelFor().
+     */
+    public const DEFAULT_IDENTITY_GATE_ENABLED = true;
+
+    /**
+     * These four all fall through to App\Services\Otp\OtpService's own
+     * config/otp.php defaults (6 digits / 10 min / 60s cooldown) when null
+     * — the engine already supports per-call overrides for all of them
+     * (length added to issue()/generateCode() specifically for this
+     * feature, 2026-09-13; expires_minutes and cooldown_secs already
+     * existed, unused by any consumer until now). attempt_max/
+     * attempt_window_minutes are NOT engine settings — they size the
+     * OUTER named rate limiter (rental-application-identity-gate,
+     * AppServiceProvider::boot()), the same two-layer shape the Return
+     * Gate already uses for its own attempt cap.
+     */
+    public const DEFAULT_IDENTITY_GATE_ATTEMPT_MAX = 5;
+
+    public const DEFAULT_IDENTITY_GATE_ATTEMPT_WINDOW_MINUTES = 15;
+
+    /**
+     * Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
+     * ruled: every field on the applicant form is agency tick/untick, no
+     * locked set. These are his own defaults, explicitly not gospel — an
+     * agency can untick any of them. See RentalApplication::
+     * submissionFieldRegistry() for the full list of keys a value here may
+     * reference; 'contact_method' is the one virtual key (satisfied by
+     * either email or cell present) rather than a real column.
+     */
+    public const DEFAULT_REQUIRED_FIELD_KEYS = [
+        'full_name', 'id_number', 'contact_method', 'current_residential_address',
+        'monthly_salary', 'rental_term_months', 'declaration_signature', 'tpn_consent_signature',
+    ];
+
+    /**
+     * Ruling 1, same round — marital_status converts from free text to a
+     * real select; the option list is agency-configurable, this is the
+     * sensible South African-normal default. 'implies_spouse' drives the
+     * spouse-fields conditional group in submissionFieldRegistry() — only
+     * "Married" defaults true; see this migration's own docblock for why
+     * "Living together / life partner" does not.
+     */
+    public const DEFAULT_MARITAL_STATUS_OPTIONS = [
+        ['label' => 'Single', 'implies_spouse' => false],
+        ['label' => 'Married', 'implies_spouse' => true],
+        ['label' => 'Divorced', 'implies_spouse' => false],
+        ['label' => 'Widowed', 'implies_spouse' => false],
+        ['label' => 'Living together / life partner', 'implies_spouse' => false],
+    ];
+
     protected $fillable = [
         'agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days',
         'lock_property_after_submission', 'tag_contact_as_tenant_on_approval',
@@ -266,6 +325,9 @@ class RentalApplicationQualifyingSetting extends Model
         'autosave_request_rate_limit_max', 'autosave_request_rate_limit_window_minutes',
         'require_fica_before_authorisation',
         'return_gate_method', 'return_gate_attempt_max', 'return_gate_attempt_window_minutes',
+        'identity_gate_enabled', 'identity_gate_otp_length', 'identity_gate_otp_expiry_minutes',
+        'identity_gate_attempt_max', 'identity_gate_attempt_window_minutes', 'identity_gate_resend_cooldown_seconds',
+        'required_field_keys', 'marital_status_options',
     ];
 
     protected $casts = [
@@ -292,6 +354,14 @@ class RentalApplicationQualifyingSetting extends Model
         'document_view_rate_limit_window_minutes' => 'integer',
         'autosave_request_rate_limit_max' => 'integer',
         'autosave_request_rate_limit_window_minutes' => 'integer',
+        'identity_gate_enabled' => 'boolean',
+        'identity_gate_otp_length' => 'integer',
+        'identity_gate_otp_expiry_minutes' => 'integer',
+        'identity_gate_attempt_max' => 'integer',
+        'identity_gate_attempt_window_minutes' => 'integer',
+        'identity_gate_resend_cooldown_seconds' => 'integer',
+        'required_field_keys' => 'array',
+        'marital_status_options' => 'array',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -615,5 +685,171 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->return_gate_attempt_window_minutes !== null
             ? (int) $row->return_gate_attempt_window_minutes
             : self::DEFAULT_RETURN_GATE_ATTEMPT_WINDOW_MINUTES;
+    }
+
+    public static function identityGateEnabledFor(?int $agencyId): bool
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_IDENTITY_GATE_ENABLED;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->identity_gate_enabled !== null
+            ? (bool) $row->identity_gate_enabled
+            : self::DEFAULT_IDENTITY_GATE_ENABLED;
+    }
+
+    /**
+     * NULL (never configured) returns the shipped default. A saved array —
+     * even an empty one — is the agency's own explicit choice and is
+     * returned exactly as saved; nothing is ever force-included.
+     */
+    public static function requiredFieldKeysFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_REQUIRED_FIELD_KEYS;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->required_field_keys !== null
+            ? $row->required_field_keys
+            : self::DEFAULT_REQUIRED_FIELD_KEYS;
+    }
+
+    public static function maritalStatusOptionsFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_MARITAL_STATUS_OPTIONS;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->marital_status_options !== null
+            ? $row->marital_status_options
+            : self::DEFAULT_MARITAL_STATUS_OPTIONS;
+    }
+
+    /**
+     * Case/whitespace-insensitive match against the agency's configured
+     * marital status options. An unrecognised or blank value never implies
+     * a spouse — a safe default that never blocks an applicant on a value
+     * the settings screen doesn't currently offer (e.g. legacy free text).
+     */
+    public static function maritalStatusImpliesSpouseFor(?int $agencyId, ?string $value): bool
+    {
+        if ($value === null || trim($value) === '') {
+            return false;
+        }
+
+        $normalized = mb_strtolower(trim($value));
+
+        foreach (self::maritalStatusOptionsFor($agencyId) as $option) {
+            if (mb_strtolower(trim((string) ($option['label'] ?? ''))) === $normalized) {
+                return (bool) ($option['implies_spouse'] ?? false);
+            }
+        }
+
+        return false;
+    }
+
+    /** null = fall through to OtpService's own config('otp.length') default. */
+    public static function identityGateOtpLengthFor(?int $agencyId): ?int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return null;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->identity_gate_otp_length !== null ? (int) $row->identity_gate_otp_length : null;
+    }
+
+    /** null = fall through to OtpService's own config('otp.expires_minutes') default. */
+    public static function identityGateOtpExpiryMinutesFor(?int $agencyId): ?int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return null;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->identity_gate_otp_expiry_minutes !== null ? (int) $row->identity_gate_otp_expiry_minutes : null;
+    }
+
+    /** null = fall through to OtpService's own config('otp.resend_cooldown_secs') default. */
+    public static function identityGateResendCooldownSecondsFor(?int $agencyId): ?int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return null;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->identity_gate_resend_cooldown_seconds !== null ? (int) $row->identity_gate_resend_cooldown_seconds : null;
+    }
+
+    public static function identityGateAttemptMaxFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_IDENTITY_GATE_ATTEMPT_MAX;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->identity_gate_attempt_max !== null
+            ? (int) $row->identity_gate_attempt_max
+            : self::DEFAULT_IDENTITY_GATE_ATTEMPT_MAX;
+    }
+
+    public static function identityGateAttemptWindowMinutesFor(?int $agencyId): int
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_IDENTITY_GATE_ATTEMPT_WINDOW_MINUTES;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->identity_gate_attempt_window_minutes !== null
+            ? (int) $row->identity_gate_attempt_window_minutes
+            : self::DEFAULT_IDENTITY_GATE_ATTEMPT_WINDOW_MINUTES;
+    }
+
+    /**
+     * Johan's ruling, 2026-09-13, verbatim: "if an agency has the identity
+     * gate switched ON, and has ALSO unticked every field the gate could
+     * use to reach an applicant, that is a configuration that cannot
+     * work. Tell them so in the settings screen... do not block them from
+     * saving it." Checked against cc6's per-field compulsory registry
+     * (requiredFieldKeysFor()) — null means the shipped defaults, which
+     * always include 'contact_method' (at least one of email/cell), so
+     * only an agency's EXPLICIT saved set can ever trigger this warning.
+     *
+     * Defensive method_exists() guard: cc6's requiredFieldKeysFor() lands
+     * in a separate worktree/branch (AT-410-adjacent compulsory-field
+     * work, coordinated directly, no column collision — see spec). Until
+     * that merges into this branch the method doesn't exist here yet;
+     * degrading to "no warning" rather than a fatal error keeps this
+     * feature shippable independently of merge order.
+     */
+    public static function identityGateUnreachableByDesign(?int $agencyId): bool
+    {
+        if (! self::identityGateEnabledFor($agencyId)) {
+            return false;
+        }
+
+        if (! method_exists(self::class, 'requiredFieldKeysFor')) {
+            return false;
+        }
+
+        $keys = self::requiredFieldKeysFor($agencyId);
+        if ($keys === null) {
+            return false;
+        }
+
+        return ! in_array('id_number', $keys, true)
+            && ! in_array('email', $keys, true)
+            && ! in_array('contact_method', $keys, true);
     }
 }

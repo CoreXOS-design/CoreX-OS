@@ -88,12 +88,38 @@ class RentalApplicationSettingsController extends Controller
         // the authoriser (RentalApplicationReviewController::submitForApproval()).
         $requireFicaBeforeAuthorisation = RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor($agencyId);
 
+        // Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
+        // ruled: every field on the applicant form gets its own compulsory
+        // tick, no locked set — "we provide the system, they set it up the
+        // way they want to use it." $fieldRegistry drives both the
+        // checklist below AND submit()'s own validation (RentalApplication::
+        // submissionFieldRegistry() — one array, so this screen can never
+        // show a field submit() doesn't actually enforce, or vice versa.
+        $fieldRegistry = RentalApplication::submissionFieldRegistry();
+        $requiredFieldKeys = RentalApplicationQualifyingSetting::requiredFieldKeysFor($agencyId);
+        $maritalStatusOptions = RentalApplicationQualifyingSetting::maritalStatusOptionsFor($agencyId);
+
         // Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
         // submission we can gate on ID." Which method, and the attempt
         // cap that must never become an oracle for guessing an ID.
         $returnGateMethod = RentalApplicationQualifyingSetting::returnGateMethodFor($agencyId);
         $returnGateAttemptMax = RentalApplicationQualifyingSetting::returnGateAttemptMaxFor($agencyId);
         $returnGateAttemptWindowMinutes = RentalApplicationQualifyingSetting::returnGateAttemptWindowMinutesFor($agencyId);
+
+        // Submission identity gate, 2026-09-13 — Johan walked the applicant
+        // link himself and found NO identity challenge on first submission
+        // at all. $identityGateUnreachableByDesign drives a PERSISTENT
+        // banner (same convention as $qualifyingExceedsLegalCeiling above)
+        // when the gate is on but no field it could check against is
+        // compulsory — Johan's ruling: warn, never block; the agency's
+        // configuration choice to make.
+        $identityGateEnabled = RentalApplicationQualifyingSetting::identityGateEnabledFor($agencyId);
+        $identityGateOtpLength = RentalApplicationQualifyingSetting::identityGateOtpLengthFor($agencyId);
+        $identityGateOtpExpiryMinutes = RentalApplicationQualifyingSetting::identityGateOtpExpiryMinutesFor($agencyId);
+        $identityGateAttemptMax = RentalApplicationQualifyingSetting::identityGateAttemptMaxFor($agencyId);
+        $identityGateAttemptWindowMinutes = RentalApplicationQualifyingSetting::identityGateAttemptWindowMinutesFor($agencyId);
+        $identityGateResendCooldownSeconds = RentalApplicationQualifyingSetting::identityGateResendCooldownSecondsFor($agencyId);
+        $identityGateUnreachableByDesign = RentalApplicationQualifyingSetting::identityGateUnreachableByDesign($agencyId);
 
         // AT-392 round 2, 2026-09-13 — the conductor's sweep: the five
         // remaining public routes' volume caps, same pattern as the
@@ -186,7 +212,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -508,6 +534,72 @@ class RentalApplicationSettingsController extends Controller
     }
 
     /**
+     * Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
+     * ruled: every field is agency tick/untick, no locked set, no
+     * exceptions. An empty saved list is a genuine, deliberate agency
+     * choice ("nothing is compulsory") — same has()-guard reasoning as
+     * every checkbox on this screen, via a hidden marker field, so an
+     * absent section is never confused with a real "untick everything".
+     * Posted keys are filtered against the registry's own known keys —
+     * never trusted blindly — same defensive pattern as
+     * resolveAgencyScopedUserIds() above; a stale or tampered key that
+     * doesn't resolve to a real field is dropped, not fatal.
+     */
+    public function updateRequiredFields(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('required_fields_submitted')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['required_field_keys' => 'That did not save — please try again.']);
+        }
+
+        $knownKeys = collect(RentalApplication::submissionFieldRegistry())->pluck('key')->all();
+        $submitted = $request->input('required_field_keys', []);
+        $keys = array_values(array_intersect($knownKeys, is_array($submitted) ? $submitted : []));
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['required_field_keys' => $keys],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Compulsory fields saved.');
+    }
+
+    /**
+     * Ruling 1, AT-392 round 5, 2026-09-13 — Johan: marital_status converts
+     * from free text to a real select; the option list itself is agency-
+     * configurable, same pattern as every other setting on this model.
+     * min:1 — a principal clearing every option would leave the applicant
+     * form's own select empty, a self-inflicted lockout the same class as
+     * every other min-floor on this screen.
+     */
+    public function updateMaritalStatusOptions(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'marital_status_options' => ['required', 'array', 'min:1'],
+            'marital_status_options.*.label' => ['required', 'string', 'max:100'],
+            'marital_status_options.*.implies_spouse' => ['nullable'],
+        ]);
+
+        $options = array_values(array_map(fn ($row) => [
+            'label' => trim($row['label']),
+            'implies_spouse' => ! empty($row['implies_spouse']),
+        ], $validated['marital_status_options']));
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['marital_status_options' => $options],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Marital status options saved.');
+    }
+
+    /**
      * Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
      * submission we can gate on ID." min:2 on the attempt cap so it can
      * never be configured down to a self-inflicted 0/1-attempt lockout for
@@ -530,6 +622,48 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Return gate setting saved.');
+    }
+
+    /**
+     * Submission identity gate, 2026-09-13 — Johan walked the applicant
+     * link himself and found no identity challenge on first submission at
+     * all. Channel (email OTP vs ID-number fallback) is decided PER
+     * APPLICANT at the moment of the gate, never an agency setting here —
+     * see RentalApplicationSigningController::identityGateChannelFor().
+     * Johan's ruling on the reachability question: warn here, on save,
+     * in plain words — never block the save itself; the agency's own
+     * field-compulsory choices (cc6's required_field_keys) are theirs to
+     * make.
+     */
+    public function updateIdentityGate(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'identity_gate_otp_length' => ['required', 'integer', 'min:4', 'max:10'],
+            'identity_gate_otp_expiry_minutes' => ['required', 'integer', 'min:1', 'max:60'],
+            'identity_gate_attempt_max' => ['required', 'integer', 'min:2', 'max:50'],
+            'identity_gate_attempt_window_minutes' => ['required', 'integer', 'min:1', 'max:1440'],
+            'identity_gate_resend_cooldown_seconds' => ['required', 'integer', 'min:10', 'max:600'],
+        ]);
+
+        // Checkbox — absent from the POST body means unticked, never
+        // coerced to false without knowing the form actually rendered it.
+        $validated['identity_gate_enabled'] = $request->has('identity_gate_enabled');
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            $validated,
+        );
+
+        $redirect = redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Identity gate setting saved.');
+
+        if ($validated['identity_gate_enabled'] && RentalApplicationQualifyingSetting::identityGateUnreachableByDesign($agencyId)) {
+            $redirect->with('warning', "Identity verification is on, but no field it can check (email, cell, or ID number) is currently compulsory for applicants. Applications may arrive that can't be verified — they'll be flagged on your list for you to follow up, never blocked at the applicant's end.");
+        }
+
+        return $redirect;
     }
 
     /**

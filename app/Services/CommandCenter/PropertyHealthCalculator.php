@@ -73,6 +73,7 @@ class PropertyHealthCalculator
         $ownerLinked = DB::table('contact_property')
             ->where('property_id', $property->id)
             ->whereIn('role', ['owner', 'lessor', 'landlord', 'seller'])
+            ->whereNull('deleted_at')
             ->exists();
 
         if (!$ownerLinked) {

@@ -160,7 +160,13 @@ class MobilePropertyController extends Controller
         if ($linkContactId) {
             $contact = \App\Models\Contact::find($linkContactId);
             if ($contact && $contact->created_by_user_id === $user->id) {
-                $property->contacts()->attach($contact->id, ['role' => $linkContactRole]);
+                // $property is brand new here so this pair can't collide in
+                // practice, but goes through the linker rather than a bare
+                // attach() so no write path against this pivot ever looks
+                // "safe to copy" while actually depending on that. See
+                // .ai/specs/rental-applications.md, "The contact_property
+                // hard-delete fix".
+                \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $linkContactRole);
             }
         }
 
@@ -1250,7 +1256,12 @@ class MobilePropertyController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
+        // ContactPropertyLinker, not syncWithoutDetaching() — $contact can
+        // be an EXISTING contact (contact_id passed explicitly), a real
+        // risk of colliding with a soft-deleted row from a prior
+        // link/unlink of this exact pair. See .ai/specs/
+        // rental-applications.md, "The contact_property hard-delete fix".
+        \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $role);
 
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'], true)) {
             PropertySellerLink::ensureExists($property->id, $contact->id);
@@ -1281,7 +1292,11 @@ class MobilePropertyController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        $property->contacts()->detach($contact->id);
+        // Soft-delete via ContactPropertyLinker — Johan: "corex is a no
+        // delete system." No expected role asserted (role-agnostic unlink,
+        // matches the web ContactPropertyController/PropertyContactController
+        // shape), so no mismatch exception is possible from this call.
+        \App\Services\Property\ContactPropertyLinker::unlink($contact->id, $property->id);
 
         return response()->json(['message' => 'Contact unlinked from property.']);
     }

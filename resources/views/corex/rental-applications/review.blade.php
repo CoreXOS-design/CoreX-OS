@@ -261,6 +261,17 @@
                         };
                     @endphp
                     <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="FICA status for {{ $rentalApplication->contact?->full_name }}">{{ $ficaBadgeLabel }}</span>
+                    {{-- Submission identity gate, 2026-09-13 — two DISTINCT
+                         states, never folded into one ambiguous tile:
+                         "still waiting on the applicant" vs "we can't even
+                         ask them, go chase this yourself." Same ds-badge
+                         convention as the FICA badge above so an agent
+                         reads it the same way. --}}
+                    @if($rentalApplication->identityVerificationAwaitingApplicantAction())
+                        <span class="ds-badge ds-badge-warning flex-shrink-0" title="The applicant has submitted but hasn't yet completed identity verification">Awaiting applicant identity confirmation</span>
+                    @elseif($rentalApplication->identityVerificationUnreachable())
+                        <span class="ds-badge ds-badge-danger flex-shrink-0" title="No email or ID number on file to verify this applicant — contact them directly">Identity unreachable — action needed</span>
+                    @endif
                 </h1>
 
                 @if($viewerRole === 'agent')
@@ -2649,6 +2660,13 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         // Short-range floor (2026-09-13) — must stay in sync with
         // RentalApplicationAssessment::calculateStatementMonths()'s own
         // copy of this same rule; see that method's docblock for why.
+        //
+        // ELAPSED-MONTHS FIX (2026-09-14, Johan, live on QA1: 25 May to 25
+        // Aug read as 4, should be 3) — this used to count calendar months
+        // TOUCHED by the range instead of months ELAPSED between the two
+        // dates. Mirrors the server fix exactly: a month only counts once
+        // the day-of-month it started on has been reached again (matching
+        // Carbon's int-truncated diffInMonths() on the PHP side).
         calculatedStatementMonths() {
             if (!this.statementPeriodFrom || !this.statementPeriodTo) return null;
             const from = new Date(this.statementPeriodFrom + 'T00:00:00');
@@ -2656,7 +2674,8 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
             if (isNaN(from) || isNaN(to)) return null;
             const totalDays = Math.round((to - from) / 86400000) + 1;
             if (totalDays <= 31) return 1;
-            const months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()) + 1;
+            let months = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+            if (to.getDate() < from.getDate()) months -= 1;
             return Math.max(1, months);
         },
         // Round 16 — the unpaid-transactions red flag.

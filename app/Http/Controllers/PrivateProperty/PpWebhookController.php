@@ -70,9 +70,19 @@ class PpWebhookController extends Controller
             DB::transaction(function () use ($payload, $property) {
                 $contact = $this->createLeadContact($payload, $property);
 
-                $property->contacts()->syncWithoutDetaching([
-                    $contact->id => ['role' => 'lead'],
-                ]);
+                // createLeadContact() can return an EXISTING, deduped
+                // contact (email/phone match) — never a bare
+                // syncWithoutDetaching() here: a soft-deleted
+                // contact_property row for this exact pair (this contact
+                // previously linked, later unlinked, from this same
+                // property) would blind-insert-collide, and this whole
+                // block is wrapped in a catch below that logs and still
+                // returns 200 to PP — a real collision here would fail
+                // completely silently, the exact highest-risk shape named
+                // in .ai/specs/rental-applications.md, "The
+                // contact_property hard-delete fix". ContactPropertyLinker
+                // restores the existing row instead of colliding.
+                \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, 'lead');
 
                 $this->createLeadTask($payload, $property, $contact);
             });

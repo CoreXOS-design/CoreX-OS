@@ -395,10 +395,15 @@ class PpLeadService
             $c->agency_id = $agencyId;
             $c->save();
 
+            // Never a bare syncWithoutDetaching() against this pivot — see
+            // ContactPropertyLinker's own docblock and .ai/specs/
+            // rental-applications.md, "The contact_property hard-delete
+            // fix" (webhook write paths are the highest-risk item: inbound,
+            // unattended, and a collision here fails silently).
             if ($listingId) {
                 $property = Property::query()->withoutGlobalScopes()->find($listingId);
                 if ($property) {
-                    $property->contacts()->syncWithoutDetaching([$c->id => ['role' => 'lead']]);
+                    \App\Services\Property\ContactPropertyLinker::link($c->id, $property->id, 'lead');
                 }
             }
             return $c;

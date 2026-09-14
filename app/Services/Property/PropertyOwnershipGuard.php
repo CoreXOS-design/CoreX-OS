@@ -105,6 +105,7 @@ class PropertyOwnershipGuard
     {
         return $property->contacts()
             ->where('contacts.id', $contactId)
+            ->wherePivotNull('deleted_at')
             ->first()?->pivot?->role;
     }
 

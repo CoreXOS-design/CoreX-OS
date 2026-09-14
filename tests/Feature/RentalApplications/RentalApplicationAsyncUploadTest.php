@@ -112,8 +112,16 @@ final class RentalApplicationAsyncUploadTest extends TestCase
         // Now submit — the document that was NEVER part of this request must
         // still be there afterwards. This is the exact "I never clicked
         // upload... no docs arrive back" scenario, proven false.
+        // AT-392 round 5, 2026-09-13 — submit() now enforces the agency's
+        // default-required fields (full name, ID number, a contact method,
+        // address, income, rental term, both signatures); this test's own
+        // point is document persistence across submit, not field
+        // completeness, so every default-required field is supplied here.
         $sig = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
         $this->post(route('rental-applications.public.submit', $application->token), [
+            'full_name' => 'Jane Applicant', 'id_number' => '9001015800083',
+            'email' => 'jane@example.com', 'current_residential_address' => '1 Example Road, Ramsgate',
+            'monthly_salary' => 20000, 'rental_term_months' => 12,
             'declaration_signature' => $sig,
             'tpn_consent_signature' => $sig,
         ])->assertRedirect();
@@ -168,7 +176,11 @@ final class RentalApplicationAsyncUploadTest extends TestCase
 
     public function test_the_already_submitted_page_renders_and_uploads_via_the_json_endpoint_with_no_redirect(): void
     {
-        $application = $this->application(['status' => 'returned', 'submitted_at' => now()]);
+        // Submission identity gate, 2026-09-13 — identity_verified_at set
+        // so these fixtures (constructed directly, never through a real
+        // submit()) don't collide with the new gate; not what these
+        // tests are about.
+        $application = $this->application(['status' => 'returned', 'submitted_at' => now(), 'identity_verified_at' => now()]);
         // AT-392 round 4, 2026-09-13 — the return gate: isSubmitted() is
         // true, so a fresh session must pass the gate before show()
         // renders the real content. Not what this test is about.
@@ -190,7 +202,11 @@ final class RentalApplicationAsyncUploadTest extends TestCase
 
     public function test_the_already_submitted_page_lists_existing_documents_as_locked(): void
     {
-        $application = $this->application(['status' => 'returned', 'submitted_at' => now()]);
+        // Submission identity gate, 2026-09-13 — identity_verified_at set
+        // so these fixtures (constructed directly, never through a real
+        // submit()) don't collide with the new gate; not what these
+        // tests are about.
+        $application = $this->application(['status' => 'returned', 'submitted_at' => now(), 'identity_verified_at' => now()]);
         // AT-392 round 4, 2026-09-13 — see the identical note above.
         $this->withSession(["rental_application_return_gate_passed:{$application->token}" => true]);
         $this->postJson(route('rental-applications.public.documents', $application->token), [

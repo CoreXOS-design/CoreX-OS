@@ -190,6 +190,7 @@ class TransactionStateService
         $pivot = DB::table('contact_property')
             ->where('contact_id', $contact->id)
             ->whereIn('role', self::OWNER_ROLES)
+            ->whereNull('deleted_at')
             ->pluck('property_id');
 
         $links = DB::table('property_seller_links')

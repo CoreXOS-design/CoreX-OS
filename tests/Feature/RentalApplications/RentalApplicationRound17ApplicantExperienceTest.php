@@ -157,7 +157,13 @@ final class RentalApplicationRound17ApplicantExperienceTest extends TestCase
         $app = $this->application(['status' => 'sent', 'token' => 'test-token-' . uniqid(), 'token_expires_at' => now()->addDays(14), 'current_rental_to' => '2026-01-01']);
         $sig = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
+        // AT-392 round 5, 2026-09-13 — submit() now enforces the agency's
+        // default-required fields; this test is about the still-living
+        // checkbox winning over a tampered date, not field completeness.
         $this->post(route('rental-applications.public.submit', $app->token), [
+            'full_name' => 'Jane Applicant', 'id_number' => '9001015800083',
+            'email' => 'jane@example.com', 'current_residential_address' => '1 Example Road, Ramsgate',
+            'monthly_salary' => 20000, 'rental_term_months' => 12,
             'current_rental_still_living' => 1,
             'current_rental_to' => '2099-12-31',
             'declaration_signature' => $sig, 'tpn_consent_signature' => $sig,

@@ -6879,7 +6879,25 @@ Assigned alongside cc5 (PDF splitter, above) and cc4 (rentals menus). Johan's br
 
 ### 1. "Months covered" becomes a from/to date range
 
-The typed `statement_months` number input on the agent's Affordability Assessment panel is replaced by two date pickers ("Statement period" — from/to). The month count is **derived**, never typed: `RentalApplicationAssessment::calculateStatementMonths($from, $to)` counts inclusive calendar months (15 Jan–20 Mar = 3 — Jan, Feb, Mar — regardless of which day within Jan/Mar the range starts/ends), always at least 1 once both dates are present, capped at the same 36-month ceiling the old field enforced (a longer range is rejected with a clear message, not silently accepted).
+The typed `statement_months` number input on the agent's Affordability Assessment panel is replaced by two date pickers ("Statement period" — from/to). The month count is **derived**, never typed: `RentalApplicationAssessment::calculateStatementMonths($from, $to)`, always at least 1 once both dates are present, capped at the same 36-month ceiling the old field enforced (a longer range is rejected with a clear message, not silently accepted).
+
+**CORRECTED 2026-09-14** (originally shipped counting inclusive calendar months
+TOUCHED by the range — see the "Elapsed months" entry further down this file
+for the full incident; this paragraph is rewritten to describe the
+corrected, current rule rather than leave a wrong worked example standing).
+The rule is **elapsed calendar months between the two dates**, via Carbon's
+`diffInMonths()`, int-truncated — a month only counts once the day-of-month
+it started on has been reached again. 25 May–25 Aug = 3 (not 4: May→Jun,
+Jun→Jul, Jul→Aug, each a full elapsed month). 15 Jan–20 Mar = 2, not 3 (two
+full months elapsed — Jan 15→Feb 15, Feb 15→Mar 15 — with 5 days short of a
+third). **Why this specific definition, not merely "some month count"**:
+`total_captured_income ÷ statement_months` is a division — the number has
+to be the count of statement periods the captured income actually spans,
+not the count of calendar pages the date range happens to cross. Getting it
+wrong in the touched-months direction inflates the divisor, which
+understates a real applicant's monthly income — failing someone who can
+actually afford the rent, never the reverse. That asymmetry is exactly why
+this was worth fixing rather than leaving as a rounding quirk.
 
 Two new nullable columns on `rental_application_assessments`: `statement_period_from`, `statement_period_to` (migration `2026_09_10_150000_...`). **No backfill, and no retroactive recompute** — an existing assessment's already-stored `statement_months` is left exactly as it is until an agent opens that application again and picks a date range on it; `RentalApplicationReviewController::saveAssessment()` only overwrites `statement_months` when both dates are present in that specific request. `statement_months` itself is no longer accepted from the client at all (the form doesn't send it); the column stays because `qualifyingResult()` still divides by it — it just has a new, single source now.
 
@@ -12636,6 +12654,678 @@ so a rental property correctly linked only to its tenant reads as
 critical-attention-needed on that dashboard. Minor, pre-existing,
 unrelated to this feature's own code — flagged, not fixed.
 
+## `contact_property` allows exactly ONE role per contact-property pair — CONFIRMED business rule, not a gap (Johan, 2026-09-13)
+
+Surfaced while working out how to make `contact_property` soft-delete-safe
+for re-linking (see the hard-delete fix section below), initially written
+up as an open question for Johan. **It is not an open question.** Johan's
+ruling, verbatim: **"contact should not be placed on the same property as
+different roles. if that scenario happens the contact will be changed."**
+
+**The rule, confirmed:** one contact holds exactly one role on a given
+property, ever. When the real-world relationship changes — a landlord
+becomes that property's tenant, a seller ends up buying their own
+listing — the SAME link's role changes to reflect it. There is
+deliberately no second, parallel link recording the old relationship
+alongside the new one.
+
+**What already enforces this, exactly as intended:** `contact_property`'s
+unique index, `(contact_id, property_id)` only, `role` excluded
+(`database/migrations/2026_03_05_200001_create_contact_property_table.php:18`).
+`ContactPropertyController::link()` (`app/Http/Controllers/CoreX/
+ContactPropertyController.php:70-72`) already behaves correctly under
+this rule: `syncWithoutDetaching()` finds the existing row for the pair
+regardless of its current role and updates the role in place — "the
+contact will be changed," precisely as Johan describes it.
+
+**What changes because history is being kept, not because the rule
+changes:** today a role change leaves no record of what the role was
+before — no audit entry, and (confirmed by re-reading `link()`'s own
+comment) the `ContactLinkedToProperty` domain event fires "only on new
+link, not on no-op re-attach," so a role change on an *already-linked*
+pair is invisible even to the domain-events audit path, not just to
+the pivot row itself. Once the hard-delete fix below adds real history
+to this table, a bare unaudited role flip becomes the same class of gap
+the whole fix exists to close. See the hard-delete fix's stage 2/4 below
+for how the audit requirement folds this in — the rule itself is not
+changing, only the audit trail underneath it.
+
+## The `contact_property` hard-delete fix — plan, findings, and where tomorrow starts (2026-09-13, conductor + cc3)
+
+**Status: NOT STARTED tonight, deliberately.** Johan ruled "we have to
+fix it, corex is a no delete system," then, once the scope grew to the
+whole table (not just the 4 originally-named call sites), ruled "always
+all." The conductor then ruled the job ships as one complete piece or
+not at all — no partial/staged landing to QA1 — because the investigation
+below found that a *partial* fix (only the 4 named sites, or the
+foundation without the write-side fix) is actively worse than doing
+nothing: it would make Property/Contact screens correctly hide a removed
+link while Seller Outreach and the Client Seller Insights portal kept
+treating it as live, a silent inconsistency across pillars rather than a
+visible one. With Johan demoing to a rental team and eight agencies on
+Tuesday, this is deliberately a "tomorrow, properly" job, not tonight's.
+This section is what tomorrow starts from — read this before
+re-investigating anything below.
+
+### Why this exists
+
+Johan: "we have to fix it. corex is a no delete system." `contact_property`
+has no `deleted_at` and at least 7 call sites permanently delete rows —
+a tenant, owner, seller, buyer, or landlord link, once removed, cannot
+be recovered and leaves no trace. This matters concretely because a
+tenancy link is the kind of record someone needs back years later (a
+deposit dispute, a reference check, a court matter), and cc4's approved
+inspections spec has agents pressing the rental-application unlink
+button as a routine part of an inspection workflow — this button is
+about to be used far more often than it has been.
+
+### Not a live problem today, independently confirmed
+
+Before scoping the fix, checked whether TODAY's hard-delete already
+causes an access problem — e.g. a removed seller retaining portal
+access because of a cache or stale session. It does not:
+`ClientSellerInsightsController::index()`/`show()`
+(`app/Http/Controllers/Api/V1/ClientSellerInsightsController.php:61,117`)
+and `EntryPointController`'s `isSeller` checks (e.g. `:1420-1423`) all
+query `contact_property` fresh, per request, via `DB::table(...)`. No
+cache, no session-stored role (`ClientAuthService` has no `Cache::`/
+`remember()` calls). Under hard-delete, removing a link correctly and
+immediately revokes anything gated on it. **The access-regression risk
+below is a risk this FIX could introduce if shipped incompletely — it
+is not a pre-existing vulnerability.**
+
+### Check 1 — the unique index, and why the obvious fix is wrong
+
+`(contact_id, property_id)` only, no `role`
+(`create_contact_property_table.php:18`) — stricter than assumed; one
+contact can hold only one role per property at all today (see the
+finding above).
+
+**A tempting, wrong fix:** widen the unique index to
+`(contact_id, property_id, deleted_at)` so soft-deleted rows don't block
+a fresh insert. **This does not work.** MySQL does not enforce
+uniqueness across a composite key when any column in it is NULL — so
+multiple ACTIVE (`deleted_at IS NULL`) rows for the same pair could be
+inserted without the database ever raising a duplicate-key error, since
+each NULL is treated as distinct from every other NULL even within the
+same composite tuple. Widening the index would silently remove the one
+protection the table has today, not add one — this would have shipped
+as a silent duplicate-active-links bug months from now if not caught.
+
+**The actual fix, and it's simpler than first framed:** leave the unique
+index exactly as it is. Because Johan has since confirmed one row per
+`(contact_id, property_id)` pair is the intended rule, not a gap (see the
+finding above), the rule for every write path has an unambiguous target —
+there is only ever ONE legitimate row for a pair, so "find the existing
+row, trashed or not, and restore it with the new role" needs no
+reasoning about which of several candidates to restore. Never insert a
+second row for a pair that already has one, trashed or active. "Restore,
+never blind-insert, never leave a trashed row behind while creating a
+fresh one" is the rule for stage 2 below, not an index change.
+
+### Check 2 — role values / other features
+
+Production data: `owner` (809), `seller` (476), `lead` (349), `landlord`
+(104), `buyer` (27), null (5) — all legitimate property-contact
+relationship roles, nothing repurposing the table for something
+unrelated. The wide blast radius comes from HOW MANY features read/write
+those same roles (Prospecting, Seller Outreach, Compliance, Command
+Center all depend on owner/seller/landlord data in this exact table),
+not from role diversity.
+
+### The stages, in landing order — build all of them before any of them ships
+
+**Stage 1 — foundation.** Migration: add `deleted_at` (nullable
+timestamp) to `contact_property`. No index change (see Check 1). No
+data migration — existing rows are untouched, all get `deleted_at =
+NULL` by column default. Relationship-level scope: add
+`->wherePivotNull('deleted_at')` to both `Contact::properties()`
+(`app/Models/Contact.php:688-693`) and `Property::contacts()`
+(`app/Models/Property.php:777-782`) so every consumer going through
+these two named relations is automatically deleted_at-safe with no
+per-file change. Migration runs only via `/corex-qa1` (cc1 owns moving
+HEAD there, per this session's standing rule) — never applied directly
+from a worktree.
+
+**Stage 2 — every write site.** The 4 originally-named detach sites
+(`RentalApplicationController.php:1083`, `ContactPropertyController.php:112`,
+`PropertyContactController.php:388`, `MobilePropertyController.php:1284`)
+plus `ComposeSellerService.php:339,490,522`. ALL become soft-deletes (set
+`deleted_at`), never a real `DELETE`. Additionally — this is the
+scope-widening found tonight — every LINK/attach/sync/`updateOrInsert`
+write path for this pivot must apply "restore, never blind-insert, never
+leave a trashed row behind": check for the one existing row for that
+pair (trashed or not) before writing; restore it (`deleted_at = null`)
+and set its role to whatever role is now being applied — same operation
+whether the row was active with a different role (a role change) or
+trashed (a re-link) or absent (a genuinely fresh link, insert only in
+this last case). **Every role change — including a restore-with-new-role
+— must write an audit entry recording old role → new role, per Johan's
+confirmation that a role change is a real business event, not a silent
+field update** (see the finding above). Today's `ContactLinkedToProperty`
+domain event does not cover this — its own comment says it fires "only
+on new link, not on no-op re-attach," so a role change on an existing
+pair currently produces no event and no audit trail at all. Whether
+tomorrow's fix extends that event to cover role changes (with old/new
+role in the payload) or introduces its own is an implementation
+decision for tomorrow, not decided here — but the requirement itself
+(a role change must be visible in the audit trail) is fixed by
+tonight's ruling and belongs in whatever gets built.
+
+**What happens when a soft-deleted row is re-linked in a DIFFERENT
+role, worked through as asked:** it restores the one existing row and
+takes the new role — it does not stay recorded as the old role, and no
+second row preserves the old role standing alongside it. This follows
+directly from Johan's rule above: there is only ever one legitimate row
+per pair, so restoring it IS changing its role, the same operation as a
+live role change on an active row. The consequence for "was this
+contact ever the owner here?" a year from now: **the pivot row itself
+cannot answer that once it's been restored into a new role** — its own
+`role` column only ever holds the current one, and restoring doesn't
+freeze or copy the prior value anywhere on the row itself. The AUDIT
+TRAIL is therefore the only place that question is answerable, which is
+exactly why the audit requirement above is not optional polish — without
+it, "was this person ever linked as X" silently stops being answerable
+the moment this fix ships, for both a genuine unlink-and-forget and a
+restore-into-a-new-role. Note also that the row's own `created_at` stays
+from whenever the pair was FIRST ever linked, not from when the current
+role started — after a restore, the pivot row's timestamps describe the
+pair's whole history, not the current role's tenure; only the audit log
+carries "when did THIS role start."
+
+**Stage 3 — every raw read site.** Every `DB::table('contact_property')`
+query and every join by that table name needs its own
+`whereNull('deleted_at')` — these bypass the stage-1 relationship scope
+entirely, so they are NOT covered for free. The full verified,
+disambiguated list is below.
+
+### The verified, disambiguated file list (tonight's investigation — no code written)
+
+**A precedent exists in this codebase already — copy the shape, don't
+invent one.** `Deal::properties()` (`app/Models/Deal.php:244-249`)
+already solves this exact problem for the `deal_properties` pivot: a
+dedicated `DealProperty` pivot model registered via `->using()`,
+`deleted_at` carried in `withPivot()`, `wherePivotNull('deal_properties.
+deleted_at')` baked into the relation itself, plus a companion
+`withTrashedProperties()` (`Deal.php:254`) for the one or two screens
+that deliberately need to see removed rows (`resources/views/dr2/
+create.blade.php:209,802`). No `ContactProperty` pivot model exists yet
+— building one, the same shape, is the natural stage-1 design, not a
+novel one. **Not yet confirmed:** whether `Deal::properties()`'s existing
+pattern also solves the write-side "restore instead of blind-insert"
+problem below, or only the read-side scope — check this FIRST tomorrow,
+since if `Deal::properties()` already has the same blind-write exposure,
+that's a second, larger pre-existing gap worth knowing about before
+copying its shape uncritically.
+
+**Correction to this section's earlier draft:** `PropertyObserver.php:892`
+is NOT a stage-2 site. Confirmed: it's a `forceDeleted()` cleanup that
+only runs during a genuine, permanent property purge — correctly
+removing every `contact_property` row unconditionally, regardless of
+soft-delete state, because the property itself is gone forever in that
+path. No change needed there. Same finding for
+`ContactController.php:2201`'s `destroyAll()` — a documented,
+super-admin-only hard-purge escape hatch that already knowingly violates
+"no hard deletes" as a deliberate, separate exception; out of scope for
+this fix.
+
+**The write-side risk is bigger than the 7 delete sites — this is the
+single most important thing tonight's sweep found.** Neither
+`Contact::properties()` nor `Property::contacts()` has a `->using()`
+pivot model today, so Laravel's own `attach()`/`syncWithoutDetaching()`
+determine "is this pair already linked" via the relation's own (soon to
+be scoped) query — a soft-deleted row won't read as "linked," so these
+calls fall through to a plain `INSERT` and collide with the unique
+index. This hits nearly every LINK path in the codebase, not just the
+delete/detach sites: confirmed real risk (not just theoretical — each
+is a path where the SAME contact/property pair could plausibly be
+re-linked after having been unlinked) at minimum in
+`ContactPropertyController.php:74`, `PropertyContactController.php:136,
+218,348`, `PropertyController.php:1126,1167`, `ESignWizardController.php:
+861`, `DealRegisterController.php:1133`, `RentalApplicationController.
+php:1117`, `MobilePropertyController.php:163,1253`,
+`Property24/P24LeadService.php:366`, `PrivateProperty/PpLeadService.php:
+401`, `PpWebhookController.php:73`. (A handful of similarly-shaped calls
+immediately following a brand-new `Contact::create()`/`Property::
+duplicate()` are safe in practice — a fresh id can't collide — listed
+in the full investigation transcript, not repeated here.)
+
+### The portal lead webhooks — highest-risk item in the whole fix, named separately on the conductor's instruction
+
+Three of the B2 blind-write sites above are not "a person clicks something
+and sees an error" — they're inbound, automatic, and unattended:
+`Property24/P24LeadService.php:366` (`syncWithoutDetaching`, role
+`lead`), `PrivateProperty/PpLeadService.php:401` (same), and
+`PpWebhookController.php:73` (same). Every other write-side risk on this
+list fails LOUDLY — an agent clicks a link button, gets an error, tries
+again or reports it. **A webhook path fails SILENTLY.** If a soft-deleted
+`contact_property` row already occupies the `(contact_id, property_id)`
+slot a P24 or PP lead webhook is trying to write to, the blind `attach()`/
+`syncWithoutDetaching()` throws a duplicate-key exception inside a
+background request nobody is watching — the portal thinks it delivered
+the lead, CoreX's HTTP response to the portal may still be 200 depending
+on whether the exception is caught upstream (not yet confirmed — check
+this specifically tomorrow, since a swallowed exception with a 200
+response is worse than a visible failure), and the practical symptom
+is an agent asking days later "why did this enquiry never arrive,"
+with a stack trace in a log file nobody reads by default. Johan sells
+CoreX on portal lead capture — this is not one bullet among a dozen,
+it is the first thing to fix and test once stage 1's foundation is
+confirmed, with its own explicit test coverage (a repeat-lead scenario
+against a previously-unlinked-then-relinked contact/property pair for
+each of the three webhook paths), before any of the person-facing link
+buttons are touched.
+
+**LIST A — read sites needing `deleted_at IS NULL`, by module:**
+- **Core relations** (fixed for free once stage 1's scope lands):
+  `Contact.php:212,1091`, `Property.php:798,986,1620,1666`
+- **CoreX Contacts**: `ContactController.php:232,239,2191`,
+  `ContactExportController.php:198,201`, `ContactPropertyController.php:
+  20,72`, `ComposerController.php:522`
+- **CoreX Properties**: `PropertyContactController.php:60-62,148,217,
+  235,299,347,366,393,411`, `PropertyController.php:1117,1163`,
+  `DealRegisterController.php:919,1117`
+- **Rental Applications**: `RentalApplicationController.php:1115`,
+  `view-readonly.blade.php:19-22`, `_linked-properties.blade.php:16`
+- **Compliance / FICA**: `MarketingReadinessService.php:111,341,414,422`,
+  `WhistleblowComplaintService.php:393`, `PropertyOwnershipGuard.php:106`,
+  `DealPropertyOwnerGate.php:40,128`
+- **Command Center**: `CalendarController.php:2783,2904`,
+  `CalendarEventService.php:738`, `PropertyHealthCalculator.php:73`
+  (raw — the two Calendar sites already filter the contact side's
+  `deleted_at`, not the pivot's)
+- **Prospecting / Seller Outreach**: `EntryPointController.php:349,1267,
+  1420,1573,1598,1623`, `PropertyIntelligenceService.php:947-958`,
+  `ComposeSellerService.php:74-90,145,150`,
+  `PropertyDuplicateMatchEvidence.php:380-384`,
+  `ProspectingListingStateEnricher.php:393-398`,
+  `DeedsCaptureLinkService.php:439`, `TransactionStateService.php:190-193`
+- **Docuperfect / E-Sign**: `ESignWizardController.php:1133-1137,
+  1144-1148,1479` — **pipeline-gate file (CLAUDE.md)**, any change here
+  needs a test diff in `tests/Feature/Docuperfect/SigningView/`
+- **Deeds Capture**: `DeedsCaptureController.php:105,190-192`
+- **Mobile API**: `ClientSellerInsightsController.php:61,117`,
+  `MobilePropertyController.php:988,1150`
+- **Tools / Presentations**: `PdfSplitterController.php:164,1429`,
+  `presentations/show.blade.php:218-220`,
+  `CoreMatchListPdfService.php:209`
+- **Views**: `properties/show.blade.php:5847`,
+  `_header-actions.blade.php:56`
+- **Console / seeders** (lower priority, non-production traffic):
+  `BackfillContactPropertyRoles.php:47,66`,
+  `BuyersBackfillFlagCommand.php:175`, `BuyersBackfillWonCommand.php:63`,
+  the five `Demo*Seeder.php` files listed in the full transcript
+
+**LIST B — write sites, by risk class:**
+- **B1 — `updateOrInsert` keyed correctly but needs `deleted_at =>
+  null` added to the update array** (else it silently restores role on a
+  row that stays invisible-as-linked): `DeedsCaptureController.php:1094`,
+  `EntryPointController.php:161,548`, `ComposeSellerService.php:324`,
+  `OwnerContactResolver.php:118`
+- **B2 — `attach()`/`syncWithoutDetaching()` blind-write risk**, listed
+  above
+- **B3 — `updateExistingPivot`, safe once its guarding `exists()` check
+  is scope-fixed**: `PropertyContactController.php:430`
+- **B4 — hard `detach()`, convert to soft-delete**: the 4 originally
+  named sites
+- **B5 — raw `->delete()`, convert to soft-delete**:
+  `ComposeSellerService.php:339,490,522`
+- **B6 — touches a role/flag without excluding soft-deleted rows**:
+  `BackfillContactPropertyRoles.php:59,83`,
+  `ComposeSellerService.php:335-336` (`markPrimary` — a removed seller
+  could otherwise hold `is_primary=true` invisibly)
+- **B7 — deliberate, correct, out-of-scope hard deletes, no change**:
+  `PropertyObserver.php:892`, `ContactController.php:2201`
+
+**Flagged for manual review, not guessed:** whether
+`ComposeSellerService::resolveOrCreateEntitySellerContact()` returns a
+pre-existing contact often enough to prioritize
+`PropertyContactController.php:347-348`'s risk; ~30 test files that
+`assertDatabaseHas`/`insert` against `contact_property` directly (not
+broken by the column add, but worth a look once the restore design is
+chosen); `BackfillContactPropertyRoles.php` deprioritized as an
+admin-run, dry-run-by-default maintenance command, not live traffic.
+
+**Stage 4 — audit trail.** `ContactPropertyController.php:112`,
+`PropertyContactController.php:388`, and `MobilePropertyController.php:1284`
+currently log nothing at all before deleting — matching pattern already
+proven in `RentalApplicationController::unlinkTenantProperty()`'s own
+audit call. Same requirement extends to their LINK counterparts once
+stage 2's restore rule is live: a restore-with-new-role is a role
+change, and per Johan's confirmation (see the finding above) a role
+change must be audited the same way an unlink is — old role → new role,
+not a silent overwrite. This is a genuinely new audit surface, not
+present anywhere today (`ContactLinkedToProperty` only fires on a
+brand-new link), so tomorrow's stage 2/4 work should treat "log the role
+change" as part of building the restore path, not a separate follow-up.
+
+### Tomorrow's order, as ruled by the conductor
+
+1. Confirm whether `Deal::properties()`'s existing pattern covers the
+   write-side restore problem as well as reads, before copying its shape.
+2. Stage 1 foundation, built on that pattern (a `ContactProperty` pivot
+   model, not a bespoke one).
+3. Write-side paths — **the three portal lead webhooks first, with their
+   own named test coverage**, before any person-facing link button.
+4. Then the remaining delete sites and raw reads, split with cc4 once
+   they've read this section.
+
+### LIVE CHECKPOINT — written mid-build, 2026-09-13, so context loss doesn't cost a half-converted system
+
+Johan overruled the "nothing tonight" hold — "start building it now" — the
+conductor's actual gate is unchanged: **build now, land only when complete,
+one piece, after the conductor walks it.** This checkpoint exists so that
+if this session's context is lost mid-way, the next one does not have to
+rediscover any of this — an incomplete no-delete conversion (some paths
+soft-delete, some still hard-delete) is worse than not starting, because
+it looks fixed.
+
+**Foundation (stage 1) — DONE, committed locally, not yet pushed:**
+`database/migrations/2026_09_16_100000_add_deleted_at_to_contact_property.php`,
+`app/Models/ContactProperty.php` (pivot model), `app/Services/Property/
+ContactPropertyLinker.php` + `ContactPropertyLinkResult.php`,
+`app/Exceptions/Property/ContactPropertyRoleMismatchException.php`,
+`Contact::properties()`/`Property::contacts()` updated in `app/Models/
+Contact.php`/`Property.php` (+ `withTrashedProperties()`/
+`withTrashedContacts()` companions). Test: `tests/Feature/Property/
+ContactPropertyLinkerTest.php` — 8 tests, 44 assertions, all passing,
+including the BUILD_STANDARD.md §5a create→soft-delete→recreate cycle.
+
+**Write sites CONVERTED so far (file:line, all using `ContactPropertyLinker`):**
+1. `app/Services/Syndication/Property24/P24LeadService.php:366` — link
+2. `app/Services/PrivateProperty/PpLeadService.php:401` — link
+3. `app/Http/Controllers/PrivateProperty/PpWebhookController.php:~75` —
+   link (the genuinely exploitable one — existing-contact reuse + a
+   swallow-and-200 catch block). Tested: `tests/Feature/Leads/
+   PpWebhookContactPropertyRelinkTest.php`, 3 tests passing, including the
+   repeat-lead-after-unlink scenario over real HTTP with a valid HMAC
+   signature.
+4. `app/Http/Controllers/CoreX/RentalApplicationController.php`
+   `linkTenantProperty()` (~line 1120) — link, plus a `role_changed` audit
+   entry. `unlinkTenantProperty()` (~line 1207) — unlink with `'tenant'`
+   asserted, wrapped in try/catch for `ContactPropertyRoleMismatchException`
+   → clear user message + structured log (all 4 fields).
+5. `app/Http/Controllers/CoreX/ContactPropertyController.php` `link()`
+   (~line 74) and `unlink()` (~line 132) — both converted, both now audit
+   via `ContactAuditService` (had ZERO audit trail before tonight).
+6. `app/Http/Controllers/CoreX/PropertyContactController.php` — ALL FIVE
+   write methods converted: `link()` (~136), `createAndLink()`'s
+   duplicate-auto-link branch (~218) AND its fresh-contact-create branch
+   (~297, safe-in-practice but converted for consistency),
+   `createAndLinkEntity()` (~366), `unlink()` (~409), `updateRole()`
+   (~466). All now audit via `PropertyAuditService` (had zero before).
+7. `app/Http/Controllers/Api/MobilePropertyController.php` — `store()`'s
+   inline contact-link (~163, safe-in-practice, converted for
+   consistency), `contactsLink()` (~1259), `contactsUnlink()` (~1290).
+8. `app/Http/Controllers/CoreX/PropertyController.php` — `store()`'s
+   `pending_contact_ids` loop (~1126) and `pending_new_contacts` loop's
+   both branches (dup-match ~1171, fresh-create ~1202) — all
+   safe-in-practice (property is always brand-new here) but converted for
+   consistency. `duplicate()`/`changeType()`'s clone-attach, both
+   occurrences (~1630, ~1674) — same, safe-in-practice, converted anyway.
+9. `app/Http/Controllers/Dr2/DealRegisterController.php`
+   `syncPartyLinks()` (~1133) — converted with care: this method has its
+   OWN pre-existing "no silent re-roling" rule (skips if ANY active role
+   already exists) that predates tonight and is NOT Johan's tonight-rule
+   to override. The `exists()` gate before this line is untouched, so the
+   linker is only ever reached when nothing is currently active for the
+   pair — it only fixes the mechanical blind-insert-on-a-trashed-row risk,
+   it does not make this method start re-roling active links.
+10. `app/Http/Controllers/Docuperfect/ESignWizardController.php:~861` —
+    the recipients-step auto-link-existing-contact-to-property block.
+    **CORRECTION:** earlier tonight I told the conductor this file was on
+    CLAUDE.md's pipeline-gate list requiring a SigningView test diff — it
+    is NOT (the gate list is Template.php, CdsDraft.php,
+    SignatureSurfaceNormalizer.php, LetterheadRefresher.php,
+    InsertableBlockRenderer.php, RoleBlockDetectionService.php,
+    RoleBlockExpansionService.php, RoleBlockNormalizer.php,
+    MergedHtmlFreshnessGuard.php, SigningController.php —
+    ESignWizardController.php is not among them). The code fix is done
+    and correct (same `ContactPropertyLinker::link()` call proven
+    elsewhere). A test at `tests/Feature/Docuperfect/SigningView/
+    RecipientPropertyLinkRelinkTest.php` is in progress but NOT YET
+    passing — the legacy duplicate-detection path this line sits behind
+    (email → `ContactIdentifierResolver`, then id_number exact-match, then
+    `ContactDuplicateService::findDuplicates()` inside the fallback
+    branch) is proving fiddly to trigger deterministically in a
+    reflection-invoked unit-style test; two attempts so far created a
+    second, unrelated contact instead of matching the intended existing
+    one. Not a defect in the fix — the fix mirrors an already-proven-safe
+    call shape — but the test isn't done. Whoever picks this back up:
+    check what `$request->user()?->effectiveAgencyId()` actually resolves
+    to inside a reflection-invoked call with no real HTTP session, since
+    that's the most likely reason `ContactDuplicateService::findDuplicates()`
+    isn't finding the fixture contact.
+11. `app/Services/Website/WebsiteLeadService.php:~206` — link. **NOT on
+    the original disambiguated list — found during tonight's exhaustive
+    completeness sweep** (`$listing` is genuinely `?Property`, missed
+    earlier because the variable name didn't read as an obvious Property
+    reference). Safe-in-practice (brand-new contact each time), converted
+    for consistency. This is exactly the kind of miss the conductor's
+    "prove completeness, don't just list what you happened to find" push
+    was right to demand — the original list was NOT exhaustive.
+
+**Write sites STILL ON THE LIST, not yet converted (all confirmed genuine
+`contact_property` writes via tonight's exhaustive grep, not the earlier
+noisy one):**
+- `app/Http/Controllers/CoreX/PropertyWizardController.php:263` —
+  `syncWithoutDetaching`, found in the same completeness sweep as #11
+  above, conversion IN PROGRESS when this checkpoint was written.
+- `app/Services/Prospecting/OwnerContactResolver.php:118` — raw
+  `updateOrInsert`, needs `deleted_at => null` added to the update array.
+- `app/Services/Prospecting/ComposeSellerService.php:324` — same
+  (`updateOrInsert`, needs `deleted_at => null`).
+- `app/Services/Prospecting/ComposeSellerService.php:339,490,522` — raw
+  `->delete()`, need conversion to soft-delete.
+- `app/Services/Prospecting/ComposeSellerService.php:335-336` —
+  `markPrimary`'s two `update(['is_primary'=>...])` calls, need to
+  exclude trashed rows (a removed seller could otherwise hold
+  `is_primary=true` invisibly).
+- `app/Http/Controllers/SellerOutreach/EntryPointController.php:161,548`
+  — raw `updateOrInsert`, need `deleted_at => null` added.
+- `app/Http/Controllers/CoreX/DeedsCaptureController.php:1094` — raw
+  `updateOrInsert`, same fix.
+- `app/Console/Commands/BackfillContactPropertyRoles.php:47,59,66,83` —
+  raw reads/updates by row id; lower priority (admin-run, not live
+  traffic) but the initial read at `:47` should exclude trashed rows so
+  a removed link's role never gets silently rewritten.
+
+**Deliberately NOT converted, with reasons (both already confirmed and
+agreed, not new):**
+- `app/Observers/PropertyObserver.php:892` — `forceDeleted()` cleanup
+  that only runs on a genuine, PERMANENT property purge. Correctly
+  unconditional — no soft-delete semantics apply when the property
+  itself is being destroyed forever.
+- `app/Http/Controllers/CoreX/ContactController.php:2201`
+  (`destroyAll()`) — documented, super-admin-only hard-purge escape
+  hatch, a deliberate pre-existing exception to "no hard deletes",
+  unrelated to and out of scope for tonight's fix.
+
+**Confirmed FALSE POSITIVES tonight (different pivot tables entirely, not
+`contact_property`) — named so nobody re-checks them:** every
+`$deal->contacts()`/`$deal->properties()` (DealV2/DealPipelineService/
+DealV2Controller — `deal_contacts`/`deal_properties`, the latter already
+soft-delete-safe via `DealProperty`), every `$document->contacts()` /
+`$doc->contacts()` (FicaController, PropertyFileController,
+MobileContactComplianceController, ContactDocumentController,
+RentalApplicationPdfService, RentalApplicationSigningController,
+ProformaGenerationService, SignatureService, PdfSplitterController,
+RentalApplicationReviewController, MisfiledDocumentsController,
+RentalApplicationController:1450 — all `document_contacts`/
+`document_properties`), `ContactTagController`'s `->contacts()`
+(`contact_tag`).
+
+**Decisions made tonight — the reasoning, not just the rule, so it
+survives past this session:**
+1. **`link()` changes the role in place on a mismatch; `unlink()` THROWS
+   on one.** Deliberately asymmetric, written next to the code in
+   `ContactPropertyLinker`'s own class docblock: Johan's rule is one
+   contact takes one role per property, so `link()` arriving with a
+   different role IS the normal case the rule describes, never an error.
+   `unlink()` is destructive to the caller's belief about what they just
+   did — a silent no-op on a role mismatch is exactly how a tenant stays
+   attached to a property they moved out of.
+2. **Three-tier exception handling for `ContactPropertyRoleMismatchException`:**
+   agent-facing controllers catch it, log all 4 fields (contact_id,
+   property_id, expected role, actual role) structured, and return a
+   clear human sentence — done for `RentalApplicationController::
+   unlinkTenantProperty()`, the only call site that currently asserts a
+   role on unlink (`ContactPropertyController`/`PropertyContactController`/
+   `MobilePropertyController`'s unlinks are role-agnostic, so this
+   exception can never fire from them). Genuine live webhooks catch and
+   log, never crash — `PpWebhookController` already wraps its whole
+   transaction in a broad catch, compliant by construction, though it
+   only ever calls `link()` today so can't actually hit this exception
+   yet. Jobs/background (`P24LeadService`/`PpLeadService` — confirmed
+   tonight these are queue JOBS via `PullP24LeadsJob`/`PullPpLeadsJob`,
+   not live webhooks) let it throw — visible in `failed_jobs`, same as
+   any other job failure.
+3. **`deleted_at` stays OUT of the unique index — confirmed, not just
+   assumed.** A nullable column inside a composite unique key does not
+   enforce "one active row" in MySQL (NULLs never collide with each
+   other, even within the same composite tuple) — widening the index
+   would have shipped a silent duplicate-active-links bug. `deal_properties`'
+   own migration names this exact landmine and avoids it the same way.
+4. **Every create/link path goes through `ContactPropertyLinker::link()`,
+   even the ones safe in practice** (a brand-new contact or brand-new
+   property id can never collide) — converted anyway so no call site
+   ever "looks safe to copy" while actually depending on a fresh id that
+   a future caller might not have.
+5. Audit trail added everywhere it was missing (`ContactPropertyController`,
+   `PropertyContactController` — zero audit before tonight on either), and
+   a role change gets its own distinct audit event type
+   (`role_changed`), not folded into the generic `linked`/`unlinked`
+   entries, per Johan's ruling that a role change is a real business
+   event.
+
+**Write side: COMPLETE as of this update.** Every item on the "still on
+the list" table above has been converted: `PropertyWizardController.php`
+(a real risk — resumes/edits an EXISTING draft per AT-210, not just
+safe-in-practice), `OwnerContactResolver.php:118`,
+`EntryPointController.php:161,548`, `DeedsCaptureController.php:1094`
+(all four converted from `updateOrInsert` to `ContactPropertyLinker`),
+`BackfillContactPropertyRoles.php` (deliberately excludes soft-deleted
+rows now, decision written in the code per the conductor's instruction —
+a backfill "helpfully" repairing a deliberately-removed link's role
+would silently resurrect its data with no way to tell which rows were
+touched), and the `ComposeSellerService` cluster (`markPrimary()`'s two
+`is_primary` updates now exclude trashed rows; `linkSellerToProperty()`/
+`unlinkSeller()` through the linker, `unlinkSeller()` now asserting role
+and wired with a catch+log+409 at its one caller; `selectDeed()`'s
+prior-seller drop and `unlinkDeed()`'s whole-set drop both soft-delete).
+The ESignWizard test that was stuck: fixed by extracting the actual
+write into its own method (`linkRecipientToProperty()`) and testing
+that directly, skipping the legacy duplicate-detection matching
+entirely — 2 tests, passing on the first attempt with that shape.
+
+**Completeness proof — the acceptance criterion, run and shown, not
+asserted:**
+
+```
+grep -rn "DB::table('contact_property')" app/ --include='*.php' | grep -E "insert|update|delete|upsert"
+```
+→ 5 hits, all justified: `BackfillContactPropertyRoles.php`'s two
+`update()`s target a row by its own primary key `id`, fetched from a
+query that already excludes trashed rows — cannot touch a soft-deleted
+row by construction. `PropertyObserver.php:892` is the one
+already-documented `forceDeleted()` exception.
+
+```
+grep -rn -- "->contacts()->attach" / "->detach" / "->sync" / "->syncWithoutDetaching" / "->updateExistingPivot" app/
+grep -rn -- "->properties()->attach" / "->detach" / "->sync" / "->syncWithoutDetaching" / "->updateExistingPivot" app/
+```
+→ ~50 hits, every single one on `$document`/`$doc`/`$deal`/`$filedDoc`/
+`$newDoc`/`$contactTag`/`$tag` — Document, Deal, DealV2, or ContactTag's
+own same-named relations on `document_contacts`/`document_properties`/
+`deal_contacts`/`deal_v2_contacts`/`contact_tag`, none of them
+`contact_property`. Zero hits on a `Contact`/`Property`-typed variable.
+
+```
+grep -rnE "\$(contact|existing|dupExisting|newContact|c)->properties\(\)->(attach|detach|sync)" app/
+grep -rnE "\$(property|clone|listing|newProperty)->contacts\(\)->(attach|detach|sync)" app/
+```
+→ zero hits, both.
+
+```
+grep -rn "contact_property" app/ --include='*.php' | grep -iE "insert|upsert"
+```
+→ zero hits.
+
+**Re-run after cc4's independent, from-scratch sweep found the same
+write inventory by a different route (reconciled line-by-line, nothing
+unaccounted for) — one gap in my own exclusion filter caught and fixed
+before calling this final:**
+
+```
+for verb in attach detach sync syncWithoutDetaching updateExistingPivot; do
+  grep -rn -- "->contacts()->$verb\|->properties()->$verb" app/
+done | sort -u | grep -viE '\$(doc|document|deal|filedDoc|newDoc|contactTag|tag|filed)\b'
+```
+First pass missed `$filed->contacts()->syncWithoutDetaching(...)` /
+`$filed->properties()->syncWithoutDetaching(...)`
+(`RentalApplicationReviewController.php:1030,1032`) — confirmed a
+genuine false positive (`$filed = Document::create(...)`, i.e.
+`Document::contacts()`/`properties()` on `document_contacts`/
+`document_properties`, same class as every other Document false
+positive above), but my own exclusion regex hadn't named that variable.
+Widened the filter, re-ran → zero hits.
+
+**Target met: zero unjustified direct writes to `contact_property`
+outside `ContactPropertyLinker.php`.** Two named, individually-justified
+exceptions stand, both already agreed: `PropertyObserver.php:892`
+(permanent property purge, correctly unconditional) and
+`ContactController.php:2201` (documented super-admin hard-purge escape
+hatch, pre-existing and out of scope).
+
+**A spelling no text search for `contact_property` can ever catch —
+found by cc4, recorded here so a future grep-only audit knows to look
+for the TECHNIQUE, not just the string.** `ContactController.php:2196-2210`
+(`destroyAll()`) builds an array of relation objects
+(`$pivotRelations = [..., $proto->properties(), ...]`) and purges each
+via `DB::table($relation->getTable())->whereIn($relation->
+getForeignPivotKeyName(), $contactIds)->delete()` — the table name and
+foreign key are resolved from the Eloquent relation OBJECT at runtime,
+never appearing as the literal string `contact_property` anywhere in
+this file. It genuinely does hard-delete `contact_property` rows for
+every purged contact. Already inside this section's exception bucket
+(same documented super-admin-only escape hatch as above) so it is not a
+miss — but any FUTURE audit of this table done by grepping the string
+`contact_property` will not find this call site, and must specifically
+also check for `$anyModel->properties()`/`$anyModel->contacts()` fed
+into a generic `DB::table($relation->getTable())`-style purge.
+
+**Combined write-site inventory (mine — cc4 owns the read-side list in
+the earlier "Verified, disambiguated file list" section above), for the
+conductor's walk:** every file named across this checkpoint section,
+in full, with the specific methods/lines converted, is the complete
+list — there is no additional write site beyond what's named above and
+in the earlier LIST B. Nothing held back, nothing summarised away.
+
+**Honest scope answer, updated:** the write side is done, tested where
+the risk was real (webhooks, the exploitable seller-outreach unlink,
+the ESignWizard recipient link), and proven complete by grep, not
+assumed. What remains before this can land: cc4's read-side half, a
+combined merge of the two branches, and the conductor's own
+real-browser walk — none of which I control the timing of. My half is
+no longer the pacing item.
+
+### Non-negotiable constraints, restated for whoever starts tomorrow
+
+- Nothing in Prospecting, Seller Outreach, or Command Center may break —
+  Johan demos those modules Tuesday.
+- No data migration touching existing row values — column add only.
+- Re-linking a previously-unlinked contact must work cleanly: no
+  duplicate row, no unique-index failure.
+- Ships as ONE complete, verified piece — no partial landing to QA1.
+  The investigation above is exactly why: a partial fix is worse than no
+  fix, because it makes pillars silently disagree instead of visibly
+  agreeing (see "not a live problem today" above for the mechanism).
+- Report progress at the end of each stage, not only at the end.
+- State plainly, every time, by what means something was tested —
+  headless Puppeteer with real `ElementHandle.click()` is acceptable and
+  disclosed as such; a real browser click by the conductor is still the
+  final verification step before anything is called done.
+
 ## FICA becomes mandatory — one continuous submit-into-FICA flow (Johan, 2026-09-13, round 3)
 
 Johan, a legal position, not a preference: "technically we not allowed to
@@ -12904,6 +13594,269 @@ that constructs an already-submitted fixture directly (rather than going
 through a real submit()) — each updated to seed the session's gate-passed
 flag explicitly, since that's exactly the scenario the gate now correctly
 intercepts by design, not a regression.
+
+## Submission identity gate — ID/OTP gate on FIRST submission (Johan, 2026-09-13)
+
+Johan found this hole himself, not from a report: he walked the applicant
+link end to end in a real browser, signed both pads, pressed "Submit and
+Complete FICA Verification," and landed straight in the FICA form. No
+identity challenge anywhere. His words: "priorities are as the process
+runs - agent sends application to applicant. so on completion we need the
+fica gate. ON SUBMISSION THE ID / OTP GATE." The FICA gate (cc6) already
+existed and was walked and confirmed working. This closed the other half.
+
+**Why this is a different gate from the Return Gate above, not the same
+one running twice:** the Return Gate deliberately does not fire on first
+submission — its own design and its own tests assert "first-open-not-
+gated" and treat the submitting session as trusted because it just proved
+itself by completing the form. This gate is the opposite case: it exists
+*because* that trust is exactly the gap — the moment of first submission
+is the one point in the whole flow where nobody has ever confirmed who is
+actually signing, and it is the moment the signatures and the FICA hand-
+off both depend on.
+
+### What already existed and was reused, not rebuilt
+
+Read before any of this was designed, per Johan's explicit instruction
+("if there is a working OTP mechanism in this codebase we are using it,
+not writing a second one"):
+
+- **`App\Services\Otp\OtpService`** — the engine behind DR2's secure-
+  document-link OTP (`AT-130`/`AT-158`). Destination-, subject- and
+  purpose-agnostic by design; DR2's `SecureDocumentController` and the
+  Return Gate above both already consume it standalone. This gate reuses
+  it a third time, under its own purpose string
+  (`rental_application_identity_gate`) — no second code-generation,
+  hashing, delivery, or throttling logic written anywhere.
+- **6-digit CSPRNG code, hashed at rest, generic `OtpMail` template,
+  `config/otp.php` floor** (10 min expiry / 5 attempts / 60s cooldown /
+  5 per hour) — all reused as-is; agency overrides layer on top via the
+  engine's own existing per-call `$opts`, which neither DR2 nor the
+  Return Gate has needed until now.
+- **The ID-number comparator** (`preg_replace('/[^0-9]/', '', ...)` then
+  `hash_equals()`) from the Return Gate's `idNumberMatches()` — reused
+  verbatim as this gate's fallback method, not a second comparator.
+- **The gate-choke-point pattern** from esign's `isSigningBlocked()`: one
+  check, one place, every sensitive action passes through it, a generic
+  no-oracle failure message, a lockout screen that always names a human.
+- **The token/expiry convention** already on `RentalApplication` (`token`,
+  `token_expires_at`, `queryWithoutAgencyScope()` resolution) — unchanged,
+  no new token scheme.
+
+### (a) When it fires
+
+Immediately when the applicant presses "Submit and Complete FICA
+Verification" — after cc6's hard-floor field validation has passed and
+the answers and both signatures have been saved exactly as they are
+today, but *before* the application is flipped to submitted/visible-to-
+the-agency and before the existing FICA gate runs. A gate that only
+checked identity after the agency already had the application would be
+too late to matter; the point is that a signed application never reaches
+the agency's pipeline without a confirmed identity behind it.
+
+### (b) Which channel — decided per applicant, not fixed by the agency
+
+cc6's compulsory-field work (`required_field_keys`, agency-configurable
+per field, nothing locked — see below) means email is not guaranteed
+present on any given applicant, and neither is a cell number. So the
+channel is chosen at the moment of the gate, per applicant:
+
+- **Email present → email OTP** (the stronger method, same engine as the
+  Return Gate's own OTP option).
+- **Email absent, ID number present → ID-number match** (the Return
+  Gate's existing fallback method, reused verbatim).
+- **Neither present → see "Unreachable applicants" below.** Cell-number
+  OTP was deliberately not built: `OtpService`'s SMS channel is an
+  unbuilt seam, and building it now would mean a new gateway, a per-
+  message cost, and a case for making cell mandatory — none of which
+  Johan asked for, and all of which cuts against his ruling below.
+
+### Johan's ruling on the locked-field question — nothing is locked
+
+The original design proposed treating ID number as an always-compulsory
+field so this gate would always have something to check. Johan overruled
+that outright: "leave the compulsory selection agency selectable. yes its
+corex but its the agency's decision what they want to do with it. we
+provide the system, they set it up the way they want to use it." No field
+this gate depends on is ever forced compulsory. The gate is built to cope
+with that, not to work around it by the back door.
+
+### Unreachable applicants — the agency's problem to see, never the applicant's problem to hit
+
+The first version of this design refused the submission if neither email
+nor ID number was present, asking the applicant to add a contact method.
+Johan corrected this directly: "that reintroduces a lock through the back
+door — the agency switched those fields off deliberately, and the
+applicant would be blocked by a rule their agency thought it had turned
+off. Worse, the person who gets stopped is the one who cannot fix it."
+The corrected behaviour:
+
+- **At submission**, if the identity gate is enabled and neither email nor
+  ID number is present for that applicant, the application is let
+  through — never blocked, never shown a dead-end. It is marked
+  `identity_gate_unreachable = true` on the `rental_applications` row and
+  surfaces with its own visible indicator on the agent's applications
+  list, distinct from the FICA/return-gate indicators, so the agent — who
+  can actually act on it — chases it themselves.
+- **On the settings screen**, saving the identity gate switched ON while
+  every field it could use (email, cell) is unticked shows a plain,
+  non-blocking warning at save time — the same convention as the existing
+  "above the legal guideline" affordability warning
+  (`assertSessionHas('warning')`, and persists as a banner on later
+  visits to the settings screen, not just a one-time toast). It saves
+  anyway; Johan's ruling is that the agency decides. It is warned
+  clearly, then honoured.
+
+### (c) Non-receipt, expiry, and retry — human sentences, not "Too many attempts"
+
+Reuses `OtpService`'s existing resend/cooldown/hourly-limit/max-attempts
+machinery, all agency-configurable (see Settings below) with the engine's
+own defaults as the floor. Every user-facing message states plainly what
+happened and what to do next, mirroring the Return Gate's own lockout
+screen (names the agent's name, email and phone):
+
+- Wrong or expired code (email_otp only — an ID number has no concept of
+  expiring, so that method keeps the Return Gate's own exact wording):
+  "That code didn't match or has expired. Please try again, or request a
+  new one below."
+- Resend before cooldown: "A code was just sent — please wait a moment
+  before requesting another."
+- Hourly cap reached: "We've sent a few codes already. Please wait a
+  little while, or contact {agent name} at {agent phone/email} for help."
+- Attempt-limit lockout: the same named-agent lockout screen as the
+  Return Gate — never a bare "Too many attempts." This is the exact
+  failure Johan named directly after being burned by it once already
+  today: "we were bitten today by a throttle that told a real user 'Too
+  many attempts' with no explanation. Do not build another one of those."
+- The resend endpoint tells the truth about what happened, unlike the
+  Return Gate's own `resendGateOtp()` (which always says "A new code has
+  been sent" even when `OtpService`'s throttle silently swallowed it):
+  `issueIdentityGateOtp()` now returns the throttle outcome, and
+  `resendIdentityGateOtp()` shows the cooldown or hourly message above
+  instead of a false "sent" whenever nothing actually went out.
+
+**A load-bearing dependency, flagged by the conductor for the record —
+this gate's attempt cap is only strong because the token is:** 5
+attempts per 15 minutes (the default) is a sensible limit *specifically
+because an attacker must already hold the tokenised link to reach this
+gate at all* — the 64-character random token is the real barrier;
+the attempt cap only has to stop someone who has already cleared that
+bar from then brute-forcing a 6-digit code or a known ID number against
+one already-compromised link. If the token ever gets shorter, more
+predictable, or otherwise easier to guess or enumerate, this throttle
+silently becomes the ONLY thing standing between a stranger and an
+applicant's file, and 5/15min stops being an adequate number on its
+own. Anyone touching either the token generation
+(`RentalApplicationController::generateToken()`, currently
+`Str::random(64)`) or this gate's attempt limits must read the other
+half first — the two are not independent settings, whatever the config
+screen makes them look like.
+
+### (d) Abandon safety — nothing already captured is ever at risk
+
+The gate sits strictly *after* data capture, never instead of it or
+ahead of it. If the applicant closes the browser mid-gate, their answers
+and both signatures are already saved exactly as they are today — this
+step doesn't touch them. Returning to the same link resumes precisely at
+the identity-gate screen (reusing the token/session mechanism above), not
+the start of the form and not a re-ask of anything already answered.
+
+### (e) What the agent sees
+
+Two new, distinct states on the agent's rental applications list, named
+and badged separately from each other and from the existing FICA
+indicators (never folded into one ambiguous "needs attention" tile):
+
+- **Awaiting applicant identity confirmation** — the applicant has
+  submitted, the gate fired, and they have not yet completed it (mirrors
+  `ficaAwaitingApplicantAction()`'s exact shape and naming convention:
+  `identityVerificationAwaitingApplicantAction()`).
+- **Identity unreachable — agent action needed** — the
+  `identity_gate_unreachable` case above. The agent's own path forward:
+  contact the applicant directly for an ID number or email, or override
+  manually if they're satisfied by other means.
+
+### (f) Nothing hardcoded — extends the Return Gate's own settings surface, not a second one
+
+New agency-configurable columns on `RentalApplicationQualifyingSetting`
+(the same model the Return Gate's own settings already live on — one
+settings home, not two):
+
+- `identity_gate_enabled` (bool)
+- `identity_gate_otp_length`, `identity_gate_otp_expiry_minutes`,
+  `identity_gate_max_attempts`, `identity_gate_resend_cooldown_seconds`
+  (nullable ints — null falls through to `config/otp.php`'s own
+  defaults, same convention `OtpService`'s `$opts` already supports and
+  neither DR2 nor the Return Gate has previously exercised)
+
+Coordinated directly with cc6 before either migration was written (both
+lanes extending the same model in the same window): separate migration
+files, each lane appending only its own keys to `$fillable`/`$casts` and
+its own `xxxFor()` accessors, second-to-push rebases rather than either
+editing around the other. Confirmed no column-name collision: cc6's
+`required_field_keys` (json) is the only column they're adding to this
+model; this gate's columns above are additive alongside it.
+
+### Data model
+
+New columns on `rental_applications`: `identity_verified_at` (nullable
+timestamp — set when the gate passes; mirrors how FICA state is tracked,
+a single nullable timestamp rather than an enum) and
+`identity_gate_unreachable` (bool, default false).
+
+### Sequencing with cc6's hard-floor validation — same submit() moment, confirmed no collision
+
+Agreed directly with cc6: their hard-floor field validation runs first,
+inside `submit()`, as pure request validation before any status
+transition — it either passes (rejecting the request with nothing
+changed) or the request proceeds. If it passes, the answers and
+signatures save exactly as today. This gate then fires, before the
+application flips to submitted/visible-to-the-agency. The existing FICA
+gate (cc6, already built and walked) proceeds only after this gate
+resolves (passed, or flagged unreachable and let through).
+
+### Files (planned)
+
+Migration adding the `RentalApplicationQualifyingSetting` columns above;
+migration adding `identity_verified_at`/`identity_gate_unreachable` to
+`rental_applications`; `app/Models/RentalApplicationQualifyingSetting.php`
+(settings + `identityGate*For()` accessors, unreachable-warning helper for
+the settings screen); `app/Models/RentalApplication.php`
+(`identityVerificationAwaitingApplicantAction()`, mirroring
+`ficaAwaitingApplicantAction()`); `app/Http/Controllers/
+RentalApplicationSigningController.php` (identity-gate check wired into
+`submit()`, reusing `issueGateOtp()`/`verifyReturnGate()`'s shape under
+the gate's own purpose string and route pair); a view for the identity
+gate screen (sibling of `gate.blade.php`, or the same view parameterised
+by which gate is firing — decided during build, not a second wording
+system); settings controller + view (extending the existing "Applicant
+Return Gate" block, adding the save-time unreachable warning); agent list
+view (two new badges); `tests/Feature/RentalApplications/
+RentalApplicationIdentityGateTest.php`.
+
+### Acceptance criteria
+
+- First-time submission with email present is gated by email OTP before
+  the application becomes visible to the agency; correct code passes,
+  wrong/expired code shows a plain retry message, hourly/attempt limits
+  show a named-agent message, never "Too many attempts."
+- First-time submission with no email but an ID number present is gated
+  by ID-number match (spaces/dashes normalised), same no-oracle failure
+  message as the Return Gate.
+- First-time submission with neither present is let through, flagged
+  `identity_gate_unreachable`, and visible on the agent's list — never
+  blocked at the applicant's end.
+- Abandoning at the gate loses nothing: returning to the same link
+  resumes at the gate screen with all prior answers and both signatures
+  intact.
+- Saving the identity gate ON with no reachable field ticked warns
+  plainly at save time on the settings screen and still saves.
+- Passing the gate sets `identity_verified_at`; the application only then
+  flips to submitted/visible and proceeds into the existing FICA gate.
+- Every message a real applicant can see was checked against actual
+  shipped text in a test, not just against the intent described here.
+- Clicked through in a real browser, unauthenticated, before being
+  reported done — per standing rule, PHPUnit is not the proof.
 
 ## `require_fica_before_authorisation` — what it actually does (2026-09-15/16, cc5, INVESTIGATION ONLY, NOTHING BUILT)
 
@@ -13314,3 +14267,454 @@ applied to `corex_qa1` before this build's filter was widened to use it
 — building against a column that didn't exist yet was avoided by
 shipping the two-bucket split first and the widening as a fast follow-up
 once the dependency actually landed, rather than guessing ahead of it.
+
+## Submission hard floor — a blank application must not be acceptable (Johan/conductor, 2026-09-13, round 5)
+
+Found during the conductor's own real-browser walk of the return gate/FICA
+build: `RentalApplicationSigningController::submit()` enforces almost
+nothing. `RentalApplication::fieldValidationRules()` has zero `required`
+rules anywhere — every field is `nullable`. The only floor today is two
+non-empty strings for `declaration_signature`/`tpn_consent_signature`,
+and even that is shallow: a malformed or blank-canvas signature is
+silently dropped by `storeSignature()`'s own format check
+(`RentalApplicationSigningController.php:1053`, `if (!preg_match(...))
+return;`) rather than rejected. **An applicant can submit today with no
+name, no ID number, no income, no address, and land as "Returned
+(awaiting review)" — indistinguishable in the agent's list from a real,
+worked application, and it still fires the FICA hand-off for a ghost
+applicant.**
+
+### The category error this fixes
+
+`BUILD_STANDARD §2` ("every field is optional, nullable passes on
+absence") governs what the **model will store** — correct for progressive
+save: a draft must be storable in any state, an applicant filling the
+form over two sittings must never be blocked mid-edit. It says nothing
+about what the **business will accept as a completed submission**. Draft
+save and final submit are different moments with different rules. The
+column stays nullable (autosave, "come back later" applications keep
+working exactly as today); `submit()` stops accepting nothing.
+
+### A. Hard floor — submit() refuses without these
+
+Server-enforced, at `submit()`, not just in the markup. Sensible default,
+per Johan's own standing rule — nothing hardcoded, agency-configurable
+(see Settings below):
+
+| Field | Column |
+|---|---|
+| Full name | `full_name` |
+| ID number | `id_number` — FICA client due diligence is impossible without it |
+| At least one of email or cell | `email` OR `cell` |
+| Current residential address | `current_residential_address` |
+| Gross monthly income | `monthly_salary` |
+| Rental term | `rental_term_months` |
+| Both signatures, genuinely well-formed | `declaration_signature`, `tpn_consent_signature` |
+
+Signatures are **not** part of the agency-configurable toggle list below
+— they are always required, procedurally (declaration + FICA consent),
+same as today; what changes is that a malformed or empty-canvas signature
+is now **rejected at submit**, not silently dropped. Concretely:
+`storeSignature()`'s regex check becomes a real validation rule (a bad
+`data:image/png;base64,...` format fails validation, same as any other
+malformed field on this public endpoint), plus a minimum-content check —
+decode the PNG and confirm at least some non-transparent pixel data
+exists, so an untouched/cleared canvas that still produces a
+technically-valid empty PNG cannot pass as "signed." The client already
+guards against a *never-touched* pad (`show.blade.php:756`, blocks
+submission if the hidden input is still empty) — this closes the gap for
+a direct POST that bypasses the browser entirely, and for a
+technically-present-but-blank image.
+
+### B. Conditional — required only when the applicant's own other answers say they apply
+
+Derived from the form's own existing enums, each independently
+agency-toggleable (default on):
+
+- **Employer name / position / tel** — required only when
+  `employment_type === 'permanently_employed'` (`RentalApplication::EMPLOYMENT_TYPES`,
+  a real `<select>` bound to a fixed enum — clean to enforce).
+- **Landlord name / tel** — required only when
+  `current_living_situation === 'renting'` (`RentalApplication::CURRENT_LIVING_SITUATIONS`,
+  also a fixed enum, also clean).
+- **Spouse name / ID** — required only when marital status implies a
+  spouse.
+
+**Open decision, flagged rather than silently resolved:** `marital_status`
+is a **free-text input** (`resources/views/components/rental-application-field.blade.php`
+via the plain `<x-rental-application-field>` component), not a dropdown —
+unlike the other two conditions, there is no fixed vocabulary to test
+against server-side. Two ways to close this, Johan's call:
+1. Convert `marital_status` to a proper `<select>` with a small fixed set
+   (Single / Married / Divorced / Widowed / Separated, or whatever HFC's
+   own intake form already uses) — same treatment `employment_type` and
+   `current_living_situation` already have. Clean, reliable, but touches
+   a field outside this task's original ask.
+2. Match against a short canonical case-insensitive string list
+   (`married`, `married in community of property`, `married out of
+   community of property`) as a heuristic on the existing free-text
+   field. Ships faster, but is a guess against user-typed text, not a
+   guarantee — a real applicant typing "Not married" or an unexpected
+   phrasing could trip it either way.
+   Recommendation: (1) — it's the same pattern the other two conditions
+   already prove out, and a heuristic on free text is exactly the kind of
+   "shortcut now, pay for it later" this rebuild exists to avoid. Deferred
+   to Johan to confirm before this specific piece is built; A and the
+   other two conditions in B do not depend on this answer.
+
+### C. Everything else stays optional, handled by warning not blocking
+
+Unchanged. The agent-side incomplete-assessment mechanism already exists
+(`review.blade.php`'s `incompleteAssessmentReasons()`/
+`incompleteSubmitWarningOpen`, `:1390-1404` and `:1721-1729`) for exactly
+this class of gap — this build does not touch it, and does not duplicate
+it on the applicant side. No new field becomes hard-required beyond A/B.
+
+### D. The applicant must see what's wrong, not hit a silent wall
+
+- Every hard-floor (and active conditional) field's `<input>`/`<select>`
+  gains a real `required` attribute in the markup — courtesy to the
+  applicant, never the only check.
+- On a refused submit (validation failure), Laravel's existing
+  redirect-back-with-`old()`-and-`$errors` behavior already re-renders
+  the form with every previously-typed value preserved (proven pattern,
+  `RentalApplicationInputPreservationTest`) — extended here with: a
+  summary banner naming exactly which fields are missing in plain
+  language (not raw column names — "Full name" not "full_name"), and the
+  page auto-scrolls to the first missing field on load. No generic "There
+  were errors" message.
+
+### E. Agency-configurable, never hardcoded
+
+New setting on `RentalApplicationQualifyingSetting`:
+`submission_required_fields` (JSON array of field-group keys from a fixed
+allowed set: `full_name`, `id_number`, `contact_method` (the email-or-cell
+OR-group), `current_residential_address`, `monthly_salary`,
+`rental_term_months`), default = all six. Plus three independent booleans
+for the conditional groups: `require_employer_details_when_employed`,
+`require_landlord_details_when_renting`, `require_spouse_details_when_married`
+(the third gated on the marital_status decision above), each default
+true. Settings screen: a checklist of the six hard-floor fields (agency
+unchecks any they genuinely don't want mandatory — Johan's own list is
+the default, not gospel) plus the three conditional toggles. Signatures
+are not in this list — always required, not configurable.
+
+### Testing standard — a real click-through, not just an endpoint proof
+
+Same standard as every other control this session: PHPUnit proves the
+server contract (a blank submit is refused, the correct fields are named
+as missing, a fully-conditional-complete submission with every hard-floor
+field present succeeds, existing partially-filled records already
+submitted before this change are never revalidated retroactively).
+Real-browser click-through proves the actual button and the actual
+inline errors: attempt a genuinely blank submit by clicking the real
+button with nothing filled in, confirm it's refused with the fields named
+in the UI (not just a 422 in the network tab), confirm the page lands on
+the first missing field.
+
+### Explicitly out of scope for this round
+
+- Retroactive validation of already-submitted applications — this gate
+  applies to submissions from this point forward only. An application
+  submitted under the old, unenforced rules keeps working exactly as
+  today; nothing about it is revisited or newly flagged.
+- The three rental-term buttons' missing `aria-pressed`/radio-group
+  semantics (conductor's item 3, this session) — logged here, not fixed
+  in this round: the buttons carry no `aria-pressed` and are not wired as
+  a radio group, so a screen-reader user gets no indication of which term
+  is currently selected. Accessibility follow-up, not blocking this gate.
+
+## SUPERSEDED — see "Per-field compulsory settings" below (2026-09-13)
+
+The "Submission hard floor" section immediately above this one (fixed A/B/C/D/E
+list) is superseded by Johan's own ruling, relayed by the conductor: "we should
+have all the fields in the settings under rental application and a tick /
+untick on whats compulsory and what not." The defect it describes, the §2
+reasoning, the signature fix, and the retroactivity/UX/testing constraints all
+carry forward unchanged — only the SHAPE of "what's required" changes, from a
+fixed developer-chosen list to a full per-field agency setting. Left in place
+rather than deleted so the reasoning trail stays intact — no hard deletes,
+same principle applied to specs as to data.
+
+## Per-field compulsory settings — every field, agency-tickable (2026-09-13, Johan's ruling)
+
+### The defect, unchanged from above
+`submit()` enforces almost nothing — two non-empty strings is the entire floor
+today. `RentalApplication::fieldValidationRules()` has zero `required` rules;
+`storeSignature()` silently drops a malformed signature instead of rejecting
+it (`RentalApplicationSigningController.php:1053`). Nullable COLUMNS (§2) are
+correct for progressive save; that rule must not govern what final `submit()`
+ACCEPTS. The column stays nullable — the gate lives in validation, driven by
+settings.
+
+### Design: every form field is a row in a settings list, not a hardcoded set
+
+**Registry, single source of truth.** A new method,
+`RentalApplication::submissionFieldRegistry(): array`, returns an ordered list
+of every field the public applicant form renders, each entry:
+```php
+['key' => 'full_name', 'label' => 'Full name', 'group' => null],
+['key' => 'id_number', 'label' => 'ID number', 'group' => null],
+['key' => 'employer_name', 'label' => 'Employer name', 'group' => 'employed'],
+['key' => 'current_landlord_name', 'label' => 'Current landlord name', 'group' => 'renting'],
+['key' => 'spouse_name', 'label' => 'Spouse name', 'group' => 'married'],
+// ...every other field on the form, group => null unless conditional
+```
+This ONE array feeds both the settings screen (what renders as a checklist)
+and `submit()`'s validation (what gets enforced) — they can never drift,
+because they read the same array. **Keeping it in sync as the form grows**:
+a new PHPUnit test, `RentalApplicationFieldRegistryCoverageTest`, asserts
+every key in `fieldValidationRules()` that corresponds to a real applicant
+input in `show.blade.php` has a matching entry in `submissionFieldRegistry()`
+— a field added to the form without a registry entry fails the build, not
+silently ships unenforceable. Built by enumerating the actual rendered inputs
+in `show.blade.php` against the array, not by hand-matching a list I'm
+guessing at now — that enumeration happens when this is built, is mechanical,
+and needs no design decision.
+
+**This test is load-bearing — do not delete it because it gets in the way.**
+Conductor, 2026-09-13, on why: the failure mode it exists to catch is the
+nasty one — a field marked compulsory in settings that nothing actually
+enforces, or enforced server-side without ever being shown/explained on the
+form. Nobody notices either failure at build time; an agency finds out only
+when incomplete applications keep coming through anyway, or an applicant
+gets rejected for a reason the screen never told them about. If this test
+is ever in the way of a change (a field renamed, a new conditional group,
+a field genuinely removed from the form), the correct fix is to update the
+registry and the test's own `DELIBERATELY_EXCLUDED` list with a reason —
+never to delete or skip the test itself.
+
+**Group = the applicability condition, fixed by the form's own logic, not
+agency-configurable.** Three groups today:
+- `employed` — applies only when `employment_type === 'permanently_employed'`
+  (real enum, `RentalApplication::EMPLOYMENT_TYPES`).
+- `renting` — applies only when `current_living_situation === 'renting'`
+  (real enum, `RentalApplication::CURRENT_LIVING_SITUATIONS`).
+- `married` — applies only when marital status implies a spouse. **Still
+  unresolved, carried forward from the prior draft**: `marital_status` is
+  free text (`<x-rental-application-field>`, no fixed vocabulary anywhere in
+  the stack), so there is no reliable server-side test for this group today.
+  Two ways to close it — my recommendation is (1): convert `marital_status`
+  to a real `<select>` with a small fixed set, same treatment the other two
+  conditions already have; a heuristic string-match on free text (2) ships
+  faster but is a guess against user-typed text, not a rule. This is Johan's
+  call, and it blocks ONLY the `married` group — `employed` and `renting`
+  don't depend on it and can ship regardless of when/how this is decided.
+
+**What the tick means.** On the settings screen, each field with a `group`
+renders its checkbox with the condition spelled out next to it in plain
+language — e.g. "Employer name — compulsory *(only applies if the applicant
+says they are permanently employed)*" — so ticking it can never be read as
+"always required." `submit()` enforces a ticked field only when its group's
+trigger condition is true FOR THAT SAME REQUEST; a ticked `employer_name`
+never blocks a self-employed applicant, because the condition never fires for
+them. Fields with `group => null` are compulsory unconditionally when ticked.
+
+### Storage: `RentalApplicationQualifyingSetting::required_field_keys`
+
+New nullable JSON column on the existing settings model (same home as every
+other rental-application setting — no third settings area). `null` = agency
+has never touched this section, apply the shipped defaults below (same
+"isConfigured" honesty already used for the document checklist — silence
+means default, not "explicitly chose none"). A non-null array (even empty)
+is the agency's explicit, saved choice, evaluated as: saved array ∩ registry
+keys — a stale saved key from a field since removed from the form can never
+smuggle in an unknown key, but nothing is ever force-included regardless of
+what the agency saved.
+
+**Defaults shipped, ticked out of the box** (Johan's own list, explicitly not
+gospel — an agency can untick ANY of these, no exceptions): full name, ID
+number, one of email/cell, current residential address, gross monthly
+income, rental term, both signatures. Everything else defaults unticked.
+
+### Answering (2) — settled by Johan, no locked set
+
+Ruling, verbatim: "leave the compulsory selection agency selectable... its
+the agency's decision what they want to do with it. we provide the system,
+they set it up the way they want to use it." Every field, including ID
+number and both signatures, is agency tick/untick with no exception. The
+compliance argument (TPN consent enables a credit-bureau pull; ID number is
+what FICA due diligence hangs off) was put to him and answered: the agency
+owns its own compliance decisions, not the platform. This is settled and not
+being reopened.
+
+Consequence for the build: the registry carries no `locked`/`locked_reason`
+key at all — that field never existed as a real column, just a proposal, and
+is dropped from the design entirely. No disabled checkboxes, no forced
+inclusion in the saved set, no confirmation step second-guessing an agency
+that unticks ID number or a signature. `submit()` enforces exactly, and only,
+what `required_field_keys` (or its default) says — nothing more.
+
+### Signature well-formedness — unconditional, not settings-gated
+
+`storeSignature()`'s silent skip becomes a real validation failure: a
+`data:image/png;base64,...` that fails the format check is now a rejected
+submission, not a dropped write. New non-transparent-pixel check on the
+decoded PNG closes the direct-POST gap where a technically-valid but
+never-drawn-on canvas currently passes.
+
+### Settings screen — extends the existing home, doesn't create a new one
+
+Lives on `resources/views/corex/settings/rental-applications.blade.php`,
+served by the existing `RentalApplicationSettingsController`, same pattern
+as every other section on that screen (own `edit()` compact() var, own
+`update*()` method, own route, `has()`-guarded checkbox saves per
+CLAUDE.md §10a). One combined save posts the full tick/untick state in one
+request — same shape as `update()`'s document-checklist save just above it
+in that controller, which already submits a similarly-shaped nested
+structure in one POST.
+
+### Item 2 — FICA return leg, answered
+
+- **Does the application leave the "FICA Outstanding" tile?** Yes, and it's
+  self-correcting — the tile's own condition is a live subquery
+  (`RentalApplicationController.php:266-269`,
+  `whereDoesntHave('contact.ficaSubmissions', fn($q) => $q->where('status','approved')->where('verified_at','>=',now()->subMonths(11)))`),
+  never a static column set once and left stale. But finishing the FICA form
+  only produces `status = 'submitted'` (`FicaPublicController.php:195`), not
+  `approved` — approval is a separate compliance action taken later. So the
+  6→7 you saw does not reverse just because the applicant finished FICA; it
+  reverses only once someone approves that FICA submission. This is correct
+  behaviour, not a gap — "submitted, not yet reviewed" should stay outstanding.
+- **What the applicant sees on return**: `FicaPublicController::confirmation()`
+  (`:243-251`) → `fica.confirmation` blade → "Return to My Application"
+  (`confirmation.blade.php:66`) → back to `RentalApplicationSigningController::show()`,
+  which renders `already-submitted.blade.php` computing `ficaOutstanding()`
+  (`RentalApplication.php:601-604`) and `ficaAwaitingApplicantAction()`
+  (`:620-630`). Right after submitting FICA the applicant sees an amber
+  "Verification in progress... no action needed from you right now" box
+  (`already-submitted.blade.php:75-79`) — already correctly wired, no fix
+  needed.
+
+### Item 3 — logged, not built
+
+The three rental-term buttons carry no `aria-pressed` and are not a real
+radio group — a screen-reader user gets no indication which term is
+selected. Accessibility backlog item, out of scope for this round.
+
+### Testing standard, unchanged
+PHPUnit for the server contract (blank submit refused and names the right
+fields per the agency's saved settings; a fully-conditional-complete
+submission succeeds; an agency that unticks ID number/a signature can
+genuinely submit without it; existing partial records never revalidated
+retroactively) plus a real click-through: an actual blank click
+of the actual submit button, confirming the actual on-screen refusal and
+field-naming, not just a 422 in the network tab. Settings screen gets its own
+real-browser walk (tick/untick, save, confirm it changes what submit() will
+accept) before either counts as done.
+
+## Ruling — FICA form is never pre-filled (2026-09-13, Johan, AT-392 round 5)
+
+Raised during this round's FICA continue-link work: the FICA form asks for
+full name, ID number, phone and email — all four already held on the rental
+application, with the ID number being the exact value the applicant just
+typed seconds earlier to pass the return gate. Pre-filling was proposed to
+cut the typing roughly in half at the point applicants are most likely to
+abandon. No FICA/CDD legal requirement blocks it (analysis and citation in
+this file's history above, and in `.ai/specs/compliance.md`'s own "Rulings"
+section, the canonical home for this decision).
+
+**Johan overruled it on a stricter-than-legal-minimum line: "for fica we do
+not fill anything... do not build any auto fills."** Full ruling, reasoning,
+and the resulting closed downstream question (what happens to the Contact
+record on a correction — moot, since there's nothing to correct against)
+are recorded in `.ai/specs/compliance.md` under "Rulings" — that is the
+canonical record; this entry exists so anyone working this file's history
+also hits it. Do not re-propose without a new mandate from Johan.
+
+## Open decision — retroactivity of a newly-ticked compulsory field (2026-09-13, PENDING Johan's confirmation)
+
+**Not settled — do not treat as decided.** The conductor asked, thinking-not-
+building: if an agency marks a field compulsory AFTER applications have
+already been submitted without it, what happens to those existing
+applications? Three options were named — they become retroactively invalid,
+they stay valid and the new rule applies only to submissions from that point
+forward, or the agent sees them flagged as incomplete. The conductor's own
+instinct was the middle option, because changing a setting should not
+silently invalidate work people have already signed.
+
+**What the current implementation actually does, confirmed structurally, not
+merely claimed**: `RentalApplicationQualifyingSetting::requiredFieldKeysFor()`
+is read fresh at the moment of each `submit()` call. There is no code path
+anywhere that goes back and re-validates, revalidates, or flags an
+already-submitted application against a setting changed afterward. So today,
+option two (forward-only, nothing retroactive) is what happens — not because
+it was chosen as a considered answer to this question, but because it is the
+natural consequence of reading the setting live rather than caching it onto
+each application at submit time.
+
+**This is the conductor's own reasoning and this build's implementation —
+Johan has not seen the question.** If he prefers option three (existing
+applications missing a newly-compulsory field flagged as incomplete on the
+review screen), that is real, unbuilt work: `required_field_keys` would need
+to be wired into the existing `incompleteAssessmentReasons()` mechanism
+(`review.blade.php`), which currently runs its own independent completeness
+heuristic unrelated to this setting. Do not build either path as more settled
+than it is — the current behaviour is what the code happens to do, not a
+ruling.
+
+## Elapsed months, not calendar months touched — statement-period divisor bug (2026-09-14, Johan, live on QA1)
+
+**The bug, Johan's exact words**: "the date selection for statement period is
+calculating wrong - entered 25 may to 25 august - in my count thats 3
+months correct? system shows 4." He was right. `RentalApplicationAssessment
+::calculateStatementMonths()` (server) and `calculatedStatementMonths()`
+(client, `review.blade.php`) both counted the number of **calendar months
+touched** by a date range — May, Jun, Jul, Aug = 4 — instead of the number
+of **months elapsed** between the two dates — 3. Both sides used the
+identical formula (`(year diff × 12) + month diff + 1`), kept deliberately
+in sync with each other, so they agreed — on the wrong number.
+
+**This was not an accidental divergence from spec — the code correctly
+implemented what an earlier spec entry (§ "1. 'Months covered' becomes a
+from/to date range," 2026-09-10) explicitly described and worked an example
+for** (15 Jan–20 Mar = 3, Jan/Feb/Mar). The original design intentionally
+chose calendar-months-touched; that choice is what turned out to be wrong
+once tested against a real case. Recorded here rather than glossed over,
+per the conductor's own standard: report what the spec actually said,
+don't let anyone believe the code silently drifted from a rule that was
+always right.
+
+**Why this is worse than a display bug**: `statement_months` is not a label
+— it is the divisor in `total_captured_income ÷ statement_months`, the
+figure the affordability assessment runs against. Counting one extra month
+inflates the divisor, which UNDERSTATES a real applicant's monthly income.
+The error only ever runs one direction: it fails people who can actually
+afford the rent; it can never wrongly pass someone who can't. A four-month
+count on a genuine three-month statement makes an applicant look roughly
+25% poorer than they are.
+
+**Fix**: both sides now count elapsed calendar months (Carbon's
+`diffInMonths()`, int-truncated, server-side; the JS mirrors it via a
+day-of-month comparison) instead of calendar months touched. The short-
+range floor (any range ≤31 days always reads as "1", added 2026-09-13 for
+an unrelated 6-day-range defect) and the 36-month ceiling are unchanged —
+neither was part of this bug. See `RentalApplicationAssessment::
+calculateStatementMonths()`'s own docblock for the full before/after
+reasoning.
+
+**Blast radius — checked, not assumed, then closed by Johan's own ruling**:
+152 existing `rental_application_assessments` rows carry a statement period
+under the old count. Johan, directly: "applications are all test data. so
+leave them... test data never needs to be reworked." No migration, no
+artisan command, no recalculate-on-view fallback was built or is planned —
+existing rows keep whatever number they already have, permanently, because
+none of them are real. **The principle, worth carrying forward explicitly**:
+whether existing records need a backfill/recalculation is only an
+engineering question once you know whether those records are real — ask
+that first, before designing anything, the same standing rule that already
+governs not inventing problems from demo/import stock (P24 property-health
+numbers, contacts-importer FICA auto-approve — see "Go-Live Migration Mode"
+in `.ai/specs/compliance.md`). On this feature, pre-production and never
+having left QA1, the answer was immediate: nothing to build.
+
+**Test**: `RentalApplicationRound11DecimalAndStatementMonthsTest::
+test_johans_25_may_to_25_august_statement_period_is_three_months_not_four()`
+— named after the real case deliberately, so it reads as a regression guard
+against reintroducing calendar-months-touched counting, not a trivial
+arithmetic check someone prunes later.
+
+**Files**: `app/Models/RentalApplicationAssessment.php` (`calculateStatement
+Months()`), `resources/views/corex/rental-applications/review.blade.php`
+(`calculatedStatementMonths()`), `tests/Feature/RentalApplications/
+RentalApplicationRound11DecimalAndStatementMonthsTest.php` (new test).

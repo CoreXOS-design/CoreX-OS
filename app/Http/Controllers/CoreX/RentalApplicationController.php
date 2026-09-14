@@ -1112,11 +1112,13 @@ class RentalApplicationController extends Controller
             abort(403, "You don't have access to that property, or it isn't a rental listing, so it can't be linked. Search for it above rather than entering an id directly.");
         }
 
-        $alreadyLinked = $contact->properties()->where('properties.id', $property->id)->wherePivot('role', 'tenant')->exists();
-
-        $contact->properties()->syncWithoutDetaching([
-            $property->id => ['role' => 'tenant'],
-        ]);
+        // ContactPropertyLinker, not a bare syncWithoutDetaching() — a
+        // contact who was previously linked to this property (any role)
+        // and later unlinked leaves a soft-deleted contact_property row;
+        // a blind sync would collide with it. See .ai/specs/
+        // rental-applications.md, "The contact_property hard-delete fix".
+        $linkResult = \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, 'tenant');
+        $alreadyLinked = ! $linkResult->isNew;
 
         // Keep the application's own linked property in step with whatever
         // the agent just confirmed — the same field linkProperty() already
@@ -1150,6 +1152,22 @@ class RentalApplicationController extends Controller
         // What the status change SHOULD do is Johan's call, pending; this
         // action only ever writes the contact_property link.
 
+        // Johan, confirmed: one contact holds exactly one role per property,
+        // ever — "if that scenario happens the contact will be changed."
+        // A role change (or a restore into this role) is a real business
+        // event, not a silent overwrite, so it gets its own audit line.
+        if ($linkResult->roleChanged) {
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'tenant_link',
+                eventType: 'role_changed',
+                user: $request->user(),
+                oldValues: ['property_id' => $property->id, 'role' => $linkResult->previousRole],
+                newValues: ['property_id' => $property->id, 'role' => 'tenant'],
+                humanSummary: $contact->full_name . "'s role on " . $property->buildDisplayAddress() . ' changed from ' . $linkResult->previousRole . ' to tenant',
+            );
+        }
+
         $audit->log(
             $rentalApplication,
             eventCategory: 'tenant_link',
@@ -1178,7 +1196,25 @@ class RentalApplicationController extends Controller
         $contact = $rentalApplication->contact;
         abort_unless($property !== null && $contact !== null, 422, 'This application has no linked tenant/property to unlink.');
 
-        $contact->properties()->wherePivot('role', 'tenant')->detach($property->id);
+        // Soft-delete via ContactPropertyLinker — Johan: "corex is a no
+        // delete system." A tenancy link is a record someone may need back
+        // years later (a deposit dispute, a reference check). See
+        // .ai/specs/rental-applications.md, "The contact_property
+        // hard-delete fix". 'tenant' is an ASSERTION, not a filter — if the
+        // role changed under us since the page loaded, this throws rather
+        // than silently leaving the (now differently-roled) link intact.
+        try {
+            \App\Services\Property\ContactPropertyLinker::unlink($contact->id, $property->id, 'tenant');
+        } catch (\App\Exceptions\Property\ContactPropertyRoleMismatchException $e) {
+            \Illuminate\Support\Facades\Log::warning('Rental application tenant-unlink: role mismatch, refusing to unlink silently', [
+                'rental_application_id' => $rentalApplication->id,
+                'contact_id' => $e->contactId,
+                'property_id' => $e->propertyId,
+                'expected_role' => $e->expectedRole,
+                'actual_role' => $e->actualRole,
+            ]);
+            return back()->with('error', 'This contact\'s role on this property has changed since the page loaded (now "' . $e->actualRole . '") — refresh and try again.');
+        }
 
         // No status to revert — linkTenantProperty() above no longer
         // touches $property->status (conductor's ruling, 2026-09-13; see

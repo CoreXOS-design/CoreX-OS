@@ -675,8 +675,18 @@
                             <span>
                                 <span x-show="uploads[docType.key]?.status === 'uploading'" style="color: #d97706;">Uploading...</span>
                                 <span x-show="uploads[docType.key]?.status === 'done'" class="status-ok">Uploaded</span>
+                                {{--
+                                    Return leg, AT-392 round 5, 2026-09-13 —
+                                    a document from a PREVIOUS sitting, not
+                                    this one. No remove control on it at
+                                    all — Johan's own no-hard-deletes rule
+                                    applied here: an applicant removing their
+                                    own already-submitted compliance document
+                                    is not something this form allows.
+                                --}}
+                                <span x-show="uploads[docType.key]?.status === 'existing'" class="status-ok">Already on file</span>
                                 <span x-show="uploads[docType.key]?.status === 'error'" class="status-err">Failed</span>
-                                <button type="button" @click="removeUpload(docType.key)" style="margin-left: 0.5rem; color: #dc2626; background: none; border: none; cursor: pointer; font-size: 1rem;">&times;</button>
+                                <button type="button" x-show="uploads[docType.key]?.status !== 'existing'" @click="removeUpload(docType.key)" style="margin-left: 0.5rem; color: #dc2626; background: none; border: none; cursor: pointer; font-size: 1rem;">&times;</button>
                             </span>
                         </div>
                     </div>
@@ -727,7 +737,16 @@
             submitting: false,
             signatureDataUrl: '',
             signaturePad: null,
-            uploads: {},
+            {{--
+                Return leg, AT-392 round 5, 2026-09-13 — Johan/conductor: a
+                document already uploaded (saved server-side the instant it
+                was picked, independent of this form's own submit) must be
+                shown back on return, not silently re-requested. Seeded with
+                status 'existing' — distinct from 'uploading'/'done'/'error'
+                — so the remove control below can tell "already on file, no
+                delete" apart from "just picked this session".
+            --}}
+            uploads: {{ Js::from($existingDocuments) }},
 
             entityType: '',
 

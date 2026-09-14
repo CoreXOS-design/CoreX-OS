@@ -392,6 +392,7 @@ class WhistleblowComplaintService
         $sellerRoles = ['owner', 'lessor', 'landlord', 'seller'];
         $sellers = $property->contacts()
             ->wherePivotIn('role', $sellerRoles)
+            ->wherePivotNull('deleted_at')
             ->get();
 
         $sentCount = 0;

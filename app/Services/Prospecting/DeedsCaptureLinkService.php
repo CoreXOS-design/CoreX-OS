@@ -436,7 +436,7 @@ class DeedsCaptureLinkService
             ->whereNotExists(function ($q) {
                 $q->selectRaw('1')
                     ->from('tracked_property_owners as tpo')
-                    ->join('contact_property as cp', fn ($j) => $j->on('cp.contact_id', '=', 'tpo.contact_id')->where('cp.role', 'seller'))
+                    ->join('contact_property as cp', fn ($j) => $j->on('cp.contact_id', '=', 'tpo.contact_id')->where('cp.role', 'seller')->whereNull('cp.deleted_at'))
                     ->join('prospecting_listings as pl', fn ($j) => $j->on('pl.matched_property_id', '=', 'cp.property_id')->whereNotNull('pl.pitched_at')->whereNull('pl.deleted_at'))
                     ->whereColumn('tpo.tracked_property_id', 'tracked_properties.id')
                     ->whereNotNull('tpo.contact_id');

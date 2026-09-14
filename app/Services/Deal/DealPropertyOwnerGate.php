@@ -39,6 +39,7 @@ class DealPropertyOwnerGate
     {
         $ids = $property->contacts()
             ->wherePivotIn('role', self::SELLER_SIDE_ROLES)
+            ->wherePivotNull('deleted_at')
             ->pluck('contacts.id')
             ->map(fn ($id) => (int) $id)
             ->unique()
@@ -127,6 +128,7 @@ class DealPropertyOwnerGate
     {
         return $property->contacts()
             ->wherePivotIn('role', self::SELLER_SIDE_ROLES)
+            ->wherePivotNull('deleted_at')
             ->get()
             ->map(fn ($c) => $c->full_name)
             ->filter()

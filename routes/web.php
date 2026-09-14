@@ -2855,9 +2855,18 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // FICA-mandatory, AT-392 round 3, 2026-09-13 — whether FICA must be complete before authorisation.
     Route::post('/settings/rental-applications/require-fica-before-authorisation', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireFicaBeforeAuthorisation'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.require-fica-before-authorisation');
+    // Submission hard floor, AT-392 round 5, 2026-09-13 — every applicant
+    // form field's compulsory tick, and the agency-configurable marital
+    // status option list (Ruling 1) that drives the spouse-fields group.
+    Route::post('/settings/rental-applications/required-fields', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequiredFields'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.required-fields');
+    Route::post('/settings/rental-applications/marital-status-options', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateMaritalStatusOptions'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.marital-status-options');
     // Return gate, AT-392 round 4, 2026-09-13 — gate method + attempt cap.
     Route::post('/settings/rental-applications/return-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReturnGate'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.return-gate');
+    Route::post('/settings/rental-applications/identity-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateIdentityGate'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.identity-gate');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
@@ -5027,6 +5036,15 @@ Route::prefix('rental-application')->group(function () {
     // generic 429 — see AppServiceProvider::boot().
     Route::post('/{token}/verify-gate', [\App\Http\Controllers\RentalApplicationSigningController::class, 'verifyReturnGate'])->middleware('throttle:rental-application-gate')->name('rental-applications.public.verify-gate');
     Route::post('/{token}/gate/resend-otp', [\App\Http\Controllers\RentalApplicationSigningController::class, 'resendGateOtp'])->name('rental-applications.public.gate.resend-otp');
+    // Submission identity gate, 2026-09-13 — fires once, on a first-ever
+    // submission only (a resubmit has already proven identity via the
+    // Return Gate above to even reach its editable form). Own named
+    // limiter (rental-application-identity-gate), own settings, sibling
+    // to the Return Gate's routes but never sharing its budget or its
+    // session flag. See .ai/specs/rental-applications.md.
+    Route::get('/{token}/verify-identity', [\App\Http\Controllers\RentalApplicationSigningController::class, 'showIdentityGate'])->name('rental-applications.public.identity-gate');
+    Route::post('/{token}/verify-identity', [\App\Http\Controllers\RentalApplicationSigningController::class, 'verifyIdentityGate'])->middleware('throttle:rental-application-identity-gate')->name('rental-applications.public.verify-identity-gate');
+    Route::post('/{token}/verify-identity/resend-otp', [\App\Http\Controllers\RentalApplicationSigningController::class, 'resendIdentityGateOtp'])->name('rental-applications.public.identity-gate.resend-otp');
     // Applicant-side autosave, 2026-09-12 — debounced client-side (agency-
     // configurable, default 5s), so this fires far less than once per
     // keystroke. 2026-09-13 round 2 — was throttle:40,1 per-IP; re-keyed

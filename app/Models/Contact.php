@@ -685,10 +685,30 @@ class Contact extends Model
         return $this->matches->contains(fn (ContactMatch $m) => $m->isCountable());
     }
 
+    /**
+     * `wherePivotNull('deleted_at')` hides a soft-removed link; use
+     * `withTrashedProperties()` below for the full history. Mirrors
+     * `Deal::properties()`'s own shape exactly (app/Models/Deal.php) — see
+     * .ai/specs/rental-applications.md, "The contact_property hard-delete
+     * fix". Writes go through App\Services\Property\ContactPropertyLinker,
+     * never a bare attach()/sync() (which would blind-insert against a
+     * soft-deleted row and collide with the unique index).
+     */
     public function properties(): BelongsToMany
     {
         return $this->belongsToMany(Property::class, 'contact_property')
-                    ->withPivot('role')
+                    ->using(\App\Models\ContactProperty::class)
+                    ->withPivot(['id', 'role', 'is_primary', 'source', 'deleted_at'])
+                    ->wherePivotNull('contact_property.deleted_at')
+                    ->withTimestamps();
+    }
+
+    /** Every property EVER linked, including soft-removed ones — for history/audit views. */
+    public function withTrashedProperties(): BelongsToMany
+    {
+        return $this->belongsToMany(Property::class, 'contact_property')
+                    ->using(\App\Models\ContactProperty::class)
+                    ->withPivot(['id', 'role', 'is_primary', 'source', 'deleted_at'])
                     ->withTimestamps();
     }
 
