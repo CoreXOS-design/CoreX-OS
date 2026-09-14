@@ -106,6 +106,8 @@ class DailyActivitySummaryController extends Controller
                 'points' => $points,
                 'manual_count' => (int)($rows[$d->id]->manual_count ?? 0),
                 'auto_count' => (int)($rows[$d->id]->auto_count ?? 0),
+                // Layout 2026-09-14 — the view splits once-a-day vs counted panes on this.
+                'scoring_mode' => (string)($d->scoring_mode ?? 'count'),
             ];
             $grandCount += $count;
             $grandPoints += $points;
