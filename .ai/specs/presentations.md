@@ -567,3 +567,43 @@ root `w-full h-full flex flex-col`, body `flex-1 min-h-0`, the scroll region
 The tour anchors (`pres-outcomes-intro / -filters / -metrics / -loss-reasons`)
 and the empty state are preserved. Further Outcomes UI work extends this frame;
 do not reintroduce stacked sections.
+
+---
+
+## 12. Presentation show page — Sticky rail layout (2026-09-14)
+
+Andre asked for `/presentations/{id}` (the presentation info page) to use less
+space and get a better header, and picked **4 · Sticky rail** from five drafts on
+a design canvas (https://claude.ai/code/artifact/9d823f57-4a7c-402c-9929-37b24e0158de
+— the other four, Identity card + two columns / Tabbed workspace / Stats in
+header + collapsible rows / Toolbar + bento grid, stay there on a second page).
+View-only change to `resources/views/presentations/show.blade.php`; the
+controller, every action, every section and every modal are untouched.
+
+**The frame:** `grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start`.
+The left `<aside>` is `lg:sticky lg:top-0` inside `<main id="appScroll">` (the
+app's scroll container), so it stays put while the right column scrolls. Below
+`lg` it stacks above the sections.
+
+**Left rail (one surface card, contact-header vocabulary):** "← All Presentations"
+link, status `ds-badge`, the full title (wraps — no truncation), the address (+
+suburb when the address doesn't already contain it), then every action button
+stacked full-width with the same conditions and disabled states as before (View
+Analysis / Run · Re-run Analysis / Pricing Simulator / Seller Live Test / Compile
+Pack / Download PDF / Complete Pack ZIP). Under a hairline, the record facts on
+`--surface-2`: Property (type · bed · bath · garage), Size (erf · floor), Asking
+price, Seller, Created, Snapshots (count · time · "View latest →").
+
+**Right column (`space-y-4`), what moved, not what changed:**
+
+| Before | Now |
+|---|---|
+| Flat `corex-page-banner` + a separate action-button `ds-status-card` | Both merged into the rail |
+| Snapshots card beside Last Analysis | Snapshots is a rail fact; Last Analysis sits beside Holding Costs in the 2-col grid |
+| Power Panel + Buyer Demand after the Executive Summary | Directly after Outcome + Refresh requests, so the verdict reads first |
+| `space-y-6` / `gap-6` | `space-y-4` / `gap-4` |
+
+Order is now: Outcome → Refresh requests → Power Panel → Buyer Demand → Share
+Links → Documents → Executive Summary → Last Analysis | Holding Costs → Market
+News → Live updates. Further show-page work extends this frame; do not
+reintroduce a page banner or a standalone action bar.
