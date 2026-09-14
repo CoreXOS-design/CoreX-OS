@@ -20,6 +20,15 @@ class BuyerPipelineController extends Controller
         $stateFilter = $request->get('state');
         $agentFilter = $request->get('agent_id');
         $search = trim((string) $request->get('q', ''));
+        // 2026-09-14 (BUILD_STANDARD.md §1b — every list screen ships a date
+        // range filter, minimum) — filters on buyer_pipeline_entered_at, the
+        // same "Since" date already shown on every card/row, so a manager can
+        // answer "who's been sitting here since before X" directly rather
+        // than eyeballing 150+ unsorted cards. Malformed input is absorbed,
+        // not rejected: an invalid date string just fails to parse and the
+        // bound is silently skipped (BUILD_STANDARD.md §2/§3 prevent-or-absorb).
+        $enteredFrom = $this->parseFilterDate($request->get('entered_from'));
+        $enteredTo = $this->parseFilterDate($request->get('entered_to'));
 
         // AT-401 — Rentals → Rental Pipeline is the SAME action as
         // command-center.buyers.pipeline, reached by a second route,
@@ -85,6 +94,12 @@ class BuyerPipelineController extends Controller
         if ($search !== '') {
             $query->search($search);
         }
+        if ($enteredFrom) {
+            $query->where('buyer_pipeline_entered_at', '>=', $enteredFrom->startOfDay());
+        }
+        if ($enteredTo) {
+            $query->where('buyer_pipeline_entered_at', '<=', $enteredTo->endOfDay());
+        }
 
         // Buyer WON (Johan 2026-08-13) — converted buyers live in a SEPARATE success section, OUT of
         // the active pipeline. Build the success list from the same scope, and exclude 'won' from the
@@ -98,6 +113,12 @@ class BuyerPipelineController extends Controller
         $this->applyLeadTypeFilter($wonQuery, $leadType);
         if ($search !== '') {
             $wonQuery->search($search);
+        }
+        if ($enteredFrom) {
+            $wonQuery->where('buyer_pipeline_entered_at', '>=', $enteredFrom->startOfDay());
+        }
+        if ($enteredTo) {
+            $wonQuery->where('buyer_pipeline_entered_at', '<=', $enteredTo->endOfDay());
         }
         $wonBuyers = $wonQuery->orderByDesc('last_activity_at')->get();
 
@@ -185,6 +206,8 @@ class BuyerPipelineController extends Controller
                 'agentOptions' => $agentOptions,
                 'agentFilter' => $agentFilter,
                 'stateFilter' => $stateFilter,
+                'enteredFrom' => $request->get('entered_from'),
+                'enteredTo' => $request->get('entered_to'),
                 'sortBy' => $sortBy,
                 'sortDir' => $sortDir,
             ]);
@@ -263,6 +286,8 @@ class BuyerPipelineController extends Controller
             'agentOptions' => $agentOptions,
             'agentFilter' => $agentFilter,
             'stateFilter' => $stateFilter,
+            'enteredFrom' => $request->get('entered_from'),
+            'enteredTo' => $request->get('entered_to'),
         ]);
     }
 
@@ -302,6 +327,24 @@ class BuyerPipelineController extends Controller
         $service->transitionTo($contact, $request->input('state'), 'manual_override', auth()->id());
 
         return response()->json(['success' => true, 'new_state' => $request->input('state')]);
+    }
+
+    /**
+     * BUILD_STANDARD.md §2/§3 (prevent-or-absorb) — a malformed
+     * entered_from/entered_to value is absorbed, not rejected: the filter
+     * bound is silently skipped rather than 500ing or blocking the page.
+     */
+    private function parseFilterDate(?string $value): ?\Illuminate\Support\Carbon
+    {
+        if (! $value) {
+            return null;
+        }
+
+        try {
+            return \Illuminate\Support\Carbon::parse($value);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

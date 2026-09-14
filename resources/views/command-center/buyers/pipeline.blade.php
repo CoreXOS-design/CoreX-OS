@@ -9,6 +9,17 @@
     // listing_type lock itself: a plain variable swap, never a forked view.
     $personNoun = ($isRentalEntry ?? false) ? 'tenant' : 'buyer';
     $personNounPlural = ($isRentalEntry ?? false) ? 'tenants' : 'buyers';
+    // 2026-09-14 (Johan/conductor) — a per-card Sale/Rental badge only carries
+    // information when the visible set is actually mixed. On the Rentals-locked
+    // entry point, or on the general board filtered to one lead_type, every card
+    // is already the same type by construction (the query enforces it) — a badge
+    // on every row there is pure noise per Johan's own screen rule ("real estate
+    // lost to nice parts"). The ONLY place a card can genuinely be either type is
+    // the general board with no lead_type filter (the "All" view). Board-level
+    // chrome (the h1, the lead-type toggle's own highlighted state, the "Showing
+    // rentals only" caption) already says what a single-type view is showing;
+    // this flag is what's missing on the one view where the rows themselves vary.
+    $showsMixedTypes = !($isRentalEntry ?? false) && empty($leadType ?? null);
 @endphp
 <div class="w-full space-y-5">
     {{-- Header --}}
@@ -22,15 +33,15 @@
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 {{-- Pipeline scope toggle (Layer 3) --}}
                 <div data-tour="buyers-scope" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['scope' => 'own'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir', 'entered_from', 'entered_to'), ['scope' => 'own'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="{{ ($pipelineScope ?? 'own') === 'own' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Mine</a>
                     @if($canSeeBranch ?? false)
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['scope' => 'branch'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir', 'entered_from', 'entered_to'), ['scope' => 'branch'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($pipelineScope ?? '') === 'branch' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Branch</a>
                     @endif
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['scope' => 'agency'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir', 'entered_from', 'entered_to'), ['scope' => 'agency'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($pipelineScope ?? '') === 'agency' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">All</a>
                 </div>
@@ -41,26 +52,34 @@
                      server-side whenever isRentalEntry is true, so a static label
                      here is honest, not decorative. --}}
                 @if($isRentalEntry ?? false)
-                    <div class="inline-flex rounded-md overflow-hidden px-3 py-1.5 text-xs font-semibold whitespace-nowrap" style="border: 1px solid var(--border); cursor:default;" title="This entry point always shows rental leads only">Rentals only</div>
+                    {{-- AT-401 status label, restyled 2026-09-14 (Johan/conductor)
+                         — the pill/border made this read as a toggle sitting in a
+                         row of real ones (Mine/Branch/All) even though it was
+                         never wired as one (confirmed: never an <a>, see git
+                         history on this line). Plain caption text with no
+                         container reads as "state of the screen", not "thing to
+                         click" — the fix for the misreading, not a functional
+                         change; the server-side lock this describes is unchanged. --}}
+                    <span class="text-xs whitespace-nowrap" style="color: var(--text-muted); cursor:default;" title="This entry point always shows rental leads only">Showing rentals only</span>
                 @else
                 <div data-tour="buyers-lead-type" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', request()->only('view', 'scope', 'state', 'agent_id', 'q', 'sort', 'dir')) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', request()->only('view', 'scope', 'state', 'agent_id', 'q', 'sort', 'dir', 'entered_from', 'entered_to')) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="{{ empty($leadType ?? null) ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">All</a>
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id', 'q', 'sort', 'dir'), ['lead_type' => 'sale'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id', 'q', 'sort', 'dir', 'entered_from', 'entered_to'), ['lead_type' => 'sale'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($leadType ?? '') === 'sale' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Sales</a>
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id', 'q', 'sort', 'dir'), ['lead_type' => 'rental'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'state', 'agent_id', 'q', 'sort', 'dir', 'entered_from', 'entered_to'), ['lead_type' => 'rental'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ ($leadType ?? '') === 'rental' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Rentals</a>
                 </div>
                 @endif
                 {{-- View toggle --}}
                 <div data-tour="buyers-view" class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['view' => 'kanban'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir', 'entered_from', 'entered_to'), ['view' => 'kanban'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="{{ $view === 'kanban' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">Kanban</a>
-                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir'), ['view' => 'list'])) }}"
+                    <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('scope', 'state', 'lead_type', 'agent_id', 'q', 'sort', 'dir', 'entered_from', 'entered_to'), ['view' => 'list'])) }}"
                        class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
                        style="border-left: 1px solid var(--border); {{ $view === 'list' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">List</a>
                 </div>
@@ -95,6 +114,19 @@
                     <option value="{{ $agentOpt->id }}" {{ (string) ($agentFilter ?? '') === (string) $agentOpt->id ? 'selected' : '' }}>{{ $agentOpt->name }}</option>
                 @endforeach
             </select>
+            {{-- BUILD_STANDARD.md §1b — date-range filter, minimum bar for any
+                 list screen. Filters on buyer_pipeline_entered_at (the same
+                 "Since" date already on every card/row) so a manager can find
+                 who's been sitting on the board since before a given date,
+                 not just what state they're in. --}}
+            <span class="text-xs whitespace-nowrap" style="color: var(--text-muted);">Since</span>
+            <input type="date" name="entered_from" value="{{ $enteredFrom ?? '' }}"
+                   class="px-2 py-1.5 rounded-md text-xs" title="Entered pipeline on/after"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <span class="text-xs" style="color: var(--text-muted);">–</span>
+            <input type="date" name="entered_to" value="{{ $enteredTo ?? '' }}"
+                   class="px-2 py-1.5 rounded-md text-xs" title="Entered pipeline on/before"
+                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             <button type="submit" class="corex-btn-outline text-xs">Search</button>
             @if(($search ?? '') !== '' || !empty($stateFilter ?? null) || !empty($agentFilter ?? null))
                 <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'lead_type'), [])) }}"
@@ -189,7 +221,13 @@
                                         {{ strtoupper(substr($buyer->first_name ?? '', 0, 1) . substr($buyer->last_name ?? '', 0, 1)) }}
                                     </div>
                                     <div class="min-w-0 flex-1">
-                                        <div class="text-xs font-semibold truncate" style="color: var(--text-primary);">{{ $buyer->full_name }}</div>
+                                        <div class="text-xs font-semibold truncate flex items-center gap-1.5">
+                                            <span class="truncate" style="color: var(--text-primary);">{{ $buyer->full_name }}</span>
+                                            @if($showsMixedTypes)
+                                                <span class="text-[9px] font-bold px-1 py-0.5 rounded whitespace-nowrap flex-shrink-0"
+                                                      style="{{ $buyerIsRental ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);' : 'background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);' }}">{{ $buyerIsRental ? 'RENTAL' : 'SALE' }}</span>
+                                            @endif
+                                        </div>
                                         <div class="text-[10px] truncate" style="color: var(--text-muted);">
                                             {{ $buyer->agent?->name ?? 'Unassigned' }}
                                             · Since {{ $buyer->buyer_pipeline_entered_at?->format('d M Y') ?? '—' }}
@@ -286,12 +324,17 @@
                                 default => 'ds-badge-default',
                             };
                             $buyerPrimaryWishlist = $buyer->primaryMatch();
+                            $buyerIsRental = $buyer->primaryMatchIsRental();
                         @endphp
                         <tr style="border-bottom: 1px solid var(--border);">
                             <td class="px-4 py-3">
                                 <a href="{{ route('command-center.buyers.show', $buyer) }}" class="text-sm font-medium no-underline" style="color: var(--text-primary);">
                                     {{ $buyer->full_name }}
                                 </a>
+                                @if($showsMixedTypes)
+                                    <span class="inline-block ml-1.5 text-[9px] font-bold px-1 py-0.5 rounded align-middle whitespace-nowrap"
+                                          style="{{ $buyerIsRental ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);' : 'background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);' }}">{{ $buyerIsRental ? 'RENTAL' : 'SALE' }}</span>
+                                @endif
                                 @unless($buyer->hasCountableWishlist())
                                     <span class="inline-block ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-md align-middle whitespace-nowrap"
                                           style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);"
