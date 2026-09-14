@@ -2,8 +2,11 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5" x-data="triage()">
-    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="comms-triage-intro">
+{{-- AT-393 — header, related links and the filter card are frozen (full-height flex
+     column); only the scroll region (flash + queue table + pagination) scrolls.
+     Spec: .ai/specs/claude_communication_archive_triage_addendum.md §10 --}}
+<div class="w-full h-full flex flex-col" x-data="triage()">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0" data-tour="comms-triage-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Review Incoming Messages</h1>
@@ -15,7 +18,46 @@
         </div>
     </div>
 
-    @include('communications.partials._consent-crosslinks', ['current' => 'triage'])
+    <div class="flex-shrink-0 mt-3">
+        @include('communications.partials._consent-crosslinks', ['current' => 'triage'])
+    </div>
+
+    @if(!($noContext ?? false))
+    {{-- Filters — search (sender / subject / message) + channel; one GET form so they
+         compose; pagination links carry the query string. Live count on the right. --}}
+    @php $filtersActive = ($filters['q'] ?? '') !== '' || ($filters['channel'] ?? '') !== ''; @endphp
+    <form method="GET" action="{{ route('communications.triage.index') }}"
+          class="rounded-md px-4 py-3 mt-3 flex-shrink-0 flex flex-wrap items-center gap-3"
+          style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="relative flex-1 min-w-[180px] max-w-xs">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+            </svg>
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}"
+                   placeholder="Search sender, subject or message…"
+                   class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
+                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+        </div>
+
+        <select name="channel" onchange="this.form.submit()" class="list-header-filter">
+            <option value="" {{ ($filters['channel'] ?? '') === '' ? 'selected' : '' }}>All channels</option>
+            @foreach(($channels ?? []) as $ch)
+                <option value="{{ $ch }}" {{ ($filters['channel'] ?? '') === $ch ? 'selected' : '' }}>{{ ucfirst($ch) }}</option>
+            @endforeach
+        </select>
+
+        <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+        @if($filtersActive)
+        <a href="{{ route('communications.triage.index') }}"
+           class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
+        @endif
+
+        <span class="ml-auto text-xs" style="color:var(--text-muted);">{{ number_format($items->total()) }} message{{ $items->total() === 1 ? '' : 's' }}</span>
+    </form>
+    @endif
+
+    {{-- Scroll region — everything from here down scrolls; header, links and filters stay put. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
 
     {{-- AT-274 guard-first / never-blank: an owner or null-agency actor reaches this
          per-agent queue with no resolved agency context. Explain it — never a blank
@@ -69,14 +111,27 @@
                         </td>
                     </tr>
                     @empty
-                    <tr><td colspan="5" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">Nothing to triage. New unknown-contact messages will appear here.</td></tr>
+                    <tr><td colspan="5" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
+                        @if($filtersActive ?? false)
+                            No messages match these filters.
+                        @else
+                            Nothing to triage. New unknown-contact messages will appear here.
+                        @endif
+                    </td></tr>
                     @endforelse
                 </tbody>
             </table>
         </div>
+        @if($items->hasPages())
+        <div class="px-4 py-3" style="border-top: 1px solid var(--border);">
+            {{ $items->links() }}
+        </div>
+        @endif
     </div>
 
     @endif
+
+    </div>{{-- /scroll region --}}
 
     {{-- Add-contact modal (reuses the standard contact-create fields, prefilled from the identifier) --}}
     <div x-show="showAdd" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">

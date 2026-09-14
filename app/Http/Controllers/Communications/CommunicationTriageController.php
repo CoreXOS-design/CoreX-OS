@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Services\Communications\CommunicationTriageService;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
@@ -20,7 +21,7 @@ class CommunicationTriageController extends Controller
     {
     }
 
-    public function index()
+    public function index(Request $request)
     {
         $user = Auth::user();
 
@@ -34,9 +35,51 @@ class CommunicationTriageController extends Controller
             return view('communications.triage.index', ['items' => collect(), 'noContext' => true]);
         }
 
-        $items = $this->triage->pendingForAgent($agencyId, $user->id);
+        $all = $this->triage->pendingForAgent($agencyId, $user->id);
 
-        return view('communications.triage.index', ['items' => $items, 'noContext' => false]);
+        // AT-393 — list filters + pagination (spec addendum §10). The queue is a
+        // PHP-filtered collection (per-agent suppression happens after the query),
+        // so search / channel / paging are applied to the collection here, never
+        // widening what pendingForAgent() already scoped to this agent.
+        $channels = $all->pluck('channel')->filter()->unique()->sort()->values()->all();
+        $channel = (string) $request->query('channel', '');
+        $filters = [
+            'q'       => trim((string) $request->query('q', '')),
+            'channel' => in_array($channel, $channels, true) ? $channel : '',
+        ];
+
+        $items = $all;
+        if ($filters['channel'] !== '') {
+            $items = $items->filter(fn ($p) => $p->channel === $filters['channel'])->values();
+        }
+        if ($filters['q'] !== '') {
+            $needle = mb_strtolower($filters['q']);
+            $items = $items->filter(function ($p) use ($needle): bool {
+                foreach ([$p->from_identifier, $p->subject, $p->body_preview ?: $p->body_text] as $hay) {
+                    if ($hay !== null && str_contains(mb_strtolower((string) $hay), $needle)) {
+                        return true;
+                    }
+                }
+                return false;
+            })->values();
+        }
+
+        $perPage = 25;
+        $page = LengthAwarePaginator::resolveCurrentPage();
+        $items = new LengthAwarePaginator(
+            $items->forPage($page, $perPage)->values(),
+            $items->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()],
+        );
+
+        return view('communications.triage.index', [
+            'items'     => $items,
+            'noContext' => false,
+            'filters'   => $filters,
+            'channels'  => $channels,
+        ]);
     }
 
     /**
