@@ -7,6 +7,7 @@ use App\Models\BuyerClientPageLink;
 use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
+use App\Models\ContactMatchLinkOpen;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
@@ -92,6 +93,13 @@ class SharedMatchController extends Controller
         }
 
         $contact = $match->contact;
+
+        // AT-Core-Matches, share-history piece — "the buyer opened the
+        // link" is a separate, valuable signal from "the agent shared the
+        // link" and must never be conflated with one. No auth on this
+        // route, so there's no way to distinguish an agent's own preview
+        // from the buyer actually opening it — every hit counts.
+        ContactMatchLinkOpen::record($match);
 
         Property::withoutEvents(fn () => null); // no-op, keep observers on
 
@@ -191,6 +199,10 @@ class SharedMatchController extends Controller
         }
 
         $contact = $anchor->contact;
+        // Share-history piece — see the identical comment in show() above;
+        // the buyer-level link resolves to this same anchor wishlist, so
+        // the "opened" event is recorded against it exactly the same way.
+        ContactMatchLinkOpen::record($anchor);
         Property::withoutEvents(fn () => null); // no-op, keep observers on
         $matchGroups = $this->buildMatchGroups($anchor, $contact, $overrides, $request);
         $agency = $buyerLink->agency_id

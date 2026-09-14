@@ -4068,6 +4068,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.view')
         ->name('corex.core-matches.record-share');
 
+    // AT-Core-Matches, share-history piece — read-only: the share log, the
+    // separate "opened" signal, and "properties not seen since last send"
+    // (today's live matches minus everything ever shared). Same gate as
+    // record-share above; this is the query cc3's screen calls to render
+    // the share-history panel, not a second data-entry endpoint.
+    Route::get('/core-matches/{match}/share-history', [\App\Http\Controllers\CoreX\ContactMatchShareHistoryController::class, 'show'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.core-matches.share-history');
+
     // AT-403 — Rentals → Contacts. Johan: "rental menu - wheres my rental
     // contacts?" Same ContactController::index() as corex.contacts.index
     // above, detected by route NAME, locking the list to contacts holding a

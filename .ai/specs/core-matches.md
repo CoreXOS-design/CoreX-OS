@@ -256,6 +256,104 @@ replaced with these two real ones in the same commit.
 default; `core_matches.reassign` is not on the exclude list). Never granted
 to `agent`, `viewer`, `office_admin`, or `assistant`.
 
+## Live link share history (cc2)
+
+Third piece of this expansion, on top of cc4's `contact_match_shares`
+skeleton (the share event log + working-clock reset). Johan's ruling,
+verbatim: **"the history is nice to have and yes we can track it. but
+keeping in mind the link should actually operate live. so what the buyer
+sees can be 1 link that updates on live stock. otherwise the link shows old
+stock in a month."** And: **"buyers links are live. so any tracking happens
+internally."**
+
+**The buyer's experience does not change at all** — still one permanent
+link per buyer/wishlist, always resolving against current stock via
+`ClientMatchResolver`, nothing frozen, nothing versioned, nothing the buyer
+can see. Everything below is purely internal.
+
+**What's built, on top of cc4's `contact_match_shares` table** (never a
+second, competing table for the same event):
+
+- **`ContactMatchShare::record()` extended** (same method, same call sites,
+  same clock-reset behaviour — untouched) to ALSO snapshot, in the same
+  transaction, exactly which properties `ClientMatchResolver::resolve($match,
+  false)` returned at that instant — the EXACT query the live link itself
+  runs, never a second, looser comparison. One row per property in a new
+  child table, `contact_match_share_properties` (`contact_match_id`
+  denormalised alongside the `contact_match_share_id` FK, matching this
+  codebase's existing `agency_id`-everywhere convention, for the one query
+  this whole feature exists to answer — see below).
+- **`CoreMatchShareHistoryService::neverSentProperties()`** — THE
+  deliverable Johan actually asked for: "four properties this buyer has not
+  seen since you last sent it." Today's live matches (same
+  `ClientMatchResolver` call) minus every property_id that has EVER
+  appeared in any non-deleted share for this match.
+- **`GET /corex/core-matches/{match}/share-history`** —
+  `ContactMatchShareHistoryController::show()`, gated on `core_matches.view`
+  (same gate as `record-share`; reading isn't the privileged action here).
+  Returns the share log (who/when/channel), the open summary (below), and
+  `new_since_last_share` (via `Property::toSearchResult()`, the same shape
+  DR2's eligibility dropdown already uses). This is the query surface for
+  cc3's screen to render "N new since last sent" — the row layout/UI itself
+  is cc3's, not built here.
+- **`contact_match_shares` gained `SoftDeletes`** (cc4's original migration
+  didn't have it — added via a follow-up migration, not an edit to their
+  file) — Johan's ruling: the share record is evidence and must be
+  soft-delete-only like everything else in CoreX (non-negotiable #1). It
+  already structurally survives a buyer being set aside, since set-aside
+  only ever touches `contact_matches.set_aside_at`, never the shares table.
+
+**Four things reasoned through before building, per the conductor's brief:**
+
+1. **Does "the buyer opened the link" count as a share?** No — built as a
+   genuinely separate event, `ContactMatchLinkOpen` (new table,
+   `contact_match_link_opens`), recorded from the public
+   `SharedMatchController::show()`/`showViaBuyerLink()` (no auth on that
+   route, so every hit counts — there's no way to tell an agent's own
+   preview from the buyer actually opening it, and building that
+   distinction would need session/auth plumbing that doesn't exist there
+   and wasn't asked for). `CoreMatchShareHistoryService::openSummary()`
+   surfaces count + last-opened-at as its own field, never merged into the
+   share count — "sent 3 times, never opened" needs both numbers kept
+   apart, which was the whole point of asking the question.
+2. **Volume.** Real QA1 numbers, not a guess: 643 `contact_matches` rows
+   (641 active) today, ~8,494 `communications` rows total, ~3,392 in the
+   last 30 days. Even a generous estimate — every active match shared
+   twice a month, ~15 properties per snapshot — is on the order of
+   100–200k `contact_match_share_properties` rows a year, trivial for an
+   indexed MySQL table at HFC's scale. No retention or roll-up strategy
+   built or needed; revisit only if CoreX's tenant scale changes by orders
+   of magnitude, not speculatively now.
+3. **"Not seen since" when a property was sent, withdrawn, and relisted.**
+   Decided on property IDENTITY, not current listing status: once a
+   property_id has appeared in any share for this match, it never counts
+   as "new" again, even after a withdraw/relist cycle — relisting never
+   creates a new property row (MatchOrCreate + no-hard-delete mean the same
+   row persists throughout), and the buyer already has this property in
+   memory from before. Re-surfacing it as "new" the moment it comes back on
+   the market would be wrong, not helpful. A genuinely newsworthy relist
+   (price drop, back on the market after a failed deal) is a deliberate
+   re-engagement decision for the agent to make, not something share-history
+   should paper over by silently calling it new.
+4. **Do other exclusion reasons deserve the same disabled-with-reason
+   treatment DR2's eligibility dropdown gives the owner-set gap?** N/A here
+   — there is no dropdown/exclusion concept in share-history; every
+   property `ClientMatchResolver` returns live is either already-seen or
+   new, nothing is hidden from the agent. (This question was actually
+   answered on the unrelated DR2 piece, not this one — noted here only so
+   a future reader doesn't confuse the two.)
+
+**Tests**: `tests/Feature/CoreMatches/ContactMatchShareHistoryTest.php` — 9
+tests: a share snapshots exactly the live-matched properties at that moment
+(and nothing outside the match's own criteria); "never sent" is today's
+live matches minus everything ever shared; a withdrawn-then-relisted
+property still counts as already-seen; a trashed share stops counting its
+properties as seen (soft-delete proven, not just declared); share evidence
+survives the buyer being set aside; opening the link records a separate
+event and never creates a share row; repeated opens accumulate a count and
+last-opened-at; the read endpoint returns all three pieces in one response;
+the endpoint is gated the same as the rest of Core Matches.
+
 ## Not built here, reported not fixed
 
 - The master on/off toggle for the whole expansion that cc3 says they were
