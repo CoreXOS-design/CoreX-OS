@@ -6879,7 +6879,25 @@ Assigned alongside cc5 (PDF splitter, above) and cc4 (rentals menus). Johan's br
 
 ### 1. "Months covered" becomes a from/to date range
 
-The typed `statement_months` number input on the agent's Affordability Assessment panel is replaced by two date pickers ("Statement period" — from/to). The month count is **derived**, never typed: `RentalApplicationAssessment::calculateStatementMonths($from, $to)` counts inclusive calendar months (15 Jan–20 Mar = 3 — Jan, Feb, Mar — regardless of which day within Jan/Mar the range starts/ends), always at least 1 once both dates are present, capped at the same 36-month ceiling the old field enforced (a longer range is rejected with a clear message, not silently accepted).
+The typed `statement_months` number input on the agent's Affordability Assessment panel is replaced by two date pickers ("Statement period" — from/to). The month count is **derived**, never typed: `RentalApplicationAssessment::calculateStatementMonths($from, $to)`, always at least 1 once both dates are present, capped at the same 36-month ceiling the old field enforced (a longer range is rejected with a clear message, not silently accepted).
+
+**CORRECTED 2026-09-14** (originally shipped counting inclusive calendar months
+TOUCHED by the range — see the "Elapsed months" entry further down this file
+for the full incident; this paragraph is rewritten to describe the
+corrected, current rule rather than leave a wrong worked example standing).
+The rule is **elapsed calendar months between the two dates**, via Carbon's
+`diffInMonths()`, int-truncated — a month only counts once the day-of-month
+it started on has been reached again. 25 May–25 Aug = 3 (not 4: May→Jun,
+Jun→Jul, Jul→Aug, each a full elapsed month). 15 Jan–20 Mar = 2, not 3 (two
+full months elapsed — Jan 15→Feb 15, Feb 15→Mar 15 — with 5 days short of a
+third). **Why this specific definition, not merely "some month count"**:
+`total_captured_income ÷ statement_months` is a division — the number has
+to be the count of statement periods the captured income actually spans,
+not the count of calendar pages the date range happens to cross. Getting it
+wrong in the touched-months direction inflates the divisor, which
+understates a real applicant's monthly income — failing someone who can
+actually afford the rent, never the reverse. That asymmetry is exactly why
+this was worth fixing rather than leaving as a rounding quirk.
 
 Two new nullable columns on `rental_application_assessments`: `statement_period_from`, `statement_period_to` (migration `2026_09_10_150000_...`). **No backfill, and no retroactive recompute** — an existing assessment's already-stored `statement_months` is left exactly as it is until an agent opens that application again and picks a date range on it; `RentalApplicationReviewController::saveAssessment()` only overwrites `statement_months` when both dates are present in that specific request. `statement_months` itself is no longer accepted from the client at all (the form doesn't send it); the column stays because `qualifyingResult()` still divides by it — it just has a new, single source now.
 
@@ -14634,3 +14652,69 @@ to be wired into the existing `incompleteAssessmentReasons()` mechanism
 heuristic unrelated to this setting. Do not build either path as more settled
 than it is — the current behaviour is what the code happens to do, not a
 ruling.
+
+## Elapsed months, not calendar months touched — statement-period divisor bug (2026-09-14, Johan, live on QA1)
+
+**The bug, Johan's exact words**: "the date selection for statement period is
+calculating wrong - entered 25 may to 25 august - in my count thats 3
+months correct? system shows 4." He was right. `RentalApplicationAssessment
+::calculateStatementMonths()` (server) and `calculatedStatementMonths()`
+(client, `review.blade.php`) both counted the number of **calendar months
+touched** by a date range — May, Jun, Jul, Aug = 4 — instead of the number
+of **months elapsed** between the two dates — 3. Both sides used the
+identical formula (`(year diff × 12) + month diff + 1`), kept deliberately
+in sync with each other, so they agreed — on the wrong number.
+
+**This was not an accidental divergence from spec — the code correctly
+implemented what an earlier spec entry (§ "1. 'Months covered' becomes a
+from/to date range," 2026-09-10) explicitly described and worked an example
+for** (15 Jan–20 Mar = 3, Jan/Feb/Mar). The original design intentionally
+chose calendar-months-touched; that choice is what turned out to be wrong
+once tested against a real case. Recorded here rather than glossed over,
+per the conductor's own standard: report what the spec actually said,
+don't let anyone believe the code silently drifted from a rule that was
+always right.
+
+**Why this is worse than a display bug**: `statement_months` is not a label
+— it is the divisor in `total_captured_income ÷ statement_months`, the
+figure the affordability assessment runs against. Counting one extra month
+inflates the divisor, which UNDERSTATES a real applicant's monthly income.
+The error only ever runs one direction: it fails people who can actually
+afford the rent; it can never wrongly pass someone who can't. A four-month
+count on a genuine three-month statement makes an applicant look roughly
+25% poorer than they are.
+
+**Fix**: both sides now count elapsed calendar months (Carbon's
+`diffInMonths()`, int-truncated, server-side; the JS mirrors it via a
+day-of-month comparison) instead of calendar months touched. The short-
+range floor (any range ≤31 days always reads as "1", added 2026-09-13 for
+an unrelated 6-day-range defect) and the 36-month ceiling are unchanged —
+neither was part of this bug. See `RentalApplicationAssessment::
+calculateStatementMonths()`'s own docblock for the full before/after
+reasoning.
+
+**Blast radius — checked, not assumed, then closed by Johan's own ruling**:
+152 existing `rental_application_assessments` rows carry a statement period
+under the old count. Johan, directly: "applications are all test data. so
+leave them... test data never needs to be reworked." No migration, no
+artisan command, no recalculate-on-view fallback was built or is planned —
+existing rows keep whatever number they already have, permanently, because
+none of them are real. **The principle, worth carrying forward explicitly**:
+whether existing records need a backfill/recalculation is only an
+engineering question once you know whether those records are real — ask
+that first, before designing anything, the same standing rule that already
+governs not inventing problems from demo/import stock (P24 property-health
+numbers, contacts-importer FICA auto-approve — see "Go-Live Migration Mode"
+in `.ai/specs/compliance.md`). On this feature, pre-production and never
+having left QA1, the answer was immediate: nothing to build.
+
+**Test**: `RentalApplicationRound11DecimalAndStatementMonthsTest::
+test_johans_25_may_to_25_august_statement_period_is_three_months_not_four()`
+— named after the real case deliberately, so it reads as a regression guard
+against reintroducing calendar-months-touched counting, not a trivial
+arithmetic check someone prunes later.
+
+**Files**: `app/Models/RentalApplicationAssessment.php` (`calculateStatement
+Months()`), `resources/views/corex/rental-applications/review.blade.php`
+(`calculatedStatementMonths()`), `tests/Feature/RentalApplications/
+RentalApplicationRound11DecimalAndStatementMonthsTest.php` (new test).

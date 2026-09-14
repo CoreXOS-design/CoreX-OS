@@ -35,6 +35,18 @@ use Tests\TestCase;
  * the same arithmetic in PHP as a second, independent implementation, so
  * a genuine divergence between the two languages' floating-point
  * behaviour on THESE SPECIFIC figures would be caught here too.
+ *
+ * CORRECTED 2026-09-14 — the "months 4" figure above was itself the
+ * elapsed-months-vs-calendar-months-touched bug (Johan, live on QA1, a
+ * DIFFERENT date range: "entered 25 may to 25 august... system shows
+ * 4" when it should show 3 — see .ai/specs/rental-applications.md,
+ * "Elapsed months, not calendar months touched"). 31 May to 31 Aug is 3
+ * elapsed months, not 4. Johan's income/expense TOTALS above were never
+ * in question — those are a literal sum of captured document-mark
+ * amounts, untouched by this bug — only the months figure and everything
+ * downstream of dividing by it (monthly income, net monthly) were wrong,
+ * and are corrected below to what the SAME totals produce over the
+ * CORRECT 3-month period, not silently left as stale expected values.
  */
 final class RentalApplicationAffordabilityArithmeticTest extends TestCase
 {
@@ -70,8 +82,10 @@ final class RentalApplicationAffordabilityArithmeticTest extends TestCase
             'agency_id' => $agency->id, 'rental_application_id' => $application->id,
             'statement_period_from' => '2026-05-31', 'statement_period_to' => '2026-08-31',
         ]);
-        // The ONLY place "months" is derived — confirm it lands on 4 for
+        // The ONLY place "months" is derived — confirm it lands on 3 for
         // this exact period before trusting anything downstream of it.
+        // (Was asserted as 4 before the 2026-09-14 elapsed-months fix —
+        // see this file's own docblock for why that was wrong.)
         $months = RentalApplicationAssessment::calculateStatementMonths(
             $assessment->statement_period_from->toDateString(),
             $assessment->statement_period_to->toDateString(),
@@ -79,7 +93,7 @@ final class RentalApplicationAffordabilityArithmeticTest extends TestCase
         $assessment->statement_months = $months;
         $assessment->save();
 
-        $this->assertSame(4, $months);
+        $this->assertSame(3, $months);
 
         $incomeLines = [
             ['date' => '2026-06-24', 'desc' => 'salary', 'amount' => 28861.34],
@@ -129,8 +143,12 @@ final class RentalApplicationAffordabilityArithmeticTest extends TestCase
 
         $this->assertSame(90877.33, $incomeTotal, 'income total must match Johan\'s stated figure to the cent');
         $this->assertSame(3050.00, $expenseTotal, 'expense total must match Johan\'s stated figure to the cent');
-        $this->assertSame(22719.33, $monthlyIncome, 'monthly income must match Johan\'s stated figure to the cent');
-        $this->assertSame(21956.83, $netMonthly, 'net monthly must match Johan\'s stated figure to the cent');
+        // Corrected 2026-09-14 alongside the elapsed-months fix: these two
+        // are the SAME totals above divided by the CORRECT 3 months, not 4
+        // — 90877.33/3 and (90877.33-3050.00)/3, not Johan's original
+        // stated figures (which divided by the then-buggy 4).
+        $this->assertSame(30292.44, $monthlyIncome, 'monthly income must be the totals above over the corrected 3-month period');
+        $this->assertSame(29275.78, $netMonthly, 'net monthly must be the totals above over the corrected 3-month period');
 
         // Manually-added (unanchored, document_id null) and highlighter-
         // captured (anchored) lines must count identically — every line in
