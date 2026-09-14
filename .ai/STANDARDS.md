@@ -778,6 +778,16 @@ Why the line sits exactly there: a walk verifies specific behaviour at a specifi
 
 ---
 
+## Standard −1q — Ask whether the data is real before designing a backfill (2026-09-16, relayed via cc6)
+
+The conductor's own words, relayed through cc6 while landing the statement-period elapsed-months fix: **"TEST DATA NEVER NEEDS TO BE REWORKED. When a calculation changes, the question 'what about the existing records' only deserves engineering effort if those records are real. On QA they are not. Ask whether the data is real BEFORE designing a backfill."** Relayed in spirit, not claimed as a literal transcript — flagged here plainly per how this project handles attribution, and recorded because it names a real, twice-repeated mistake rather than a hypothetical one: the conductor says she walked into this exact trap twice in two days before it was ever written down.
+
+Same shape as Johan's standing rule against inventing problems from demo/import stock (P24 property-health numbers, the contacts-importer's FICA auto-approve) — a number or a record that only exists because a seeder, an import, or a throwaway QA fixture put it there does not deserve the same engineering care as a number a real agency is depending on. A recalculation bug fix on QA1 does not need a backfill migration for QA1's own existing rows just because "what about the old data" is a reflex question — if those old rows are QA fixtures and throwaway test records, not live agency data, the honest answer is that there is no real data to migrate, and designing a backfill for rows nobody depends on is effort spent solving a problem that was never actually there.
+
+**The rule: before designing a backfill, recalculation script, or "existing records" migration for any bug fix, ask first whether the affected records are real.** On a QA/dev database, default to assuming they are not, and confirm rather than assume before building anything to fix them retroactively. This is not a license to skip backfills on live/production data — Johan's own "no shortcuts" principle and the no-hard-delete rule still apply in full wherever real agency data is at stake. It is a license to stop treating QA1's own fixture rows as if they carried the same weight as a real agency's records, which they don't.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
