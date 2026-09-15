@@ -170,6 +170,84 @@ Tests: `tests/Feature/Dr2/Wave2MultiPropertyStatusSyncTest.php` (9 tests,
 including both mixed-status cases by name), zero regressions in the
 pre-existing `tests/Feature/Dr2/Wave2DealPropertyStatusSyncTest.php` (15/15).
 
+### 4a. CORRECTION (2026-09-15) — this section was wrong about CREATE specifically; found live by Johan, not by the tests above
+
+Everything in §4 above is true of the six listeners' own per-property loop
+logic — that part was always correct and remains unchanged. What was false,
+stated here plainly rather than left implicit: **a deal created with two or
+more properties in ONE save never flagged anything past the primary
+under-offer**, on a real QA1 deal (#181), turned on by Johan himself after he
+was first told (wrongly) that the feature was simply switched off.
+
+**Root cause — an event-ordering bug in `DealRegisterController::store()`,
+not a loop bug.** The primary property's `deal_properties` row is written by
+`persistDeal()` (line ~409), which is also where the `Deal` model's
+`created` event fires — and `DealCreated` fires synchronously, right there,
+before the method returns. Every ADDITIONAL property is linked afterward, in
+`applyCreateTimeMultiProperty()` (called at line ~427, AFTER `persistDeal()`
+returns). So at the exact moment `FlagPropertyUnderOfferOnDealCreated` (and
+every other `DealCreated`/`DealStageAdvanced` listener) actually ran,
+`$deal->properties()` could only ever contain the primary — the second
+property's pivot row did not exist yet. Proven on deal #181 with real
+timestamps: the primary's `status_changed` audit row is stamped
+`05:59:07`; the second property's `deal_properties` row is stamped
+`05:59:10` — three seconds later. The loop itself was, and remains,
+correct; it faithfully processed the only property that existed at that
+moment.
+
+**Why `Wave2MultiPropertyStatusSyncTest.php`'s 9 tests never caught this —
+say so plainly, a future reader must not trust a green suite here again
+without reading this**: none of the 9 tests exercise `store()` at all. They
+build the deal via `Deal::create()` directly and attach the second property
+via a raw `DealProperty::create()` call — a deliberate, legitimate lower-level
+testing boundary per this file's own class docblock ("independent of how the
+link was made"). But the specific test covering this exact listener
+(`test_flag_on_create_flags_both_properties_but_skips_one_already_off_market`)
+went further: its own comment said outright that the second property's pivot
+row "did not exist at the moment DealCreated originally fired", and then
+**manually re-fired `DealCreated` a second time by hand** so the assertion
+would pass — describing this as "mirroring how the real `addProperty()`
+action re-runs status sync after attaching," which was not true of the
+CREATE path at the time it was written. The test performed, by hand, exactly
+the missing step production never took. Nine green tests were never capable
+of catching this — the suite was hand-walking the event, not proving it fired
+on its own.
+
+**The fix — same precedent the edit-mode `addProperty()` action already
+established**, applied to `applyCreateTimeMultiProperty()`: once every
+additional property is linked and totals are recalculated, re-fire the
+create-time events (`DealCreated` when `accepted_status` is P/G;
+`DealStageAdvanced` too when it's G/R) so the listeners see the COMPLETE
+property set, not just the primary. `persistDeal()` and
+`applyCreateTimeMultiProperty()` are NOT reordered — the owner-set gate
+inside the latter needs the primary already linked to compare against, so
+the primary must be linked first; the fix re-notifies afterward instead of
+trying to see everything in one pass. **Idempotent on the primary, confirmed
+by reading both listeners, not assumed**: `FlagPropertyUnderOfferOnDealCreated`
+and `EnsurePropertyUnderOfferOnGrant` both skip a property already at
+`under_offer` before doing anything — the primary (correctly flagged by the
+first, real firing) gets no second save, no duplicate audit row, no
+duplicate portal push on the re-fire.
+
+**The test fix**: the failing test above was rewritten to POST to the real
+`deals-dr2.store` endpoint with two properties and assert both change
+status — nothing done by hand that production doesn't do. A new named
+regression test, `test_johans_deal_181_scenario_creating_with_two_properties_flags_both_under_offer`,
+pins his exact real scenario (two on-market properties, one save, both must
+flag under-offer) so this specific failure can never silently return. The
+other two tests in this file that still manually re-fire `DealCreated`
+(`test_declining_a_multi_property_deal_reverts_only_the_property_with_no_other_active_deal`,
+`test_new_multi_property_capture_is_auto_declined_if_either_property_is_already_committed`)
+are testing different listeners' logic given an already-fully-linked deal —
+a legitimate lower-level boundary, not the create-endpoint ordering bug —
+and their comments were corrected to say so plainly rather than repeat the
+now-known-false "mirrors production" claim.
+
+**Verified against a real, disposable QA1 deal** — real create screen, real
+two on-market properties (not deal #180/#181, not properties 15936/15937,
+which are Johan's own live test data): see the verification note at the end
+of this section, added once that check has actually been run.
+
 ## 5. Schema — `property_id` stays primary
 
 `deals.property_id` is **unchanged** — it continues to mean "the primary

@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace Tests\Feature\Dr2;
 
 use App\Models\AgencyDealSyncSettings;
+use App\Models\Contact;
 use App\Models\Deal;
 use App\Models\DealProperty;
 use App\Models\Property;
+use App\Models\Role;
+use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -88,6 +92,61 @@ final class Wave2MultiPropertyStatusSyncTest extends TestCase
         return (string) Deal::withoutGlobalScopes()->find($d->id)->accepted_status;
     }
 
+    /**
+     * Bug found live on QA1, 2026-09-15 (Johan, deal #181) — a real branch
+     * manager, real permissions, a real POST to the real create endpoint.
+     * Nothing here does by hand what production does not do: no manual
+     * event() call anywhere in the tests that use this.
+     */
+    private function makeBranchManager(): User
+    {
+        Role::create(['name' => 'branch_manager', 'label' => 'Branch Manager', 'agency_id' => $this->agencyId]);
+        foreach (['access_deal_register', 'view_deals', 'create_deals', 'deals.view', 'deals.create', 'deals.edit'] as $key) {
+            RolePermission::create(['role' => 'branch_manager', 'permission_key' => $key, 'agency_id' => $this->agencyId]);
+        }
+        Role::clearCache();
+        PermissionService::clearCache();
+
+        return User::factory()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'role' => 'branch_manager', 'is_active' => true,
+        ]);
+    }
+
+    private function makeOwnerContact(string $first): Contact
+    {
+        return Contact::create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->branchId,
+            'first_name' => $first, 'last_name' => 'Owner', 'phone' => '0' . random_int(600000000, 699999999),
+        ]);
+    }
+
+    private function linkOwner(Property $property, Contact $contact): void
+    {
+        DB::table('contact_property')->insert([
+            'property_id' => $property->id, 'contact_id' => $contact->id, 'role' => 'seller',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /** Same shape CreateTimeMultiPropertyTest already relies on. */
+    private function createDealPayload(User $bm, Property $primary, array $properties, array $over = []): array
+    {
+        return array_merge([
+            'period' => '2026-09', 'deal_date' => '2026-09-15', 'branch_id' => $this->branchId,
+            'accepted_status' => 'P', 'commission_status' => 'Not Paid',
+            'listing_split_percent' => 50, 'selling_split_percent' => 50,
+            'listing_agents' => [$bm->id], 'selling_agents' => [$bm->id],
+            'property_id' => $primary->id,
+            // The additive-master design overrides these from the properties[]
+            // sum regardless (DealPropertyPricingService::recalculateTotals()),
+            // but the field is still required at validation, so submit the
+            // real sum rather than a placeholder.
+            'property_value' => array_sum(array_column($properties, 'allocated_price')),
+            'total_commission' => array_sum(array_column($properties, 'allocated_commission')),
+            'properties' => $properties,
+        ], $over);
+    }
+
     // ── Backfill/mirroring sanity — the foundation every listener below depends on ──
 
     public function test_creating_a_deal_through_the_existing_single_property_field_mirrors_into_the_pivot(): void
@@ -115,23 +174,71 @@ final class Wave2MultiPropertyStatusSyncTest extends TestCase
 
     // ── FlagPropertyUnderOfferOnDealCreated — every linked property flags, independently ──
 
+    /**
+     * BUG (found live on QA1, 2026-09-15, deal #181 — Johan turned the
+     * setting on himself and tested a real two-property create): this test
+     * used to attach the second property directly onto the pivot and then
+     * manually re-fire DealCreated by hand — "mirroring", the old comment
+     * claimed, a real re-sync that turned out NOT TO EXIST anywhere in
+     * production. The manual re-fire was doing the exact job the missing
+     * production code should have been doing, so the test stayed green
+     * while a real deal on a real screen did nothing to its second
+     * property. Rewritten to POST to the REAL create endpoint — nothing in
+     * this test does by hand what production does not do. This is what
+     * actually caught the bug once the manual re-fire was removed (it
+     * failed against the pre-fix code — the second property stayed
+     * `for_sale`, exactly as Johan reported), and passes now that
+     * DealRegisterController::applyCreateTimeMultiProperty() re-fires the
+     * create-time events itself once every property is linked.
+     */
     public function test_flag_on_create_flags_both_properties_but_skips_one_already_off_market(): void
     {
         $this->settings(['flag_property_under_offer_on_deal' => true]);
+        $bm = $this->makeBranchManager();
         $onMarket = $this->makeProperty('3 Flag Rd A');
         $withdrawn = $this->makeProperty('3 Flag Rd B');
         Property::withoutEvents(fn () => $withdrawn->update(['status' => 'withdrawn']));
+        $steve = $this->makeOwnerContact('Steve');
+        $this->linkOwner($onMarket, $steve);
+        $this->linkOwner($withdrawn, $steve);
 
-        $deal = $this->makeDeal($onMarket);
-        $this->addSecondProperty($deal, $withdrawn);
-        // Re-fire the create-time listener explicitly — the pivot row for the
-        // second property did not exist at the moment DealCreated originally
-        // fired (it was attached a line above), mirroring how the real
-        // addProperty() action re-runs status sync after attaching.
-        event(new \App\Events\Deal\DealCreated($deal->fresh(), auth()->id()));
+        $response = $this->actingAs($bm)->post(route('deals-dr2.store'), $this->createDealPayload($bm, $onMarket, [
+            ['property_id' => $onMarket->id, 'allocated_price' => 1_000_000, 'allocated_commission' => 57_500],
+            ['property_id' => $withdrawn->id, 'allocated_price' => 500_000, 'allocated_commission' => 28_750],
+        ]));
 
+        $response->assertSessionDoesntHaveErrors();
         $this->assertSame('under_offer', $onMarket->fresh()->status, 'the on-market property must flag under-offer');
         $this->assertSame('withdrawn', $withdrawn->fresh()->status, 'Johan: an expired/withdrawn property stays sellable as-is — never forced back under-offer');
+    }
+
+    /**
+     * Named regression test for Johan's exact real scenario (deal #181):
+     * create a deal with TWO on-market properties in one save. Both must go
+     * under offer, not just the primary. This is the test that would have
+     * caught the live bug before he did.
+     */
+    public function test_johans_deal_181_scenario_creating_with_two_properties_flags_both_under_offer(): void
+    {
+        $this->settings(['flag_property_under_offer_on_deal' => true]);
+        $bm = $this->makeBranchManager();
+        $primary = $this->makeProperty('Deal 181 Regression — Property 1');
+        $secondary = $this->makeProperty('Deal 181 Regression — Property 2');
+        $steve = $this->makeOwnerContact('Steve');
+        $this->linkOwner($primary, $steve);
+        $this->linkOwner($secondary, $steve);
+
+        $this->assertSame('for_sale', $primary->status);
+        $this->assertSame('for_sale', $secondary->status);
+
+        $response = $this->actingAs($bm)->post(route('deals-dr2.store'), $this->createDealPayload($bm, $primary, [
+            ['property_id' => $primary->id, 'allocated_price' => 6_450_000, 'allocated_commission' => 250_000],
+            ['property_id' => $secondary->id, 'allocated_price' => 2_736_000, 'allocated_commission' => 145_000],
+        ]));
+
+        $response->assertSessionDoesntHaveErrors();
+        $this->assertSame('under_offer', $primary->fresh()->status, 'the primary property must flag under-offer');
+        $this->assertSame('under_offer', $secondary->fresh()->status, 'the SECOND property must ALSO flag under-offer — this is exactly what deal #181 failed to do');
     }
 
     // ── MarkPropertySoldOnDealMilestone — both properties sold on grant ──
@@ -189,6 +296,15 @@ final class Wave2MultiPropertyStatusSyncTest extends TestCase
 
         $dealX = $this->makeDeal($propA, ['deal_no' => '8601']);
         $this->addSecondProperty($dealX, $propB);
+        // This test is about the REVERT listener's mixed-status handling
+        // given an already-fully-linked deal, deliberately independent of
+        // HOW it got linked (class docblock) — not about the create-endpoint
+        // ordering bug, which has its own dedicated end-to-end regression
+        // tests above (test_johans_deal_181_scenario_...). Re-firing here to
+        // reach that starting state is a legitimate stand-in for either real
+        // re-sync path (addProperty()'s own re-fire, or
+        // applyCreateTimeMultiProperty()'s, post-fix) — not a workaround for
+        // a bug this test is supposed to be checking.
         event(new \App\Events\Deal\DealCreated($dealX->fresh(), auth()->id()));
         $this->assertSame('under_offer', $propA->fresh()->status);
         $this->assertSame('under_offer', $propB->fresh()->status);
@@ -214,6 +330,9 @@ final class Wave2MultiPropertyStatusSyncTest extends TestCase
 
         $newDeal = $this->makeDeal($propA, ['deal_no' => '8702']);
         $this->addSecondProperty($newDeal, $propB);
+        // Same note as the revert test above — this checks
+        // AutoDeclineNewDealOnCommittedProperty's own logic given an
+        // already-fully-linked deal, not the create-endpoint ordering bug.
         event(new \App\Events\Deal\DealCreated($newDeal->fresh(), auth()->id()));
 
         $this->assertSame('D', $this->acceptedOf($newDeal), 'property B is already committed elsewhere — the new multi-property deal must be auto-declined');
