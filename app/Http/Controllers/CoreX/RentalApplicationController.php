@@ -1107,6 +1107,15 @@ class RentalApplicationController extends Controller
 
         $validated = $request->validate([
             'property_id' => ['required', 'integer'],
+            // .ai/specs/leases.md sec1.3 / conductor ruling 2026-09-15 — gap 1
+            // closed: this action used to link the contact_property pivot
+            // and stop, leaving no rent/dates anywhere. Now it also creates
+            // the Lease record in the same request. Property status is
+            // still deliberately untouched — see the docblock above.
+            'rental_amount' => ['required', 'numeric', 'min:0'],
+            'deposit_amount' => ['nullable', 'numeric', 'min:0'],
+            'lease_start_date' => ['required', 'date'],
+            'lease_end_date' => ['nullable', 'date', 'after:lease_start_date'],
         ]);
 
         $contact = $rentalApplication->contact;
@@ -1169,6 +1178,50 @@ class RentalApplicationController extends Controller
         // What the status change SHOULD do is Johan's call, pending; this
         // action only ever writes the contact_property link.
 
+        // .ai/specs/leases.md sec1.3 / conductor ruling 2026-09-15 — gap 1
+        // closed: create the Lease record in the same action, so a real
+        // tenancy has rent/deposit/dates recorded from the moment it's
+        // confirmed, not left to a manual "New Lease" screen an agent might
+        // never visit. Idempotent — a resubmit (or a race) never creates a
+        // second Lease for the same application. Activated immediately: at
+        // this point the tenant is genuinely confirmed on this property, so
+        // 'draft' would just be an extra manual step for no reason. If
+        // another lease is somehow already active on this property (a real
+        // conflict, not the common case), the lease is still created and
+        // recorded, just left in 'draft' with a warning surfaced to the
+        // agent, rather than losing the rent/deposit/dates they just typed.
+        $lease = null;
+        $leaseActivationWarning = null;
+        if (! \App\Models\Lease::withoutGlobalScopes()->where('rental_application_id', $rentalApplication->id)->exists()) {
+            $lease = \App\Models\Lease::create([
+                'agency_id' => $property->agency_id,
+                'branch_id' => $property->branch_id,
+                'property_id' => $property->id,
+                'status' => \App\Models\Lease::STATUS_DRAFT,
+                'rental_amount' => $validated['rental_amount'],
+                'deposit_amount' => $validated['deposit_amount'] ?? null,
+                'start_date' => $validated['lease_start_date'],
+                'end_date' => $validated['lease_end_date'] ?? null,
+                'source' => 'rental_application',
+                'rental_application_id' => $rentalApplication->id,
+                'created_by_user_id' => $request->user()->id,
+            ]);
+
+            \App\Models\LeaseTenant::create([
+                'lease_id' => $lease->id,
+                'contact_id' => $contact->id,
+                'is_primary' => true,
+            ]);
+
+            try {
+                app(\App\Services\Rentals\LeaseActivationService::class)->activate($lease);
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                $leaseActivationWarning = 'The lease was created but could not be activated — '
+                    . implode(' ', $e->validator->errors()->all())
+                    . ' It is saved as a draft; open it from the property\'s Rental tab to resolve.';
+            }
+        }
+
         // Johan, confirmed: one contact holds exactly one role per property,
         // ever — "if that scenario happens the contact will be changed."
         // A role change (or a restore into this role) is a real business
@@ -1195,7 +1248,17 @@ class RentalApplicationController extends Controller
             humanSummary: 'Linked ' . $contact->full_name . ' to ' . $property->buildDisplayAddress() . ' as tenant',
         );
 
-        return back()->with('success', 'Linked to ' . $property->buildDisplayAddress() . ' as tenant.');
+        $successMessage = 'Linked to ' . $property->buildDisplayAddress() . ' as tenant.';
+        if ($lease) {
+            $successMessage .= ' Lease created' . ($leaseActivationWarning ? ' (as a draft — see below).' : ' and activated.');
+        }
+
+        $redirect = back()->with('success', $successMessage);
+        if ($leaseActivationWarning) {
+            $redirect->with('warning', $leaseActivationWarning);
+        }
+
+        return $redirect;
     }
 
     /**
