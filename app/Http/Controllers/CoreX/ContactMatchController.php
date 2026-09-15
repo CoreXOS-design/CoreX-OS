@@ -214,14 +214,6 @@ class ContactMatchController extends Controller
             // manager who holds core_matches.all_view but not
             // branches.view_all, on any agency with branch-split on.
             $q->when($scope !== 'own', fn ($q2) => $q2->withoutGlobalScope(BranchScope::class))
-                // Buyer Pipeline "Lost" sets contact_matches.set_aside_at
-                // (App\Listeners\CoreMatches\SetAsideCoreMatchesOnBuyerLost)
-                // — the event/listener fire correctly and the column gets
-                // set, but nothing on THIS screen ever read it, so a lost
-                // buyer's matches kept rendering. Applied unconditionally,
-                // same as the hard agency wall: a set-aside match is never
-                // shown on this board, on any scope, under any filter.
-                ->when(\Schema::hasColumn('contact_matches', 'set_aside_at'), fn ($q2) => $q2->whereNull('set_aside_at'))
                 ->when($listingType !== '', fn ($q2) => $q2->where('listing_type', $listingType))
                 ->when($statusFilter !== '', fn ($q2) => $q2->where('status', $statusFilter))
                 ->when($savedFrom !== '', fn ($q2) => $q2->whereDate('created_at', '>=', $savedFrom))
@@ -256,6 +248,20 @@ class ContactMatchController extends Controller
         $contactsQuery = Contact::query()
             ->when($scope !== 'own', fn ($q) => $q->withoutGlobalScope(ContactScope::class)->withoutGlobalScope(BranchScope::class))
             ->whereIn('id', $qualifyingContactIds)
+            // A Lost buyer never renders on this board, full stop — history
+            // and future in one filter, no dependency on an event having
+            // fired. contact_matches.set_aside_at (the event/listener pair
+            // in App\Listeners\CoreMatches\*OnBuyerLost/Restored) is single-
+            // purpose and now redundant for THIS screen's own correctness:
+            // it is set by exactly one listener and read by exactly one
+            // other, both built solely for this mechanism (confirmed by
+            // grep — no other caller exists), so carrying both here is how
+            // two signals drift apart, not a safety net. Deliberately reads
+            // buyer_state directly rather than set_aside_at: a buyer moved
+            // to Lost before that column/listener existed (the entire
+            // backlog this replaces) has buyer_state='lost' correctly set,
+            // regardless of whether any event ever fired for them.
+            ->where(fn ($q) => $q->whereNull('buyer_state')->orWhere('buyer_state', '!=', 'lost'))
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($q2) use ($search) {
                     $q2->where('first_name', 'like', "%{$search}%")
