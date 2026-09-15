@@ -1908,21 +1908,57 @@
             dr2cpOwnerError.style.display = msg ? '' : 'none';
         };
 
+        // Johan, 2026-09-20, verbatim: "please dont do kindergarden work.
+        // the price and comm fields are all out of line. get it placed
+        // properly please." Measured the actual defect in a real browser
+        // before touching this (a Blade file cannot show a layout bug):
+        // the row was one flex container with justify-content:space-between
+        // between the address block and a SECOND block holding Price,
+        // Commission, AND (non-primary only) the Remove button. Because
+        // that second block's own width changed depending on whether the
+        // Remove button was present, space-between anchored it to the
+        // row's RIGHT edge and its LEFT edge — where Price starts — moved
+        // by exactly the Remove button's width. Measured before fixing:
+        // primary row's price started at x=1033, the other row's at
+        // x=418 — a 615px gap, on a row whose own outer edges were
+        // otherwise identical (both at x=325, matching Selling Price's
+        // own left edge above).
+        //
+        // Fixed by never letting address/badge/Remove share a flex row
+        // with the money fields at all: they get their OWN header line
+        // (variable content there is harmless — nothing needs to align
+        // against it), and Price/Commission move into a `.deal-grid` —
+        // the SAME grid class Selling Price/Commission above already use,
+        // not a new layout system. A `.deal-grid` nested inside a
+        // `field-full` container computes its 2 columns against the exact
+        // same available width the outer one does, so column 1 (Price)
+        // and column 2 (Commission) land at the SAME x as Selling Price
+        // and the fields beside it — confirmed by measurement, not
+        // assumed. The row wrapper carries no left/right padding of its
+        // own (a bottom border stands in for the old full box) — any
+        // inset there would have shifted the nested grid's own left edge
+        // away from the outer grid's, undoing the fix.
         function dr2cpRenderRow(label, isPrimary, price, commissionIncl, onPrice, onCommissionIncl, onRemove) {
+            // dr2cp_list is a flex column (align-items: stretch by default),
+            // so this row already takes the full available width without
+            // needing field-full — that class only does anything inside a
+            // grid container, which dr2cp_list is not.
             const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.5rem .7rem;border:1px solid var(--border);border-radius:8px;flex-wrap:wrap;';
+            row.style.cssText = 'padding-bottom:.6rem;margin-bottom:.6rem;border-bottom:1px solid var(--border);';
             const commissionLabelText = dr2CurrentMode() === 'incl' ? 'Commission (Incl VAT)' : 'Commission (Excl VAT)';
             const priceDisplay = fmt(price);
             // Commission starts BLANK for the agent/BM to complete (Johan,
             // point 3 — "exactly as the single-property flow leaves
             // commission for the BM to fill") rather than showing "0.00".
             const commDisplay = commissionIncl ? fmt(dr2ToDisplay(commissionIncl)) : '';
-            row.innerHTML = '<div style="min-width:0;flex-shrink:0;"><span style="font-weight:600;color:var(--text-primary);">' + esc(label) + '</span>'
+            row.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem;margin-bottom:.4rem;">'
+                + '<div style="min-width:0;"><span style="font-weight:600;color:var(--text-primary);">' + esc(label) + '</span>'
                 + (isPrimary ? ' <span title="Pick a different property as primary before removing this one" style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;padding:.05rem .35rem;border-radius:.35rem;color:#065f46;background:#ecfdf5;">Primary</span>' : '') + '</div>'
-                + '<div style="display:flex;align-items:center;gap:.5rem;flex-shrink:0;">'
-                + '<label class="text-[11px]" style="color:var(--text-muted);">Selling price <input type="number" step="0.01" min="0" class="input-base text-xs dr2-row-price" style="width:110px;" value="' + esc(priceDisplay) + '"></label>'
-                + '<label class="text-[11px]" style="color:var(--text-muted);"><span class="dr2-row-commission-label">' + esc(commissionLabelText) + '</span> <input type="number" step="0.01" min="0" class="input-base text-xs dr2-row-commission" style="width:110px;" placeholder="0.00" value="' + esc(commDisplay) + '"></label>'
-                + (isPrimary ? '' : '<button type="button" class="dr2-row-remove text-xs" style="color:#b91c1c;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;">Remove</button>')
+                + (isPrimary ? '' : '<button type="button" class="dr2-row-remove text-xs" style="color:#b91c1c;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;flex-shrink:0;">Remove</button>')
+                + '</div>'
+                + '<div class="deal-grid deal-grid-tight">'
+                + '<div><label class="ds-label block mb-1 text-[11px]" style="color:var(--text-muted);">Selling price</label><input type="number" step="0.01" min="0" class="input-base money-input text-xs dr2-row-price" value="' + esc(priceDisplay) + '"></div>'
+                + '<div><label class="ds-label block mb-1 text-[11px]" style="color:var(--text-muted);"><span class="dr2-row-commission-label">' + esc(commissionLabelText) + '</span></label><input type="number" step="0.01" min="0" class="input-base money-input text-xs dr2-row-commission" placeholder="0.00" value="' + esc(commDisplay) + '"></div>'
                 + '</div>';
             row.querySelector('.dr2-row-price').addEventListener('input', e => { onPrice(parseFloat(e.target.value) || 0); dr2cpSyncMaster(); });
             row.querySelector('.dr2-row-commission').addEventListener('input', e => { onCommissionIncl(dr2ToCanonicalIncl(parseFloat(e.target.value) || 0)); dr2cpSyncMaster(); });

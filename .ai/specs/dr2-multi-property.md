@@ -170,6 +170,151 @@ Tests: `tests/Feature/Dr2/Wave2MultiPropertyStatusSyncTest.php` (9 tests,
 including both mixed-status cases by name), zero regressions in the
 pre-existing `tests/Feature/Dr2/Wave2DealPropertyStatusSyncTest.php` (15/15).
 
+### 4a. CORRECTION (2026-09-15) — this section was wrong about CREATE specifically; found live by Johan, not by the tests above
+
+Everything in §4 above is true of the six listeners' own per-property loop
+logic — that part was always correct and remains unchanged. What was false,
+stated here plainly rather than left implicit: **a deal created with two or
+more properties in ONE save never flagged anything past the primary
+under-offer**, on a real QA1 deal (#181), turned on by Johan himself after he
+was first told (wrongly) that the feature was simply switched off.
+
+**Root cause — an event-ordering bug in `DealRegisterController::store()`,
+not a loop bug.** The primary property's `deal_properties` row is written by
+`persistDeal()` (line ~409), which is also where the `Deal` model's
+`created` event fires — and `DealCreated` fires synchronously, right there,
+before the method returns. Every ADDITIONAL property is linked afterward, in
+`applyCreateTimeMultiProperty()` (called at line ~427, AFTER `persistDeal()`
+returns). So at the exact moment `FlagPropertyUnderOfferOnDealCreated` (and
+every other `DealCreated`/`DealStageAdvanced` listener) actually ran,
+`$deal->properties()` could only ever contain the primary — the second
+property's pivot row did not exist yet. Proven on deal #181 with real
+timestamps: the primary's `status_changed` audit row is stamped
+`05:59:07`; the second property's `deal_properties` row is stamped
+`05:59:10` — three seconds later. The loop itself was, and remains,
+correct; it faithfully processed the only property that existed at that
+moment.
+
+**Why `Wave2MultiPropertyStatusSyncTest.php`'s 9 tests never caught this —
+say so plainly, a future reader must not trust a green suite here again
+without reading this**: none of the 9 tests exercise `store()` at all. They
+build the deal via `Deal::create()` directly and attach the second property
+via a raw `DealProperty::create()` call — a deliberate, legitimate lower-level
+testing boundary per this file's own class docblock ("independent of how the
+link was made"). But the specific test covering this exact listener
+(`test_flag_on_create_flags_both_properties_but_skips_one_already_off_market`)
+went further: its own comment said outright that the second property's pivot
+row "did not exist at the moment DealCreated originally fired", and then
+**manually re-fired `DealCreated` a second time by hand** so the assertion
+would pass — describing this as "mirroring how the real `addProperty()`
+action re-runs status sync after attaching," which was not true of the
+CREATE path at the time it was written. The test performed, by hand, exactly
+the missing step production never took. Nine green tests were never capable
+of catching this — the suite was hand-walking the event, not proving it fired
+on its own.
+
+**The fix — same precedent the edit-mode `addProperty()` action already
+established**, applied to `applyCreateTimeMultiProperty()`: once every
+additional property is linked and totals are recalculated, re-fire the
+create-time events (`DealCreated` when `accepted_status` is P/G;
+`DealStageAdvanced` too when it's G/R) so the listeners see the COMPLETE
+property set, not just the primary. `persistDeal()` and
+`applyCreateTimeMultiProperty()` are NOT reordered — the owner-set gate
+inside the latter needs the primary already linked to compare against, so
+the primary must be linked first; the fix re-notifies afterward instead of
+trying to see everything in one pass. **Idempotent on the primary, confirmed
+by reading both listeners, not assumed**: `FlagPropertyUnderOfferOnDealCreated`
+and `EnsurePropertyUnderOfferOnGrant` both skip a property already at
+`under_offer` before doing anything — the primary (correctly flagged by the
+first, real firing) gets no second save, no duplicate audit row, no
+duplicate portal push on the re-fire.
+
+**The test fix**: the failing test above was rewritten to POST to the real
+`deals-dr2.store` endpoint with two properties and assert both change
+status — nothing done by hand that production doesn't do. A new named
+regression test, `test_johans_deal_181_scenario_creating_with_two_properties_flags_both_under_offer`,
+pins his exact real scenario (two on-market properties, one save, both must
+flag under-offer) so this specific failure can never silently return. The
+other two tests in this file that still manually re-fire `DealCreated`
+(`test_declining_a_multi_property_deal_reverts_only_the_property_with_no_other_active_deal`,
+`test_new_multi_property_capture_is_auto_declined_if_either_property_is_already_committed`)
+are testing different listeners' logic given an already-fully-linked deal —
+a legitimate lower-level boundary, not the create-endpoint ordering bug —
+and their comments were corrected to say so plainly rather than repeat the
+now-known-false "mirrors production" claim.
+
+**Verified against a real, disposable QA1 deal** — deal #182, properties
+21038/21039 ("THROWAWAY CC6 DR2 Verify Property A/B", syndication disabled),
+real POST to the real create endpoint: both properties `for_sale` before,
+both `under_offer` after — confirmed not just in the database but in the
+actual rendered property pages fetched live (`Under Offer` present in both
+responses).
+
+### 4b. SECOND correction (2026-09-15) — the decline-after-sold revert never fired either
+
+Johan walked the same deal further, end to end, immediately after 4a
+landed: pending → both under offer (correct), granted → both sold
+(correct), then **declined → both stayed sold; neither reverted** (real
+deal #183, properties #15936/#15937). Not the same bug as 4a — by decline
+time both `deal_properties` rows already existed, so the event-ordering fix
+above was not in play here. A genuinely different defect in the same
+listener family.
+
+**Root cause, two-fold, confirmed on deal #183's real `property_audit_log`
+timestamps (zero rows for either property at the moment of decline — the
+listener never touched them at all), not assumed:**
+
+1. `RevertPropertyStatusOnDealDeclined` required a property's status to be
+   EXACTLY `under_offer` before considering it at all. By decline time both
+   properties were `sold` (correctly set by `MarkPropertySoldOnDealMilestone`
+   at grant) — so the guard skipped them before ever reaching the
+   `otherActiveDealsExistForProperty()` aggregate check below it. That
+   check itself was verified correct (a fresh, current-DB-state query,
+   properly excluding the declining deal's own id) — it was simply never
+   reached.
+2. `MarkPropertySoldOnDealMilestone` explicitly nulled `pre_deal_offer_status`
+   when marking a property sold, on the stated assumption "sold is
+   terminal — no revert target." Johan's real walk disproves that
+   assumption for his workflow: a GRANTED deal can still be DECLINED
+   afterward (a bond falling through, a buyer backing out post-grant), and
+   when that happens the property must come back on market. Even after
+   fixing (1) alone, there would have been nothing left to restore.
+
+**The fix**: `RevertPropertyStatusOnDealDeclined`'s status guard now accepts
+`under_offer` OR `sold`; `MarkPropertySoldOnDealMilestone` no longer nulls
+`pre_deal_offer_status` on the sold transition — it's preserved through
+under-offer→sold exactly as it already was through the earlier stages. The
+aggregate exclusivity check (`otherActiveDealsExistForProperty`) is
+UNCHANGED and still protects a property that's genuinely sold/committed via
+a DIFFERENT, still-active deal (proven safe by the same mechanism the
+existing `AutoDeclineSiblingDealsOnGrant` cascade already relies on — a
+sibling auto-declined as a side effect of another deal's grant still sees
+that other deal as active and correctly does not revert).
+
+**A related, NOT-yet-fixed gap, found while checking the same class,
+reported rather than silently folded in**: `accepted_status` can also move
+backward — e.g. Granted straight back to Pending — via `quickUpdate()` or
+`persistDeal()`'s edit path, with no restriction against it. `DealObserver`
+only fires `DealStageAdvanced` on FORWARD rank progression and `DealClosed`
+only on Declined/Registered — a G→P move fires NEITHER event, so a property
+already `sold`/`under_offer` would stay that way with no automatic
+correction at all, the same failure mode as this bug via a different,
+unguarded path. This is architecturally a different fix (no event fires at
+all, vs. an event firing but being guarded wrong) — adding one would mean
+introducing a new "stage reverted" trigger, a larger, un-requested change.
+Flagging for Johan's call, not building it here.
+
+**Test**: a new named regression test drives all three real transitions —
+POST to the real create endpoint (pending), then two real Eloquent
+`accepted_status` updates (granted, then declined) — the exact mechanism
+`quickUpdate()`/`persistDeal()` themselves use, no hand-fired events
+anywhere. Proven to fail against the pre-fix code with Johan's exact
+symptom (`-'for_sale' +'sold'`), then pass after restoring the fix.
+
+**Verified against a real, disposable QA1 deal, all three steps, page
+fetched at each** — see the verification note appended once that walk has
+actually been run.
+
 ## 5. Schema — `property_id` stays primary
 
 `deals.property_id` is **unchanged** — it continues to mean "the primary
@@ -982,6 +1127,67 @@ values were untouched by the flip; inspected the actual hidden inputs a
 real two-property submission would post and confirmed `property_value`/
 `total_commission` and both properties' own `allocated_price`/
 `allocated_commission` were exactly correct.
+
+## 8f. Row layout — property fields must share the Financials grid, not their own flexbox (2026-09-20)
+
+Johan, testing the additive-master build live, verbatim: **"please dont do
+kindergarden work. the price and comm fields are all out of line. get it
+placed properly please."** Correct, and diagnosed the way this class of
+bug has to be diagnosed — a real browser, a screenshot, and computed
+pixel positions, not a re-read of the Blade markup.
+
+**Root cause, measured, not inferred**: each property row was one flex
+container (`display:flex; justify-content:space-between`) with exactly
+two children — the address/badge block, and a SECOND block holding Price,
+Commission, and (non-primary rows only) the Remove button. Because that
+second block's own width depended on whether Remove was present,
+`space-between` anchored it to the row's RIGHT edge, and its LEFT edge —
+where Price starts — moved by exactly the width Remove added. Measured
+before touching anything, at 1500px: the primary row's price input started
+at x=1033; the other row's, x=418 — a 615px gap — even though both rows'
+own outer edges were identical (both x=325, already matching Selling
+Price's own left edge above). Exactly the mechanism Johan named as the
+likely cause: "extra elements pushing one row's fields out of line."
+
+**Fix**: address/badge/Remove now live on their OWN header line inside
+each row — variable content there is harmless, since nothing needs to
+align against it. Price and Commission move into a `.deal-grid
+deal-grid-tight` — the SAME class Selling Price/Commission Amount above
+already use, not a new layout system. A `.deal-grid` nested inside a
+`field-full` container computes its 2 columns against the exact same
+available width the outer one does, so the columns land at the same x
+regardless of nesting depth — this is a property of how CSS Grid sizes
+`grid-template-columns` from container width, not something that needs a
+shared grid instance. The row wrapper itself carries NO left/right
+padding (a bottom border replaces the old full bordered box) — any inset
+there would have shifted the nested grid's own left edge away from the
+outer grid's and silently reintroduced a smaller version of the same bug.
+Both row inputs also gained the `.money-input` class (`width: min(18rem,
+100%)`) that Selling Price/Commission Amount already carry — without it,
+the rows stretched to their full grid-cell width at narrow viewports
+(549px) while the Financials fields above stayed capped at 288px,
+producing a second, smaller mismatch.
+
+**Measured after the fix, real browser, four viewports** (left/width in
+px; both rows and both Financials reference fields shown for each):
+
+| Viewport | Selling Price | Commission Amount | Row 1 price | Row 1 commission | Row 2 price | Row 2 commission |
+|---|---|---|---|---|---|---|
+| 1500px | x=325 w=260 | x=880 w=260 | x=325 w=260 | x=880 w=260 | x=325 w=260 | x=880 w=260 |
+| 1366px (laptop) | x=325 w=260 | x=813 w=260 | x=325 w=260 | x=813 w=260 | x=325 w=260 | x=813 w=260 |
+| 1024px | x=325 w=260 | x=642 w=260 | x=325 w=260 | x=642 w=260 | x=325 w=260 | x=642 w=260 |
+| 700px (below `md`, single column) | x=77 w=288 | x=77 w=288 | x=77 w=288 | x=77 w=288 | x=77 w=288 | x=77 w=288 |
+
+Every row's own price column matches Selling Price's x/width exactly;
+every row's own commission column matches Commission Amount's x/width
+exactly; both rows match each other exactly — at every width tested, not
+just desktop. Screenshots taken before and after at 1500px, plus the
+1024px and 700px passes, are the actual proof this was checked, not
+assumed — a Blade diff cannot show a layout bug, only a rendered page can.
+
+No new layout system was invented — `.deal-grid`/`.deal-grid-tight`/
+`.money-input` are the exact classes Financials already used above this
+list, reused verbatim.
 
 ## 9. Scoping
 
