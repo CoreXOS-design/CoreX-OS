@@ -53,7 +53,7 @@ final class ContactMatchWorkingClockTest extends TestCase
             'name' => 'Test', 'listing_type' => 'sale',
         ]);
 
-        ContactMatchShare::record($match, $this->agent->id, ContactMatchShare::CHANNEL_WHATSAPP);
+        $match->mintShareLink($this->agent->id)->confirmSent(ContactMatchShare::CHANNEL_WHATSAPP);
 
         $this->contact->refresh();
         $this->assertNotNull($this->contact->last_contacted_at);

@@ -39,6 +39,9 @@ class AgencyContactSettings extends Model
         // AT-75 — MIC buyer-match knobs (agency-configurable, never hardcoded).
         'mic_match_threshold',
         'mic_price_band_pct',
+        // AT-Core-Matches, "reduced into match" ruling — newsworthy price-drop
+        // threshold (%, agency-configurable, never hardcoded).
+        'core_matches_price_drop_threshold_pct',
         'contact_retention_years',
         'consent_retention_years',
         'access_log_retention_years',
@@ -68,6 +71,7 @@ class AgencyContactSettings extends Model
         'min_countable_criteria' => 'array',
         'mic_match_threshold' => 'integer',
         'mic_price_band_pct' => 'integer',
+        'core_matches_price_drop_threshold_pct' => 'integer',
         'contact_retention_years' => 'integer',
         'consent_retention_years' => 'integer',
         'access_log_retention_years' => 'integer',
@@ -110,6 +114,9 @@ class AgencyContactSettings extends Model
     public const DEFAULT_MIC_MATCH_THRESHOLD = 75;
     /** AT-75 — price-band drift tolerance (%) past the stated band before decay. */
     public const DEFAULT_MIC_PRICE_BAND_PCT = 10;
+
+    /** AT-Core-Matches — default "reduced into match" newsworthiness threshold (%). */
+    public const DEFAULT_CORE_MATCHES_PRICE_DROP_THRESHOLD_PCT = 3;
 
     /**
      * AT-71 — default countable-buyer bar. ['any'] = a wishlist is countable if
@@ -156,6 +163,7 @@ class AgencyContactSettings extends Model
             'min_countable_criteria' => self::DEFAULT_MIN_COUNTABLE_CRITERIA,
             'mic_match_threshold' => self::DEFAULT_MIC_MATCH_THRESHOLD,
             'mic_price_band_pct' => self::DEFAULT_MIC_PRICE_BAND_PCT,
+            'core_matches_price_drop_threshold_pct' => self::DEFAULT_CORE_MATCHES_PRICE_DROP_THRESHOLD_PCT,
             'contact_retention_years' => 5,
             'consent_retention_years' => 5,
             'access_log_retention_years' => 5,
@@ -295,6 +303,19 @@ class AgencyContactSettings extends Model
     public function micPriceBandFraction(): float
     {
         $pct = (int) ($this->mic_price_band_pct ?? self::DEFAULT_MIC_PRICE_BAND_PCT);
+        return max(0, min(100, $pct)) / 100;
+    }
+
+    /**
+     * AT-Core-Matches, "reduced into match" ruling — resolved price-drop
+     * newsworthiness threshold as a fraction (e.g. 0.03). A cut smaller
+     * than this, even one that crosses into a buyer's range, is not
+     * flagged as "Reduced" — Johan's own bar: a rounding-error drop is not
+     * news.
+     */
+    public function coreMatchesPriceDropThresholdFraction(): float
+    {
+        $pct = (int) ($this->core_matches_price_drop_threshold_pct ?? self::DEFAULT_CORE_MATCHES_PRICE_DROP_THRESHOLD_PCT);
         return max(0, min(100, $pct)) / 100;
     }
 

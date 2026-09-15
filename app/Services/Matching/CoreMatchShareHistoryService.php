@@ -64,10 +64,20 @@ class CoreMatchShareHistoryService
             ->values();
     }
 
-    /** Full share event log for this match, latest first. */
+    /**
+     * Full CONFIRMED share event log for this match, latest first. A minted
+     * but never-sent link (confirmed_at null) never appears here — it isn't
+     * a share, it's an abandoned composer.
+     */
     public function shares(ContactMatch $match): Collection
     {
-        return $match->shares()->with('sharedBy')->latest('shared_at')->get();
+        return $match->shares()->whereNotNull('confirmed_at')->with('sharedBy')->latest('shared_at')->get();
+    }
+
+    /** Latest CONFIRMED share timestamp for this match, or null if never sent. */
+    public function lastSharedAt(ContactMatch $match): ?\Illuminate\Support\Carbon
+    {
+        return $match->shares()->whereNotNull('confirmed_at')->latest('shared_at')->first()?->shared_at;
     }
 
     /**

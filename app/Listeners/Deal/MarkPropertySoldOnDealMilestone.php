@@ -53,8 +53,18 @@ class MarkPropertySoldOnDealMilestone
                         continue;
                     }
 
+                    // Bug found live on QA1, 2026-09-15 (Johan, deal #183): this
+                    // used to null pre_deal_offer_status here on the assumption
+                    // sold is terminal — but a GRANTED deal can still be
+                    // DECLINED afterward (a bond falls through, a buyer backs
+                    // out post-grant), and when that happens the property must
+                    // come back on market. Nulling the prior status here left
+                    // RevertPropertyStatusOnDealDeclined with nothing to
+                    // restore even once its own status guard was fixed to
+                    // accept 'sold'. Preserve it instead — this property's
+                    // pre-deal on-market status doesn't change just because
+                    // the deal advanced past under-offer.
                     $property->status = 'sold';
-                    $property->pre_deal_offer_status = null; // sold is terminal — no revert target.
                     $property->save();
                 } catch (\Throwable $e) {
                     \Log::warning('Wave2 MarkPropertySoldOnDealMilestone failed for one property', [

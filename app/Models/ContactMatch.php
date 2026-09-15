@@ -227,9 +227,22 @@ class ContactMatch extends Model
         return $candidate;
     }
 
+    /**
+     * The permanent, static per-wishlist link — unchanged, still what the
+     * "Client Page" preview anchor uses. Deliberately NOT what a WhatsApp/
+     * Email send embeds any more (see mintShareLink()) — this one is never
+     * recorded as a share, since opening it proves nothing about whether
+     * the buyer was ever sent anything.
+     */
     public function sharedUrl(): string
     {
         return route('shared.match', $this->share_slug ?: $this->share_token);
+    }
+
+    /** A fresh, dated, independently-resolvable link — see ContactMatchShare::mint(). */
+    public function mintShareLink(int $mintedByUserId): ContactMatchShare
+    {
+        return ContactMatchShare::mint($this, $mintedByUserId);
     }
 
     public function contact(): BelongsTo

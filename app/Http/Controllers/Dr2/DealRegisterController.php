@@ -558,6 +558,29 @@ class DealRegisterController extends Controller
         }
 
         app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal->fresh());
+
+        // Bug found live on QA1, 2026-09-15 (Johan, deal #181): the primary's
+        // deal_properties row is written by persistDeal() above BEFORE this
+        // method ever runs, so DealCreated (fired off that same persistDeal()
+        // save) only ever sees the primary — every additional property linked
+        // HERE was invisible to FlagPropertyUnderOfferOnDealCreated and every
+        // other create-time listener, every time. Same fix, same precedent,
+        // as addProperty() already uses when it attaches a property to an
+        // EXISTING deal: re-fire the create-time events now that every
+        // property is actually linked, so the listeners see the complete set.
+        // Idempotent on the primary — FlagPropertyUnderOfferOnDealCreated and
+        // EnsurePropertyUnderOfferOnGrant both skip a property already at
+        // 'under_offer' before doing anything, so the primary (already
+        // correctly flagged by the first, real DealCreated firing) gets no
+        // second save, no duplicate audit row, no duplicate portal push —
+        // confirmed by reading both listeners, not assumed.
+        $fresh = $deal->fresh();
+        if (in_array($fresh->accepted_status, ['P', 'G'], true)) {
+            event(new \App\Events\Deal\DealCreated($fresh, auth()->id()));
+        }
+        if (in_array($fresh->accepted_status, ['G', 'R'], true)) {
+            event(new \App\Events\Deal\DealStageAdvanced($fresh, $fresh->accepted_status, $fresh->accepted_status, auth()->id()));
+        }
     }
 
     /** DR2 capture persist (update) — DR1 parity (Admin\DealController::update). */

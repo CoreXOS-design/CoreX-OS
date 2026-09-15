@@ -4060,13 +4060,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.reassign')
         ->name('corex.core-matches.reassign');
 
-    // AT-Core-Matches, Johan's ruling 4 — logs a share event (internal-only)
-    // and resets the buyer's working clock. Same core_matches.view gate as
-    // reading the match itself — anyone who can see a match and act on it
-    // may share its live link; reassignment is the privileged action, not this.
-    Route::post('/core-matches/{match}/record-share', [\App\Http\Controllers\CoreX\ContactMatchShareController::class, 'record'])
+    // AT-Core-Matches, Johan's dated-link ruling — confirms a share that was
+    // already MINTED server-side when the composer rendered (see
+    // ContactMatch::mintShareLink()); this is the actual send click, and is
+    // what makes it count (channel + property snapshot + working-clock
+    // reset). Same core_matches.view gate as reading the match itself —
+    // anyone who can see a match and act on it may share its live link;
+    // reassignment is the privileged action, not this.
+    Route::post('/core-matches/shares/{share}/confirm', [\App\Http\Controllers\CoreX\ContactMatchShareController::class, 'confirm'])
         ->middleware('permission:core_matches.view')
-        ->name('corex.core-matches.record-share');
+        ->name('corex.core-matches.shares.confirm');
 
     // AT-Core-Matches, share-history piece — read-only: the share log, the
     // separate "opened" signal, and "properties not seen since last send"
@@ -4076,6 +4079,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/core-matches/{match}/share-history', [\App\Http\Controllers\CoreX\ContactMatchShareHistoryController::class, 'show'])
         ->middleware('permission:core_matches.view')
         ->name('corex.core-matches.share-history');
+
+    // AT-Core-Matches, the board's "Send N new" popup — HTML fragment fetched
+    // into the SAME shared modal shell cc3's notes popup uses. Same gate as
+    // share-history above.
+    Route::get('/core-matches/{match}/new-since-share', [\App\Http\Controllers\CoreX\ContactMatchShareHistoryController::class, 'newSinceQuickView'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.core-matches.new-since-share');
 
     // AT-403 — Rentals → Contacts. Johan: "rental menu - wheres my rental
     // contacts?" Same ContactController::index() as corex.contacts.index

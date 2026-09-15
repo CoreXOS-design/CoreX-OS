@@ -494,6 +494,8 @@ CREATE TABLE `agency_contact_settings` (
   `buyer_warm_days` int unsigned NOT NULL DEFAULT '14',
   `buyer_cold_days` int unsigned NOT NULL DEFAULT '30',
   `buyer_lost_days` int unsigned NOT NULL DEFAULT '60',
+  `core_matches_working_window_days` smallint unsigned DEFAULT NULL,
+  `core_matches_price_drop_threshold_pct` tinyint unsigned NOT NULL DEFAULT '3',
   `outreach_no_response_days` smallint unsigned NOT NULL DEFAULT '7',
   `min_countable_criteria` json DEFAULT NULL,
   `mic_match_threshold` tinyint unsigned NOT NULL DEFAULT '75',
@@ -3813,6 +3815,23 @@ CREATE TABLE `contact_match_feedback` (
   CONSTRAINT `contact_match_feedback_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `contact_match_link_opens`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `contact_match_link_opens` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_match_id` bigint unsigned NOT NULL,
+  `opened_at` timestamp NOT NULL,
+  `created_at` timestamp NOT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `contact_match_link_opens_agency_id_foreign` (`agency_id`),
+  KEY `contact_match_link_opens_contact_match_id_opened_at_index` (`contact_match_id`,`opened_at`),
+  CONSTRAINT `contact_match_link_opens_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_match_link_opens_contact_match_id_foreign` FOREIGN KEY (`contact_match_id`) REFERENCES `contact_matches` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `contact_match_notifications`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -3837,6 +3856,79 @@ CREATE TABLE `contact_match_notifications` (
   CONSTRAINT `contact_match_notifications_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `contact_match_reassignments`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `contact_match_reassignments` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_match_id` bigint unsigned NOT NULL,
+  `from_agent_id` bigint unsigned DEFAULT NULL,
+  `to_agent_id` bigint unsigned NOT NULL,
+  `moved_by_user_id` bigint unsigned NOT NULL,
+  `reason` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `contact_match_reassignments_agency_id_foreign` (`agency_id`),
+  KEY `contact_match_reassignments_from_agent_id_foreign` (`from_agent_id`),
+  KEY `contact_match_reassignments_to_agent_id_foreign` (`to_agent_id`),
+  KEY `contact_match_reassignments_moved_by_user_id_foreign` (`moved_by_user_id`),
+  KEY `contact_match_reassignments_contact_match_id_created_at_index` (`contact_match_id`,`created_at`),
+  CONSTRAINT `contact_match_reassignments_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_match_reassignments_contact_match_id_foreign` FOREIGN KEY (`contact_match_id`) REFERENCES `contact_matches` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_match_reassignments_from_agent_id_foreign` FOREIGN KEY (`from_agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contact_match_reassignments_moved_by_user_id_foreign` FOREIGN KEY (`moved_by_user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT,
+  CONSTRAINT `contact_match_reassignments_to_agent_id_foreign` FOREIGN KEY (`to_agent_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `contact_match_share_properties`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `contact_match_share_properties` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_match_id` bigint unsigned NOT NULL,
+  `contact_match_share_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `created_at` timestamp NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `contact_match_share_properties_agency_id_foreign` (`agency_id`),
+  KEY `contact_match_share_properties_contact_match_share_id_foreign` (`contact_match_share_id`),
+  KEY `contact_match_share_properties_property_id_foreign` (`property_id`),
+  KEY `cmsp_match_property_idx` (`contact_match_id`,`property_id`),
+  CONSTRAINT `contact_match_share_properties_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_match_share_properties_contact_match_id_foreign` FOREIGN KEY (`contact_match_id`) REFERENCES `contact_matches` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_match_share_properties_contact_match_share_id_foreign` FOREIGN KEY (`contact_match_share_id`) REFERENCES `contact_match_shares` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_match_share_properties_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `contact_match_shares`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `contact_match_shares` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `token` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `agency_id` bigint unsigned NOT NULL,
+  `contact_match_id` bigint unsigned NOT NULL,
+  `shared_by_user_id` bigint unsigned NOT NULL,
+  `channel` enum('copy_link','whatsapp','email','other') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `shared_at` timestamp NOT NULL,
+  `confirmed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `contact_match_shares_token_unique` (`token`),
+  KEY `contact_match_shares_agency_id_foreign` (`agency_id`),
+  KEY `contact_match_shares_shared_by_user_id_foreign` (`shared_by_user_id`),
+  KEY `contact_match_shares_contact_match_id_shared_at_index` (`contact_match_id`,`shared_at`),
+  CONSTRAINT `contact_match_shares_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_match_shares_contact_match_id_foreign` FOREIGN KEY (`contact_match_id`) REFERENCES `contact_matches` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `contact_match_shares_shared_by_user_id_foreign` FOREIGN KEY (`shared_by_user_id`) REFERENCES `users` (`id`) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `contact_matches`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -3848,10 +3940,12 @@ CREATE TABLE `contact_matches` (
   `share_slug` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `contact_id` bigint unsigned NOT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `agent_id` bigint unsigned DEFAULT NULL,
   `updated_by_user_id` bigint unsigned DEFAULT NULL,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `listing_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'sale',
   `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'active',
+  `set_aside_at` timestamp NULL DEFAULT NULL,
   `is_primary` tinyint(1) NOT NULL DEFAULT '0',
   `category` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `property_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -3894,7 +3988,9 @@ CREATE TABLE `contact_matches` (
   KEY `contact_matches_updated_by_user_id_foreign` (`updated_by_user_id`),
   KEY `cm_contact_primary_idx` (`contact_id`,`is_primary`),
   KEY `contact_matches_branch_id_foreign` (`branch_id`),
+  KEY `contact_matches_agent_id_foreign` (`agent_id`),
   CONSTRAINT `contact_matches_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `contact_matches_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contact_matches_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
   CONSTRAINT `contact_matches_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE CASCADE,
   CONSTRAINT `contact_matches_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
@@ -3989,6 +4085,7 @@ CREATE TABLE `contact_property` (
   `role` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_primary` tinyint(1) NOT NULL DEFAULT '0',
   `source` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -9413,6 +9510,7 @@ CREATE TABLE `portal_leads` (
   `contact_id` bigint unsigned DEFAULT NULL,
   `contact_exists` tinyint(1) NOT NULL DEFAULT '0',
   `existing_contact_agent_id` bigint unsigned DEFAULT NULL,
+  `received_by_user_id` bigint unsigned DEFAULT NULL,
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `phone` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -9432,10 +9530,12 @@ CREATE TABLE `portal_leads` (
   KEY `pl_portal_ref_recv_idx` (`portal`,`listing_portal_ref`,`received_at`),
   KEY `portal_leads_agency_id_notified_at_index` (`agency_id`,`notified_at`),
   KEY `portal_leads_received_at_index` (`received_at`),
+  KEY `portal_leads_received_by_user_id_foreign` (`received_by_user_id`),
   CONSTRAINT `portal_leads_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `portal_leads_contact_id_foreign` FOREIGN KEY (`contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL,
   CONSTRAINT `portal_leads_existing_contact_agent_id_foreign` FOREIGN KEY (`existing_contact_agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `portal_leads_listing_id_foreign` FOREIGN KEY (`listing_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL
+  CONSTRAINT `portal_leads_listing_id_foreign` FOREIGN KEY (`listing_id`) REFERENCES `properties` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `portal_leads_received_by_user_id_foreign` FOREIGN KEY (`received_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `portal_listing_observations`;
@@ -12264,6 +12364,8 @@ CREATE TABLE `rental_application_qualifying_settings` (
   `return_gate_method` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `return_gate_attempt_max` tinyint unsigned DEFAULT NULL,
   `return_gate_attempt_window_minutes` smallint unsigned DEFAULT NULL,
+  `required_field_keys` json DEFAULT NULL,
+  `marital_status_options` json DEFAULT NULL,
   `identity_gate_enabled` tinyint(1) DEFAULT NULL,
   `identity_gate_otp_length` tinyint unsigned DEFAULT NULL,
   `identity_gate_otp_expiry_minutes` int unsigned DEFAULT NULL,
@@ -16523,3 +16625,16 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1336,'2026_09_13_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1337,'2026_09_16_090000_add_approved_subject_to_fica_at_to_rental_applications',314);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1338,'2026_09_15_100000_add_identity_gate_settings_to_rental_application_qualifying_settings',315);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1339,'2026_09_15_100100_add_identity_gate_to_rental_applications',315);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1340,'2026_09_13_140000_add_submission_requirements_to_rental_application_qualifying_settings',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1341,'2026_09_14_150000_add_received_by_user_id_to_portal_leads_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1342,'2026_09_14_150100_add_agent_id_to_contact_matches_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1343,'2026_09_14_150200_create_contact_match_reassignments_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1344,'2026_09_14_150300_add_core_matches_working_window_days_to_agency_contact_settings_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1345,'2026_09_14_150400_add_set_aside_at_to_contact_matches_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1346,'2026_09_14_150500_create_contact_match_shares_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1347,'2026_09_14_150600_add_soft_deletes_to_contact_match_shares_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1348,'2026_09_14_150700_create_contact_match_share_properties_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1349,'2026_09_14_150800_create_contact_match_link_opens_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1350,'2026_09_15_090000_add_token_and_confirmation_to_contact_match_shares_table',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1351,'2026_09_15_090100_add_price_drop_threshold_to_agency_contact_settings',316);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1352,'2026_09_16_100000_add_deleted_at_to_contact_property',316);

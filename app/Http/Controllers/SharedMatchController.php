@@ -8,9 +8,11 @@ use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
 use App\Models\ContactMatchLinkOpen;
+use App\Models\ContactMatchShare;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
+use App\Services\BuyerStateService;
 use App\Services\Leads\SharedLinkReengagementService;
 use App\Services\Matching\MatchingService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -21,7 +23,11 @@ use Illuminate\Support\Collection;
 
 class SharedMatchController extends Controller
 {
-    public function __construct(protected MatchingService $matching) {}
+    public function __construct(
+        protected MatchingService $matching,
+        protected \App\Services\Matching\CoreMatchShareHistoryService $shareHistory,
+        protected \App\Services\Matching\CoreMatchReasonClassifier $reasonClassifier,
+    ) {}
 
     public function show(Request $request, string $token)
     {
@@ -61,7 +67,10 @@ class SharedMatchController extends Controller
                 ->whereNotNull('deleted_at')
                 ->with(['contact', 'createdBy'])
                 ->where(function ($q) use ($token) {
-                    $q->where('share_slug', $token)->orWhere('share_token', $token);
+                    $q->where('share_slug', $token)->orWhere('share_token', $token)
+                        // A per-share dated link whose wishlist has since been
+                        // archived falls back the same way a per-wishlist token does.
+                        ->orWhereHas('shares', fn ($sq) => $sq->where('token', $token));
                 })
                 ->first();
 
@@ -93,6 +102,10 @@ class SharedMatchController extends Controller
         }
 
         $contact = $match->contact;
+
+        if (!$this->isBuyerActive($match)) {
+            return $this->showExpired($contact, (int) $match->agency_id, $token);
+        }
 
         // AT-Core-Matches, share-history piece — "the buyer opened the
         // link" is a separate, valuable signal from "the agent shared the
@@ -199,6 +212,11 @@ class SharedMatchController extends Controller
         }
 
         $contact = $anchor->contact;
+
+        if (!$this->isBuyerActive($anchor)) {
+            return $this->showExpired($contact, (int) $buyerLink->agency_id, $buyerLink->slug);
+        }
+
         // Share-history piece — see the identical comment in show() above;
         // the buyer-level link resolves to this same anchor wishlist, so
         // the "opened" event is recorded against it exactly the same way.
@@ -386,9 +404,23 @@ class SharedMatchController extends Controller
 
             $properties = $this->matching->propertiesForMatch($m, $matchOverrides);
 
+            // AT-Core-Matches, Johan's "interactive" ruling — per-property
+            // New/Reduced/Back-on-market markers on the buyer's OWN page.
+            // Computed against the wishlist's own saved criteria (never the
+            // ad-hoc override form above), same reason source as the
+            // agent's board popup. CRITERIA_WIDENED is filtered out here,
+            // unconditionally, server-side — it is never sent to this view,
+            // never mind hidden by it; "this now matches because you
+            // widened their budget" is not a sentence for a buyer to read.
+            $markers = $this->reasonClassifier
+                ->classify($m, $this->shareHistory->neverSentProperties($m))
+                ->filter(fn ($row) => in_array($row['reason'], \App\Services\Matching\CoreMatchReasonClassifier::BUYER_VISIBLE_REASONS, true))
+                ->pluck('reason', 'property.id');
+
             return [
                 'match'      => $m,
                 'properties' => $properties,
+                'markers'    => $markers,
                 'feedback'   => $m->feedback()->get()->keyBy('property_id'),
                 'filters'    => [
                     'category'     => $matchOverrides['category']      ?? $m->category,
@@ -457,16 +489,80 @@ class SharedMatchController extends Controller
     }
 
     /**
-     * Look up a match by share_slug (preferred) or share_token (legacy).
-     * Public route — bypasses agency scope.
+     * Look up a match by share_slug (preferred), share_token (legacy), or —
+     * Johan's dated-link ruling — a per-share token minted by
+     * ContactMatchShare::mint(). Every dated link keeps resolving here
+     * forever (no expiry-by-age); only a Won/Lost buyer stops resolving,
+     * checked separately by isBuyerActive() at the call sites. A pending
+     * (never-confirmed) share token intentionally still resolves — the
+     * agent themselves may reload the composer and expect the link they
+     * just saw to work; confirmed_at only gates whether it COUNTS as a
+     * share, never whether it's clickable. Public route — bypasses agency
+     * scope.
      */
     protected function resolveMatch(string $key, array $with = []): ContactMatch
     {
-        return ContactMatch::withoutGlobalScope(AgencyScope::class)
+        $match = ContactMatch::withoutGlobalScope(AgencyScope::class)
             ->with($with)
             ->where(function ($q) use ($key) {
                 $q->where('share_slug', $key)->orWhere('share_token', $key);
             })
-            ->firstOrFail();
+            ->first();
+
+        if ($match) {
+            return $match;
+        }
+
+        $shareWith = array_map(fn ($rel) => "contactMatch.$rel", $with);
+        $share = ContactMatchShare::withoutGlobalScope(AgencyScope::class)
+            ->where('token', $key)
+            ->with(array_merge(['contactMatch'], $shareWith))
+            ->first();
+
+        if ($share?->contactMatch) {
+            return $share->contactMatch;
+        }
+
+        throw (new \Illuminate\Database\Eloquent\ModelNotFoundException())->setModel(ContactMatch::class);
+    }
+
+    /**
+     * Johan's dated-link ruling — every link (per-wishlist, buyer-level, or
+     * per-share) stays resolvable forever UNTIL the buyer is Won or Lost;
+     * nothing expires a link by age. Checked once, applied uniformly, so
+     * every token type dies the same way through the same code.
+     *
+     * Won is unambiguous — always deliberate (BuyerStateService::markWon(),
+     * fired off a genuine property link). set_aside_at is always deliberate
+     * too — only ever set by SetAsideCoreMatchesOnBuyerLost, which only
+     * fires off the explicit Buyer Pipeline "Lost" action. buyer_state ===
+     * 'lost' kills it regardless of how the buyer got there.
+     *
+     * That used to carve out auto-recompute-reasoned 'lost' transitions
+     * (buyer_cold_days/buyer_lost_days staleness — nobody clicked
+     * anything), because at the time ANY agency's buyer could silently
+     * drift to Lost with no configuration or consent at all, and Johan
+     * didn't want a link dying for that reason alone. Superseded by his
+     * own ruling: auto-lost is now an agency-configurable, OFF-by-default
+     * setting (buyer_auto_lost_enabled on agency_contact_settings) — cc3
+     * gates it BEFORE the write, in BuyerStateService::resolveState()
+     * itself, so an auto_recompute-reasoned transition to 'lost' can no
+     * longer exist at all unless that agency explicitly opted in (verified:
+     * tests/Feature/BuyerPipeline/AutoLostSettingsTest.php). The moment
+     * that's true, the reason string stops meaning "nobody decided this" —
+     * it means "this agency's own policy decided this" — so there is no
+     * silent case left to guard against, and distinguishing auto from
+     * manual here would just be wrong twice over: once for treating an
+     * agency's deliberate policy as an accident, and once for leaving a
+     * dead buyer's bookmarked link alive past the point they were ruled
+     * Lost by any means.
+     */
+    protected function isBuyerActive(ContactMatch $match): bool
+    {
+        $buyerState = $match->contact?->buyer_state;
+
+        return $match->set_aside_at === null
+            && $buyerState !== BuyerStateService::WON
+            && $buyerState !== 'lost';
     }
 }

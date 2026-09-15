@@ -85,6 +85,12 @@ final class ContactMatchShareHistoryTest extends TestCase
         ]);
     }
 
+    /** Mint + confirm in one call — the two-phase flow collapsed for tests that only care about the end state. */
+    private function confirmedShare(ContactMatch $match, ?string $channel = null): ContactMatchShare
+    {
+        return $match->mintShareLink($this->agent->id)->confirmSent($channel);
+    }
+
     public function test_a_share_snapshots_exactly_the_live_matched_properties_at_that_moment(): void
     {
         $match = $this->match();
@@ -93,7 +99,7 @@ final class ContactMatchShareHistoryTest extends TestCase
         // Doesn't match this wishlist (out of price range) — must NOT be snapshotted.
         $this->property(['title' => 'Too Expensive', 'price' => 9_000_000]);
 
-        $share = ContactMatchShare::record($match, $this->agent->id, ContactMatchShare::CHANNEL_WHATSAPP);
+        $share = $this->confirmedShare($match, ContactMatchShare::CHANNEL_WHATSAPP);
 
         $snapshotIds = ContactMatchShareProperty::where('contact_match_share_id', $share->id)->pluck('property_id')->sort()->values();
         $this->assertSame([$propertyA->id, $propertyB->id], $snapshotIds->sort()->values()->all());
@@ -104,7 +110,7 @@ final class ContactMatchShareHistoryTest extends TestCase
         $match = $this->match();
         $propertyA = $this->property(['title' => 'A']);
 
-        ContactMatchShare::record($match, $this->agent->id);
+        $this->confirmedShare($match);
 
         // A new property enters the market AFTER the first share.
         $propertyB = $this->property(['title' => 'B']);
@@ -121,7 +127,7 @@ final class ContactMatchShareHistoryTest extends TestCase
         $match = $this->match();
         $property = $this->property(['title' => 'Withdraw Cycle']);
 
-        ContactMatchShare::record($match, $this->agent->id);
+        $this->confirmedShare($match);
 
         // Withdrawn — drops out of the live match set entirely.
         $property->status = 'withdrawn';
@@ -145,7 +151,7 @@ final class ContactMatchShareHistoryTest extends TestCase
         $match = $this->match();
         $property = $this->property();
 
-        $share = ContactMatchShare::record($match, $this->agent->id);
+        $share = $this->confirmedShare($match);
         $this->assertNotNull(ContactMatchShareProperty::where('contact_match_share_id', $share->id)->first());
 
         $share->delete();
@@ -167,7 +173,7 @@ final class ContactMatchShareHistoryTest extends TestCase
         $match = $this->match();
         $this->property();
 
-        $share = ContactMatchShare::record($match, $this->agent->id);
+        $share = $this->confirmedShare($match);
 
         $match->setAside();
 
@@ -210,7 +216,7 @@ final class ContactMatchShareHistoryTest extends TestCase
     {
         $match = $this->match();
         $this->property(['title' => 'Already Sent']);
-        ContactMatchShare::record($match, $this->agent->id, ContactMatchShare::CHANNEL_EMAIL);
+        $this->confirmedShare($match, ContactMatchShare::CHANNEL_EMAIL);
         $newProperty = $this->property(['title' => 'Brand New']);
 
         $response = $this->actingAs($this->agent)->getJson(route('corex.core-matches.share-history', $match));
@@ -220,6 +226,112 @@ final class ContactMatchShareHistoryTest extends TestCase
         $response->assertJsonPath('shares.0.channel', ContactMatchShare::CHANNEL_EMAIL);
         $newSinceIds = collect($response->json('new_since_last_share'))->pluck('id');
         $this->assertTrue($newSinceIds->contains($newProperty->id));
+    }
+
+    public function test_minting_a_link_has_no_side_effects_until_confirmed(): void
+    {
+        $match = $this->match();
+        $this->property();
+        $before = $this->contact->last_contacted_at;
+
+        $share = $match->mintShareLink($this->agent->id);
+
+        $this->assertNull($share->confirmed_at);
+        $this->assertNotNull($share->token);
+        $this->assertSame(0, ContactMatchShareProperty::where('contact_match_share_id', $share->id)->count(), 'a mint must never snapshot properties');
+        $this->assertEquals($before, $this->contact->fresh()->last_contacted_at, 'a mint must never touch the working clock');
+        $this->assertSame(0, $this->history()->shares($match)->count(), 'an unconfirmed mint must not appear as a share');
+
+        $share->confirmSent(ContactMatchShare::CHANNEL_WHATSAPP);
+
+        $this->assertNotNull($share->fresh()->confirmed_at);
+        $this->assertSame(1, ContactMatchShareProperty::where('contact_match_share_id', $share->id)->count());
+        $this->assertNotEquals($before, $this->contact->fresh()->last_contacted_at);
+        $this->assertSame(1, $this->history()->shares($match)->count());
+    }
+
+    public function test_confirming_an_already_confirmed_share_is_idempotent(): void
+    {
+        $match = $this->match();
+        $this->property();
+        $share = $this->confirmedShare($match);
+        $firstConfirmedAt = $share->confirmed_at;
+        $snapshotCountAfterFirst = ContactMatchShareProperty::where('contact_match_share_id', $share->id)->count();
+
+        $share->confirmSent(ContactMatchShare::CHANNEL_EMAIL);
+
+        $this->assertEquals($firstConfirmedAt, $share->fresh()->confirmed_at);
+        $this->assertNull($share->fresh()->channel, 'first confirm() used no channel — a repeat confirm() must not silently overwrite it to email');
+        $this->assertSame($snapshotCountAfterFirst, ContactMatchShareProperty::where('contact_match_share_id', $share->id)->count(), 'no double snapshot on a repeat confirm');
+    }
+
+    public function test_a_per_share_dated_link_resolves_the_live_match_page(): void
+    {
+        $match = $this->match();
+        $this->property();
+        $share = $match->mintShareLink($this->agent->id);
+
+        $this->get(route('shared.match', ['token' => $share->token]))
+            ->assertOk()
+            ->assertViewHas('match', fn ($m) => $m->id === $match->id);
+    }
+
+    public function test_a_dated_link_dies_when_the_buyer_is_won(): void
+    {
+        $match = $this->match();
+        $this->property();
+        $share = $match->mintShareLink($this->agent->id);
+        $this->contact->update(['buyer_state' => 'won']);
+
+        $this->get(route('shared.match', ['token' => $share->token]))->assertNotFound();
+    }
+
+    public function test_a_dated_link_dies_when_the_buyer_is_explicitly_lost(): void
+    {
+        $match = $this->match();
+        $this->property();
+        $share = $match->mintShareLink($this->agent->id);
+        $match->setAside();
+
+        $this->get(route('shared.match', ['token' => $share->token]))->assertNotFound();
+    }
+
+    /**
+     * A dated link used to survive an auto_recompute-reasoned 'lost'
+     * transition specifically, because at the time ANY agency's buyer
+     * could drift to Lost silently with no configuration. Superseded by
+     * Johan's ruling: auto-lost is now agency-configurable and OFF by
+     * default (buyer_auto_lost_enabled on agency_contact_settings), gated
+     * BEFORE the write in BuyerStateService::resolveState() itself (see
+     * cc3's tests/Feature/BuyerPipeline/AutoLostSettingsTest.php) — so an
+     * auto_recompute row can no longer exist unless that agency opted in,
+     * which makes it just as deliberate as a manual move. The reason
+     * string is no longer a meaningful signal here; both kill the link.
+     */
+    public function test_a_dated_link_dies_on_lost_regardless_of_the_transitions_reason(): void
+    {
+        foreach (['auto_recompute', 'manual_override'] as $reason) {
+            $match = $this->match();
+            $this->property();
+            $share = $match->mintShareLink($this->agent->id);
+
+            $this->contact->update(['buyer_state' => 'lost']);
+            \App\Models\BuyerStateTransition::create([
+                'agency_id'   => $this->agency->id,
+                'contact_id'  => $this->contact->id,
+                'from_state'  => 'warm',
+                'to_state'    => 'lost',
+                'reason'      => $reason,
+                'occurred_at' => now(),
+            ]);
+
+            $this->get(route('shared.match', ['token' => $share->token]))->assertNotFound();
+        }
+    }
+
+    private function history(): CoreMatchShareHistoryService
+    {
+        return app(CoreMatchShareHistoryService::class);
     }
 
     public function test_the_share_history_endpoint_is_gated_on_core_matches_view_permission(): void
