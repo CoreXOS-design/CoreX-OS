@@ -448,7 +448,7 @@ class MatchingService
 
         foreach ($matches as $match) {
             if (!$match->isCountable()) {
-                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0];
+                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0, 'ids' => []];
                 continue;
             }
 
@@ -473,6 +473,11 @@ class MatchingService
                 'total'   => $resolved->count(),
                 'hidden'  => $hidden,
                 'visible' => $resolved->count() - $hidden,
+                // AT-Core-Matches, "send N new" board badge — the resolved set is
+                // already sitting right here; exposing the ids lets the board diff
+                // against "ever shared" without a second, per-match resolve pass
+                // (the exact N+1 this method's own batching was built to kill).
+                'ids'     => $resolved->pluck('id')->all(),
             ];
         }
 

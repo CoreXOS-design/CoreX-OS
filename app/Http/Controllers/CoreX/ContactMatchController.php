@@ -5,6 +5,8 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactMatch;
+use App\Models\ContactMatchShare;
+use App\Models\ContactMatchShareProperty;
 use App\Models\Deal;
 use App\Models\Property;
 use App\Models\PropertySettingItem;
@@ -321,6 +323,37 @@ class ContactMatchController extends Controller
 
         $matchCounts  = $this->propertyCountsFor($allMatches);
         $matchesByContact = $allMatches->groupBy('contact_id');
+
+        // AT-Core-Matches, "send N new" board badge. TWO batched queries for
+        // the WHOLE page, never one per row — the exact discipline
+        // propertyCountsForMatches() already established for match counts.
+        // "Ever shared" is an identity diff against $matchCounts[...]['ids']
+        // above (already resolved, zero extra resolve passes); "last shared"
+        // is a single grouped MAX() query. Both filter to CONFIRMED shares
+        // only (see ContactMatchShare's own docblock) — a link an agent
+        // opened but never sent must never read as "shared".
+        $matchIds = $allMatches->pluck('id');
+        $everSharedByMatch = ContactMatchShareProperty::query()
+            ->whereHas('share', fn ($q) => $q->whereNotNull('confirmed_at'))
+            ->whereIn('contact_match_id', $matchIds)
+            ->get(['contact_match_id', 'property_id'])
+            ->groupBy('contact_match_id')
+            ->map(fn ($rows) => $rows->pluck('property_id')->unique()->all());
+        $lastSharedByMatch = ContactMatchShare::query()
+            ->whereNotNull('confirmed_at')
+            ->whereIn('contact_match_id', $matchIds)
+            ->selectRaw('contact_match_id, MAX(shared_at) as last_shared_at')
+            ->groupBy('contact_match_id')
+            ->pluck('last_shared_at', 'contact_match_id');
+
+        foreach ($allMatches as $match) {
+            $resolvedIds = $matchCounts[$match->id]['ids'] ?? [];
+            $everShared = $everSharedByMatch->get($match->id, []);
+            $match->neverSharedCount = collect($resolvedIds)->diff($everShared)->count();
+            $match->lastSharedAt = $lastSharedByMatch->has($match->id)
+                ? \Illuminate\Support\Carbon::parse($lastSharedByMatch->get($match->id))
+                : null;
+        }
 
         // TASK 2 fields tied to cc4's data layer — guarded on the column
         // actually existing, so this activates the moment cc4 lands it

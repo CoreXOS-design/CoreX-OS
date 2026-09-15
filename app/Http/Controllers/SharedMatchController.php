@@ -4,13 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Agency;
 use App\Models\BuyerClientPageLink;
+use App\Models\BuyerStateTransition;
 use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
 use App\Models\ContactMatchLinkOpen;
+use App\Models\ContactMatchShare;
 use App\Models\Property;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
+use App\Services\BuyerStateService;
 use App\Services\Leads\SharedLinkReengagementService;
 use App\Services\Matching\MatchingService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -61,7 +64,10 @@ class SharedMatchController extends Controller
                 ->whereNotNull('deleted_at')
                 ->with(['contact', 'createdBy'])
                 ->where(function ($q) use ($token) {
-                    $q->where('share_slug', $token)->orWhere('share_token', $token);
+                    $q->where('share_slug', $token)->orWhere('share_token', $token)
+                        // A per-share dated link whose wishlist has since been
+                        // archived falls back the same way a per-wishlist token does.
+                        ->orWhereHas('shares', fn ($sq) => $sq->where('token', $token));
                 })
                 ->first();
 
@@ -93,6 +99,10 @@ class SharedMatchController extends Controller
         }
 
         $contact = $match->contact;
+
+        if (!$this->isBuyerActive($match)) {
+            return $this->showExpired($contact, (int) $match->agency_id, $token);
+        }
 
         // AT-Core-Matches, share-history piece — "the buyer opened the
         // link" is a separate, valuable signal from "the agent shared the
@@ -199,6 +209,11 @@ class SharedMatchController extends Controller
         }
 
         $contact = $anchor->contact;
+
+        if (!$this->isBuyerActive($anchor)) {
+            return $this->showExpired($contact, (int) $buyerLink->agency_id, $buyerLink->slug);
+        }
+
         // Share-history piece — see the identical comment in show() above;
         // the buyer-level link resolves to this same anchor wishlist, so
         // the "opened" event is recorded against it exactly the same way.
@@ -457,16 +472,85 @@ class SharedMatchController extends Controller
     }
 
     /**
-     * Look up a match by share_slug (preferred) or share_token (legacy).
-     * Public route — bypasses agency scope.
+     * Look up a match by share_slug (preferred), share_token (legacy), or —
+     * Johan's dated-link ruling — a per-share token minted by
+     * ContactMatchShare::mint(). Every dated link keeps resolving here
+     * forever (no expiry-by-age); only a Won/Lost buyer stops resolving,
+     * checked separately by isBuyerActive() at the call sites. A pending
+     * (never-confirmed) share token intentionally still resolves — the
+     * agent themselves may reload the composer and expect the link they
+     * just saw to work; confirmed_at only gates whether it COUNTS as a
+     * share, never whether it's clickable. Public route — bypasses agency
+     * scope.
      */
     protected function resolveMatch(string $key, array $with = []): ContactMatch
     {
-        return ContactMatch::withoutGlobalScope(AgencyScope::class)
+        $match = ContactMatch::withoutGlobalScope(AgencyScope::class)
             ->with($with)
             ->where(function ($q) use ($key) {
                 $q->where('share_slug', $key)->orWhere('share_token', $key);
             })
-            ->firstOrFail();
+            ->first();
+
+        if ($match) {
+            return $match;
+        }
+
+        $shareWith = array_map(fn ($rel) => "contactMatch.$rel", $with);
+        $share = ContactMatchShare::withoutGlobalScope(AgencyScope::class)
+            ->where('token', $key)
+            ->with(array_merge(['contactMatch'], $shareWith))
+            ->first();
+
+        if ($share?->contactMatch) {
+            return $share->contactMatch;
+        }
+
+        throw (new \Illuminate\Database\Eloquent\ModelNotFoundException())->setModel(ContactMatch::class);
+    }
+
+    /**
+     * Johan's dated-link ruling — every link (per-wishlist, buyer-level, or
+     * per-share) stays resolvable forever UNTIL the buyer is Won or Lost;
+     * nothing expires a link by age. Checked once, applied uniformly, so
+     * every token type dies the same way through the same code.
+     *
+     * Won is unambiguous — always deliberate (BuyerStateService::markWon(),
+     * fired off a genuine property link). set_aside_at is always deliberate
+     * too — only ever set by SetAsideCoreMatchesOnBuyerLost, which only
+     * fires off the explicit Buyer Pipeline "Lost" action.
+     *
+     * buyer_state === 'lost' is DELIBERATELY treated as a WEAKER signal:
+     * it can also be reached by auto-recompute (buyer_cold_days /
+     * buyer_lost_days staleness — nobody clicked anything, the buyer just
+     * went quiet), and cc3 flagged, correctly, that "a link dies because
+     * nobody followed up" is a materially different, probably unintended
+     * behaviour from "links die on Won or Lost" (a buyer who bookmarked
+     * their link and comes back after two quiet months would otherwise
+     * hit a dead page for no visible reason). Pending Johan's ruling on
+     * that question, this only honours buyer_state='lost' when the LATEST
+     * transition into it was NOT auto_recompute — i.e. an agent actually
+     * did something (manual pipeline move, or any other explicit reason).
+     * An auto-recompute lapse alone does not kill the link today.
+     */
+    protected function isBuyerActive(ContactMatch $match): bool
+    {
+        $buyerState = $match->contact?->buyer_state;
+
+        if ($match->set_aside_at !== null || $buyerState === BuyerStateService::WON) {
+            return false;
+        }
+
+        if ($buyerState === 'lost') {
+            $latestLostReason = BuyerStateTransition::withoutGlobalScope(AgencyScope::class)
+                ->where('contact_id', $match->contact_id)
+                ->where('to_state', 'lost')
+                ->latest('occurred_at')
+                ->value('reason');
+
+            return $latestLostReason === 'auto_recompute';
+        }
+
+        return true;
     }
 }
