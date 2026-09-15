@@ -38,6 +38,7 @@ class AgencyOnboardingSetup extends Model
         'branches',       // 4  — Branches / offices
         'commission',     // 5  — Commission & revenue share
         'proforma',       // 5a — Proforma invoices (gated: proforma-invoices feature)
+        'leases',         // 5b — Lease expiry-notice window (leases.md §5.2)
         'properties',     // 6  — Properties & listings
         'presentations',  // 7  — Presentations / CMA
         'matches',        // 8  — Matches

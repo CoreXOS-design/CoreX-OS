@@ -15,11 +15,16 @@
     // ContactPropertyController already writes for owner/buyer/lessor —
     // never a second place to ask "is this contact this property's tenant".
     $tenantLinkedProperty = null;
+    $applicationLease = null;
     if ($rentalApplication->status === 'approved' && $rentalApplication->contact && $rentalApplication->property_id) {
         $tenantLinkedProperty = $rentalApplication->contact->properties()
             ->wherePivot('role', 'tenant')
             ->where('properties.id', $rentalApplication->property_id)
             ->first();
+        // .ai/specs/leases.md sec1.3 — the lease linkTenantProperty() now
+        // creates in the same action, surfaced here so the agent sees the
+        // terms without leaving this screen.
+        $applicationLease = \App\Models\Lease::where('rental_application_id', $rentalApplication->id)->first();
     }
 @endphp
 
@@ -80,6 +85,9 @@
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
+    @endif
+    @if(session('warning'))
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); color: var(--ds-amber, #b45309);">{{ session('warning') }}</div>
     @endif
     @if(session('error'))
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">{{ session('error') }}</div>
@@ -243,6 +251,17 @@
                         </span>
                     </template>
                 </div>
+                @if($applicationLease)
+                    <p class="text-[11px] mt-1" style="color: var(--text-muted);">
+                        Lease: R{{ number_format((float) $applicationLease->rental_amount, 2) }}/mo,
+                        from {{ $applicationLease->start_date->format('Y-m-d') }}
+                        @if($applicationLease->end_date) to {{ $applicationLease->end_date->format('Y-m-d') }} @endif
+                        — <span class="ds-badge {{ $applicationLease->status === 'active' ? 'ds-badge-success' : 'ds-badge-muted' }}">{{ ucfirst($applicationLease->status) }}</span>
+                        @permission('leases.view')
+                            <a href="{{ route('corex.leases.show', $applicationLease) }}" class="underline">View lease</a>
+                        @endpermission
+                    </p>
+                @endif
             @else
                 <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Link this tenant to a property</p>
                 <form method="POST" action="{{ route('corex.rental-applications.link-tenant-property', $rentalApplication) }}" class="flex flex-wrap items-end gap-2">
@@ -270,9 +289,44 @@
                             </div>
                         </div>
                     </template>
+
+                    {{-- .ai/specs/leases.md sec1.3 / conductor ruling 2026-09-15 —
+                         gap 1 closed: linking a tenant now captures the lease
+                         terms in the SAME action, instead of leaving a
+                         property+tenant link with no rent/dates anywhere.
+                         Pre-filled from the application's own
+                         approved_rental_amount where the agent already set
+                         one; always editable. Does NOT touch property status
+                         — that ruling stays pending with Johan, untouched by
+                         this change (see linkTenantProperty()'s own
+                         docblock). --}}
+                    <div class="w-full flex flex-wrap items-end gap-2 mt-1 pt-2" style="border-top: 1px dashed var(--border);">
+                        <div>
+                            <label class="text-[11px]" style="color: var(--text-muted);">Monthly rental (R)</label><br>
+                            <input type="number" name="rental_amount" step="0.01" min="0" required
+                                   value="{{ old('rental_amount', $rentalApplication->approved_rental_amount) }}"
+                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;">
+                        </div>
+                        <div>
+                            <label class="text-[11px]" style="color: var(--text-muted);">Deposit (R)</label><br>
+                            <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount') }}"
+                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;">
+                        </div>
+                        <div>
+                            <label class="text-[11px]" style="color: var(--text-muted);">Lease start date</label><br>
+                            <input type="date" name="lease_start_date" required value="{{ old('lease_start_date', now()->toDateString()) }}"
+                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+                        </div>
+                        <div>
+                            <label class="text-[11px]" style="color: var(--text-muted);">Lease end date (optional)</label><br>
+                            <input type="date" name="lease_end_date" value="{{ old('lease_end_date') }}"
+                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+                        </div>
+                    </div>
+
                     <button type="submit" class="corex-btn-primary text-xs" :disabled="!propertyId">Link as tenant</button>
                 </form>
-                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Sets {{ $rentalApplication->contact->full_name ?? 'this applicant' }} as the tenant on this property.</p>
+                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Sets {{ $rentalApplication->contact->full_name ?? 'this applicant' }} as the tenant on this property, and creates the lease record with the terms above.</p>
             @endif
         </div>
         @endif
