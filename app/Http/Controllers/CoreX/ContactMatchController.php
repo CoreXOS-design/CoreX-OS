@@ -11,6 +11,7 @@ use App\Models\PropertySettingItem;
 use App\Models\Scopes\BranchScope;
 use App\Models\Scopes\ContactScope;
 use App\Models\User;
+use App\Services\BuyerStateService;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -260,8 +261,19 @@ class ContactMatchController extends Controller
             // buyer_state directly rather than set_aside_at: a buyer moved
             // to Lost before that column/listener existed (the entire
             // backlog this replaces) has buyer_state='lost' correctly set,
-            // regardless of whether any event ever fired for them.
-            ->where(fn ($q) => $q->whereNull('buyer_state')->orWhere('buyer_state', '!=', 'lost'))
+            // regardless of whether any event ever fired for them. Won is
+            // excluded the same way — Johan: "any buyer moving to won or
+            // lost needs to update core matches," a converted buyer is as
+            // finished as one who walked away. Both states are written by
+            // the SAME BuyerStateService::transitionTo() regardless of
+            // whether the move was manual or the nightly auto-recompute, so
+            // this filter covers all four cases (manual/auto x won/lost)
+            // with no extra branching.
+            // whereNotIn() alone would wrongly exclude a NULL buyer_state
+            // (never-classified / non-buyer) row — MySQL's NOT IN evaluates
+            // to NULL, not true, against a NULL column — so NULL is
+            // explicitly kept via orWhereNull().
+            ->where(fn ($q) => $q->whereNull('buyer_state')->orWhereNotIn('buyer_state', ['lost', BuyerStateService::WON]))
             ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($q2) use ($search) {
                     $q2->where('first_name', 'like', "%{$search}%")
