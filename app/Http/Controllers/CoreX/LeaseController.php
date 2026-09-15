@@ -165,19 +165,34 @@ class LeaseController extends Controller
         return view('corex.leases.show', ['lease' => $lease]);
     }
 
+    /**
+     * leases.md — full CRUD floor: deposit/end date/lease type editable
+     * after creation. Rent amount and start date are deliberately NOT
+     * editable here — see the view's own comment.
+     *
+     * Two footguns fixed here, both caught by walking the real form rather
+     * than by a passing test: (1) 'after:start_date' referenced a request
+     * field this form never submits (start_date isn't part of an edit) —
+     * replaced with a literal comparison against the lease's own stored
+     * start_date. (2) `$validated['x'] ?? $lease->x` treats an explicit
+     * null/absent-checkbox the same as "field not submitted", so clearing
+     * the deposit or unchecking month-to-month would have silently kept
+     * the old value — replaced with array_key_exists()/has() checks so an
+     * explicit clear actually clears.
+     */
     public function update(Request $request, Lease $lease): RedirectResponse
     {
         $validated = $request->validate([
             'deposit_amount' => ['nullable', 'numeric', 'min:0'],
-            'end_date' => ['nullable', 'date', 'after:start_date'],
+            'end_date' => ['nullable', 'date', 'after:' . $lease->start_date->format('Y-m-d')],
             'is_month_to_month' => ['nullable', 'boolean'],
             'lease_type' => ['nullable', 'string', 'max:40'],
         ]);
 
         $lease->update([
-            'deposit_amount' => $validated['deposit_amount'] ?? $lease->deposit_amount,
-            'end_date' => $validated['end_date'] ?? $lease->end_date,
-            'is_month_to_month' => (bool) ($validated['is_month_to_month'] ?? $lease->is_month_to_month),
+            'deposit_amount' => array_key_exists('deposit_amount', $validated) ? $validated['deposit_amount'] : $lease->deposit_amount,
+            'end_date' => array_key_exists('end_date', $validated) ? $validated['end_date'] : $lease->end_date,
+            'is_month_to_month' => $request->boolean('is_month_to_month'),
             'lease_type' => $validated['lease_type'] ?? $lease->lease_type,
         ]);
 
