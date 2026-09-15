@@ -35,33 +35,17 @@ class CommissionCalculator
             return ['listing' => 0.0, 'selling' => 0.0, 'total' => 0.0];
         }
 
+        $exVatTotal = $gross / (1.0 + self::vatRate());
+
         // Default split is 50/50 if not set (your Deal model already casts decimals)
         $listingSplit = (float) ($deal->listing_split_percent ?? 50);
         $sellingSplit = (float) ($deal->selling_split_percent ?? 50);
 
-        // Default our-share is 100% if not set
-        $listingOur = (float) ($deal->listing_our_share_percent ?? 100);
-        $sellingOur = (float) ($deal->selling_our_share_percent ?? 100);
+        $listingExternal = (int) ($deal->listing_external ?? 0) === 1;
+        $sellingExternal = (int) ($deal->selling_external ?? 0) === 1;
 
-        // Clamp all percents to sane ranges
-        $listingSplit = max(0.0, min(100.0, $listingSplit));
-        $sellingSplit = max(0.0, min(100.0, $sellingSplit));
-        $listingOur   = max(0.0, min(100.0, $listingOur));
-        $sellingOur   = max(0.0, min(100.0, $sellingOur));
-
-        // Listing side (VAT inclusive)
-        $listingGross = ((int)($deal->listing_external ?? 0) === 1)
-            ? 0.0
-            : $gross * ($listingSplit / 100.0) * ($listingOur / 100.0);
-
-        // Selling side (VAT inclusive)
-        $sellingGross = ((int)($deal->selling_external ?? 0) === 1)
-            ? 0.0
-            : $gross * ($sellingSplit / 100.0) * ($sellingOur / 100.0);
-
-        // Convert VAT-inclusive → ex VAT
-        $listingEx = ($listingGross > 0) ? round($listingGross / (1 + self::vatRate()), 2) : 0.0;
-        $sellingEx = ($sellingGross > 0) ? round($sellingGross / (1 + self::vatRate()), 2) : 0.0;
+        $listingEx = round(CommissionPoolCalculator::internalPool($exVatTotal, $listingExternal, $listingSplit), 2);
+        $sellingEx = round(CommissionPoolCalculator::internalPool($exVatTotal, $sellingExternal, $sellingSplit), 2);
 
         return [
             'listing' => $listingEx,

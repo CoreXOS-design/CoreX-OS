@@ -278,10 +278,16 @@ class SuburbReportDataService
             return ['available' => false];
         }
 
+        // Sale-only, same reasoning as the contact_matches listing_type filter
+        // below: this section reports on the suburb's SALE stock (count, asking
+        // price, days on market) for a seller CMA. A rental has no asking price
+        // in this sense — mixing its rent into the same average/count would be
+        // the same rental-inflation bug already fixed for contact_matches.
         $stockQuery = DB::table('properties')
             ->whereNull('deleted_at')
             ->where('agency_id', $agencyId)
-            ->where('suburb_normalised', $suburbNorm);
+            ->where('suburb_normalised', $suburbNorm)
+            ->where('listing_type', 'sale');
 
         $activeStock = (clone $stockQuery)->where('status', 'active')->get(['id', 'price', 'listed_date', 'title_type']);
 

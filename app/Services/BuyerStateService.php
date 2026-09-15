@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Events\Contact\ContactMarkedLostInBuyerPipeline;
+use App\Events\Contact\ContactRestoredFromLostInBuyerPipeline;
 use App\Models\AgencyContactSettings;
 use App\Models\BuyerActivityLog;
 use App\Models\BuyerStateTransition;
@@ -15,6 +17,32 @@ class BuyerStateService
 
     /**
      * Resolve the current buyer state based on last_activity_at and agency thresholds.
+     *
+     * RULING (Johan, via conductor, 2026-09-14) — resolveState() does NOT read
+     * Contact::last_contacted_at, and this is deliberate, not a gap. Sending a
+     * WhatsApp/email or marking a contact "contacted" (AT-372's
+     * contacted_marked_at / last_contacted_at — see .ai/specs/at372-contacted-signal.md)
+     * never advances buyer_state. Investigated on QA1 as a possible defect
+     * after a live report of "150 in New looks like everything" — traced to a
+     * real, separate classification bug (fixed, see Contact::primaryMatchIsRental())
+     * plus this: 97 of 150 New-state buyers HAD been contacted, some within
+     * the prior 8 days, and the board still showed them untouched.
+     *
+     * Johan's own words on why that stays exactly as it is:
+     * "the pipeline is a manual agent action to move the buyers / tenants
+     * around. so nothing to do there. we not automating it. the problem is
+     * an agent has the responsibility to work with their buyers and the
+     * pipeline is where the buyers sit. not automatically be moved around as
+     * agents will not work with their buyers then."
+     *
+     * In other words: if sending a message silently advanced buyer_state, the
+     * board would look worked without anyone having triaged anything — the
+     * opposite of what it's for. A buyer contacted-but-left-in-New is exactly
+     * the management signal this board exists to surface, not a bug in it.
+     * `last_contacted_at` answers "has anyone been in touch" (automatic).
+     * `buyer_state` answers "has an agent actually triaged this buyer"
+     * (manual-only, moved by drag/updateState or the activity types below).
+     * Do not wire the two together.
      */
     public function resolveState(Contact $contact): ?string
     {
@@ -52,6 +80,18 @@ class BuyerStateService
         }
 
         $contact->updateQuietly(['buyer_state' => $newState]);
+
+        // AT-Core-Matches, Task 6 — updateQuietly() above suppresses
+        // Eloquent model events, so this is dispatched explicitly rather
+        // than relying on an observer that would never fire. Real column
+        // is buyer_state, not buyer_status (corex-domain-events-spec.md's
+        // ContactBuyerStatusChanged entry was stale/never built — see the
+        // corrected entry in that file).
+        if ($newState === 'lost') {
+            event(new ContactMarkedLostInBuyerPipeline($contact, $userId));
+        } elseif ($oldState === 'lost') {
+            event(new ContactRestoredFromLostInBuyerPipeline($contact, $userId));
+        }
 
         // AT-253 Rule 17 — a contact with no tenant has no history to file. Skip the row
         // (loudly, in the log) rather than file it under someone else's agency. The state

@@ -347,7 +347,7 @@ class PropertyIntelligenceService
             ->map(fn($p) => [
                 'id' => $p->id,
                 'title' => $p->title,
-                'price' => $p->price,
+                'price' => $p->effectivePrice(),
                 'suburb' => $p->suburb,
                 // Days on market = days since the listing went ON market. Prefer
                 // listed_date (the real listing date); published_at is only set when
@@ -397,7 +397,7 @@ class PropertyIntelligenceService
                 'property_type'  => $p->property_type,
                 'beds'           => $this->sanePropertyCount($p->beds),
                 'baths'          => $this->sanePropertyCount($p->baths),
-                'price'          => $p->price,
+                'price'          => $p->effectivePrice(),
                 'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
                     ? \App\Support\HumanDiff::daysBetween($dom) : null,
             ])
@@ -684,6 +684,12 @@ class PropertyIntelligenceService
         $property = Property::withoutGlobalScopes()->find($propertyId);
         if (!$property) return null;
 
+        // AT-400 (Johan, 2026-09-10) — this card recommends a SALE price and
+        // counts comparable SALES; neither concept applies to a rental.
+        // Same "nothing meaningful to show" path as line 706-708 below, not a
+        // new hidden state.
+        if ($property->isRental()) return null;
+
         $mds             = app(\App\Services\MarketDataSnapshotService::class);
         $comparableSales = $mds->getComparableSales($propertyId);
         $areaAvg         = $mds->calculateAreaAverages($property->suburb);
@@ -942,6 +948,7 @@ class PropertyIntelligenceService
             ->join('contacts', 'contacts.id', '=', 'contact_property.contact_id')
             ->where('contact_property.property_id', $propertyId)
             ->whereNull('contacts.deleted_at')
+            ->whereNull('contact_property.deleted_at')
             ->select(
                 'contacts.id as contact_id',
                 'contacts.first_name',

@@ -38,7 +38,7 @@ trait ViewingPackPdfSupport
         $minimal = ['price' => null, 'address' => $address, 'rows' => []];
         if (! $brochure && $property) {
             $minimal = [
-                'price'   => $this->money($property->price),
+                'price'   => $this->money($property->effectivePrice()),
                 'address' => $address,
                 'rows'    => [
                     'Suburb'    => $property->suburb ?: null,
@@ -68,7 +68,7 @@ trait ViewingPackPdfSupport
                 'seq'     => $seq,
                 'address' => $p ? ($this->addressLine($p) ?: ('Property #' . $vpp->property_id)) : ('Property #' . $vpp->property_id),
                 'suburb'  => $p?->suburb ?: '',
-                'price'   => $p ? ($this->money($p->price) ?: '—') : '—',
+                'price'   => $p ? ($this->money($p->effectivePrice()) ?: '—') : '—',
                 'beds'    => $p && $p->beds ? (string) $p->beds : '—',
                 'baths'   => $p && $p->baths !== null ? rtrim(rtrim((string) $p->baths, '0'), '.') : '—',
                 'garages' => $p && $p->garages ? (string) $p->garages : '—',

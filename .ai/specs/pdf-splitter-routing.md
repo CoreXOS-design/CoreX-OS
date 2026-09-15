@@ -717,3 +717,409 @@ owns subscribing and stamping `SignedDocumentVersion::filed_at` /
 - EDIT `routes/web.php` — new `tools.pdf_splitter.intake_supporting`.
 - EDIT `resources/views/tools/pdf_splitter_review.blade.php` — `property`
   seeded from `$prefillProperty`; new Alpine `init()`.
+
+# SAME-AS-PREVIOUS / SAME-AS-NEXT PER-PAGE BUTTONS (2026-09-11)
+
+## Business requirement
+
+Johan, on the tedium of typing a document type on every page of a scanned
+bundle: *"I have 20 pages. if I mark page 1 it should auto change down...
+The part that we have to be clear about here is that if a user selected that
+it doesnt get overriden."* — then, after thinking it through further, he
+rejected the cascade model himself and specified the actual build:
+
+*"we tried ocr and it doesnt really work as page scans are not readable. And
+the start and stop part can work, but we still have to cater for the scan
+thats scattered. so pg1 is fica, pg2 fica, pg3 id, pg4 fica - now the marker
+will go pg1 to pg4 fica and override the id. I think for now Im happy with 2
+buttons - same as previous page, same as next page?"*
+
+**Why a cascade/auto-detect was explicitly rejected, on the record, so it is
+never reintroduced:** a cascade from a document's first page sweeping forward
+correctly handles a NEATLY sequential bundle, but real scanned bundles are
+scattered — Johan's own example is pg1/pg2/pg4 FICA with pg3 an ID sandwiched
+in between. A "mark the start of each document" cascade model would sweep
+straight over pg3's ID. OCR-based auto-detection was tried separately and
+rejected on its own merits — real page scans aren't reliably readable, so
+nothing in this feature depends on reading page content to guess its type.
+**The two buttons are the whole feature.** No cascade, no auto-detect, not
+even as an opt-in — both were tried in some form and both were rejected by
+the business owner for a stated, sound reason.
+
+## Design
+
+Two buttons per page row, "↑ Same as prev" / "↓ Same as next", each doing
+exactly one explicit, one-shot copy: the CURRENT value of exactly one
+same-file neighbour onto this page. Nothing else changes, no other page is
+touched, and clicking one is never triggered by clicking another — this is
+strictly per-page, agent-driven, same as the existing per-page contact
+assignment model on this screen (`pg.touched` / `forwardFill`) already is.
+
+**Edge pages:** the first page of a file has no "Same as prev" button; the
+last page of a file has no "Same as next" button — `x-show` on each button
+individually (`prevPage(file, pg)` / `nextPage(file, pg)`, same-file only via
+`file.pages.indexOf(pg)`), so the button is ABSENT, not merely disabled.
+Proven live: page 1 of a 17-page bundle shows only "Same as next", page 17
+shows only "Same as prev", and a middle page shows both.
+
+**"Neighbour has no type set yet":** every page always carries SOME label —
+auto-detected, or the `other` fallback when nothing was recognised — there is
+no blank/null state in the data model. Given Johan's own stated distrust of
+the auto-detector, an auto-detected/default guess is deliberately never
+treated as a confirmed choice. A new per-page flag, `labelTouched` (seeded
+`false`), flips to `true` only on a genuine human action: the dropdown's own
+`@change` (`onLabelChange`), a successful same-as-* copy, or (from
+2026-09-12 — see "SET ALL PAGES — BULK-APPLY DID NOT RESPECT `labelTouched`"
+below; between 2026-09-11 and 2026-09-12 this was FALSE) the "Set ALL pages"
+action. "Reset to auto-detected" flips every
+page's `labelTouched` back to `false`, since it's explicitly reverting to
+unconfirmed guesses. Attempting to copy FROM an untouched neighbour refuses
+silently-copying-a-blank by refusing outright: a toast — *"Page N hasn't had
+its document type set yet — set that page first, then copy from it."* — and
+the target page is left completely unchanged. Proven live.
+
+**Chaining is not a cascade.** Once page N has been explicitly set — by
+hand, or by a prior same-as-* click — it becomes a valid source for a LATER,
+separately-clicked same-as-* on an adjacent page. This is not automatic
+propagation: each page still requires its own explicit button click. Proven
+live (page 10 set manually → page 9 "same as next" copies it → page 11 "same
+as prev" then also copies it, each a distinct click).
+
+**Keyboard-reachable:** plain `<button type="button">` elements, real
+`disabled`-equivalent behaviour via `x-show` (removed from the tab order
+entirely at an edge, not merely visually dimmed) — no custom click-only
+affordance.
+
+## Robustness (input space)
+
+- File boundary: `prevPage`/`nextPage` index within `file.pages` only — a
+  "previous/next page" never crosses into a different uploaded PDF in the
+  same batch.
+- Untouched neighbour → refused with a toast, target page provably
+  unchanged (verified via Alpine's own reactive state, not just the visible
+  `<select>`).
+- Scattered-bundle proof (Johan's own example, walked live on a real 17-page
+  bundle): pg1 FICA (manual) → pg2 "same as prev" (copies FICA) → pg3 ID
+  (manual, deliberately breaking the run) → pg4 FICA (manual) → pg3 checked
+  AFTER pg4 is set and confirmed still ID, untouched by anything.
+- Existing contact-assignment behaviour on doc-type change (`onLabelChange`
+  dropping contacts no longer valid for the new type) is preserved
+  identically when the type changes via same-as-* — `copyNeighbourLabel`
+  runs the same `allCandidateIds` filter the manual-select path already used.
+- No server round-trip: this is pure client-side Alpine state, mirrored into
+  the existing hidden `labels[...]` inputs on submit exactly as before —
+  no new backend route, no new validation surface.
+
+## Manual-QA proof (2026-09-11, QA1)
+
+Real login (throwaway QA account, soft-deleted after), real browser
+(Puppeteer + system Chromium), a real 17-page PDF uploaded through the actual
+upload form (no lag beyond the pre-existing OCR/thumbnail pass, ~11s for 17
+pages — unrelated to this change, the review screen itself is instant):
+
+- Page 1: only "Same as next" visible. Page 17 (last): only "Same as prev"
+  visible. Page 8 (middle): both visible.
+- pg1→FICA (manual), pg2 "same as prev"→FICA, pg3→ID (manual), pg4→FICA
+  (manual) — pg3 re-checked after pg4 and still reads ID.
+- pg6 "same as prev" against untouched pg5 → refused, toast shown verbatim,
+  pg6 unchanged.
+- pg9 "same as next" against manually-set pg10 (FICA) → copies correctly.
+  pg11 "same as prev" against pg10 (now itself a confirmed source, not
+  auto-cascaded) → also copies correctly — proves chaining works without
+  being a cascade.
+- Every untouched page (5, 6, 7, 8, 12–17) remained on the default/auto label
+  throughout — nothing spread anywhere it wasn't explicitly sent.
+- Download ZIP remained enabled/functional after all of the above — the
+  existing submission path is untouched.
+
+## PAGE MULTI-SELECT — BUILT (2026-09-11, greenlit by Johan)
+
+First investigated and estimated (small — reuses the existing bulk-apply
+pattern, not a rebuild), then greenlit: *"GREENLIT — build the page
+multi-select you proposed for the PDF splitter. This is Johan's original ask
+and the two buttons alone don't answer it."*
+
+Johan's original ask, restated for the record: *"I have 20 pages. if I mark
+page 1 it should auto change down... if I select pg1 as rental application,
+and everything down changes to this, and then on pg5 I select fica and it
+changes down same."* — and the non-negotiable protection: *"if a user
+selected that it doesnt get overriden... User changes pg 16-20. then for
+some stupid reason goes and changes pg1 and the whole thing changes again"*
+must never happen.
+
+### Design (matches the estimate exactly)
+
+- `pg.selected` — a new per-page boolean (seeded `false`, PHP `$fileSeed`),
+  a tick box on each page's thumbnail cell ("Select"), no server persistence
+  — it's a working-selection flag, cleared once acted on.
+- `selectedCount` getter + a toolbar (doc-type picker + "Apply to selected" +
+  "Clear selection") that only appears once at least one page is ticked —
+  same visual shape as the existing "Bulk (all files)" toolbar, scoped to the
+  ticked set instead of every page.
+- "Select all pages" / "Clear selection" toggle link per file, in the
+  file-divider header (`toggleSelectAllInFile`) — ticks/un-ticks every page
+  in THAT file only, not across files in a multi-file batch.
+- `applyToSelected()`: for every ticked page — sets the chosen type, marks
+  `labelTouched = true` (an explicit choice from here on, same protection
+  same-as-*/Set-ALL already use), re-filters `contactIds` through
+  `allCandidateIds` exactly like every other type-change path, then clears
+  that page's own `selected` flag. Pages NOT ticked are never touched,
+  regardless of what page number they sit at relative to the ticked set.
+
+### Why "16-20 survive a page-1 change" is a structural property, not a check
+
+There is no cascade anywhere in this screen for multi-select to have
+inherited. `applyToSelected()` iterates `allPages().filter(p => p.selected)`
+— its target set is exactly and only the pages the agent ticked in THIS
+action. Ticking page 1 and applying does not walk "down" the document in any
+sense; it has no notion of "down." Pages 16-20 being touched or untouched by
+a page-1 apply depends entirely on whether 16-20 were ALSO ticked in that
+same action — nothing else. `labelTouched` is the same flag same-as-*/Set-ALL
+already respected at the time this was written, so a page set via
+multi-select was protected from being silently re-swept by same-as-*/
+`applyToSelected()` afterward.
+
+**CORRECTION (2026-09-12) — this sentence originally also named "Set ALL"
+as a flag that already respected `labelTouched`. That was FALSE.** It did
+not, at the time this section was written or for the following day. See
+"SET ALL PAGES — BULK-APPLY DID NOT RESPECT `labelTouched`" below for the
+bug, the live reproduction, and the fix. `applyToSelected()` itself was
+never affected by that bug — it always filtered on `p.selected`, a
+ticked-set the agent built explicitly, so it had no path to silently sweep
+an untouched page. No new protection mechanism was needed — the existing one already covers this
+apply path because it was designed to be path-agnostic.
+
+### Manual-QA proof (2026-09-11, QA1, real 20-page bundle)
+
+Real login (throwaway QA account, soft-deleted after), real browser
+(Puppeteer + system Chromium), a real 20-page PDF through the actual upload
+form:
+
+- Ticked pages 16-20, applied "IDs / Identity" via multi-select — all five
+  changed correctly, ticks cleared after apply.
+- Ticked ONLY page 1, applied "FICA" — page 1 changed; pages 16-20 (and
+  every other untouched page) re-checked immediately after and **confirmed
+  still "IDs / Identity", exactly as set, untouched by the page-1 apply.**
+  Screenshots taken of both the page-1 row and the pages-16-20 rows,
+  confirming the same visually.
+- Separately walked Johan's own scattered example via multi-select instead
+  of the two buttons: ticked pages 2, 3, 5 (deliberately skipping 4),
+  applied "Rental Agreements" once — pages 2/3/5 changed, page 4 (never
+  ticked) remained on its prior value throughout.
+- "Select all pages" ticked all 20 pages in the file; "Clear selection"
+  (same link, now retitled) un-ticked all 20.
+- Regression-checked the existing "Same as previous/next" buttons alongside
+  multi-select in the same session — both still work correctly, unaffected.
+- Download ZIP remained enabled/functional throughout.
+
+Pure client-side change, same as same-as-*/Set-ALL before it — no new
+route, no new query, no new data model beyond the one `selected` boolean, so
+OWN/BRANCH/AGENCY scoping is unaffected by construction.
+
+## SET ALL PAGES — BULK-APPLY DID NOT RESPECT `labelTouched` (found 2026-09-12, fixed same day)
+
+**This section corrects false "proven live" claims made above on
+2026-09-11.** Both the "SAME-AS-PREVIOUS / SAME-AS-NEXT" section and the
+"PAGE MULTI-SELECT" section above asserted, in more than one place, that
+`labelTouched` was "the same flag same-as-*/Set-ALL already respect." That
+was true for same-as-*/`applyToSelected()`. It was **not** true for
+"Set ALL pages" — that action set every page unconditionally, silently
+overwriting any page the agent had already hand-set. Found by an
+independent walk of this screen (not by the lane that wrote the original
+claim), reproduced twice, and is exactly the failure Johan named as the
+hard constraint when he first asked for multi-select: *"User changes pg
+16-20. then for some stupid reason goes and changes pg1 and the whole thing
+changes again."* Recorded here rather than silently corrected, per standing
+instruction: a false "proven" line in a spec is worse than no line, because
+the next lane trusts it.
+
+### The bug
+
+`setAll(slug)` iterated every page in the file unconditionally:
+```js
+setAll(slug) {
+    this.allPages().forEach(p => { p.label = slug; p.labelTouched = true; ...});
+},
+```
+No `labelTouched` check anywhere. A hand-set page was exactly as exposed to
+being overwritten as an untouched one, on every call.
+
+### The fix
+
+```js
+setAll(slug) {
+    this.allPages().filter(p => !p.labelTouched).forEach(p => { p.label = slug; p.labelTouched = true; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
+},
+```
+The predicate is the exact logical complement of "already touched" — every
+page the agent has NOT explicitly set gets set, and only those. This is the
+same shape of guarantee `applyToSelected()` already gave for its own ticked
+set, now given to "Set ALL" for its own (implicit: "every untouched page")
+target set. Every other bulk/copy path on this screen (`applyToSelected()`,
+`copyNeighbourLabel()`/`sameAsPrevious()`/`sameAsNext()`) was individually
+re-read during this fix and confirmed to already gate correctly — this was
+the one unprotected path, not a symptom of a wider pattern.
+
+Toolbar buttons also gained a `title` tooltip stating the guarantee in
+plain language, so an agent isn't relying on tribal knowledge that "Set
+ALL" is safe to use after hand-fixing a few pages.
+
+### On the reported "skip" symptom
+
+The blocker report described a second, mirror-image symptom on a different
+application: "Set ALL" instead SKIPPING an untouched page and leaving it
+unset. That could not be reproduced against this screen's actual code as it
+stood immediately before the fix — the pre-fix `setAll()` had no
+conditional logic at all, so there was no code path by which it could have
+skipped a page; every page was always written unconditionally. This is
+reported honestly rather than papered over: the discrepancy was not
+root-caused. What can be stated with certainty is that the fix's predicate
+(`filter(p => !p.labelTouched)`, inclusion of every untouched page) makes a
+skip-of-a-genuinely-untouched-page structurally impossible now, regardless
+of whatever mechanism produced the original report — the target set is
+"every page where `labelTouched` is false," full stop, so no untouched page
+can fall outside it.
+
+### Override control — decided, not built
+
+The blocker asked whether an agent should be able to deliberately override
+their own earlier hand-set choices in bulk, and if so, said explicitly not
+to build a new control without asking first. Decision: **no new control is
+needed.** "Reset to auto-detected" already exists on this screen, already
+clears every page's `labelTouched` back to `false` in one click, and is
+already the deliberate, clearly-labelled escape hatch for "I want Set ALL
+to touch pages I've already set" — an agent who wants that runs Reset first,
+then Set ALL. This matches Johan's own stated rule, which was given with no
+carve-out: hand-set choices are protected, full stop. Adding a second,
+different "override" control would create two ways to achieve the same
+outcome with different blast radii, which is a worse design than the one
+already on the screen.
+
+### Manual-QA proof (2026-09-12, local worktree, real 10-page bundle)
+
+Real login (throwaway QA account `qa-cc5-bulkapply-bug-repro@example.invalid`,
+id 212, soft-deleted after — see cleanup below), real browser (Puppeteer +
+system Chromium), a real 10-page PDF generated via DomPDF and uploaded
+through the actual upload form. Four tests run in one continuous session
+(not four isolated runs) so each proof builds on genuinely-live state:
+
+**TEST 1 — "Set ALL pages" respects hand-set pages 1, 4, 7.**
+Hand-set 1→IDs/Identity, 4→FICA, 7→Mandate. Before Set ALL: 1=IDs, 2=Other,
+3=Other, 4=FICA, 5=Other, 6=Other, 7=Mandate, 8=Other, 9=Other, 10=Other.
+Ran "Set ALL pages → Proof of Residence". After: 1=IDs (unchanged),
+2=Proof of Residence, 3=Proof of Residence, 4=FICA (unchanged),
+5=Proof of Residence, 6=Proof of Residence, 7=Mandate (unchanged),
+8=Proof of Residence, 9=Proof of Residence, 10=Proof of Residence. Pages
+1/4/7 untouched; every other page set. PASS.
+
+**TEST 2 — "Apply to selected" scoped correctly, 1/4/7 still untouched.**
+Ticked pages 2 and 5 (both currently Proof of Residence from Test 1, i.e.
+still `labelTouched=false`), applied "Rates & Taxes". After: 1=IDs,
+2=Rates & Taxes, 3=Proof of Residence (untouched, not ticked), 4=FICA,
+5=Rates & Taxes, 6=Proof of Residence, 7=Mandate, 8-10=Proof of Residence.
+1/4/7 read exactly IDs/FICA/Mandate throughout. PASS.
+
+**TEST 3 — same-as-prev still works correctly alongside the fix.**
+Page 9 "same as prev" against page 8 (Proof of Residence, `labelTouched=true`
+via Test 1's Set ALL) → page 9 copied to Proof of Residence correctly. PASS.
+
+Final state before reload, all 10 pages: 1=IDs/Identity, 2=Rates & Taxes,
+3=Proof of Residence, 4=FICA, 5=Rates & Taxes, 6=Proof of Residence,
+7=Mandate, 8=Proof of Residence, 9=Proof of Residence, 10=Proof of
+Residence.
+
+**TEST 4 — reload persistence, reported honestly.** Reloading the page
+reset all 10 pages back to "Other" (this test PDF's auto-detect fallback,
+since its pages carry no recognisable real document content). This is
+**not a defect introduced or left by this fix** — it is this screen's
+pre-existing, unrelated architecture: all doc-type/contact state is pure
+client-side Alpine state until the final Link/Download-ZIP submit; a plain
+reload has always rebuilt the review screen fresh from the server-seeded
+auto-detected manifest, with or without this fix. Recorded here because the
+blocker explicitly asked for the reload check and the honest answer is "no,
+it doesn't persist, and that's unrelated to what changed today" — not
+silently omitted.
+
+### Gates run before push
+
+- `scripts/verify-alpine-render.mjs` against a real authenticated fetch of
+  `/tools/pdf-splitter` (the review screen itself requires session state
+  built by a prior file-upload POST that a single stateless authenticated
+  `curl` cannot replicate, so the static leaked-attribute-text scan was run
+  against the reachable page in the same Alpine component tree; the review
+  screen's own correctness was instead proven by the live Puppeteer walk
+  above, which executes its real Alpine bindings in a real browser — a
+  strictly stronger check for this screen than the static scanner alone):
+  PASS, 0 leaked-attribute/execution failures (three pre-existing WARN-only
+  scope-gap notices, unrelated to this change, left for whoever owns those
+  components).
+- `scripts/rental-smoke.mjs`, `pdf_splitter_review` screen: PASS, 0 console
+  errors, real-data assertion passed.
+- `dev-check.ps1` cannot run on this box (no `pwsh` available) — stated
+  plainly rather than cited as having run.
+
+### Cleanup
+
+Throwaway test user `qa-cc5-bulkapply-bug-repro@example.invalid` (id 212)
+soft-deleted after proof captured. Local `php artisan serve` test instance
+stopped.
+
+## AT-410 — "File as…" direct filing, an alternate path INTO this same routing story (2026-09-13, cc5)
+
+Johan, on rental-application 230's review screen: *"this applicant sent
+split docs. so I know what they are. dont need to run them through the
+splitter. can we give the option right here to file directly as well. so
+you keep the splitter but allow selecting document type and click file and
+its files it without going via the splitter?"*
+
+This changes the routing story for rental-application documents because
+there are now **two entry points that both terminate in the exact same
+filed-document shape**, not one:
+
+```
+Untyped upload
+   ├── Splitter path (unchanged): intakeRentalApplicationDocument() → OCR/
+   │   manifest → review UI → linkForRentalApplication() → N typed Document
+   │   rows (one per label group), original soft-deleted.
+   └── Direct-file path (NEW): RentalApplicationReviewController::
+       fileDocumentDirectly() → ONE typed Document row (the whole file,
+       unsplit, as ONE type), original soft-deleted.
+```
+
+Both paths are reachable from the SAME row of the SAME screen at the SAME
+time, on any untyped, owned (not pulled-from-contact) supporting document —
+Johan's own requirement: *"THE SPLITTER STAYS, unchanged and equally
+available... an agent must be able to choose the splitter on the very same
+document if she opens it and finds it is a mixed bundle after all."*
+Neither path is aware of the other; there is no shared session state, no
+"has this document started down one path" flag — an agent can open the
+splitter, back out, and use direct-filing instead (or vice versa) freely,
+because nothing is committed until whichever action's own POST succeeds.
+
+**Why direct-filing reproduces linkForRentalApplication()'s exact output
+shape rather than a lighter in-place update:** Johan's hard constraint —
+*"Filing this way must produce exactly the same result as filing via the
+splitter would: same record shape, same storage, same relationships...
+indistinguishable afterwards."* The splitter's own single-group case
+already does this (copies the source bytes to a new storage path, creates
+a brand-new `Document` row, attaches the same `contacts()`/`properties()`
+pivots, soft-deletes the original) — direct-filing is that same sequence,
+minus the OCR/manifest/page-extraction machinery a single-type file never
+needed. See `.ai/specs/rental-applications.md`'s own AT-410 section for
+the full build, guards, and proof.
+
+**Scope difference from the splitter's own "Split & File" trigger, by
+design:** Split & File stays PDF-only (only a PDF has pages to split).
+Direct-filing is offered for ANY mime type an upload can arrive as
+(`pdf,jpg,jpeg,png,doc,docx` — `RentalApplicationController::
+uploadDocument()`'s own allowlist) — Johan's own example names a payslip
+and an ID, and an ID just as often arrives as a photo as a PDF scan. This
+is a genuine, deliberate widening of what's fileable on this screen: before
+this build, a non-PDF untyped document had no path to being typed at all.
+
+**The live-mark guard is shared code, not a parallel copy.** Extracted
+from `linkForRentalApplication()` into
+`RentalApplicationDocumentMark::blockingMarksMessageFor(int $documentId): ?string`
+— both the splitter's commit action and the new direct-file action call
+the same method, so the guard can never drift out of sync between the two
+entry points the way two independently-maintained copies eventually would.

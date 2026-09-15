@@ -2780,7 +2780,7 @@ class CalendarController extends Controller
                 ->filter()
                 ->toArray();
             foreach ($properties as $p) {
-                $owners = $p->contacts()->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])->get();
+                $owners = $p->contacts()->wherePivotIn('role', ['owner', 'seller', 'landlord', 'lessor'])->wherePivotNull('deleted_at')->get();
                 foreach ($owners as $owner) {
                     if (in_array($owner->id, $seenContactIds)) continue;
                     $seenContactIds[] = $owner->id;
@@ -2905,6 +2905,7 @@ class CalendarController extends Controller
             ->join('contacts as c', 'c.id', '=', 'cp.contact_id')
             ->where('cp.property_id', $property->id)
             ->whereNull('c.deleted_at')
+            ->whereNull('cp.deleted_at')
             ->where('c.agency_id', $property->agency_id)
             ->orderBy('c.id')
             ->get(['c.id', 'c.first_name', 'c.last_name', 'c.phone', 'c.email', 'cp.role']);
@@ -2979,19 +2980,28 @@ class CalendarController extends Controller
         $contacts = \App\Models\Contact::query()
             ->where('agency_id', $agencyId)
             ->whereNull('deleted_at')
-            ->with(['phones', 'emails', 'type', 'agent'])
+            ->with(['phones', 'emails', 'type', 'agent', 'matches'])
             ->search($q)
             ->limit(7)
             ->get()
-            ->map(fn ($c) => [
-                'id'           => $c->id,
-                'name'         => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
-                'phone'        => $c->phone,
-                'email'        => $c->email,
-                'identifier'   => $c->matchedIdentifier($q),
-                'contact_type' => $c->type?->name,
-                'type'         => 'contact',
-            ]);
+            ->map(function ($c) use ($q) {
+                // Same lens as buyers/detail.blade.php's $isRentalContact — the
+                // contact's primary (or first) wishlist decides tenant vs buyer,
+                // so a rental contact added here labels correctly instead of
+                // defaulting to "Buyer" (see contactSearch().add() in
+                // calendar/index.blade.php).
+                $primaryWishlist = $c->matches->firstWhere('is_primary', true) ?? $c->matches->first();
+                return [
+                    'id'           => $c->id,
+                    'name'         => trim($c->first_name . ' ' . $c->last_name) ?: ('Contact #' . $c->id),
+                    'phone'        => $c->phone,
+                    'email'        => $c->email,
+                    'identifier'   => $c->matchedIdentifier($q),
+                    'contact_type' => $c->type?->name,
+                    'type'         => 'contact',
+                    'is_rental'    => ($primaryWishlist->listing_type ?? null) === 'rental',
+                ];
+            });
 
         // Search users (agents) — exclude the current user
         $users = \App\Models\User::query()
@@ -3015,6 +3025,7 @@ class CalendarController extends Controller
                 // and agents alike rather than a missing-key branch.
                 'contact_type' => null,
                 'type'         => 'agent',
+                'is_rental'    => false,
             ]);
 
         return response()->json($contacts->concat($users)->values());

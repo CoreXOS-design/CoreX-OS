@@ -40,7 +40,16 @@
     );
     $waPhoneRecord = $contact->whatsAppPhone();
     $waPhone = \App\Support\WhatsAppNumberFormatter::forDeepLink($waPhoneRecord?->phone ?? $contact->phone, $waPhoneRecord?->dial_code ?? $contact->primaryPhone?->dial_code);
-    $renderedWaMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $match->sharedUrl()], $defaultWaMsg);
+    // AT-Core-Matches, Johan's dated-link ruling — mint a FRESH link the moment
+    // this composer renders (only when share actions actually show; a hidden
+    // bar has nothing to compose). This is a pure mint (see
+    // ContactMatchShare::mint()), no side effects yet — it only becomes a real
+    // share, and only then touches the buyer's clock, if the agent actually
+    // clicks send (confirmShare() below). "Client Page" deliberately keeps
+    // using the OLD static sharedUrl() — it's a preview, never a share.
+    $pendingShare = $showShareActions ? $match->mintShareLink(auth()->id()) : null;
+    $shareLinkUrl = $pendingShare?->url() ?? $match->sharedUrl();
+    $renderedWaMsg = str_replace(['{name}', '{link}'], [$contact->first_name, $shareLinkUrl], $defaultWaMsg);
     $matchEmailSubject = 'Your property matches';
     $matchEmailBody = $renderedWaMsg;
     $totalViews = array_sum($match->property_view_counts ?? []);
@@ -59,6 +68,11 @@
         // double-quoted attribute and a stray one closes it, leaking JS onto the page as text.
         incrementUrl: @js(route('corex.contacts.increment', $contact)),
         commBase: @js(url('corex/contacts/'.$contact->id.'/communications')),
+        // AT-Core-Matches — confirms the link ALREADY MINTED above as a real send
+        // (WhatsApp/Email only; Client Page is the agent previewing the link
+        // themselves and is deliberately never recorded as a share). Null when
+        // share actions are hidden — nothing to confirm.
+        confirmShareUrl: @js($pendingShare ? route('corex.core-matches.shares.confirm', $pendingShare) : null),
         csrf: @js(csrf_token()),
         sentConfirm: { open: false, communicationId: null },
         emailAddress: @js($contact->email),
@@ -73,6 +87,14 @@
                 });
                 return await res.json();
             } catch (e) { return null; }
+        },
+        confirmShare(channel) {
+            if (!this.confirmShareUrl) return;
+            fetch(this.confirmShareUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'X-Requested-With': 'XMLHttpRequest' },
+                body: JSON.stringify({ channel: channel }),
+            }).catch(() => {}); // Best-effort: a failed history write must never block the actual send.
         },
         async confirmSent(didSend) {
             const commId = this.sentConfirm.communicationId;
@@ -91,6 +113,7 @@
             window.location.href = 'mailto:' + encodeURIComponent(this.emailAddress) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
             // Email is client-launched (mailto): counted on send, no did-you-send modal (matches outreach).
             this.increment('email', { subject: this.emailSubject, body: this.emailBody });
+            this.confirmShare('email');
         },
         async sendWhatsApp() {
             if (!this.waPhone) return;
@@ -103,6 +126,7 @@
             // THEN record the send and ask did-you-send.
             window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank', 'noopener');
             this.showWaModal = false;
+            this.confirmShare('whatsapp');
             const data = await this.increment('whatsapp', { body: this.waMessage });
             if (data && data.communication_id) {
                 this.sentConfirm = { open: true, communicationId: data.communication_id };

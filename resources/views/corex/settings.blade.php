@@ -101,6 +101,9 @@
                         : null,
                     ['key'=>'feature-documents',     'label'=>'Documents',             'type'=>'section', 'keywords'=>'docuperfect named fields'],
                     ['key'=>'feature-rentals',       'label'=>'Rentals',               'type'=>'section', 'keywords'=>'rental document types reminders'],
+                    $can('rental_applications.manage_settings')
+                        ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
+                        : null,
                     ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags labels phone email personal business dial code country prefix'],
                     ['key'=>'feature-properties',    'label'=>'Properties & Listings', 'type'=>'section', 'keywords'=>'syndication portals marketing'],
                     ['key'=>'feature-presentations', 'label'=>'Presentations',         'type'=>'section', 'keywords'=>'cma coverage thresholds comps period rich moderate thin comparable selection price band radius erf percentile range widen anchor'],
@@ -2224,6 +2227,8 @@
                     ['key' => 'mandate_type',    'label' => 'Mandate Types',     'items' => $propMandateTypes, 'placeholder' => 'e.g. Sole, Joint, Open'],
                     // Build 3 — condition levels with adjustment_pct.
                     ['key' => 'condition_level', 'label' => 'Condition Levels',  'items' => $propConditionLevels ?? collect(), 'placeholder' => 'e.g. To Renovate, Excellent'],
+                    // AT-402 — Rental tab's Furnished Status list.
+                    ['key' => 'furnished_status', 'label' => 'Furnished Status', 'items' => $propFurnishedStatuses ?? collect(), 'placeholder' => 'e.g. Unfurnished, Furnished, Part-Furnished'],
                 ];
                 $conditionBaselineName = \App\Models\PropertySettingItem::CONDITION_BASELINE_NAME;
                 $reorderUrl  = route('corex.settings.property-items.reorder');
@@ -2242,6 +2247,22 @@
                         <input type="number" name="properties_per_page" min="1" max="200" step="1" required
                                value="{{ old('properties_per_page', $propertiesPerPage) }}"
                                class="w-24 rounded-md px-3 py-2 text-sm"
+                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                    </form>
+                </div>
+
+                {{-- AT-402 — Rental tab's Admin Fee / Marketing Fee sanity ceiling --}}
+                <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div>
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">Maximum rental Admin Fee / Marketing Fee (R)</div>
+                        <div class="text-xs mt-0.5" style="color:var(--text-secondary);">A rental listing's Admin Fee and Marketing Fee (Rental tab) can't be saved above this amount — a safety net against a typo like an extra zero. Default R50,000.</div>
+                    </div>
+                    <form method="POST" action="{{ route('corex.settings.rental-fee-ceiling') }}" class="flex flex-wrap items-center gap-2">
+                        @csrf
+                        <input type="number" name="rental_fee_max_amount" min="1" max="10000000" step="1" required
+                               value="{{ old('rental_fee_max_amount', $rentalFeeMaxAmount) }}"
+                               class="w-32 rounded-md px-3 py-2 text-sm"
                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
                     </form>

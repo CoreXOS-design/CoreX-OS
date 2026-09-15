@@ -228,3 +228,132 @@ Single file: `resources/views/compliance/communication-archive/thread.blade.php`
 **Remediate — `communications:purge-wa-noise {--agency=} {--dry-run}`** (`app/Console/Commands/Communications/PurgeWaGroupBroadcastNoise.php`). Soft-purge only: sets `purged_at = now()` + `purged_reason = 'group_broadcast_noise'` on `whereNull('purged_at')` WhatsApp rows whose `thread_key` is `%@g.us%` / `%status@broadcast%` (agency-scoped when `--agency` given; runs `withoutGlobalScope(AgencyScope)` for the sweep). **No hard delete — rows stay recoverable and content bytes are untouched;** the archive viewer hides them via `Communication::scopeNotPurged` (`whereNull('purged_at')`). `--dry-run` reports counts and writes nothing. Reusable so the same tool can remediate live once inbound capture runs there. 1:1 `@lid`/phone threads never match the purge predicate.
 
 > **Deploy/live status:** all of §§12–14 are on **Staging, HELD** — not promoted to live. Promotion is gated on Johan's explicit authorization.
+
+## 15. E-sign sends into the archive, and bounce capture (PARKED, 2026-09-07)
+
+**Status: approved in principle by Johan, NOT started.** Priority is rental
+applications until that is built and tested; this is next in line after.
+Investigated and written up now so nothing is rediscovered later. Do not
+build from this section without re-confirming scope first — cc2's AT-395
+work (per-mailbox outgoing SMTP + Sent-folder append, see
+`.ai/specs/at395-outgoing-mail-per-mailbox-smtp.md`) sits directly
+upstream of this and may have moved by the time this is picked up.
+
+### The gap (confirmed by reading code, not inferred)
+
+E-sign invitation/reminder/completion emails
+(`SignatureService::sendSigningRequestEmail()`,
+`app/Services/Docuperfect/SignatureService.php` ~line 5410–5451) write to
+the communications archive **zero times**. The only record of a send is
+`signature_requests.invite_send_status` (`sent`/`failed`) +
+`invite_send_error`, set inside a try/catch around the synchronous mail
+dispatch. That is structurally incapable of ever seeing a bounce: a bounce
+is an asynchronous non-delivery report that arrives *after* the
+synchronous send already returned success, so the mechanism that sets
+`invite_send_status='failed'` can never fire for one.
+
+Confirmed no bounce capture exists anywhere in CoreX today, for any mail
+type: `App\Models\PresentationDelivery::STATUS_BOUNCED` and
+`App\Models\SellerOutreach\SellerOutreachSend::OUTCOME_BOUNCED` both exist
+as string constants and are **never assigned anywhere** in the codebase —
+grepped every reference; each has exactly one other hit, a
+display-label mapping in `ContactTimelineController.php`, in case a row
+ever held the value. Nothing ever writes it.
+
+### The recommendation
+
+1. **Wire e-sign sends into the existing `Communication` model**, the same
+   way three other features already do it — copy the pattern, do not
+   invent a new one:
+   - `App\Services\SellerOutreach\SellerOutreachSenderService::send()`
+     (`app/Services/SellerOutreach/SellerOutreachSenderService.php`
+     ~line 136–160)
+   - `App\Http\Controllers\CoreX\ContactController::incrementChannel()`
+     (`app/Http/Controllers/CoreX/ContactController.php` ~line 1705–1731)
+   - Both call `App\Services\Communications\OutboundProvisionalLogger::log()`
+     (`app/Services/Communications/OutboundProvisionalLogger.php`) to
+     create the `Communication` + `CommunicationLink` rows, then
+     force-fill `send_status` honestly (`not_delivered` for anything CoreX
+     cannot confirm delivery of, `sent` only when it genuinely knows).
+   - This has already been done once today for a different e-sign surface
+     — `App\Services\Docuperfect\SigningWhatsAppLinkService::logOpened()`
+     (`app/Services/Docuperfect/SigningWhatsAppLinkService.php`) — as a
+     second worked example of hooking e-sign into this exact mechanism,
+     built the same day this spec section was written.
+2. **Teach the existing mailbox poller to recognise and match bounces.**
+   `App\Services\Communications\ImapMailboxPoller.php` already polls every
+   configured mailbox's Inbox (`app/Services/Communications/ImapMailboxPoller.php`)
+   and hands each message to
+   `App\Services\Communications\EmailArchiveIngestor` — a bounce notice
+   lands in that same Inbox as an ordinary message today, uncategorised.
+   Missing pieces, both real work, not wiring:
+   - **Recognising** a message as a bounce/DSN (not a normal reply) —
+     `EmailArchiveIngestor::ingest()` (`app/Services/Communications/EmailArchiveIngestor.php`)
+     is the point to extend; it already threads messages via `thread_key`
+     (`ingest()` ~line 172), which a DSN does not reliably carry the same
+     way a real reply does.
+   - **Matching** a bounce back to the specific signing invitation it
+     belongs to. This needs the original email's Message-ID, which CoreX
+     does not currently capture or store anywhere for e-sign sends —
+     `App\Mail\Signatures\BaseSignatureMail` sets no explicit Message-ID
+     today. A new column (e.g. `signature_requests.outbound_message_id`)
+     and setting it at send time is a real, if small, prerequisite.
+3. **Reuse `Communication`'s own `send_status` field** — add
+   `SEND_STATUS_BOUNCED = 'bounced'` alongside the existing
+   `SEND_STATUS_SENT` / `SEND_STATUS_NOT_DELIVERED`
+   (`app/Models/Communications/Communication.php` ~line 32–33). Do **not**
+   revive either of the two dead constants above — they belong to
+   different models with different lifecycles; a fresh, correctly-scoped
+   constant on `Communication` is the right shape, not a third orphan.
+   No new screen: the existing compliance Communication Archive already
+   renders `send_status` per row.
+
+### Option considered and rejected: a provider webhook (SES/Mailgun/Postmark)
+
+`config/mail.php` already defines these transports, but `.env` uses plain
+`smtp` everywhere, and cc2's AT-395 work sends each agent's mail through
+**that agent's own real mailbox** (their own Office365/Gmail/hosting
+account), not through a centrally-controlled ESP. A webhook only reports
+bounces for mail the provider itself sent — adopting one would mean
+reversing the per-mailbox-SMTP direction entirely, agency-wide. That is a
+different, much bigger decision than "add bounce capture," and conflicts
+with work already landing. Rejected for that reason, not on cost alone.
+
+### Open question for Johan — do not assume an answer
+
+The compliance Communication Archive (`access_communication_archive`) is
+visible to branch managers and admins only — a plain agent cannot see it
+(confirmed against `config/corex-permissions.php`'s `role_defaults`: the
+`agent` role gets the narrower `communications.view`, a different,
+per-contact screen, not this one). So: does the *sending agent* get told
+directly when their invitation bounces, or does this route through their
+branch manager on the screen that already exists?
+
+**Johan has since added context that may change the answer:** since mail
+now leaves from the agent's own real mailbox (AT-395), a bounce already
+lands naturally in that agent's own Outlook — they will see it there
+regardless of anything CoreX does. That reframes what this build is
+actually for: **not** "tell the agent something they'd otherwise never
+know," but **"let CoreX itself see why a send failed"** — i.e. this is
+primarily a visibility/audit gap for the business (why did this deal
+stall, was the recipient's address ever actually reachable), not
+necessarily a new alert the agent needs pushed at them. Confirm this
+framing before designing any notification — it may mean the branch
+manager/compliance screen is enough on its own, with no agent-facing
+alert needed at all.
+
+### Files that carry the pattern to copy (so this is not rediscovered)
+
+| Purpose | File |
+|---|---|
+| The provisional-communication logger to reuse | `app/Services/Communications/OutboundProvisionalLogger.php` |
+| Worked example #1 (seller outreach) | `app/Services/SellerOutreach/SellerOutreachSenderService.php` (~line 136–160) |
+| Worked example #2 (contact quick-send) | `app/Http/Controllers/CoreX/ContactController.php` (`incrementChannel`, ~line 1705–1731) |
+| Worked example #3, e-sign, same day as this spec | `app/Services/Docuperfect/SigningWhatsAppLinkService.php` (`logOpened`) |
+| Where e-sign sends currently happen (integration point) | `app/Services/Docuperfect/SignatureService.php` (`sendSigningRequestEmail`, ~line 5410–5451) |
+| The `send_status` field to extend | `app/Models/Communications/Communication.php` (~line 32–33) |
+| The existing inbox poller (bounce would land here) | `app/Services/Communications/ImapMailboxPoller.php` |
+| Where inbound messages are currently classified/stored | `app/Services/Communications/EmailArchiveIngestor.php` |
+| The archive's own permission + route group (no new screen) | `config/corex-permissions.php` (`access_communication_archive`), `routes/web.php` (`compliance/communications`, `compliance/communication-archive`) |
+| The two dead "bounced" constants — do not reuse, do not remove without separate instruction | `app/Models/PresentationDelivery.php` (`STATUS_BOUNCED`), `app/Models/SellerOutreach/SellerOutreachSend.php` (`OUTCOME_BOUNCED`) |
+| Upstream dependency — confirm current state before starting | `.ai/specs/at395-outgoing-mail-per-mailbox-smtp.md` |

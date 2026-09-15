@@ -44,6 +44,28 @@ class PropertyController extends Controller
         $agencySortMode  = $agency?->properties_sort_mode ?? 'created';
         $defaultSort     = $agencySortMode === 'status_priority' ? 'status_priority' : 'newest';
 
+        // AT-401 — Rentals → Properties is the SAME controller action reached
+        // by a second route, detected by NAME (never client-supplied — the
+        // client cannot set request()->route()). Every self-referencing
+        // route() call below uses $indexRouteName instead of a hardcoded
+        // 'corex.properties.index' so "Clear filters", the saved-filter
+        // redirect, and the filter form's own action all stay on whichever
+        // entry point the user is actually on, rather than bouncing them
+        // back to the unlocked screen. The lock itself is applied further
+        // down, AFTER the query string is read — see $listingType below.
+        $indexRouteName = $request->route()->getName();
+        $isRentalEntry  = $indexRouteName === 'corex.rentals.properties.index';
+
+        // AT-401 — remembers which lens the user most recently entered
+        // Properties through, so the sidebar can keep highlighting "Rentals →
+        // Properties" (and not the sales "Properties" item) on a page reached
+        // FROM this list that shares the same corex.properties.* route names
+        // (a property's show/edit/wizard screens — there's no rentals-prefixed
+        // variant of those). A UI-highlighting/return-link signal only, never
+        // used for the listing_type lock above — that always derives from the
+        // route name itself, never from session state.
+        session(['corex.lens.properties' => $isRentalEntry]);
+
         // ── Filter persistence ────────────────────────────────────────────
         // The whole active filter set (agents, status, search, every advanced
         // filter) survives navigation for the life of the browser session —
@@ -52,7 +74,9 @@ class PropertyController extends Controller
         // redirected to the canonical URL so links, chips and pagination all
         // carry the state. This replaces the previous behaviour that silently
         // reset to "my listings" on any nav that dropped ?agent_id=.
-        $SESSION_KEY = 'corex.properties.filters';
+        // Rentals gets its own key so a sale-side saved filter set (or vice
+        // versa) never leaks across the two entry points.
+        $SESSION_KEY = $isRentalEntry ? 'corex.rentals.properties.filters' : 'corex.properties.filters';
         $FILTER_KEYS = [
             'status', 'search', 'listing_type', 'property_type', 'category',
             'mandate_type', 'branch_id', 'price_min', 'price_max',
@@ -62,7 +86,7 @@ class PropertyController extends Controller
         // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
         if ($request->boolean('clear')) {
             $request->session()->forget($SESSION_KEY);
-            return redirect()->route('corex.properties.index');
+            return redirect()->route($indexRouteName);
         }
 
         // Did this request carry any filter signal? (incl. the legacy single
@@ -75,7 +99,7 @@ class PropertyController extends Controller
         if (! $hasFilterParam) {
             $saved = (array) $request->session()->get($SESSION_KEY, []);
             if (! empty($saved)) {
-                return redirect()->route('corex.properties.index', $saved);
+                return redirect()->route($indexRouteName, $saved);
             }
         }
 
@@ -85,6 +109,15 @@ class PropertyController extends Controller
 
         // Extended filters
         $listingType    = $request->query('listing_type', '');   // '' | sale | rental
+        // THE LOCK — applied after the query string is read, so a
+        // hand-edited ?listing_type=sale on this entry point is simply
+        // overridden, not trusted. This is the only place the lock lives;
+        // everything else on this screen (search, sort, pagination, the
+        // scope toggle) works exactly as it does for Real Estate → Properties,
+        // because it is the same code.
+        if ($isRentalEntry) {
+            $listingType = 'rental';
+        }
         $propertyType   = $request->query('property_type', '');
         $category       = $request->query('category', '');
         $mandateType    = $request->query('mandate_type', '');
@@ -198,6 +231,15 @@ class PropertyController extends Controller
             // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
             // i.e. NOT terminal/draft. Single source of truth on the model.
             $query->whereNotIn('status', Property::OFF_MARKET_STATUSES);
+        } elseif ($status === 'rented_out') {
+            // AT-401 — the Rentals-lens equivalent of the sale side's "Sold"
+            // tab/filter. Not a single literal status value: real data on the
+            // rental side carries both 'let_out' and a legacy capitalised
+            // 'Rented' variant, so this matches case-insensitively — the same
+            // lowercase comparison Property::normalizedStatus() already uses,
+            // not a new convention. A synthetic filter keyword, exactly like
+            // 'on_market' above, never a literal column value.
+            $query->whereRaw('LOWER(status) IN (?, ?)', ['let_out', 'rented']);
         } elseif ($status !== '') {
             $query->where('status', $status);
         }
@@ -240,6 +282,9 @@ class PropertyController extends Controller
             . " SUM(CASE WHEN status NOT IN ($offMarketIn) THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
             . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
+            // AT-401 — Rentals-lens "Rented Out" tile. Same case-insensitive
+            // let_out/rented pair as the 'rented_out' filter keyword above.
+            . " SUM(CASE WHEN LOWER(status) IN ('let_out','rented') THEN 1 ELSE 0 END) as rented_out,"
             // PROSPECTING (Johan, 2026-08-20/21) — same clone-of-$query
             // aggregate every other tile already uses, so this tile can never
             // disagree with the filtered list: "whatever filters the list
@@ -247,11 +292,12 @@ class PropertyController extends Controller
             . " SUM(CASE WHEN status = '" . Property::STATUS_PROSPECTING . "' THEN 1 ELSE 0 END) as prospecting"
         )->first();
         $stats = [
-            'total'       => (int) ($agg->total ?? 0),
-            'active'      => (int) ($agg->active ?? 0),
-            'draft'       => (int) ($agg->draft ?? 0),
-            'sold'        => (int) ($agg->sold ?? 0),
-            'prospecting' => (int) ($agg->prospecting ?? 0),
+            'total'      => (int) ($agg->total ?? 0),
+            'active'     => (int) ($agg->active ?? 0),
+            'draft'      => (int) ($agg->draft ?? 0),
+            'sold'       => (int) ($agg->sold ?? 0),
+            'rentedOut'  => (int) ($agg->rented_out ?? 0),
+            'prospecting'=> (int) ($agg->prospecting ?? 0),
         ];
 
         // Sorting — whitelisted columns only
@@ -440,7 +486,7 @@ class PropertyController extends Controller
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
-            'myDrafts', 'hasWebsiteStats'
+            'myDrafts', 'hasWebsiteStats', 'isRentalEntry', 'indexRouteName'
         ));
     }
 
@@ -516,6 +562,8 @@ class PropertyController extends Controller
             'mandateTypes'    => PropertySettingItem::group('mandate_type')->get(),
             // Build 3 — condition levels drive CMA Middle band adjustment.
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
+            // AT-402 — Rental tab's Furnished Status select.
+            'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
         ];
 
         $branches = Branch::orderBy('name')->get();
@@ -557,7 +605,7 @@ class PropertyController extends Controller
                 }
             }
             if (empty($property->title))   $hfcMissingFields[] = ['field' => 'title',   'label' => 'Title'];
-            if (empty($property->price))   $hfcMissingFields[] = ['field' => 'price',   'label' => 'Price'];
+            if (empty($property->effectivePrice()))   $hfcMissingFields[] = ['field' => 'price',   'label' => 'Price'];
             if (empty($property->status))  $hfcMissingFields[] = ['field' => 'status',  'label' => 'Status'];
             if (empty($property->suburb))  $hfcMissingFields[] = ['field' => 'suburb',  'label' => 'Suburb'];
         }
@@ -792,6 +840,8 @@ class PropertyController extends Controller
             'mandateTypes'    => PropertySettingItem::group('mandate_type')->get(),
             // Build 3 — condition levels drive CMA Middle band adjustment.
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
+            // AT-402 — Rental tab's Furnished Status select.
+            'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
         ];
         $branches  = Branch::orderBy('name')->get();
         $agents    = $this->agentList($property);
@@ -841,6 +891,10 @@ class PropertyController extends Controller
             'price'            => 'required|integer|min:0',
             'price_on_application' => 'nullable|boolean',
             'has_deposit'      => 'nullable|boolean',
+            // AT-402 Part 4 — itemised, not a single "utilities included" flag.
+            'water_included'       => 'nullable|boolean',
+            'electricity_included' => 'nullable|boolean',
+            'levies_included'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
             'price_per_day'    => 'nullable|numeric|min:0',
             'price_per_week'   => 'nullable|numeric|min:0',
@@ -911,6 +965,11 @@ class PropertyController extends Controller
             'matterport_id'      => 'nullable|string|max:100',
             'virtual_tour_url'   => 'nullable|url|max:1000',
             'rental_price_type'  => 'nullable|string|max:50',
+            // AT-402 Part 4 — Furnished Status / move-in Availability date.
+            // occupation_date already exists as a column (see the migration's
+            // docblock) — this is the first validation rule for it anywhere.
+            'furnished_status'   => 'nullable|string|max:100',
+            'occupation_date'    => 'nullable|date',
             'pp_hide_street_name'   => 'nullable|boolean',
             'pp_hide_street_number' => 'nullable|boolean',
             'pp_hide_complex_name'  => 'nullable|boolean',
@@ -1068,8 +1127,12 @@ class PropertyController extends Controller
         foreach ((array) $request->input('pending_contact_ids', []) as $cid) {
             $cid = (int) $cid;
             if ($cid > 0) {
-                $wasLinked = $property->contacts()->where('contacts.id', $cid)->exists();
-                $property->contacts()->syncWithoutDetaching([$cid => ['role' => $defaultLinkRole]]);
+                // $property is brand new here so this pair can't collide in
+                // practice, but goes through the linker for consistency —
+                // see .ai/specs/rental-applications.md, "The
+                // contact_property hard-delete fix".
+                $linkResult = \App\Services\Property\ContactPropertyLinker::link($cid, $property->id, $defaultLinkRole);
+                $wasLinked = ! $linkResult->isNew;
                 if (!$wasLinked) {
                     $linkedContact = \App\Models\Contact::find($cid);
                     if ($linkedContact) {
@@ -1109,8 +1172,8 @@ class PropertyController extends Controller
             // Auto-link if duplicate found (non-blocking in bulk create context)
             $existing = $dupService->findDuplicates($ncData, $agencyId)->first();
             if ($existing) {
-                $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
-                $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $defaultLinkRole]]);
+                $linkResult = \App\Services\Property\ContactPropertyLinker::link($existing->id, $property->id, $defaultLinkRole);
+                $wasLinked = ! $linkResult->isNew;
                 $match = $dupService->identifyMatch($ncData, $existing, $agencyId);
                 $dupService->logAttempt($agencyId, auth()->id(), 'auto_link', $match['field'], $match['value'], $existing->id, $ncData, 'auto_linked');
                 if (!$wasLinked) {
@@ -1141,7 +1204,7 @@ class PropertyController extends Controller
             }
 
             $contact = \App\Models\Contact::create($ncData);
-            $property->contacts()->attach($contact->id, ['role' => $defaultLinkRole]);
+            \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $defaultLinkRole);
             \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
             event(new \App\Events\Contact\ContactLinkedToProperty(
                 contact: $contact,
@@ -1224,6 +1287,10 @@ class PropertyController extends Controller
             'price'            => $reqIf($priceRequired, '|integer|min:0'),
             'price_on_application' => 'nullable|boolean',
             'has_deposit'      => 'nullable|boolean',
+            // AT-402 Part 4 — itemised, not a single "utilities included" flag.
+            'water_included'       => 'nullable|boolean',
+            'electricity_included' => 'nullable|boolean',
+            'levies_included'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
             'price_per_day'    => 'nullable|numeric|min:0',
             'price_per_week'   => 'nullable|numeric|min:0',
@@ -1294,6 +1361,11 @@ class PropertyController extends Controller
             'matterport_id'      => 'nullable|string|max:100',
             'virtual_tour_url'   => 'nullable|url|max:1000',
             'rental_price_type'  => 'nullable|string|max:50',
+            // AT-402 Part 4 — Furnished Status / move-in Availability date.
+            // occupation_date already exists as a column (see the migration's
+            // docblock) — this is the first validation rule for it anywhere.
+            'furnished_status'   => 'nullable|string|max:100',
+            'occupation_date'    => 'nullable|date',
             'pp_hide_street_name'   => 'nullable|boolean',
             'pp_hide_street_number' => 'nullable|boolean',
             'pp_hide_complex_name'  => 'nullable|boolean',
@@ -1560,9 +1632,15 @@ class PropertyController extends Controller
                 // AT-262 fix — remap the party role to the clone's listing type so a
                 // rental's landlord becomes the sale's seller (and vice-versa); else the
                 // seller never pulls through on the new listing's deal capture.
-                $clone->contacts()->attach($contact->id, [
-                    'role' => Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
-                ]);
+                // $clone is a brand-new Property here so this pair can't
+                // collide in practice, but goes through the linker for
+                // consistency — see .ai/specs/rental-applications.md, "The
+                // contact_property hard-delete fix".
+                \App\Services\Property\ContactPropertyLinker::link(
+                    $contact->id,
+                    $clone->id,
+                    Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
+                );
             }
         });
 
@@ -1604,9 +1682,15 @@ class PropertyController extends Controller
             $clone->save();
             foreach ($property->contacts as $contact) {
                 // AT-262 fix — remap the party role to the clone's listing type (see duplicate()).
-                $clone->contacts()->attach($contact->id, [
-                    'role' => Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
-                ]);
+                // $clone is a brand-new Property here so this pair can't
+                // collide in practice, but goes through the linker for
+                // consistency — see .ai/specs/rental-applications.md, "The
+                // contact_property hard-delete fix".
+                \App\Services\Property\ContactPropertyLinker::link(
+                    $contact->id,
+                    $clone->id,
+                    Property::remapPivotRoleForListingType($contact->pivot->role, $clone->listing_type),
+                );
             }
             // Archive the original — de-list syndication (the syndication path withdraws
             // it from the portals) and soft-delete so history is preserved. saveQuietly so
@@ -1680,7 +1764,7 @@ class PropertyController extends Controller
             elseif (empty($property->agent->phone)) $missing[] = 'Agent phone number';
             elseif (empty($property->agent->email)) $missing[] = 'Agent email';
             if (empty($property->title))   $missing[] = 'Title';
-            if (empty($property->price))   $missing[] = 'Price';
+            if (empty($property->effectivePrice()))   $missing[] = 'Price';
             if (empty($property->status))  $missing[] = 'Status';
             if (empty($property->suburb))  $missing[] = 'Suburb';
             if ($missing) {
@@ -2295,6 +2379,113 @@ class PropertyController extends Controller
             'rental_images' => $property->rentalImagesStructure(),
             'deleted'       => count(array_unique($filesToUnlink)),
         ]);
+    }
+
+    /**
+     * AT-402 — Rental tab (data fields). Dedicated save action, deliberately
+     * separate from the large update() method above, so this specific save
+     * gets its own clean validation + transaction + authorization from day
+     * one rather than riding update()'s much larger surface.
+     *
+     * Only reachable for a SETTLED rental property (not $isNew, not a
+     * type-change draft) — see show.blade.php's Rental tab: a brand new
+     * property or a listing_type_pending draft still enters its rental
+     * fields through the main store()/update() form (form="prop-update-form"),
+     * exactly as it does today, because the property may not exist yet.
+     *
+     * Server-side re-checks listing_type itself rather than trusting the tab
+     * being hidden client-side — a sale property (or a pending type-change
+     * draft, which hasn't committed to a type yet) gets a 403, never a
+     * silent rental-field write. Same lock-not-hide principle as the Rentals
+     * subsystem entry points (AT-401).
+     *
+     * "Archive/restore" for this data has no separate lifecycle of its own —
+     * it lives on the Property row, so archiving/restoring the PROPERTY
+     * (already soft-deleted via destroy()) already carries these fields with
+     * it; there is no independent rental-detail record to archive.
+     */
+    public function updateRentalDetails(Request $request, Property $property)
+    {
+        $this->authorizeProperty($property);
+
+        abort_if(
+            strtolower((string) $property->listing_type) !== 'rental' || $property->listing_type_pending,
+            403,
+            'This property is not a settled rental listing.'
+        );
+
+        // AT-402 Part 3 — sanity ceiling for Admin Fee / Marketing Fee. Neither
+        // field has ever had an upper bound anywhere in the codebase (mobile
+        // or web) — only min:0. Agency-configurable, not hardcoded (see
+        // SettingsController::updateRentalFeeCeiling()), with a sensible
+        // default so an agency that never visits the setting still has real
+        // protection against a typo'd fee.
+        $feeCeiling = (int) PerformanceSetting::get('rental_fee_max_amount', 50000);
+
+        $data = $request->validate([
+            'rental_amount'     => 'nullable|numeric|min:0',
+            'deposit_amount'    => 'nullable|numeric|min:0',
+            'rental_price_type' => 'nullable|string|max:50',
+            'lease_start_date'  => 'nullable|date',
+            'lease_end_date'    => 'nullable|date|after_or_equal:lease_start_date',
+            // AT-402 Part 2 — moved off the old Pricing Details popup, which
+            // showed these to every property, sale included.
+            'lease_period'      => 'nullable|string|max:100',
+            'lease_type'        => 'nullable|string|max:100',
+            'price_per_day'     => 'nullable|numeric|min:0',
+            'price_per_week'    => 'nullable|numeric|min:0',
+            'price_per_year'    => 'nullable|numeric|min:0',
+            // AT-402 Part 3 — first-ever desktop inputs for these three; the
+            // mobile app has always been able to set them. Same bound on
+            // commission_percent (0-100) as the mobile app and the general
+            // update()/store() validation already use — never divide/multiply
+            // by 100 anywhere in this path, matching how every consumer of
+            // this column (WebTemplateDataService, the eSign wizard, mobile)
+            // already treats it as a plain percent number, not a fraction.
+            // No coercion on a bad value — a value outside these bounds fails
+            // validation and is never saved, not silently clamped.
+            'commission_percent' => 'nullable|numeric|min:0|max:100',
+            'admin_fee'          => "nullable|numeric|min:0|max:{$feeCeiling}",
+            'marketing_fee'      => "nullable|numeric|min:0|max:{$feeCeiling}",
+            // AT-402 Part 4 — Furnished Status / Availability / Utilities.
+            // furnished_status: free-text-shaped but UI-constrained to the
+            // agency's own PropertySettingItem list (group 'furnished_status')
+            // — same convention as property_type/category above, no FK.
+            'furnished_status'  => 'nullable|string|max:100',
+            // occupation_date IS the "move-in Availability date" — an
+            // existing column, not a new one (see the migration's docblock).
+            'occupation_date'   => 'nullable|date',
+        ]);
+
+        // has_deposit / water_included / electricity_included / levies_included
+        // are all checkboxes: an unchecked box submits nothing at all, not
+        // "false" — reading them via $request->validate() above would leave
+        // the key out of $data entirely and $property->update() would then
+        // silently KEEP whatever value already existed, instead of clearing
+        // it. boolean() always returns a real true/false, checked or not, so
+        // unchecking any of them actually persists as false.
+        $data['has_deposit']         = $request->boolean('has_deposit');
+        $data['water_included']      = $request->boolean('water_included');
+        $data['electricity_included'] = $request->boolean('electricity_included');
+        $data['levies_included']     = $request->boolean('levies_included');
+
+        DB::transaction(function () use ($property, $data) {
+            $property->update($data);
+        });
+
+        // Same "portal copies just went stale" nudge the main update() gives —
+        // a rental's price/lease dates are exactly the kind of change that
+        // makes a live, compliant listing's P24/PP copy stale. See
+        // shouldPromptSyndication()'s own docblock for the full reasoning.
+        $redirect = redirect()->route('corex.properties.show', $property)
+            ->with('success', 'Rental details updated.')
+            ->with('tab', 'rental');
+
+        if ($this->shouldPromptSyndication($property)) {
+            $redirect->with('open_syndication', true);
+        }
+
+        return $redirect;
     }
 
     public function reorderImages(Request $request, Property $property)

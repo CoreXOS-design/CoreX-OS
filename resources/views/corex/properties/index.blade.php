@@ -190,6 +190,11 @@
             // from Draft's pencil so the two pools read as visibly different
             // at a glance, matching the whole point of separating them.
             'Prospecting' => '<circle cx="10.5" cy="10.5" r="6.75" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75L21 21"/>',
+            // AT-401 — Rentals-lens tile labels reuse the sale tile's own
+            // icon/color (Available = On Market's live-dot check, Rented Out
+            // = Sold's checkmark-circle) — same concept, rental vocabulary.
+            'Available'   => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9" fill="none"/>',
+            'Rented Out'  => '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>',
         ];
         $kpiColors = [
             'Total'       => ['bg' => 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent)',  'fg' => 'var(--brand-icon, #0ea5e9)'],
@@ -197,10 +202,23 @@
             'Draft'       => ['bg' => 'color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent)',   'fg' => 'var(--ds-amber, #f59e0b)'],
             'Sold'        => ['bg' => 'color-mix(in srgb, var(--ds-navy, #0b2a4a) 12%, transparent)',    'fg' => 'var(--ds-navy, #0b2a4a)'],
             'Prospecting' => ['bg' => 'color-mix(in srgb, var(--ds-purple, #7c3aed) 12%, transparent)',  'fg' => 'var(--ds-purple, #7c3aed)'],
+            'Available'   => ['bg' => 'color-mix(in srgb, var(--ds-green, #059669) 12%, transparent)',   'fg' => 'var(--ds-green, #059669)'],
+            'Rented Out'  => ['bg' => 'color-mix(in srgb, var(--ds-navy, #0b2a4a) 12%, transparent)',    'fg' => 'var(--ds-navy, #0b2a4a)'],
         ];
     @endphp
     @php
-        $kpiTiles = [
+        // AT-401 — Rentals lens: the sale vocabulary ("On Market" / "Sold")
+        // doesn't fit a rented property, so the Rentals entry point swaps in
+        // the rental-equivalent tiles. Same underlying filters (on_market is
+        // already listing-type-agnostic; rented_out is the new let_out/rented
+        // filter keyword added to index() above) — only the label changes.
+        $kpiTiles = ($isRentalEntry ?? false) ? [
+            ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
+            ['label' => 'Available',   'value' => $stats['active'],      'filter' => 'on_market'],
+            ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
+            ['label' => 'Draft',       'value' => $stats['draft'],       'filter' => 'draft'],
+            ['label' => 'Rented Out',  'value' => $stats['rentedOut'],   'filter' => 'rented_out'],
+        ] : [
             ['label' => 'Total',       'value' => $stats['total'],       'filter' => ''],
             ['label' => 'On Market',   'value' => $stats['active'],      'filter' => 'on_market'],
             ['label' => 'Prospecting', 'value' => $stats['prospecting'], 'filter' => \App\Models\Property::STATUS_PROSPECTING],
@@ -215,7 +233,7 @@
         @foreach($kpiTiles as $kpi)
         @php
             $isActive = ($kpi['filter'] === '' && $currentStatus === '') || $kpi['filter'] === $currentStatus;
-            $isLive   = $kpi['label'] === 'On Market';
+            $isLive   = in_array($kpi['label'], ['On Market', 'Available'], true);
             $tileUrl = $kpi['filter'] === ''
                 ? $baseUrl . '?' . http_build_query($preserveParams)
                 : $baseUrl . '?' . http_build_query(array_merge($preserveParams, ['status' => $kpi['filter']]));
@@ -295,7 +313,7 @@
          }"
          class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route('corex.properties.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
+        <form method="GET" action="{{ route($indexRouteName ?? 'corex.properties.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Search --}}
             <div class="relative flex-1 min-w-[180px] max-w-xs" data-tour="re-properties-search">
@@ -316,8 +334,8 @@
                 $pcIsAll    = empty($filterAgentIds);
                 $pcIsMine   = count($filterAgentIds) === 1 && (string) $filterAgentIds[0] === $pcuId;
                 $pcCarry    = request()->except(['agent_id', 'agent_ids', 'page']);
-                $pcMineUrl  = route('corex.properties.index', array_merge($pcCarry, ['agent_ids' => $pcuId]));
-                $pcAllUrl   = route('corex.properties.index', array_merge($pcCarry, ['agent_ids' => 'all']));
+                $pcMineUrl  = route($indexRouteName ?? 'corex.properties.index', array_merge($pcCarry, ['agent_ids' => $pcuId]));
+                $pcAllUrl   = route($indexRouteName ?? 'corex.properties.index', array_merge($pcCarry, ['agent_ids' => 'all']));
                 $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
@@ -337,8 +355,18 @@
             @endif
 
             {{-- Status --}}
+            {{-- AT-401 — Rentals lens: same swap as the KPI tiles above. Sale-only
+                 concepts (Not selling, Sold by 3rd Party) are dropped rather than
+                 mislabelled — no rental-equivalent status exists for either today. --}}
             <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
+                @if($isRentalEntry ?? false)
+                <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>Available</option>
+                <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
+                <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
+                <option value="rented_out" {{ $status === 'rented_out' ? 'selected' : '' }}>Rented Out</option>
+                <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+                @else
                 <option value="on_market" {{ $status === 'on_market' ? 'selected' : '' }}>On Market</option>
                 <option value="{{ \App\Models\Property::STATUS_PROSPECTING }}" {{ $status === \App\Models\Property::STATUS_PROSPECTING ? 'selected' : '' }}>Prospecting</option>
                 <option value="draft" {{ $status === 'draft' ? 'selected' : '' }}>Draft</option>
@@ -349,14 +377,23 @@
                      questions and an agent must be able to filter for either. --}}
                 <option value="sold_by_3rd_party" {{ $status === 'sold_by_3rd_party' ? 'selected' : '' }}>Sold by 3rd Party</option>
                 <option value="withdrawn" {{ $status === 'withdrawn' ? 'selected' : '' }}>Withdrawn</option>
+                @endif
             </select>
 
-            {{-- Listing Type --}}
-            <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
-                <option value="" {{ ($filters['listingType'] ?? '') === '' ? 'selected' : '' }}>Sale &amp; Rental</option>
-                <option value="sale"   {{ ($filters['listingType'] ?? '') === 'sale'   ? 'selected' : '' }}>For Sale</option>
-                <option value="rental" {{ ($filters['listingType'] ?? '') === 'rental' ? 'selected' : '' }}>For Rental</option>
-            </select>
+            {{-- Listing Type — AT-401: locked on the Rentals entry point, not
+                 just hidden. PropertyController::index() forces listing_type
+                 server-side whenever isRentalEntry is true, regardless of
+                 what this control (or a hand-edited URL) says, so a static
+                 label here is honest, not merely decorative. --}}
+            @if($isRentalEntry ?? false)
+                <span class="list-header-filter" style="cursor:default;" title="This entry point always shows rentals only">Rentals only</span>
+            @else
+                <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
+                    <option value="" {{ ($filters['listingType'] ?? '') === '' ? 'selected' : '' }}>Sale &amp; Rental</option>
+                    <option value="sale"   {{ ($filters['listingType'] ?? '') === 'sale'   ? 'selected' : '' }}>For Sale</option>
+                    <option value="rental" {{ ($filters['listingType'] ?? '') === 'rental' ? 'selected' : '' }}>For Rental</option>
+                </select>
+            @endif
 
             {{-- Sort --}}
             <select name="sort" onchange="this.form.submit()" class="list-header-filter">
@@ -384,7 +421,7 @@
             </button>
 
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route('corex.properties.index', ['clear' => 1]) }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
+            <a href="{{ route($indexRouteName ?? 'corex.properties.index', ['clear' => 1]) }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
             @endif
 
             {{-- Agent picker (admin/bm only) — right-aligned modal, multi-select --}}
@@ -655,7 +692,7 @@
                     $chips[] = [
                         'label' => $agentChipLabel,
                         'key'   => 'agent_ids',
-                        'url'   => route('corex.properties.index', array_merge(collect($chipBase)->except(['agent_id', 'agent_ids'])->toArray(), ['agent_ids' => 'all'])),
+                        'url'   => route($indexRouteName ?? 'corex.properties.index', array_merge(collect($chipBase)->except(['agent_id', 'agent_ids'])->toArray(), ['agent_ids' => 'all'])),
                     ];
                 }
             }
@@ -666,7 +703,7 @@
             @foreach($chips as $chip)
                 @php
                     if (isset($chip['url'])) { $chipHref = $chip['url']; }
-                    else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route('corex.properties.index', $params); }
+                    else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route($indexRouteName ?? 'corex.properties.index', $params); }
                 @endphp
                 <a href="{{ $chipHref }}"
                    class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-300"
@@ -713,7 +750,7 @@
                 Create my first listing
             </a>
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route('corex.properties.index', ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
+            <a href="{{ route($indexRouteName ?? 'corex.properties.index', ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
             @endif
         </div>
     </div>

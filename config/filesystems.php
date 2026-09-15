@@ -60,6 +60,24 @@ return [
             'report' => false,
         ],
 
+        /*
+         * Reopen/resubmit follow-up, 2026-09-09 — durable, disk-heavy caches
+         * (currently: sealed rental-application generation PDFs — see
+         * RentalApplicationPdfService) go here, never on the root
+         * filesystem. Johan's own disk-hygiene rule (CLAUDE.md): the box's
+         * root volume has been the thing that actually runs out of space;
+         * the mounted data volume is where anything that grows without
+         * bound belongs. DATA_VOLUME_ROOT defaults to this box's mounted
+         * volume — override per-environment if the mount point differs.
+         */
+        'data_volume' => [
+            'driver' => 'local',
+            'root' => env('DATA_VOLUME_ROOT', '/mnt/HC_Volume_103099143') . '/corex-data-volume',
+            'serve' => false,
+            'throw' => false,
+            'report' => false,
+        ],
+
     ],
 
     /*

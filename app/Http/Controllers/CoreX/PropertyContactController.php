@@ -123,13 +123,37 @@ class PropertyContactController extends Controller
         }
 
         $role = $data['role'];
-        $property->contacts()->syncWithoutDetaching([
-            $contact->id => ['role' => $role],
-        ]);
+
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
+        }
+
+        // ContactPropertyLinker, not a bare syncWithoutDetaching() — see
+        // .ai/specs/rental-applications.md, "The contact_property
+        // hard-delete fix". Restores the one existing row (trashed or a
+        // different role) instead of ever blind-inserting a second one.
+        $linkResult = \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $role);
 
         // Auto-create seller live link if seller role
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
             \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
+        }
+
+        if ($linkResult->roleChanged) {
+            app(\App\Services\Audit\PropertyAuditService::class)->log(
+                $property,
+                eventCategory: 'contact_property',
+                eventType: 'role_changed',
+                user: auth()->user(),
+                oldValues: ['contact_id' => $contact->id, 'role' => $linkResult->previousRole],
+                newValues: ['contact_id' => $contact->id, 'role' => $role],
+                humanSummary: $contact->full_name . "'s role changed from " . $linkResult->previousRole . ' to ' . $role,
+            );
         }
 
         if ($request->expectsJson() || $request->wantsJson()) {
@@ -195,9 +219,17 @@ class PropertyContactController extends Controller
             if ($duplicates->isNotEmpty()) {
                 $mode = $service->resolveMode($agencyId);
                 if ($mode === 'auto_link') {
+                    // AT-398 — same ownership lock as link() above.
+                    try {
+                        app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+                    } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+                        return ($request->expectsJson() || $request->wantsJson())
+                            ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                            : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
+                    }
                     $existing = $duplicates->first();
-                    $wasLinked = $property->contacts()->where('contacts.id', $existing->id)->exists();
-                    $property->contacts()->syncWithoutDetaching([$existing->id => ['role' => $role]]);
+                    $linkResult = \App\Services\Property\ContactPropertyLinker::link($existing->id, $property->id, $role);
+                    $wasLinked = ! $linkResult->isNew;
                     if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
                         \App\Models\PropertySellerLink::ensureExists($property->id, $existing->id);
                     }
@@ -252,8 +284,21 @@ class PropertyContactController extends Controller
             $data['id_number_source']      = 'property_inline_create';
         }
 
+        // AT-398 — same ownership lock as link() above.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
+        }
+
         $contact = Contact::create($data);
-        $property->contacts()->attach($contact->id, ['role' => $role]);
+        // Brand-new contact id, so this can never collide with an existing
+        // row in practice — still goes through the linker rather than a
+        // bare attach(), so no write path against this pivot ever looks
+        // "safe to copy" while actually depending on a fresh id.
+        \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $role);
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
             \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
         }
@@ -308,8 +353,20 @@ class PropertyContactController extends Controller
                 $data['entity_reg_no'] ?? null,
             );
 
-        $wasLinked = $property->contacts()->where('contacts.id', $contact->id)->exists();
-        $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
+        // AT-398 — same ownership lock as link() above.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
+        }
+
+        // resolveOrCreateEntitySellerContact() can resolve an EXISTING
+        // entity contact, so this is a real (not "safe in practice") path
+        // for the collision the linker exists to prevent.
+        $linkResult = \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $role);
+        $wasLinked = ! $linkResult->isNew;
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'])) {
             \App\Models\PropertySellerLink::ensureExists($property->id, $contact->id);
         }
@@ -340,7 +397,31 @@ class PropertyContactController extends Controller
     {
         $this->authorizeProperty($property);
 
-        $property->contacts()->detach($contact->id);
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanUnlink($property, $contact->id);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['contact' => $e->getMessage()])->with('tab', 'contacts');
+        }
+
+        // Soft-delete via ContactPropertyLinker — Johan: "corex is a no
+        // delete system." No expected role asserted here (this unlink is
+        // role-agnostic by design, mirrors ContactPropertyController::
+        // unlink()), so no mismatch exception is possible from this call.
+        $removed = \App\Services\Property\ContactPropertyLinker::unlink($contact->id, $property->id);
+        if ($removed !== null) {
+            app(\App\Services\Audit\PropertyAuditService::class)->log(
+                $property,
+                eventCategory: 'contact_property',
+                eventType: 'unlinked',
+                user: auth()->user(),
+                oldValues: ['contact_id' => $contact->id, 'role' => $removed->role],
+                newValues: ['contact_id' => null],
+                humanSummary: $contact->full_name . ' unlinked (was ' . ($removed->role ?? 'unknown') . ')',
+            );
+        }
 
         if ($request->expectsJson() || $request->wantsJson()) {
             return response()->json([
@@ -373,7 +454,31 @@ class PropertyContactController extends Controller
             'role' => ['required', 'string', Rule::in(self::LINK_ROLES)],
         ]);
 
-        $property->contacts()->updateExistingPivot($contact->id, ['role' => $data['role']]);
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanChangeRole($property, $contact->id, $data['role']);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return ($request->expectsJson() || $request->wantsJson())
+                ? response()->json(['ok' => false, 'message' => $e->getMessage()], 422)
+                : back()->withErrors(['role' => $e->getMessage()])->with('tab', 'contacts');
+        }
+
+        // ContactPropertyLinker, not updateExistingPivot() — a role change
+        // is a real business event now (Johan's ruling), and the linker is
+        // the one place that audits it. The abort_unless() above already
+        // confirmed an active (non-trashed) row exists for this pair.
+        $linkResult = \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $data['role']);
+        if ($linkResult->roleChanged) {
+            app(\App\Services\Audit\PropertyAuditService::class)->log(
+                $property,
+                eventCategory: 'contact_property',
+                eventType: 'role_changed',
+                user: auth()->user(),
+                oldValues: ['contact_id' => $contact->id, 'role' => $linkResult->previousRole],
+                newValues: ['contact_id' => $contact->id, 'role' => $data['role']],
+                humanSummary: $contact->full_name . "'s role changed from " . $linkResult->previousRole . ' to ' . $data['role'],
+            );
+        }
 
         // Keep the seller-link side-effect in step with the new role.
         if (in_array($data['role'], ['owner', 'seller', 'landlord', 'lessor'], true)) {

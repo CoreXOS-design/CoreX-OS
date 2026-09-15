@@ -111,6 +111,13 @@
                     </label>
                 </div>
                 <p class="text-xs" style="color:var(--text-muted);">Admin/Owner roles always see all buyers. This setting affects agents and branch managers only.</p>
+
+                <div class="pt-3 border-t" style="border-color:var(--border);">
+                    <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Kanban column limit</label>
+                    <input type="number" name="buyer_kanban_column_limit" value="{{ $settings->buyer_kanban_column_limit ?? \App\Models\AgencyContactSettings::DEFAULT_BUYER_KANBAN_COLUMN_LIMIT }}" min="10" max="500"
+                           class="w-full md:w-40 px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">Most buyers/tenants shown per Kanban column (New/Warm/Cold/Lost) before it switches to "View all in List". Kanban is a scrollbar, not a page — at real volume it loads every buyer in that state on one screen. List view has full pagination and stays uncapped.</p>
+                </div>
             </div>
         </div>
 
@@ -230,6 +237,24 @@
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Lost threshold (days)</label>
                         <input type="number" name="buyer_lost_days" value="{{ $settings->buyer_lost_days }}" min="1" max="730"
+                               class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {{-- ═══════ CORE MATCHES — WORKING WINDOW (Johan's ruling 5) ═══════ --}}
+        <div class="corex-panel mb-6">
+            <div class="corex-panel-header">
+                <h3 class="corex-panel-title">Core Matches</h3>
+            </div>
+            <div class="corex-panel-body space-y-4">
+                <p class="text-xs" style="color:var(--text-muted);">How many days a buyer can go without a note, a message, a live link share, or "Last Contacted" being pressed before the Core Matches board shows them as gone quiet.</p>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Working window (days)</label>
+                        <input type="number" name="core_matches_working_window_days" value="{{ $settings->core_matches_working_window_days ?? \App\Models\AgencyContactSettings::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS }}" min="1" max="90"
                                class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
                     </div>
                 </div>

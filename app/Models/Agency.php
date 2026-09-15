@@ -282,6 +282,8 @@ class Agency extends Model
         'pp_locations_last_error',
         'default_branch_id',
         'whistleblow_approver_user_ids',
+        'rental_application_ro_user_ids',
+        'rental_application_co_user_ids',
         'whistleblow_compliance_officer_email',
         'whistleblow_tier_recipients',
         // Communication Archive ingestion filter (AT-43).
@@ -445,6 +447,8 @@ class Agency extends Model
         'pp_webhook_secret' => 'encrypted',
         'pp_locations_synced_at' => 'datetime',
         'whistleblow_approver_user_ids' => 'array',
+        'rental_application_ro_user_ids' => 'array',
+        'rental_application_co_user_ids' => 'array',
         'whistleblow_tier_recipients' => 'array',
         // AT-50 — per-agency override of which deals_v2 statuses count as live.
         'outreach_live_deal_statuses' => 'array',

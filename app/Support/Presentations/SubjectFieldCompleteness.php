@@ -34,7 +34,7 @@ final class SubjectFieldCompleteness
         $missing = [];
         if (!self::isSet($subject->beds)) $missing[] = 'bedrooms';
         if (!self::isSet($subject->baths)) $missing[] = 'bathrooms';
-        if (!self::isSet((int) ($subject->price ?? 0))) $missing[] = 'price';
+        if (!self::isSet((int) $subject->effectivePrice())) $missing[] = 'price';
         return $missing;
     }
 

@@ -115,6 +115,77 @@ class Property extends Model
     }
 
     /**
+     * Buyer-wishlist matching exclusion BEYOND plain off-market. An under-offer
+     * property is still genuinely on-market for every other purpose in the app
+     * (display, syndication, isOnMarket()) — it just must never be offered as a
+     * NEW match: it's already spoken for, and surfacing it to another buyer
+     * sets up a disappointment (Johan, 2026-09-15). Kept separate from
+     * OFF_MARKET_STATUSES rather than added to it, because those other
+     * consumers must NOT start treating under-offer stock as off-market.
+     *
+     * 'pending' alongside it for the same reason (a mid-transaction "offer
+     * accepted, not yet transferred" state, not a terminal one). 'rented' is
+     * here too, preserving the matching engine's own PRIOR (pre-this-fix,
+     * MatchingService::NON_MATCHABLE_STATUSES) correct exclusion of it — it
+     * reads as the rental equivalent of 'sold'/'let_out', a genuinely
+     * terminal state, and arguably belongs in OFF_MARKET_STATUSES itself for
+     * every OTHER consumer too (display, syndication) — flagged, not changed
+     * here, since that constant's blast radius across the app wasn't
+     * audited in this pass; kept here so this fix is a strict superset of
+     * the old matching behaviour, never a narrower one.
+     */
+    public const MATCHING_EXCLUDED_ON_MARKET_STATUSES = ['under_offer', 'pending', 'rented'];
+
+    /**
+     * THE canonical single source for "should this property ever be offered as
+     * a buyer-wishlist match" — every matching code path (MatchingService,
+     * CoreMatchReasonClassifier, anything else that asks this question) must
+     * call this rather than maintain its own copy of the exclusion list.
+     *
+     * Found live on QA1, 2026-09-15 (Falan/Johan): 'prospecting' and
+     * 'not_selling' were being treated as matchable by MatchingService's own,
+     * separately-maintained exclusion list — 560 of 842 properties (66%) in
+     * the agency-wide matchable candidate pool were ingested-but-unmandated
+     * stock the agency doesn't hold the mandate on. Same defect class as the
+     * rental to_let gap: the matching engine's idea of which statuses are
+     * matchable was wrong and duplicated in more than one place. This method
+     * is the fix for the class, not the instance — it derives from
+     * OFF_MARKET_STATUSES (already correct) instead of re-listing it.
+     *
+     * NULL/blank status is matchable — an incomplete-but-live listing must
+     * not be silently suppressed by a missing status value (existing rule,
+     * unchanged, both call sites already relied on this).
+     */
+    public static function isMatchableStatus(?string $status): bool
+    {
+        $s = strtolower(trim((string) $status));
+        if ($s === '') {
+            return true;
+        }
+        if (static::isSoldByThirdPartyStatus($s)) {
+            return false;
+        }
+
+        return ! in_array($s, self::OFF_MARKET_STATUSES, true)
+            && ! in_array($s, self::MATCHING_EXCLUDED_ON_MARKET_STATUSES, true);
+    }
+
+    /**
+     * The exclusion list isMatchableStatus() enforces, as literals — for the
+     * few call sites that build raw SQL (`status NOT IN (...)`) rather than
+     * evaluating a hydrated model per row. Kept in lockstep with
+     * isMatchableStatus() by construction: both read the same two constants,
+     * neither re-lists the values.
+     */
+    public static function matchingExcludedStatusList(): array
+    {
+        return array_values(array_unique(array_merge(
+            self::OFF_MARKET_STATUSES,
+            self::MATCHING_EXCLUDED_ON_MARKET_STATUSES
+        )));
+    }
+
+    /**
      * Most recent of the four portal submit/activate timestamps we hold — the
      * "last advertised" signal for isStaleStock() below. Null when the property
      * has never been synced to either portal (e.g. hand-captured stock).
@@ -446,6 +517,7 @@ class Property extends Model
         'listing_type_pending',
         'status',
         'pre_deal_offer_status',
+        'pre_tenant_link_status',
         'status_label',
         'features_json',
         'features_json_meta',
@@ -526,6 +598,11 @@ class Property extends Model
         'matterport_id',
         'virtual_tour_url',
         'rental_price_type',
+        // AT-402 Part 4 — Furnished Status / Utilities Included.
+        'furnished_status',
+        'water_included',
+        'electricity_included',
+        'levies_included',
         'p24_syndication_enabled',
         'p24_syndication_status',
         'p24_ref',
@@ -578,6 +655,9 @@ class Property extends Model
         'price'               => 'integer',
         'price_on_application' => 'boolean',
         'has_deposit'         => 'boolean',
+        'water_included'      => 'boolean',
+        'electricity_included' => 'boolean',
+        'levies_included'     => 'boolean',
         'listing_type_pending' => 'boolean',
         // Money columns are decimal(12,2) in the schema (storage precision is
         // preserved there regardless of cast). They are cast to float — NOT
@@ -765,10 +845,29 @@ class Property extends Model
             ->latest('documents.created_at');
     }
 
+    /**
+     * `wherePivotNull('deleted_at')` hides a soft-removed link; use
+     * `withTrashedContacts()` below for the full history. Mirrors
+     * `Deal::properties()`'s own shape exactly (app/Models/Deal.php) — see
+     * .ai/specs/rental-applications.md, "The contact_property hard-delete
+     * fix". Writes go through App\Services\Property\ContactPropertyLinker,
+     * never a bare attach()/sync().
+     */
     public function contacts(): BelongsToMany
     {
         return $this->belongsToMany(Contact::class, 'contact_property')
-                    ->withPivot('role')
+                    ->using(\App\Models\ContactProperty::class)
+                    ->withPivot(['id', 'role', 'is_primary', 'source', 'deleted_at'])
+                    ->wherePivotNull('contact_property.deleted_at')
+                    ->withTimestamps();
+    }
+
+    /** Every contact EVER linked, including soft-removed ones — for history/audit views. */
+    public function withTrashedContacts(): BelongsToMany
+    {
+        return $this->belongsToMany(Contact::class, 'contact_property')
+                    ->using(\App\Models\ContactProperty::class)
+                    ->withPivot(['id', 'role', 'is_primary', 'source', 'deleted_at'])
                     ->withTimestamps();
     }
 
@@ -1140,6 +1239,41 @@ class Property extends Model
         }
 
         return implode(', ', $cleaned);
+    }
+
+    /**
+     * AT-392, 2026-09-17 — Johan, verbatim: "approved email - we cannot
+     * show property addresses. so we can show - 3 bed house - I think
+     * property header but not the address." Built from STRUCTURED columns
+     * (beds, property_type) rather than `title`/`headline` deliberately —
+     * both of those are agent-entered free text and checked live on QA1
+     * before this was written: several real properties carry a suburb or
+     * even a full street address inside `title` (e.g. "Section 19,
+     * NATSPAT, 60 Lilliecrona Boulevard, MANABA BEACH"), which would have
+     * silently reintroduced the exact leak this method exists to prevent.
+     * `property_type` is agent-selected, not a street/suburb by
+     * construction, so it can never carry an address regardless of data
+     * quality elsewhere on the record. For anywhere that must name a
+     * property WITHOUT identifying its location — currently the applicant
+     * approval email's matched-properties list; see
+     * RentalApplicationApprovedMail's own docblock.
+     */
+    public function addressFreeDescriptor(): string
+    {
+        $beds = (int) ($this->beds ?? 0);
+        $type = trim((string) ($this->property_type ?? ''));
+
+        if ($beds > 0 && $type !== '') {
+            return $beds . ' Bedroom ' . $type;
+        }
+        if ($type !== '') {
+            return $type;
+        }
+        if ($beds > 0) {
+            return $beds . ' Bedroom Property';
+        }
+
+        return 'A property';
     }
 
     /**
@@ -1573,6 +1707,53 @@ class Property extends Model
         return $query->whereRaw('1 = 0');
     }
 
+    /**
+     * AT-392 cross-tenant property-link fix, 2026-09-10 — the ONE resolver
+     * every rental-application write path linking a property_id must use.
+     *
+     * cc1 found this live: `'property_id' => ['exists:properties,id']` runs
+     * a raw query against the properties TABLE, never through this model,
+     * so AgencyScope (and every other scope) never applies — the rule only
+     * answers "does this id exist ANYWHERE", not "may this user link THIS
+     * property". An ordinary agent in one agency POSTed a real property id
+     * belonging to a completely different agency straight at the endpoint,
+     * bypassing the search picker, and it saved: 302 success, no 403, the
+     * application's property_id genuinely set to another tenant's stock.
+     *
+     * Fixed by resolving through this model with BOTH its scopes: the
+     * global AgencyScope (BelongsToAgency, cross-agency isolation) AND
+     * scopeVisibleTo() above (branch/own, whatever the agency has
+     * configured for the `properties` data-scope in Role Manager) — so
+     * this closes the same gap for branch/own, not just agency, per
+     * Johan's instruction not to assume agency is the only boundary
+     * leaking here (cc5 separately found a cross-branch reach on the
+     * authorisation screens the same night). Also re-applies the existing
+     * `listing_type='rental'` business rule the search picker already
+     * enforces — a for-sale listing was never meant to be linkable here
+     * either, and the raw `exists:properties,id` check didn't stop that
+     * (lower severity, same root defect class, fixed alongside).
+     *
+     * Returns null for BOTH "no id given" (clearing a link is always
+     * allowed) and "id given but not visible to this user" — deliberately
+     * the SAME null, not a distinguishable error, so a caller can never
+     * use this to enumerate which ids exist in other tenants. The caller
+     * aborts 403 only when a non-null id was given and this still came
+     * back null; see RentalApplicationReviewController::linkProperty() /
+     * RentalApplicationController::store()/update() for the abort + audit
+     * log of the refused attempt.
+     */
+    public static function findLinkableForRentalApplication(?int $propertyId, \App\Models\User $user): ?self
+    {
+        if ($propertyId === null) {
+            return null;
+        }
+
+        return static::query()
+            ->where('listing_type', 'rental')
+            ->visibleTo($user)
+            ->find($propertyId);
+    }
+
     public function isPublished(): bool
     {
         return $this->published_at !== null;
@@ -1782,6 +1963,21 @@ class Property extends Model
     public function formattedPrice(): string
     {
         return 'R ' . number_format((int) $this->effectivePrice(), 0, '.', ' ');
+    }
+
+    /**
+     * SQL-context mirror of effectivePrice()/isRental(), for callers that must
+     * filter/sort on price in the database rather than in PHP (e.g. a
+     * WHERE clause over thousands of rows). Deliberately NOT wrapped in
+     * COALESCE — callers that need NULL-tolerant comparisons (a listing with
+     * neither field populated shouldn't be excluded by a price filter) rely
+     * on the raw NULL passing through, exactly as the existing `price`/
+     * `rental_amount` columns already do.
+     */
+    public static function effectivePriceSql(string $table = 'properties'): string
+    {
+        return "CASE WHEN LOWER(TRIM({$table}.listing_type)) IN ('rental','to_let','to-let','lease') "
+            . "THEN {$table}.rental_amount ELSE {$table}.price END";
     }
 
     /**

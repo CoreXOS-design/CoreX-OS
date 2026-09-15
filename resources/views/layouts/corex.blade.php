@@ -81,11 +81,64 @@
         <div class="h-screen flex flex-col overflow-hidden">
         @include('partials._env-banner')
         <x-outbound-mail-banner />
-        {{-- Mobile sidebar toggle --}}
-        <div x-data="{ sidebarOpen: false }" class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg)">
+        {{-- Mobile sidebar toggle.
 
-            {{-- Mobile overlay --}}
-            <div x-show="sidebarOpen" x-transition:enter="transition-opacity ease-linear duration-200"
+             CLICK-TO-TOGGLE, 2026-09-12 — Johan, live on QA1, after
+             testing the hover version: "trying to hover or click the pin
+             on the menu and its like flashes. cannot click it... drop
+             hover entirely... one explicit toggle control per strip.
+             Click the strip to expand, click again to collapse." Replaces
+             the 2026-09-11 hover-reveal design wholesale — no reveal
+             timer, no close timer, no mouse-down suppression, no
+             mouseenter/mouseleave at all. A held mouse button drawing a
+             highlight can no longer interact with this control in any way
+             it wasn't already designed to (a plain click), so the entire
+             class of "flyout fires mid-drag" bug this control used to
+             need machinery to prevent is gone by construction, not by
+             more code.
+
+             Also corrected, same conversation: an EXPANDED panel now
+             PUSHES the layout (the sidebar is a real, width-animated flex
+             column; `<main>`'s own flex-1 does the rest) rather than
+             overlaying the document — Johan: "pinning locks the panel
+             open but the PDF stays the same size underneath it... Johan's
+             exact complaint is that the panel covers the document."
+             "Pinned" is gone as a separate concept too — with click-to-
+             toggle, expanded already means "the agent chose this," so
+             there is only one state to reason about, remembered in
+             localStorage for the session exactly as before.
+
+             `markupModeActive` stays a plain, inert-by-default flag: no
+             page dispatches `rental-markup-view-toggled` except the
+             rental-applications review screen, so every other screen's
+             sidebar is 100% unchanged. Still deliberately NOT a genuine
+             "shrink to a narrow icon strip" — corex-sidebar.blade.php
+             (agency/branch switcher, impersonation, admin multi-branch
+             manager) was never audited for how it degrades narrow, so
+             COLLAPSED here means width:0 (fully hidden, same as the old
+             off-canvas default), never a partially-visible sliver of that
+             partial's own content. --}}
+        <div x-data="{
+                sidebarOpen: false,
+                markupModeActive: false,
+                markupSidebarExpanded: false,
+                initMarkupSidebar() {
+                    try { this.markupSidebarExpanded = localStorage.getItem('rentalMarkupSidebarExpanded') === '1'; } catch (_) {}
+                },
+                toggleMarkupSidebar() {
+                    this.markupSidebarExpanded = !this.markupSidebarExpanded;
+                    try { localStorage.setItem('rentalMarkupSidebarExpanded', this.markupSidebarExpanded ? '1' : '0'); } catch (_) {}
+                },
+             }"
+             x-init="initMarkupSidebar()"
+             @rental-markup-view-toggled.window="markupModeActive = $event.detail.open"
+             class="flex flex-1 min-h-0 overflow-hidden" style="background:var(--bg)">
+
+            {{-- Mobile overlay — unchanged; markup-mode's own aside width
+                 toggle (below) is independent of this and never shows a
+                 dark scrim, since an expanded aside in markup mode pushes
+                 the document rather than floating over it. --}}
+            <div x-show="sidebarOpen && !markupModeActive" x-transition:enter="transition-opacity ease-linear duration-200"
                  x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100"
                  x-transition:leave="transition-opacity ease-linear duration-200"
                  x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
@@ -96,11 +149,48 @@
                  element may only carry ONE :class attribute; a second is dropped by
                  the HTML parser. The previous markup had two, so the width binding
                  (lg:w-60) was silently discarded and the sidebar rendered at content
-                 width (wider). Width is now in the static class so it always applies. --}}
+                 width (wider). Width is now in the static class so it always applies.
+
+                 In markup mode, width becomes a real, animated flex-basis
+                 (0 collapsed / 240px expanded) instead of the plain
+                 always-240px `w-60` — `overflow:hidden` + `minWidth:0` are
+                 both needed on the collapsed state: a flex item's default
+                 min-width is `auto`, which lets its OWN content's natural
+                 size fight a `width:0` and keep the box wider than
+                 intended — this is what actually makes width:0 render as
+                 truly zero rather than "as narrow as the content allows." --}}
+            {{-- 2026-09-12 — real bug, found live: `lg:translate-x-0` (the
+                 class that cancels the base `-translate-x-full` transform at
+                 desktop widths) used to live ONLY in the non-markup-mode
+                 branch of the class ternary below. In markup mode it was
+                 dropped entirely, so the base `-translate-x-full` (always
+                 applied while `sidebarOpen` is false, which it is by
+                 default) was never cancelled — the aside's real width
+                 animated correctly, but its whole box sat translated 100%
+                 of that width off to the left, rendering as a blank strip.
+                 `lg:translate-x-0`/`lg:relative`/`lg:flex-shrink-0` never
+                 actually varied by mode — moved to the static class so this
+                 exact class of bug (an always-true utility present in only
+                 one ternary branch) can't recur; :class now carries only
+                 the genuinely dynamic mobile open/close state. --}}
             <aside :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+                   :style="markupModeActive ? { width: (markupSidebarExpanded ? '240px' : '0px'), minWidth: '0px', overflow: 'hidden', transition: 'width 150ms ease' } : {}"
                    class="fixed inset-y-0 left-0 z-50 w-60 transform transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0 lg:flex-shrink-0">
                 @include('layouts.corex-sidebar')
             </aside>
+
+            {{-- Toggle — the one control per Johan's corrected spec
+                 ("click the strip, click again to collapse"). Sits right
+                 at the sidebar's own current edge in either state, so it
+                 reads as attached to it — a plain click target, nothing
+                 that can flash or need to be "reached across." --}}
+            <button type="button" x-show="markupModeActive" x-cloak
+                    @click="toggleMarkupSidebar()"
+                    class="hidden lg:flex fixed z-[60] items-center justify-center rounded-full"
+                    :style="{ left: (markupSidebarExpanded ? '228px' : '4px'), top: '76px', width: '22px', height: '22px', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-secondary)', transition: 'left 150ms ease' }"
+                    :title="markupSidebarExpanded ? 'Collapse menu' : 'Expand menu'">
+                <span x-text="markupSidebarExpanded ? '‹' : '›'" style="font-size: 13px; line-height: 1;"></span>
+            </button>
 
             {{-- Main area --}}
             <div class="flex-1 flex flex-col overflow-hidden min-w-0">

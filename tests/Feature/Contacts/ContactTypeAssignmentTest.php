@@ -36,21 +36,135 @@ final class ContactTypeAssignmentTest extends TestCase
         }
     }
 
-    public function test_parents_includes_owner_and_other_without_esign_role(): void
+    public function test_parents_includes_owner_other_and_tenant(): void
     {
+        // AT-392, 2026-09-11 — 'Tenant' (seeded by
+        // 2026_09_11_000001_seed_tenant_contact_type_if_missing) joins the
+        // picker's selectable set via ContactType::ADDITIONAL_PARENTS,
+        // matched by name only — CANONICAL's strict esign_role => name
+        // mapping (asserted untouched by test_exactly_four_canonical_
+        // parents_exist_and_are_locked above) is deliberately not touched.
         $parents = ContactType::query()->parents()->get();
 
         $this->assertEqualsCanonicalizing(
-            ['Seller', 'Buyer', 'Lessor', 'Lessee', 'Owner', 'Other'],
+            ['Seller', 'Buyer', 'Lessor', 'Lessee', 'Owner', 'Other', 'Tenant'],
             $parents->pluck('name')->all()
         );
 
         $owner = $parents->firstWhere('name', 'Owner');
         $other = $parents->firstWhere('name', 'Other');
+        $tenant = $parents->firstWhere('name', 'Tenant');
         $this->assertNull($owner->esign_role, 'Owner does not map to e-sign');
         $this->assertNull($other->esign_role, 'Other does not map to e-sign');
+        $this->assertSame('lessee', $tenant->esign_role, 'Tenant shares the Lessee esign_role, deliberately, by name-match not CANONICAL');
         $this->assertTrue($owner->isLocked());
         $this->assertTrue($other->isLocked());
+    }
+
+    public function test_contact_type_edit_form_saved_through_the_picker_never_drops_a_type_it_did_not_offer(): void
+    {
+        // AT-392, 2026-09-11/12 — this is the exact bug cc6 found and this
+        // change fixes, generalised: ANY parent type a contact holds that
+        // the picker's offered set (ContactType::parentIds()) does not
+        // include must survive a save through that picker — the save can
+        // only submit what it was shown, so it must never be read as "the
+        // agent chose to remove a type they never saw as an option."
+        //
+        // Deliberately does NOT use "Tenant" here any more — Tenant joined
+        // ContactType::ADDITIONAL_PARENTS (2026-09-12) specifically so the
+        // picker DOES now offer it as a real, checkable/uncheckable choice
+        // (proven live: a real page render seeds it as a chip whenever the
+        // contact holds it — see the "picker" browser proof this same
+        // change added). Using Tenant here would make this test
+        // self-contradict test_contact_type_edit_form_still_lets_a_
+        // deliberately_offered_type_be_unchecked below — both submit
+        // "not present in parent_type_ids", and once Tenant is a normal
+        // offered type, the server has no way (and should have no way) to
+        // tell "the picker didn't know about it" apart from "the agent
+        // unchecked it". The genuinely residual guarantee this hardening
+        // protects is a type OUTSIDE the offered set entirely — e.g. one
+        // attached to a contact by some future mechanism the picker
+        // genuinely hasn't caught up with yet, simulated here with a raw,
+        // non-canonical, non-ADDITIONAL_PARENTS ContactType row.
+        $agencyId = $this->seedAgency();
+        $admin = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'super_admin']);
+        [$seller] = $this->parents();
+        $futureType = ContactType::create(['name' => 'FutureType', 'color' => '#fff', 'sort_order' => 99, 'is_active' => true]);
+        $this->assertNotContains((int) $futureType->id, ContactType::parentIds(), 'the simulated future type must genuinely be outside the picker\'s offered set for this test to mean anything');
+
+        $contact = $this->makeContact($agencyId);
+        $contact->syncTypeAssignments([$seller->id, $futureType->id], []);
+        $contact->refresh();
+        $this->assertEqualsCanonicalizing([$seller->id, $futureType->id], $contact->parentTypes()->pluck('contact_types.id')->all());
+
+        // The real picker can only submit from its own offered set — it has
+        // no way to even render a chip for $futureType, so a genuine save
+        // through it submits Seller only.
+        $this->actingAs($admin)
+            ->put(route('corex.contacts.update', $contact), [
+                'first_name' => $contact->first_name,
+                'last_name'  => $contact->last_name,
+                'phone'      => '0821234999', // the "unrelated field" being edited
+                'parent_type_ids' => [$seller->id],
+            ])
+            ->assertRedirect();
+
+        $contact->refresh();
+        $this->assertEqualsCanonicalizing(
+            [$seller->id, $futureType->id],
+            $contact->parentTypes()->pluck('contact_types.id')->all(),
+            'a type entirely outside the picker\'s offered set must survive a save that never had a chance to show it — added, never silently removed'
+        );
+    }
+
+    public function test_contact_type_edit_form_still_lets_a_deliberately_offered_type_be_unchecked(): void
+    {
+        // The hardening above must not become a one-way ratchet: a type that
+        // WAS offered by the picker (i.e. IS in ContactType::parentIds())
+        // can still be deliberately removed by unchecking it — only types
+        // outside the offered set are protected.
+        $agencyId = $this->seedAgency();
+        $admin = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'super_admin']);
+        [$seller, $buyer] = $this->parents();
+
+        $contact = $this->makeContact($agencyId);
+        $contact->syncTypeAssignments([$seller->id, $buyer->id], []);
+
+        $this->actingAs($admin)
+            ->put(route('corex.contacts.update', $contact), [
+                'first_name' => $contact->first_name,
+                'last_name'  => $contact->last_name,
+                'parent_type_ids' => [$seller->id], // Buyer deliberately unchecked
+            ])
+            ->assertRedirect();
+
+        $contact->refresh();
+        $this->assertSame(
+            [$seller->id],
+            $contact->parentTypes()->pluck('contact_types.id')->all(),
+            'a deliberately unchecked, offered type must still be removable'
+        );
+    }
+
+    public function test_contact_show_page_displays_every_held_type_not_just_the_primary_mirror(): void
+    {
+        // AT-392, 2026-09-11 — cc2's re-report: a contact holding both Seller
+        // and Tenant showed only one badge (the primary-type mirror) on the
+        // contact detail header. _header-badges.blade.php now loops the full
+        // parentTypes set instead.
+        $agencyId = $this->seedAgency();
+        $admin = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'super_admin']);
+        [$seller] = $this->parents();
+        $tenant = ContactType::where('name', 'Tenant')->firstOrFail();
+
+        $contact = $this->makeContact($agencyId);
+        $contact->syncTypeAssignments([$seller->id, $tenant->id], []);
+
+        $this->actingAs($admin)
+            ->get(route('corex.contacts.show', $contact))
+            ->assertOk()
+            ->assertSee('Seller')
+            ->assertSee('Tenant');
     }
 
     public function test_store_adds_multiple_subtags_under_owner_and_skips_case_insensitive_dupes(): void

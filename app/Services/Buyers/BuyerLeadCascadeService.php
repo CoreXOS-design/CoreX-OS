@@ -150,7 +150,7 @@ final class BuyerLeadCascadeService
         $f = AgencyContactSettings::forAgency($agencyId)->micPriceBandFraction();
 
         $suburbId = $listing->p24_suburb_id ? (int) $listing->p24_suburb_id : null;
-        $price    = $listing->price ? (int) $listing->price : null;
+        $price    = $listing->effectivePrice() ? (int) $listing->effectivePrice() : null;
         $type     = $listing->property_type ?: null;
         $beds     = $listing->beds ? (int) $listing->beds : null;
 

@@ -739,6 +739,7 @@ class CalendarEventService
             ->join('contacts as c', 'c.id', '=', 'cp.contact_id')
             ->where('cp.property_id', $property->id)
             ->whereNull('c.deleted_at')
+            ->whereNull('cp.deleted_at')
             ->where('c.agency_id', $property->agency_id)
             ->orderBy('c.id')
             ->get(['c.id', 'c.first_name', 'c.last_name', 'c.phone', 'c.email', 'cp.role']);

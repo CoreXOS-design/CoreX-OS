@@ -68,7 +68,7 @@ class EvaluationCertificateController extends Controller
                 'address'       => $p->buildDisplayAddress(),
                 'ref'           => $p->property_number,
                 'property_type' => $p->property_type,
-                'price'         => $p->price,
+                'price'         => $p->effectivePrice(),
                 'beds'          => $p->beds,
                 'baths'         => $p->baths,
                 'garages'       => $p->garages,

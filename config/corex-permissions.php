@@ -105,6 +105,30 @@ return [
         ['key' => 'rentals.edit',            'label' => 'Edit',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'rentals',          'sort_order' => 40],
         ['key' => 'rentals.archive',         'label' => 'Archive',                         'section' => 'agency-tracker',   'type' => 'action',  'module' => 'rentals',          'sort_order' => 41],
 
+        // ── Rental Applications (AT-392) ──
+        ['key' => 'rental_applications.view',            'label' => 'View Rental Applications',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_applications', 'sort_order' => 1],
+        ['key' => 'rental_applications.create',          'label' => 'Create & Send Rental Applications',   'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 2],
+        ['key' => 'rental_applications.view_returned',   'label' => 'View Returned Applications',          'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_applications', 'sort_order' => 3],
+        ['key' => 'rental_applications.manage_settings', 'label' => 'Manage Rental Application Settings',  'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 4],
+        // 2026-09-12 — Archive/Restore on the applications list were gated behind
+        // rental_applications.create (the "Create & Send" permission) — correctly
+        // reversible soft-delete, wrongly named gate. Matches the established
+        // {module}.archive convention used everywhere else in this file (deals,
+        // listings, properties, contacts, etc.) — one key covers the reversible
+        // archive/restore pair, same as every sibling module. See the
+        // role_permissions migration alongside this for who was migrated onto it.
+        ['key' => 'rental_applications.archive',         'label' => 'Archive',                             'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 5],
+
+        // AT-392 — Contact rental-history visibility, its own scope independent of
+        // rental_applications.view's own ceiling (a plain agent's list-screen scope
+        // must never floor what they see on a Contact they're working with). Own
+        // module so it gets its own Data Scope row in Role Manager, not sharing
+        // rental_applications' $fActionMap['view'] slot. Johan: "agency wide so
+        // that any user working with a contact can see the history" — unconfigured
+        // defaults to 'all' via PermissionService::contactRentalHistoryScope(),
+        // never the role-manager screen's own 'own' fallback.
+        ['key' => 'contact_rental_history.view', 'label' => 'View Rental History on Contact', 'section' => 'contacts', 'type' => 'action', 'module' => 'contact_rental_history', 'sort_order' => 1],
+
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
         ['key' => 'daily_activity.create',   'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 43],
@@ -366,6 +390,15 @@ return [
         // agent without this cap cannot reassign (enforced server-side).
         ['key' => 'contacts.reassign_agent',     'label' => 'Reassign Contact Agent / Co-Agent', 'section' => 'contacts',   'type' => 'action',  'module' => 'contacts',         'sort_order' => 19],
 
+        // ── Buyer Pipeline (AT-401 — new: the sales-side board at
+        // /corex/command-center/buyers/pipeline has never had a permission
+        // key of its own; this key gates ONLY the new Rentals -> Rental
+        // Pipeline entry point. Standardising the sales side onto this same
+        // key is a separate, not-yet-approved work item — see
+        // .ai/specs/rentals-shared-screens.md §6.3. type=>'action' so it
+        // gets a Role Manager own/branch/agency scope selector from day one. ──
+        ['key' => 'buyer_pipeline.view',         'label' => 'View',                        'section' => 'buyer-pipeline',   'type' => 'action',  'module' => 'buyer_pipeline',   'sort_order' => 10],
+
         // ── Core Matches ──
         ['key' => 'access_core_matches',         'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
         ['key' => 'core_matches.view',           'label' => 'View',                        'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 10],
@@ -374,6 +407,10 @@ return [
         ['key' => 'core_matches.manage',         'label' => 'Manage (edit, archive)',      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 13],
         ['key' => 'core_matches.convert_to_deal','label' => 'Convert to Deal',             'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 14],
         ['key' => 'core_matches.all_view',       'label' => 'All View (agency/branch oversight)', 'section' => 'core-matches', 'type' => 'action', 'module' => 'core_matches',  'sort_order' => 15],
+        // AT-Core-Matches, Johan's ruling 1 — "only a branch manager or admin
+        // can move a buyer between agents. Ever." Never granted to agent —
+        // mirrors contacts.reassign_agent's existing role placement exactly.
+        ['key' => 'core_matches.reassign',       'label' => 'Reassign buyer to another agent', 'section' => 'core-matches', 'type' => 'action', 'module' => 'core_matches', 'sort_order' => 16],
 
         // ── Portal Leads (P24 + PP unified) ──
         ['key' => 'access_portal_leads',         'label' => 'Access Portal Leads',         'section' => 'portal-leads',     'type' => 'access',  'module' => 'portal_leads',     'sort_order' => 1],
@@ -792,6 +829,16 @@ return [
                 'deals.view', 'deals.create', 'deals.edit',
                 'listings.view', 'listings.create', 'listings.edit',
                 'rentals.view', 'rentals.create', 'rentals.edit',
+                // AT-392 — Johan, 2026-09-07: "he moved this feature into the normal
+                // agency-visible menu precisely because agents are the people who will
+                // use it." Same shared-key-across-roles pattern as documents.view/.create
+                // and rentals.view/.create above — breadth (own/branch/all) is enforced
+                // by RentalApplication::scopeVisibleTo() via scope_defaults, not by a
+                // separate per-role key. manage_settings is deliberately NOT granted here
+                // (admin-only, matching manage_finance_definitions / outreach_templates.manage).
+                // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
+                // granted here to preserve this role's existing effective access unchanged.
+                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'tv_messages.view', 'tv_messages.create', 'tv_messages.edit',
                 'targets.view', 'targets.create', 'targets.edit',
@@ -856,7 +903,7 @@ return [
                 'contacts.reassign_agent', // AT-118 hardening — managers reassign contact agents
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
-                'core_matches.all_view',
+                'core_matches.all_view', 'core_matches.reassign',
                 'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
@@ -912,6 +959,12 @@ return [
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
                 'listings.view',
                 'rentals.view', 'rentals.create', 'rentals.edit',
+                // AT-392 — see branch_manager's identical block above for the full
+                // rationale. Agents are the people who send rental applications;
+                // manage_settings is deliberately not granted here (admin-only).
+                // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
+                // granted here to preserve this role's existing effective access unchanged.
+                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',

@@ -82,10 +82,15 @@ class SyncPermissions extends Command
         }
 
         // ── Step 3: Seed or merge role defaults ──
+        // Johan, 2026-09-07 — "the command must not report success when it
+        // granted nothing meaningful." Both methods now return false on a
+        // run that failed to resolve roles or silently produced no grants;
+        // handle() must not print "Done." and exit 0 over that.
+        $roleDefaultsOk = true;
         if ($this->option('seed-defaults')) {
-            $this->seedRoleDefaults($config, $configKeys);
+            $roleDefaultsOk = $this->seedRoleDefaults($config, $configKeys);
         } elseif ($this->option('merge-defaults')) {
-            $this->mergeRoleDefaults($config, $configKeys);
+            $roleDefaultsOk = $this->mergeRoleDefaults($config, $configKeys);
         } else {
             // Check for NEW permissions that no role has yet — inform the user
             $assignedKeys = RolePermission::distinct()->pluck('permission_key')->all();
@@ -102,11 +107,22 @@ class SyncPermissions extends Command
 
         PermissionService::clearCache();
 
+        if (!$roleDefaultsOk) {
+            $this->error('FAILED — see the error(s) above. Exiting non-zero so a deploy script does not treat this as a successful sync.');
+
+            return self::FAILURE;
+        }
+
         $this->info('Done.');
         return self::SUCCESS;
     }
 
-    protected function seedRoleDefaults(array $config, array $allKeys): void
+    /**
+     * @return bool false when the run must be treated as a failure — this
+     *              method does a destructive wipe-and-reseed, so a failed
+     *              role resolution must abort BEFORE that wipe, never after.
+     */
+    protected function seedRoleDefaults(array $config, array $allKeys): bool
     {
         $this->warn('Seeding role defaults — this WILL overwrite existing role_permissions.');
 
@@ -122,13 +138,18 @@ class SyncPermissions extends Command
         // Roles are agency-scoped (.ai/specs/roles-permissions.md). Iterate the
         // role ROWS — each carries its own agency_id (NULL = global template) —
         // so we seed templates + every agency's role copies in one pass.
-        try {
-            $roles = Role::all(['name', 'is_owner', 'agency_id']);
-        } catch (\Throwable $e) {
-            $roles = collect(array_map(
-                fn ($n) => (object) ['name' => $n, 'is_owner' => ($n === 'super_admin'), 'agency_id' => null],
-                array_keys($roleDefaults)
-            ));
+        //
+        // Johan, 2026-09-07 — "hate silent fails." resolveRolesOrFail() is
+        // checked BEFORE the destructive forceDelete() below, deliberately:
+        // the old code's silent-empty-roles bug was bad enough on merge (it
+        // granted nothing); here it would have WIPED every existing
+        // role_permissions row and replaced it with nothing at all, since
+        // the wipe ran unconditionally regardless of whether $roles/$rows
+        // ended up empty. Never wipe on the way to a run we already know
+        // failed to resolve anything to replace it with.
+        $roles = $this->resolveRolesOrFail($roleDefaults);
+        if ($roles === null) {
+            return false;
         }
 
         foreach ($roles as $role) {
@@ -175,7 +196,23 @@ class SyncPermissions extends Command
         }
 
         $this->info('Role defaults seeded for ' . $roles->count() . ' role(s) across ' .
-            $roles->pluck('agency_id')->unique()->count() . ' agency context(s).');
+            $roles->pluck('agency_id')->unique()->count() . ' agency context(s) — ' . count($rows) . ' row(s) written.');
+
+        // Johan, 2026-09-07 — the exact shape of the original bug, made
+        // explicit: roles were found (possibly via the synthetic fallback
+        // above) but not ONE of them resolved to any keys at all, so the
+        // wipe above just replaced real grants with nothing. allKeys is
+        // already known non-empty at this point (handle() would have
+        // errored out earlier if config had no permissions defined), so an
+        // empty $rows here is never a legitimate "nothing to do" outcome —
+        // seeding is a full reset, unlike merge's idempotent no-op.
+        if (count($rows) === 0) {
+            $this->error('FAILED — role_permissions was wiped but ZERO rows were written back. Every role_defaults entry resolved to nothing for every role found. This run must be treated as a failure.');
+
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -189,6 +226,54 @@ class SyncPermissions extends Command
     }
 
     /**
+     * Johan, 2026-09-07 — "hate silent fails." Root cause of the platform-wide
+     * defect this fixes: both seed/merge used to do
+     * `try { $roles = Role::all(...) } catch (\Throwable $e) { $roles = <synthetic template roles> }`
+     * — Role::all() on a genuinely EMPTY `roles` table (the real state until
+     * Role Manager or a seeder populates it; nothing seeds it automatically)
+     * returns an empty Collection, it does not THROW. The catch never fired,
+     * the synthetic fallback never engaged, `$roles` stayed empty, the
+     * per-role loop never ran, and the command still printed a
+     * "N new row(s) inserted" success line with N=0 and exited 0 — a fresh
+     * environment came up looking fine while every permission in CoreX was
+     * silently missing, for every module, not just one.
+     *
+     * Fix: treat an empty result THE SAME as a thrown one — both mean "no
+     * real Role rows to resolve against" — and always tell the operator
+     * which path was taken (real DB rows vs synthetic fallback), never
+     * silently. Returns null (not an empty Collection) when even the
+     * config-driven fallback has nothing to offer (i.e. role_defaults
+     * itself is empty) — that is the one case this method genuinely cannot
+     * recover from, and the caller MUST treat it as a hard failure.
+     */
+    protected function resolveRolesOrFail(array $roleDefaults): ?\Illuminate\Support\Collection
+    {
+        try {
+            $roles = Role::all(['name', 'is_owner', 'agency_id']);
+        } catch (\Throwable $e) {
+            $this->warn("Role::all() threw ({$e->getMessage()}) — falling back to synthetic template roles from config's role_defaults keys.");
+            $roles = collect();
+        }
+
+        if ($roles->isEmpty()) {
+            $this->warn('Role::all() returned NO rows (the roles table is empty or does not yet exist for this environment) — falling back to synthetic template roles from config\'s role_defaults keys. This is expected ONLY on a genuinely fresh install; if roles should already exist here, investigate before trusting this run.');
+
+            $roles = collect(array_map(
+                fn ($n) => (object) ['name' => $n, 'is_owner' => ($n === 'super_admin'), 'agency_id' => null],
+                array_keys($roleDefaults)
+            ));
+        }
+
+        if ($roles->isEmpty()) {
+            $this->error('FAILED — no real Role rows AND role_defaults in config is empty. There is nothing to resolve roles against at all.');
+
+            return null;
+        }
+
+        return $roles;
+    }
+
+    /**
      * Backfill missing default permissions for existing roles WITHOUT
      * touching customizations. For each role we compute the set the
      * config says it should have, diff against what is already in
@@ -198,8 +283,13 @@ class SyncPermissions extends Command
      * Safe to run idempotently after every deploy that adds new keys.
      * Owner-flagged roles bypass permission checks entirely so this is
      * deliberately a no-op for them.
+     *
+     * @return bool false when this run must be treated as a failure by the
+     *              caller (see resolveRolesOrFail()/the trailing pending-keys
+     *              check) — a deploy script chaining this command must not
+     *              sail past a run that silently granted nothing.
      */
-    protected function mergeRoleDefaults(array $config, array $allKeys): void
+    protected function mergeRoleDefaults(array $config, array $allKeys): bool
     {
         $this->info('Merging role defaults — existing role_permissions rows are preserved.');
 
@@ -211,18 +301,15 @@ class SyncPermissions extends Command
 
         $now            = now();
         $totalInserted  = 0;
+        $totalPending   = 0;
         $perRoleSummary = [];
 
         // Roles are agency-scoped — fan out across the template rows AND every
         // agency's own role copies. Each role ROW carries its own agency_id, so
         // missing keys are merged into the right (role, agency) grant set.
-        try {
-            $roles = Role::all(['name', 'is_owner', 'agency_id']);
-        } catch (\Throwable $e) {
-            $roles = collect(array_map(
-                fn ($n) => (object) ['name' => $n, 'is_owner' => false, 'agency_id' => null],
-                array_keys($roleDefaults)
-            ));
+        $roles = $this->resolveRolesOrFail($roleDefaults);
+        if ($roles === null) {
+            return false;
         }
 
         foreach ($roles as $role) {
@@ -238,6 +325,16 @@ class SyncPermissions extends Command
             // Determine the full default key set for this role per config
             if (isset($roleDefaults[$roleName])) {
                 $expectedKeys = $this->keysForDef($roleDefaults[$roleName], $allKeys);
+
+                // Johan, 2026-09-07 — "hate silent fails." keysForDef() returns []
+                // for a role_defaults entry it does not recognise (e.g. a typo'd
+                // 'inlcude' key) — indistinguishable, further down, from a
+                // genuinely empty diff ("up to date"). Surface it as its own
+                // status rather than letting a malformed config read as healthy.
+                if (empty($expectedKeys)) {
+                    $perRoleSummary[$label] = 'WARNING — role_defaults entry present but resolved to ZERO keys (check its shape: expects "*", ["exclude"=>...], or ["include"=>...])';
+                    continue;
+                }
             } else {
                 // Custom roles created via Role Manager have no config defaults.
                 // Don't second-guess them — leave entirely alone.
@@ -272,6 +369,7 @@ class SyncPermissions extends Command
                 continue;
             }
 
+            $totalPending += count($missingKeys);
             $defaultScope = $scopeDefault[$roleName] ?? 'own';
             $rows         = [];
 
@@ -309,9 +407,23 @@ class SyncPermissions extends Command
                 : 'up to date (defaults already present)';
         }
 
-        $this->info("Merge complete — {$totalInserted} new row(s) inserted.");
+        $this->info("Merge complete — roles found: {$roles->count()}, keys pending: {$totalPending}, rows inserted: {$totalInserted}.");
         foreach ($perRoleSummary as $label => $status) {
             $this->line("  {$label}: {$status}");
         }
+
+        // Johan, 2026-09-07 — "the command must not report success when it
+        // granted nothing meaningful." $totalPending > 0 means SOME role's
+        // diff genuinely found keys it should have but does not; if that
+        // never translated into a single inserted row, treat it as a failed
+        // run, not a quiet no-op — a deploy script chaining this command
+        // must not sail past it.
+        if ($totalPending > 0 && $totalInserted === 0) {
+            $this->error("FAILED — {$totalPending} permission key(s) were pending across one or more roles, but ZERO rows were inserted. This run must be treated as a failure, not a silent no-op.");
+
+            return false;
+        }
+
+        return true;
     }
 }

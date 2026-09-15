@@ -91,7 +91,7 @@ class MobilePropertyController extends Controller
                 'property_type' => $p->property_type,
                 'category'      => $p->category,
                 'listing_type'  => $p->listing_type,
-                'price'         => $p->price,
+                'price'         => $p->effectivePrice(),
                 'price_display' => $p->formattedPrice(),
                 // Same first image as the web listing card, as an absolute URL
                 // so it loads on a mobile device (relative /storage paths don't).
@@ -160,7 +160,13 @@ class MobilePropertyController extends Controller
         if ($linkContactId) {
             $contact = \App\Models\Contact::find($linkContactId);
             if ($contact && $contact->created_by_user_id === $user->id) {
-                $property->contacts()->attach($contact->id, ['role' => $linkContactRole]);
+                // $property is brand new here so this pair can't collide in
+                // practice, but goes through the linker rather than a bare
+                // attach() so no write path against this pivot ever looks
+                // "safe to copy" while actually depending on that. See
+                // .ai/specs/rental-applications.md, "The contact_property
+                // hard-delete fix".
+                \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $linkContactRole);
             }
         }
 
@@ -884,7 +890,7 @@ class MobilePropertyController extends Controller
             'city'           => $property->city,
             'province'       => $property->province,
 
-            'price'          => $property->price,
+            'price'          => $property->effectivePrice(),
             'price_display'  => $property->formattedPrice(),
             'listing_type'   => $property->listing_type,
             'status'         => $property->status,
@@ -1243,7 +1249,19 @@ class MobilePropertyController extends Controller
             $role = ['seller' => 'owner', 'lessor' => 'lessor', 'buyer' => 'buyer', 'lessee' => 'tenant'][$esignRole] ?? null;
         }
 
-        $property->contacts()->syncWithoutDetaching([$contact->id => ['role' => $role]]);
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, $role);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        // ContactPropertyLinker, not syncWithoutDetaching() — $contact can
+        // be an EXISTING contact (contact_id passed explicitly), a real
+        // risk of colliding with a soft-deleted row from a prior
+        // link/unlink of this exact pair. See .ai/specs/
+        // rental-applications.md, "The contact_property hard-delete fix".
+        \App\Services\Property\ContactPropertyLinker::link($contact->id, $property->id, $role);
 
         if (in_array($role, ['owner', 'seller', 'landlord', 'lessor'], true)) {
             PropertySellerLink::ensureExists($property->id, $contact->id);
@@ -1267,7 +1285,18 @@ class MobilePropertyController extends Controller
     {
         $this->authorizeProperty($request->user(), $property);
 
-        $property->contacts()->detach($contact->id);
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        try {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanUnlink($property, $contact->id);
+        } catch (\App\Exceptions\Property\OwnershipLockedException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        // Soft-delete via ContactPropertyLinker — Johan: "corex is a no
+        // delete system." No expected role asserted (role-agnostic unlink,
+        // matches the web ContactPropertyController/PropertyContactController
+        // shape), so no mismatch exception is possible from this call.
+        \App\Services\Property\ContactPropertyLinker::unlink($contact->id, $property->id);
 
         return response()->json(['message' => 'Contact unlinked from property.']);
     }
@@ -1845,7 +1874,7 @@ class MobilePropertyController extends Controller
             'title'           => $property->title,
             'excerpt'         => $property->excerpt,
             'description'     => $property->description,
-            'price'           => $property->price,
+            'price'           => $property->effectivePrice(),
             'price_display'   => $property->formattedPrice(),
 
             // Address

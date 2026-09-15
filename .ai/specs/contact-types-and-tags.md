@@ -219,3 +219,120 @@ spec dry-run command (optional), wizard test.
 (role resolution); `resources/views/corex/settings.blade.php`,
 `resources/views/corex/contacts/index.blade.php`, `contacts/show.blade.php`;
 `SettingsController.php` (pass nested data).
+
+---
+
+## 11. "Tenant" joins the picker, and a save can no longer silently strip a type it didn't offer (AT-392, 2026-09-11, cc6) — BUILT
+
+### The bug
+
+The rental-approval feature (`AddTenantTypeOnRentalApproval`, `.ai/specs/rental-applications.md`) adds the pre-existing "Tenant" `ContactType` row (id 11 on QA1, `esign_role='lessee'`, distinct from the canonical "Lessee" row id 10 — predates this ruling, ~78 contacts already carried it) to a contact on approval, per Johan's standing rule: **contact type is added, never removed or replaced.** His own words: "the scenario exists where a seller or any contact type can become a tenant... so that contact will be dealt with as a seller on their property but also as a tenant inside rentals."
+
+That rule was silently false in practice. `ContactType::scopeParents()` (§1's "4 fixed parents" + Owner/Other = 6) never included Tenant, so:
+- The contact-type picker (`_type_picker.blade.php`) never offered it as an option — it seeds and submits only from `ContactType::parentIds()`.
+- `ContactController::applyTypeAssignments()` validates `parent_type_ids.*` against that same 6-item allow-list and then calls `Contact::syncTypeAssignments()`, which does a **full-replace** `sync()`.
+
+Net effect: editing *anything* unrelated on a Tenant contact through the normal Contacts edit form (a phone number, say) silently dropped Tenant, because the picker's submitted set never included it in the first place. This wasn't scoped to Tenant specifically — it was a structural gap: **any type the picker doesn't know about vanishes on the next save through it**, regardless of how the contact came to hold it.
+
+A second, related confusion — cc4's end-to-end walk on `/corex/rentals/contacts` — same root cause, different symptom: the list row showed only the primary-type mirror (`$contact->type`), plus, in the rental lens only, a *separately*-sourced `rentalRoleLabels()` badge for Tenant/Landlord. That produced two bugs on the same row: (a) a contact whose *primary* type was Tenant showed "Tenant" twice (once from each source — same fact printed twice), and (b) a Seller+Tenant contact showed only "Tenant" — Seller never appeared, so an agent scanning the list couldn't tell a tenant was also a seller without opening the record.
+
+### The fix — one thing, not three patches
+
+**1. Tenant becomes selectable**, without touching the CANONICAL invariant. `ContactType::ADDITIONAL_PARENTS = ['Tenant']` — a new constant, matched by **name**, OR'd into `scopeParents()` alongside the existing esign_role-keyed CANONICAL branch and the null-esign_role EXTRA_PARENTS branch. `CANONICAL` itself (the strict one-name-per-esign_role dict the e-sign wizard's 1:1 role resolution depends on — confirmed by reading every `esign_role`-keyed lookup in the codebase, none of which assume uniqueness beyond CANONICAL's own 4) is untouched; Tenant sharing `esign_role='lessee'` with Lessee was already true before this fix and remains true — this fix only makes it *visible and selectable*, not a new ambiguity. `ContactType::parentIds()` (and therefore the picker's allow-list, and `ContactTagController`'s validation) picks this up automatically since both read through `scopeParents()`.
+
+**2. The class-level hardening** — `ContactController::applyTypeAssignments()` now computes, before syncing: any parent type the contact **currently holds that is NOT in `ContactType::parentIds()`** (the picker's full offered set) is unioned into the submitted set. This is deliberately type-agnostic — it doesn't check for "Tenant" by name, it protects *whatever* the contact holds that the picker never offered a chance to keep. A type that WAS offered can still be deliberately unchecked and removed (the hardening only protects the unoffered set, not a one-way ratchet). Per Johan's rule and the BUILD_STANDARD "fix the class, not the instance" charge: if a future type is added to a contact by some other mechanism and the picker hasn't caught up yet, it survives here too, automatically.
+
+**3. Badges show the full set, not just the primary mirror.** `_header-badges.blade.php` (contact detail page) now loops `$contact->parentTypes` instead of the single `$contact->type` mirror (falls back to the mirror only for the rare writer-created contact with no pivot rows). `index.blade.php` — shared by both `/corex/contacts` and `/corex/rentals/contacts` (same controller action, same template) — replaces the old two-source badge rendering (`$contact->type` + a separate `rentalRoleLabels()` loop) with one computed, deduped `$typeBadges` list per row: every held `parentTypes` name, plus — rental lens only — "Landlord" when the contact is linked to a property with a landlord/lessor role but holds no formal Lessor type (the property-pivot-only signal AT-403 added, skipping it would silently drop most real landlords — 13 vs 66 real matches, measured live). No duplication: a contact who already holds the Lessor (or Tenant) type isn't shown "Landlord"/"Tenant" a second time from the inferred signal.
+
+### Verified live, in a browser, on QA1
+
+Contact 18752 ("QA ProofBadgeFix1214", throwaway, soft-deleted after): created as Seller only, then a real `RentalApplicationApproved` event fired against a real rental application (128, also soft-deleted after) — the exact rentals-side mechanism §"Tenant added on approval" in `rental-applications.md` describes — added Tenant. Seller survived (proving the "reverse" direction: an edit from the rentals side never touches an existing type).
+- `/corex/rentals/contacts?search=ProofBadgeFix` — row reads `Seller` `Tenant`, each exactly once. No duplicate, no missing Seller.
+- Contact detail header — both badges shown.
+- The edit form's own type-picker chips — already seeded with `Seller ×` `Tenant ×` (the picker's existing seed-from-pivot logic picked Tenant up automatically once it joined `scopeParents()`, no picker-template change needed) — and the "Add contact type" dropdown's role list now reads `Owner, Other, Tenant, Seller, Buyer, Lessor, Lessee`.
+- Editing only the phone number and clicking Save (Tenant never touched, never in the change) — both `Seller` and `Tenant` chips still present on reload.
+- `canonical()` re-verified unchanged: still exactly Seller/Buyer/Lessor/Lessee, 4 rows, Tenant not among them — the e-sign wizard's own resolution path is untouched.
+- Application 76 untouched throughout (`updated_at` unchanged from Johan's own last touch).
+
+### Files changed
+
+- `app/Models/ContactType.php` — `ADDITIONAL_PARENTS` constant, `scopeParents()` extended
+- `app/Http/Controllers/CoreX/ContactController.php` — `applyTypeAssignments()` hardening (preserve unoffered-but-held types)
+- `resources/views/corex/contacts/_header-badges.blade.php` — loops `parentTypes`, not the primary mirror
+- `resources/views/corex/contacts/index.blade.php` — single deduped `$typeBadges` computation, replacing the two-source badge rendering (shared by `/corex/contacts` and `/corex/rentals/contacts`)
+- `tests/Feature/Contacts/ContactTypeAssignmentTest.php` — extended: `parents()` now includes Tenant (was `test_parents_includes_owner_and_other_without_esign_role`, renamed `test_parents_includes_owner_other_and_tenant`), a picker-save-shape test proving Tenant survives an unrelated field save, a test proving a deliberately-offered type can still be unchecked, a test proving the contact page shows every held type
+
+### Test-infra gap found while verifying (not fixed — out of scope, flagged for whoever owns `schema:dump`)
+
+Could not get a green `php artisan test` run for the file above, including on the test's own **pre-existing, untouched** `test_exactly_four_canonical_parents_exist_and_are_locked` — confirmed the environment, not the change: the committed schema snapshot (`database/schema/mysql-schema.sql`) bakes in `2026_03_27_100000_add_esign_role_to_contact_types` and `2026_07_03_000001_seed_owner_other_contact_parents` as already-applied migrations, but `schema:dump` captures structure only — no general table data — so a fresh `RefreshDatabase` test database never gets the 6 base `contact_types` rows those migrations insert. Every test in this file that resolves a canonical type by `esign_role` fails with `ModelNotFoundException` in any worktree created after the last `schema:dump`, independent of any change in this pass. Verified instead via Tinker + a live browser walk against real QA1 data (above). Whoever next runs `php artisan schema:dump` for an unrelated reason should confirm the base `contact_types` seed rows survive it, or add them back via a dedicated always-safe-to-rerun migration the way `2026_09_11_000001_seed_tenant_contact_type_if_missing.php` already does for Tenant.
+
+---
+
+## 12. Test-infra gap CLOSED, plus badge additivity (AT-392, 2026-09-12, cc6)
+
+### The test-infra gap, fixed
+
+The gap §11 reported above is now fixed, not just diagnosed: `schema:dump`'s structure-only rule
+turned out to be **permanent**, not a staleness problem — regenerating the snapshot would never
+have restored the missing `contact_types` rows, because `mysqldump --no-data` is hardcoded in
+`Illuminate\Database\Schema\MySqlSchemaState::dump()` for every table, every time, forever (the
+one exception is a deliberate, separate append of the `migrations` table's own rows). The two
+migrations §11 named are genuinely idempotent "insert if missing" migrations — but both are
+already baked into the snapshot's migrations ledger as done, so Laravel's migrator skips their
+bodies entirely on a fresh `RefreshDatabase` bootstrap; the data was never going to be there
+either way.
+
+Fix: `database/migrations/2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps.php`
+— a new migration dated after the snapshot baseline (so it actually runs), same "insert only if
+missing" shape as `2026_09_11_000001_seed_tenant_contact_type_if_missing.php`, matching QA1's real
+values so it's a true no-op everywhere already seeded. `test_exactly_four_canonical_parents_exist_and_are_locked`
+— the exact untouched test §11 used as evidence — now passes. Full `ContactTypeAssignmentTest`
+suite: 18/18 green, verified in a single serial `php artisan test` run (two concurrent `test`
+processes against the same `TEST_DB_DATABASE` were found to deadlock/corrupt each other's schema
+reload mid-session — a tooling mistake, not a product issue, caught and corrected before trusting
+any result from it).
+
+One of §11's own new tests turned out to be self-contradicting once this fix landed:
+`test_contact_type_edit_form_saved_through_the_picker_never_drops_a_type_it_did_not_offer` used
+"Tenant" to prove the picker-save hardening survives an unoffered type — but Tenant is now itself
+a normal, offered, checkable/uncheckable picker option (§11's own change), so there is no longer
+any way (or need) to distinguish "the picker didn't know about Tenant" from "the agent unchecked
+Tenant" — that's exactly what the sibling test
+(`..._still_lets_a_deliberately_offered_type_be_unchecked`) requires. Rewritten to use a genuinely
+non-offered type (a raw `ContactType` row created outside `CANONICAL`/`ADDITIONAL_PARENTS`,
+standing in for a real future-type scenario) — the hardening mechanism itself needed no change,
+only the test's choice of which type to simulate "not yet offered" with.
+
+### Badge additivity (cc4's finding)
+
+cc4's end-to-end walk found a fourth instance of the same "a contact has ONE type" root cause:
+on `/corex/rentals/contacts` (and the plain `/corex/contacts` list — same shared row template),
+searching agency-wide as an admin for a contact owned by a DIFFERENT agent showed the amber
+"Agent: X" tag and **zero** type badges — no Tenant, no Seller, nothing, despite that tag's own
+existing comment describing it as "purely informational" (i.e. additive). Root cause:
+`index.blade.php` had the Agent tag and the `$typeBadges` loop in a mutual-exclusive `@if`/`@else`
+— rendering one meant never rendering the other. This is exactly the screen an admin uses to see
+where a contact already sits before creating a duplicate; hiding every type badge on precisely the
+rows an admin is most likely to be searching for defeated the screen's purpose. Fixed: the Agent
+tag (`@if($isRestricted || $isOtherAgent)`) now renders, unconditionally, ALONGSIDE the
+`@foreach($typeBadges as ...)` loop, never instead of it. The rental-lens-only "Landlord"
+inference (property-pivot signal, no formal Lessor type) was also un-gated from
+`!$isRestricted && !$isOtherAgent` for the same consistency reason — every badge a contact
+legitimately has shows regardless of who is looking or whose contact it is.
+
+Checked sibling contact-list templates (`match-results.blade.php`, `street-complex-search.blade.php`)
+for the same `@if`/`@else` mutual-exclusivity pattern specifically — not found in either; both
+already show their "Agent: X"/type badge together additively. Their own, separately-reported
+single-badge (primary-mirror-only) issue from §11 is unrelated to this bug and remains unfixed,
+out of scope.
+
+**Verified live, in a browser, on QA1:** a throwaway contact (soft-deleted after) owned by a
+different real agent, holding Seller + Tenant, found via an agency-wide admin search — the row
+reads `Agent: <that agent's name>` `Seller` `Tenant`, all three together, once each, on both
+`/corex/rentals/contacts` and `/corex/contacts`. Zero console errors.
+
+### Files changed
+
+- `database/migrations/2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps.php` — new
+- `resources/views/corex/contacts/index.blade.php` — Agent tag made additive; Landlord-inference gate simplified
+- `tests/Feature/Contacts/ContactTypeAssignmentTest.php` — one test corrected to use a genuinely non-offered type instead of Tenant

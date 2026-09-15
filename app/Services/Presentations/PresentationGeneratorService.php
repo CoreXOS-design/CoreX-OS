@@ -75,6 +75,17 @@ class PresentationGeneratorService
                 );
             }
 
+            // AT-400 (Johan, 2026-09-10) — presentations are sale-only.
+            // Belt-and-braces, same reasoning as the property_type guard
+            // above: the UI hides/disables the Generate button for a rental
+            // (properties/show.blade.php), this catches a direct call that
+            // bypasses it.
+            if ($property->isRental()) {
+                throw new \RuntimeException(
+                    'Cannot generate presentation: property is a rental.'
+                );
+            }
+
             // ── 1. Upsert Presentation ─────────────────────────────────────
             $presentation = Presentation::where('property_id', $propertyId)
                 ->where('agency_id', $agencyId)

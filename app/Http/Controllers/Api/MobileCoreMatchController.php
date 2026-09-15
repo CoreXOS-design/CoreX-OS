@@ -69,7 +69,7 @@ class MobileCoreMatchController extends Controller
                 'beds'          => $p->beds,
                 'baths'         => $p->baths,
                 'garages'       => $p->garages,
-                'price'         => $p->price,
+                'price'         => $p->effectivePrice(),
                 'price_display' => $p->formattedPrice(),
                 'thumbnail'     => ($p->gallery_images_json ?? [])[0] ?? null,
                 'match_score'   => (int) ($p->match_score ?? 0),

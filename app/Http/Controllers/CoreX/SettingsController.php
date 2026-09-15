@@ -103,6 +103,12 @@ class SettingsController extends Controller
         $data['contactsPerPage']   = (int) PerformanceSetting::get('contacts_per_page', 25);
         $data['propertiesPerPage'] = (int) PerformanceSetting::get('properties_per_page', 20);
         $data['filingRegisterPerPage'] = (int) PerformanceSetting::get('filing_register_page_size', 50);
+        // AT-402 — sanity ceiling for a rental listing's Admin Fee / Marketing
+        // Fee (Rental tab). Neither field has ever had an upper bound anywhere
+        // in the codebase (mobile or web) — only min:0 — so a typo (an extra
+        // zero) could otherwise save an absurd fee. Agency-configurable, not
+        // hardcoded, since a sane ceiling varies by agency fee structure.
+        $data['rentalFeeMaxAmount'] = (int) PerformanceSetting::get('rental_fee_max_amount', 50000);
 
         // Feature Settings tab: Properties
         $data['propCategories']     = PropertySettingItem::group('category')->get();
@@ -111,6 +117,8 @@ class SettingsController extends Controller
         $data['propMandateTypes']   = PropertySettingItem::group('mandate_type')->get();
         // Build 3 — agency-configurable condition levels with adjustment_pct.
         $data['propConditionLevels'] = PropertySettingItem::group('condition_level')->get();
+        // AT-402 — Rental tab's Furnished Status list.
+        $data['propFurnishedStatuses'] = PropertySettingItem::group('furnished_status')->get();
 
         // Feature Settings tab: Properties — marketing toggle
         $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
@@ -349,7 +357,8 @@ class SettingsController extends Controller
     public function storePropertySettingItem(Request $request)
     {
         $data = $request->validate([
-            'group'          => 'required|in:category,property_type,property_status,mandate_type,condition_level',
+            // AT-402 — furnished_status added; an agency-managed list, same as the others.
+            'group'          => 'required|in:category,property_type,property_status,mandate_type,condition_level,furnished_status',
             'name'           => 'required|string|max:100',
             'sort_order'     => 'nullable|integer|min:0',
             // title_type only meaningful on group='category'; for any other
@@ -416,7 +425,11 @@ class SettingsController extends Controller
 
     public function batchToggleDefaultItems(Request $request, string $group)
     {
-        $allowed = ['category', 'property_type', 'property_status', 'mandate_type', 'condition_level'];
+        // AT-402 — furnished_status added; the settings view builds this
+        // batch-toggle URL generically for every $propGroups entry, so a
+        // group missing here would 404/error the button rather than the
+        // control never rendering.
+        $allowed = ['category', 'property_type', 'property_status', 'mandate_type', 'condition_level', 'furnished_status'];
         if (! in_array($group, $allowed)) {
             return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('error', 'Invalid group.');
         }
@@ -682,6 +695,22 @@ class SettingsController extends Controller
         ])['properties_per_page'];
         PerformanceSetting::set('properties_per_page', (int) $perPage);
         return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Properties per page updated.');
+    }
+
+    /**
+     * AT-402 — the sanity ceiling PropertyController::updateRentalDetails()
+     * enforces on a rental's Admin Fee / Marketing Fee. Agency-configurable
+     * rather than hardcoded (fee structures vary by agency); read with a
+     * sensible default so an agency that never visits this setting still
+     * gets real protection against a typo'd fee.
+     */
+    public function updateRentalFeeCeiling(Request $request)
+    {
+        $max = $request->validate([
+            'rental_fee_max_amount' => 'required|integer|min:1|max:10000000',
+        ])['rental_fee_max_amount'];
+        PerformanceSetting::set('rental_fee_max_amount', (int) $max);
+        return redirect()->route('corex.settings', ['s' => 'feature-properties'])->with('success', 'Rental fee ceiling updated.');
     }
 
     public function updateFilingRegisterPerPage(Request $request)

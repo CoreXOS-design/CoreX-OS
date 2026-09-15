@@ -335,7 +335,7 @@ class DocumentFilingController extends Controller
                 'address'     => $p->buildDisplayAddress(),
                 'ref'         => $p->property_number,
                 'seller'      => $p->sellerOwnerContact()?->full_name,
-                'price'       => $p->listing_price ?? $p->price ?? null,
+                'price'       => $p->effectivePrice(),
                 'status'      => (string) $p->status,
                 'on_market'   => $p->isOnMarket(),
                 'listed_date' => optional($p->listed_date ?? $p->first_marketed_at)->toDateString(),

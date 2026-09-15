@@ -51,6 +51,14 @@ class Document extends Model
             ->withTimestamps();
     }
 
+    /** AT-392 — rental applications this document is REFERENCED on, distinct from its one filing home (source_type/source_id). */
+    public function rentalApplications(): BelongsToMany
+    {
+        return $this->belongsToMany(RentalApplication::class, 'rental_application_document')
+            ->withPivot('attached_by')
+            ->withTimestamps();
+    }
+
     /**
      * AT-158 WS3 (D4) — the DR2 deal this document is filed against (if any).
      * Nullable: most documents are not deal-anchored; a deleted deal clears

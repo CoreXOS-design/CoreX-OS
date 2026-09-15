@@ -70,8 +70,19 @@ class MatchingService
      * rule) and §3 (prevent or absorb, never break).
      *
      * `under_offer` is the one status this check would let through that
-     * NON_MATCHABLE_EXTRA_STATUSES then stops on purpose — Johan's ruling of
-     * 2026-09-10, recorded there.
+     * Property::MATCHING_EXCLUDED_ON_MARKET_STATUSES then stops on purpose —
+     * Johan's ruling of 2026-09-10, recorded there.
+     *
+     * 2026-09-15 merge note (Staging promotion): QA1 independently carried a
+     * STATUS_BY_LISTING_TYPE whitelist for this exact check — the same
+     * pre-fix shape this docblock describes above, just never updated to the
+     * 2026-09-10 blacklist. Dropped in favour of this already-shipped,
+     * Johan-approved fix; nothing QA1 added here was reachable by any caller
+     * (grep confirmed STATUS_BY_LISTING_TYPE had zero references outside its
+     * own declaration), so nothing behavioural was lost. Its one substantive
+     * addition — `to_let` must never be treated as a wrong-intent status for
+     * a rental match — already holds true here: `to_let` appears only in the
+     * SALE exclusion list below, never the rental one.
      */
     private const WRONG_INTENT_STATUSES = [
         // A SALE match must never surface a listing sitting on a rental status.
@@ -187,88 +198,23 @@ class MatchingService
      * lowercase). The result: 769 `Sold` and every `let_out` rental leaked into
      * agent match emails. Fix-the-class — one list, one normalised predicate
      * (isMatchableStatus), every matching entry point routed through it.
-     */
-    /**
-     * Matching-only additions to Property::OFF_MARKET_STATUSES — portal-fed
-     * values that mean "off the market" but are not part of CoreX's own
-     * write-side vocabulary, so they do not belong in the model constant.
-     * 'rented' is P24's let-concluded value (CoreX writes 'let_out').
-     */
-    private const NON_MATCHABLE_EXTRA_STATUSES = [
-        'rented',      // P24's let-concluded value (CoreX writes 'let_out')
-        'pending',
-        // Johan's ruling, 2026-09-10. `under_offer` is ON MARKET everywhere
-        // else in CoreX (dashboards, website, the Property model) and is
-        // deliberately NOT added to Property::OFF_MARKET_STATUSES — this is a
-        // matching-only rule: a buyer is never shown stock that already has an
-        // offer on it. Asked and answered explicitly when the status whitelist
-        // fix below put 303 under-offer listings back in front of buyers.
-        'under_offer',
-    ];
-
-    /**
-     * THE off-market list, DERIVED from Property::OFF_MARKET_STATUSES rather
-     * than restated here.
      *
-     * 2026-09-10: this was a hand-maintained literal that had already drifted
-     * from the model constant it duplicates — it was missing `prospecting` and
-     * `not_selling`, so ingested-but-unmandated stock (stock we do not hold a
-     * mandate on at all) was matchable and could be offered to buyers. The
-     * model constant's own docblock says to use it "everywhere instead of
-     * re-listing these literals — see BUILD_STANDARD §6 (fix the class)"; this
-     * class was the instance that ignored it. Derived now, so it cannot drift
-     * again.
-     *
-     * @return string[]
-     */
-    public static function nonMatchableStatuses(): array
-    {
-        return array_values(array_unique(array_merge(
-            Property::OFF_MARKET_STATUSES,
-            self::NON_MATCHABLE_EXTRA_STATUSES,
-        )));
-    }
-
-    /**
-     * The same list as a quoted, comma-joined SQL fragment for the three
-     * `LOWER(TRIM(status)) NOT IN (...)` clauses below. Values are class
-     * constants, never user input.
-     */
-    private static function nonMatchableStatusesSql(): string
-    {
-        return collect(self::nonMatchableStatuses())
-            ->map(fn ($s) => "'" . addslashes($s) . "'")
-            ->implode(',');
-    }
-
-    /**
-     * Case-insensitive match-eligibility test for a property's lifecycle status.
-     *
-     * A NULL / blank status is treated as matchable: an incomplete-but-live
-     * listing must not be silently suppressed — the same "incomplete listings
-     * shouldn't be penalised" rule the scorer applies. Only an EXPLICIT
-     * off-market status blocks the match.
+     * 2026-09-10 -> 2026-09-15: this class carried its OWN copy of that fix
+     * (NON_MATCHABLE_EXTRA_STATUSES + nonMatchableStatuses()), derived from
+     * Property::OFF_MARKET_STATUSES. Superseded 2026-09-15 after the same
+     * defect class recurred one level up — this class's copy had ALSO drifted
+     * (missing 'prospecting'/'not_selling'; 560 of 842 properties, 66%, of the
+     * agency-wide matchable pool were ingested-but-unmandated stock). Now
+     * delegates to Property::isMatchableStatus() — the ONE place this is
+     * defined, so it cannot drift a third time — which folds in this class's
+     * own 'rented'/'pending'/'under_offer' matching-only exclusions verbatim
+     * as Property::MATCHING_EXCLUDED_ON_MARKET_STATUSES. Method kept here
+     * (not called directly) so every existing caller of
+     * MatchingService::isMatchableStatus() continues to work unchanged.
      */
     public static function isMatchableStatus(?string $status): bool
     {
-        $s = strtolower(trim((string) $status));
-
-        if ($s === '') {
-            return true;
-        }
-
-        // AT-350 — routed through the model helper rather than trusting the
-        // literal below. The list is an EXACT match on a lowercased string, so it
-        // only ever catches the underscore slug `sold_by_3rd_party`; the stored
-        // value is genuinely mixed-vocabulary (this class's own note above records
-        // 769 capitalised 'Sold' rows leaking for precisely this reason), so
-        // "Sold by 3rd Party" with spaces would sail straight through and keep
-        // offering buyers a house that has already changed hands.
-        if (Property::isSoldByThirdPartyStatus($s)) {
-            return false;
-        }
-
-        return !in_array($s, self::nonMatchableStatuses(), true);
+        return Property::isMatchableStatus($status);
     }
 
     /**
@@ -351,7 +297,7 @@ class MatchingService
             ->where(function (Builder $sub) {
                 $sub->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
-                        . self::nonMatchableStatusesSql()
+                        . collect(Property::matchingExcludedStatusList())->map(fn ($s) => "'$s'")->implode(',')
                         . ')');
             });
 
@@ -469,8 +415,19 @@ class MatchingService
         $countTol = $relaxed ? 1    : 0;    // allow 1 short on beds / baths / garages
         $sizeTol  = $relaxed ? 0.30 : 0.0;  // ±30% floor / erf size band
 
-        if ($priceMin)   $numLoose($query, 'price', '>=', (int) floor($priceMin * (1 - $priceTol)));
-        if ($priceMax)   $numLoose($query, 'price', '<=', (int) ceil($priceMax * (1 + $priceTol)));
+        // Price must compare against the LISTING'S effective price (rent for a
+        // rental, sale price for a sale) — not the raw `price` column, which is
+        // 0/null on rentals (the rent lives in `rental_amount`). Mirrors
+        // Property::effectivePrice() at the SQL layer since this filter runs
+        // before rows are ever hydrated into models.
+        $numLoosePrice = function (Builder $q, string $op, int $val) {
+            $sql = Property::effectivePriceSql('properties');
+            $q->where(function (Builder $q2) use ($sql, $op, $val) {
+                $q2->whereRaw("({$sql}) IS NULL")->orWhereRaw("({$sql}) {$op} ?", [$val]);
+            });
+        };
+        if ($priceMin)   $numLoosePrice($query, '>=', (int) floor($priceMin * (1 - $priceTol)));
+        if ($priceMax)   $numLoosePrice($query, '<=', (int) ceil($priceMax * (1 + $priceTol)));
         if ($bedsMin)    $numLoose($query, 'beds', '>=', max(0, (int) $bedsMin - $countTol));
         if ($bathsMin)   $numLoose($query, 'baths', '>=', max(0, (int) $bathsMin - $countTol));
         if ($garagesMin) $numLoose($query, 'garages', '>=', max(0, (int) $garagesMin - $countTol));
@@ -540,7 +497,7 @@ class MatchingService
 
         foreach ($matches as $match) {
             if (!$match->isCountable()) {
-                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0];
+                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0, 'ids' => []];
                 continue;
             }
 
@@ -565,6 +522,11 @@ class MatchingService
                 'total'   => $resolved->count(),
                 'hidden'  => $hidden,
                 'visible' => $resolved->count() - $hidden,
+                // AT-Core-Matches, "send N new" board badge — the resolved set is
+                // already sitting right here; exposing the ids lets the board diff
+                // against "ever shared" without a second, per-match resolve pass
+                // (the exact N+1 this method's own batching was built to kill).
+                'ids'     => $resolved->pluck('id')->all(),
             ];
         }
 
@@ -593,7 +555,7 @@ class MatchingService
             ->where(function (Builder $sub) {
                 $sub->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
-                        . self::nonMatchableStatusesSql()
+                        . collect(Property::matchingExcludedStatusList())->map(fn ($s) => "'$s'")->implode(',')
                         . ')');
             });
         if ($agencyId) {
@@ -660,8 +622,12 @@ class MatchingService
             return $op === '>=' ? ((int) $val >= $threshold) : ((int) $val <= $threshold);
         };
 
-        if ($match->price_min && !$numLooseOk($p->price, '>=', (int) floor($match->price_min * (1 - $priceTol)))) return false;
-        if ($match->price_max && !$numLooseOk($p->price, '<=', (int) ceil($match->price_max * (1 + $priceTol)))) return false;
+        // effectivePrice() collapses "no data" to 0.0 rather than null — treat
+        // <= 0 as null here too, so an incomplete listing still isn't penalised
+        // (matches the NULL-tolerant semantics $numLooseOk already implements).
+        $effPrice = $p->effectivePrice() > 0 ? $p->effectivePrice() : null;
+        if ($match->price_min && !$numLooseOk($effPrice, '>=', (int) floor($match->price_min * (1 - $priceTol)))) return false;
+        if ($match->price_max && !$numLooseOk($effPrice, '<=', (int) ceil($match->price_max * (1 + $priceTol)))) return false;
         if ($match->beds_min && !$numLooseOk($p->beds, '>=', max(0, (int) $match->beds_min - $countTol))) return false;
         if ($match->baths_min && !$numLooseOk($p->baths, '>=', max(0, (int) $match->baths_min - $countTol))) return false;
         if ($match->garages_min && !$numLooseOk($p->garages, '>=', max(0, (int) $match->garages_min - $countTol))) return false;
@@ -729,7 +695,7 @@ class MatchingService
      */
     protected function applyHardFilters(Builder $query, Property $property): void
     {
-        $price    = (int) ($property->price ?? 0);
+        $price    = (int) $property->effectivePrice();
         $beds     = (int) ($property->beds ?? 0);
         $baths    = (int) ($property->baths ?? 0);
         $garages  = (int) ($property->garages ?? 0);
@@ -872,8 +838,8 @@ class MatchingService
         // property genuinely outside the band now excludes instead of merely
         // losing points. Only gates when the PROPERTY reports a price: 0/null
         // price is incomplete data, not a mismatch.
-        if (($match->price_min || $match->price_max) && (int) $property->price > 0) {
-            $price   = (int) $property->price;
+        if (($match->price_min || $match->price_max) && (int) $property->effectivePrice() > 0) {
+            $price   = (int) $property->effectivePrice();
             $bandPct = max(0.0, $priceBandPct);
             $min     = (int) ($match->price_min ?: 0);
             $max     = (int) ($match->price_max ?: 0);
@@ -1060,7 +1026,7 @@ class MatchingService
      */
     protected function priceFitRatio(Property $property, ContactMatch $match, float $bandPct = 0.0): float
     {
-        $price = (int) ($property->price ?? 0);
+        $price = (int) $property->effectivePrice();
         if ($price <= 0) return 0.0;
 
         $min = (int) ($match->price_min ?: 0);

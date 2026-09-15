@@ -1492,6 +1492,8 @@ Agency Onboarding Setup Wizard entry — there is nothing to configure.
 - Fails open (allows) when no original authoriser was ever recorded — never blocks a document that was never authorised through the candidate/supervisor flow.
 - Verified against real QA1 data: the original authoriser passes, a different agent is blocked with the correctly named message, and the audit row lands with correct metadata. Regression-tested unconditionally in `tests/Feature/Docuperfect/SigningView/AmendmentReauthorisationBindingTest.php`.
 
+**2026-09-07 addendum — a stale branch merge nearly reintroduced the removed toggle.** `feature/esign-whatsapp-send` (AT-385/AT-332 WhatsApp secondary-send, see §22.14) was cut *before* the `require_identity_before_send` toggle was removed above, and still called `assertRecipientsHaveIdentityForSend($recipients, $agencyId)` gated behind `EsignSettings::forAgency($agencyId)->requireIdentityBeforeSend()`. Merging it as-is onto QA1 would have silently reintroduced the exact settings-gate this section documents as removed. Caught at merge time (conflict, not a clean auto-merge) and stopped rather than resolved on the spot; Johan's explicit ruling: **QA1's unconditional version wins outright, the WhatsApp branch's stale hunk is dropped entirely** — the branch was rebased onto current QA1 (not merged as-is) to apply that ruling before landing. Proven post-rebase: `assertRecipientsHaveIdentityForSend()` still takes only `array &$recipients` (no `$agencyId` param), and no call site or `EsignSettings::requireIdentityBeforeSend()` reference remains anywhere in the merged code. Lesson for any other branch cut before 2026-09-07 that touches this method: expect the same conflict, resolve the same way.
+
 ### 22.13 AT-332 — ink is bound to the internal party record id, never to a name (2026-09-07)
 
 **The binding rule, permanently: an ink marker's owner is decided by
@@ -1554,6 +1556,416 @@ key than `data-recipient-identity` provides, add it as a **new, additive**
 stamp read at a **higher-priority step** in `markerBelongsToSigner()` — the
 same pattern this fix used — rather than replacing or reordering the existing
 `data-name` fallback, which real historical documents still depend on.
+
+### 22.14 AT-385 / AT-332 — "Send via WhatsApp" secondary resend, merged onto QA1 (2026-09-07)
+
+Built earlier 2026-09-07 on `feature/esign-whatsapp-send`, approved by Johan as
+a **secondary, manual, agent-clicked** resend method — email stays the
+automatic primary, nothing about routing or auto-advance changes. Sat unmerged
+on GitHub for several hours; Johan tested on QA1 and correctly could not find
+it, because it genuinely was not deployed there yet (see the investigation
+report — code-not-deployed, not a hidden/broken control, confirmed by
+diffing the actual QA1 checkout against the branch before touching anything).
+Merged onto QA1 this same day after resolving the conflict in §22.12's
+addendum above.
+
+**What it is.** A "WhatsApp →" button/link, rendered by one shared partial
+(`resources/views/docuperfect/signatures/partials/_whatsapp-resend-button.blade.php`)
+included in three places:
+- `docuperfect/esign/signing-complete.blade.php` (wizard flow, recipient 1)
+- `docuperfect/signatures/send-confirmation.blade.php` (non-wizard flow, recipient 1)
+- `docuperfect/signatures/partials/_recipient-resend.blade.php` (My E-Sign
+  Documents, per document, whichever recipient is currently pending)
+
+Opens a `wa.me` deep link pre-filled with the recipient's name and the same
+tokenised signing URL the email invitation carries — the agent sends it
+themselves in their own WhatsApp. CoreX cannot confirm delivery (no
+server-side WhatsApp send API exists anywhere in this codebase), so it logs
+only the one true fact — `SignatureAuditLog::ACTION_WHATSAPP_LINK_OPENED`,
+distinct from `ACTION_SENT` — that the agent opened the link.
+
+**The single decision point:** `SigningWhatsAppLinkService::resolveAvailability()`.
+Gated on, in order: `EsignSettings::forAgency($agencyId)->whatsappResendEnabled()`
+(new per-agency toggle, default `true`, fillable/cast added to
+`EsignSettings.php` **additively** — the pre-existing `require_identity_before_send`/
+`strict_reauthorisation_binding` entries were left untouched, not removed,
+per Johan's instruction not to clean up another lane's dead code while
+merging this) → not the agent's own row → recipient status is one of
+PENDING/VIEWED/PARTIALLY_SIGNED → not already signing-blocked → phone number
+present and confidently normalisable to a genuine SA mobile (06x/07x/08x).
+Any failure returns `available: false` with an honest `reason` string
+rendered as plain muted text instead of a button — never a broken link, never
+a silently-missing control. `SigningWhatsAppLinkService::normalizePhone()`
+refuses to guess: empty, malformed, wrong-length, or landline-shaped input
+all resolve to "no button, honest reason," not a wrong-number link.
+
+**Verified after merge, on real QA1 data, as user 22 (Johan, agency 1):**
+- Rendered `signingComplete()` for flows 454 and 455 and both `sendConfirmation()`
+  and `myDocuments()` via direct controller+view execution (real Eloquent
+  queries, real Blade compile, real auth as user 22) — the button/link is
+  present with the correct real recipient name, phone, and token-based
+  signing URL in the returned HTML on all three screens.
+- Checked visibility, not just presence, after today's separate lesson that a
+  correctly-wired control can be invisible if a class never reached compiled
+  CSS: the button uses only pre-existing Tailwind utility classes (`text-xs
+  font-semibold hover:underline transition-colors duration-150`), all
+  confirmed present in the already-built `public/build/assets/*.css`, plus an
+  inline `style="color: var(--ds-green, #059669)"` — a literal fallback baked
+  into the HTML itself, not dependent on any compiled class at all. `--ds-green`
+  is additionally already defined (`#059669`) in the existing, already-built
+  `corex-CkkaXtYZ.css` design-system stylesheet. No asset rebuild was needed
+  or done; the feature ships zero CSS of its own.
+- `whatsapp_resend_enabled` for agency 1: no saved settings row exists yet
+  (agency has never opened E-Sign → Finalisation Settings), so it resolves to
+  the in-memory default `true` — already proven working by the renders above;
+  nothing needed to be set.
+- Confirmed the whole merge is purely additive against QA1's pre-merge tip —
+  `416 insertions(+), 0 deletions(-)` — so the automatic email send path is
+  provably untouched, not merely assumed unchanged.
+- A recipient with no phone, or an unrecognisable/landline number, renders
+  "WhatsApp unavailable — \<honest reason\>" as plain text, never a button,
+  never a broken link.
+
+**Known pre-existing schema quirk, reported not fixed (outside this merge's
+scope):** the original migration
+`2026_09_04_160000_add_whatsapp_resend_enabled_to_docuperfect_esign_settings.php`
+(idempotent, `hasColumn` guarded) and cc2's independent same-day reconstruction
+migration `2026_09_07_100002_reconstruct_whatsapp_resend_enabled_on_docuperfect_esign_settings.php`
+(written during the Staging→QA1 DB restore, before this branch was merged
+back, to backfill a column whose owning migration file didn't exist on disk
+yet) both now exist and are both recorded as run. Harmless — both are
+idempotent, the column exists exactly once — but redundant; not cleaned up
+here as it belongs to the restore/reconstruction work, not this merge.
+
+### 22.15 Entity representatives get their own editable recipient card on step 3 (2026-09-07)
+
+Johan, verbatim: "there were no bugs here except that there is no way to edit
+director details as they do not have cards on the left." Confirmed from a
+live look at flow 461 step 3: the company rendered as one recipient card,
+with representatives shown only as a read-only reorder list ("Signs via its
+representatives — 1. Andre Roets, 2. Elize Reichel") — no way to see or
+correct a director's own name, ID number, passport number, email, or phone
+from the wizard at all.
+
+**Not a regression.** `git blame` on every function touched here traces to
+2026-08-27 (`8db7fe4fc6`) or earlier — 11 days before this build, unrelated
+to any of the identity-binding/local-key work landed the same day. Confirmed
+directly: the entity card and its representative-reorder list already
+existed and worked exactly as described; the only gap was editability.
+
+**What ships.** Inside the entity's own recipient card, each representative
+now renders as its own bordered, labelled sub-card ("Signs on behalf of
+{company name}") with editable Full Name / ID Number / Passport Number /
+Email / Cell Phone — defaulting to the representative's live Contact values,
+never blank-by-default. The company itself is unchanged and still shown as
+the top-level recipient — the representative cards are nested inside it, not
+separate top-level recipients, so the "signs on its behalf" relationship
+stays visually explicit exactly as Johan required. Reorder arrows and the
+proxy picker are the SAME controls as before, unchanged in behaviour — order
+still sets the clause, address sections, signature positions and signing
+order exactly as it always has.
+
+**Data shape.** A new key, `_representative_overrides` (object keyed by
+`contact_id`, values `{name?, id_number?, passport_number?, email?, cell?}`),
+lives on the entity recipient's own row in `step_data['recipients']
+['recipients']` — the same place `_entity_proxy_contact_id`/
+`_entity_rep_order` already live for the identical reason (per-document,
+never written to the pivot or the Contact, survives save/reload). Set via a
+new Alpine method, `updateRepOverride(recipientIndex, contactId, field,
+value)` (`wizard.blade.php`), rather than `x-model` on a possibly-undefined
+nested path.
+
+**Flows through to what actually gets sent — three independent read points,
+all threaded the same override:**
+
+1. **Step 3 display** — `ESignWizardController::buildEntityRepresentationPreview()`
+   now accepts `$overrides` and merges it over each representative's live
+   Contact fields when building `all_representatives` (the array the new
+   cards render from). A representative with no override yet shows their
+   real, current contact data — never blank.
+2. **Step 6 expansion** — `expandEntityRecipients()` builds an in-memory
+   `$effectiveRep` (a `clone` of the real Contact, never `->save()`d) per
+   representative, with the override's name/id_number/email/cell overlaid.
+   Every field the expanded `SignatureRequest` input row carries — `name`,
+   `first_name`/`last_name`, `id_number`, `email`, `cell` — reads from
+   `$effectiveRep`, not the stale Contact. `passport_number` is now carried
+   explicitly on this row for the first time (previously absent entirely for
+   an entity representative; AT-385's own send-time gate recovered it from
+   the Contact as a fallback, but a correction never reached it before this
+   build).
+3. **The printed clause** — `RoleBlockExpansionService::composeEntityPartyText()`
+   gained a 5th, optional `?array $representativeOverrides` parameter,
+   threaded through `resolveDocumentRepresentatives()` (depth-0-only —
+   identical bound to the existing `$overrideProxyRepId`/`$orderContactIds`
+   parameters immediately beside it) into `resolveDirectRepresentatives()`,
+   which overlays the correction onto an in-memory clone before the clause
+   composer reads `$rep->full_name`/`$rep->id_number`. Both call sites that
+   build a fresh clause — the initial `expandEntityRecipients()` computation
+   and `resolveFreshPartyClauseText()`'s "Flow 409" recompute right before
+   freezing — now pass the SAME overrides (carried onto the expanded row as
+   `_representative_overrides` specifically so the second call can see it),
+   or the recompute would silently discard the correction the instant before
+   send — the exact bug class `_entity_proxy_contact_id`/`_entity_rep_order`
+   already had to be protected against for the identical reason.
+
+**Reordering never discards an unsaved correction.** `moveEntityRep()`'s
+POST to `/docuperfect/esign/api/entity/{contact}/proxy` now also sends
+`representative_overrides`, and `setEntityProxy()` threads it into the SAME
+`buildEntityRepresentationPreview()` call that rebuilds the response —
+without this, a reorder click while a director card had an unsaved,
+not-yet-saved edit would replace the whole preview with fresh Contact data,
+silently wiping what the agent had just typed.
+
+**Does editing a director here update their Contact record? — checked, not
+guessed.** Matched to how a plain linked recipient's own edit already
+behaves: `saveStep()` already calls `backfillContactIdNumber()` for a linked
+recipient's `id_number` (fill-if-blank ONLY — never overwrites an existing
+value); every other field a recipient card exposes has never written back to
+the Contact. Directors get the identical treatment: `saveStep()` now also
+calls `backfillContactIdNumber()` for each representative's own overridden
+`id_number`, fill-if-blank, same function, same rule. Name, email, cell, and
+passport_number are document-local only, exactly like every other recipient
+field. Verified directly against real QA1 data: a representative whose real
+`id_number` was already on file kept it unchanged after an override save;
+name/email were never written to the Contact at all.
+
+**Verified end-to-end, real data (flow 461 — entity 8355 / "111222333444",
+directors Andre Roets and Elize Reichel), rolled back / restored afterward so
+Johan's own test flow was left exactly as found:** rendered step 3 for real
+(headless Chromium against the real compiled assets) and confirmed each
+director renders as its own labelled, editable card; typed a real ID and
+email correction via the actual `updateRepOverride()` path; called the real
+`saveStep()` controller method directly (bypassing only CSRF, which an
+in-process call has no session for) — confirmed the correction persisted in
+the database; re-read fresh from the DB and confirmed step 3's display and
+step 6's expansion both showed the corrected details, and the printed clause
+text carried the corrected ID; confirmed the Contact record was untouched
+except id_number's existing fill-if-blank rule; confirmed a natural-person
+(non-entity) recipient is completely unaffected — no `_representation`, no
+expansion, no `_representative_overrides` key ever appears on its row.
+Generated a real PDF (Puppeteer) of the two-director document fully signed
+by both correction-carrying signers — zero cross-contamination between their
+ink, matching the same production `compose()`/`bakeInk()` pipeline every
+other e-sign proof in this spec uses.
+
+**Test suite could not complete a clean run** — `TEST_DB_DATABASE=hfc_dash_test_6`
+hung past 60s on this box during this build; confirmed via a plain-file-copy
+before/after (no git stash) that the SAME hang occurs on unmodified baseline
+code, so it is shared-MySQL-server contention from concurrently-running
+queue workers on other checkouts, not a defect introduced here. Regression
+tests were still written (`tests/Feature/Docuperfect/EsignEntityRecipientTest.php`)
+covering: override correction flows through expansion without touching the
+un-overridden sibling representative; passport_number is now carried through
+expansion; the Contact record is never written to except id_number
+fill-if-blank; step 3's preview merges an override over the live Contact
+value; a natural-person recipient is completely unaffected.
+
+**Not touched, deliberately** — `setEntityProxy()`'s validation stays loose
+(`nullable|array`, no per-key format rules) on `representative_overrides`,
+matching `id_number`'s own long-standing unvalidated-free-text convention
+everywhere else in this pipeline. The "No input lost" standard is met by
+never rejecting these fields at all, not by validating and re-populating —
+there is no failure mode to lose input on.
+
+---
+
+### 22.16 "Send via WhatsApp" — Johan's four post-merge defects, fixed (2026-09-07)
+
+Johan tested §22.14 on QA1 and reported four defects in one pass, plus a
+fifth, unrelated redirect defect he hit in the same session. All five fixed
+here; none touch the identity gate (§22.12) or ink-binding (§22.13) work.
+
+**1. "Coloured text is not a button."** Johan: "why do we think that
+coloured text will be seen as buttons to click... does that look a send
+via wa anyone will find?" The button (`_whatsapp-resend-button.blade.php`,
+all three screens — it is ONE canonical partial, so one fix covers all
+three) used `text-xs font-semibold hover:underline` with an inline colour
+— indistinguishable from plain text, and in fact identical in kind to the
+adjacent email Resend link, which is itself just coloured text (matching
+it would have repeated the same defect, not fixed it). Replaced with
+`corex-btn-outline` — the design system's own documented secondary-action
+button component (`UI_DESIGN_SYSTEM.md`: "Secondary/tertiary actions use
+corex-btn-outline or inline text links... Never use raw Tailwind... Always
+use tokens via the corex-btn-* classes"), already compiled and used
+site-wide, no asset rebuild needed. A WhatsApp-green icon inside the
+button keeps it recognisable without breaking the design system's own
+button chrome (padding/border/background — a real, visible button).
+
+**2. "No confirmation that anything happened."** Johan: "did your whatsapp
+get sent?... not confirmation send happened." Added an honest inline line
+under the button once the click registers: "Opened WhatsApp to \<number\>
+at \<time\> — not confirmed sent." Precise on purpose — never claims
+delivery, matching the feature's own founding constraint (CoreX cannot
+confirm a client-side wa.me send).
+
+**3. "The communication counter on the contact does not move."** Johan:
+"Did you increase the comm counter on contacts... as tests shows no?",
+then corrected the approach mid-build: "contact comm for wa already
+exists. everywhere else we use wa this counter works" — do not adapt
+email's mechanism, find the OTHER whatsapp sends already using it and
+copy them exactly. Found: `SellerOutreachSenderService::send()`
+(`app/Services/SellerOutreach/SellerOutreachSenderService.php` ~line
+136-160) and `ContactController::incrementChannel()`
+(`app/Http/Controllers/CoreX/ContactController.php` ~line 1705-1731) both
+already do this correctly — a provisional `Communication` row via
+`OutboundProvisionalLogger::log()`, forced to `send_status=not_delivered`
+immediately after (WhatsApp is client-side click-to-chat; the row is
+never born counted), which only becomes `sent` — incrementing
+`Contact::outboundCommCount()` — once the agent answers "Yes, I sent it"
+on the SAME shared modal (`resources/views/partials/whatsapp-send-confirm-modal.blade.php`,
+its own docblock: "ONE modal, reused on every WhatsApp send surface... No
+parallel copies") through the SAME endpoint
+(`ContactController::markCommunicationSent`, route
+`corex.contacts.communications.mark-sent`).
+`SigningWhatsAppLinkService::logOpened()` now does the identical thing —
+same logger call, same not_delivered force-fill, same modal include, same
+mark-sent endpoint call from the blade. Skipped gracefully (no modal, no
+communication row) when the recipient has no linked Contact — a supplier
+representative or a manually-typed recipient, most commonly — there is
+nothing to mirror a communication onto. The pre-existing
+`SignatureAuditLog::ACTION_WHATSAPP_LINK_OPENED` fact (§22.14) is
+unchanged and still recorded alongside this, unrelated concerns (one is
+the e-sign audit trail, the other is the contact's own comms history).
+
+**4. "Which number does it use?"** Johan: "I take it the number that the
+wa uses is the contact wa number as set up on contacts?" It did not — it
+always resolved `signature_requests.signer_phone`, captured at Fill &
+Review from the recipient's general 'cell' field, itself sourced from
+`contacts.phone` (the general PRIMARY phone —
+`ESignWizardController.php` ~line 4270 and its siblings) — never
+`Contact::primaryWhatsAppPhone()` (the `contact_phones.is_primary_whatsapp`
+designation, Contact-details Phase 3). Fixed in
+`SigningWhatsAppLinkService::resolvePhoneSource()`: when the recipient is
+linked to a real Contact (`signature_requests.contact_id`) AND that
+contact has a number explicitly flagged `is_primary_whatsapp`, THAT number
+wins. Falls back to `signer_phone` unchanged — same as before this fix —
+when there is no linked contact or no WhatsApp-specific designation (the
+overwhelming majority of contacts today, since the flag is never
+retroactively set on existing numbers).
+
+**5. Wrong landing screen after sending (separate defect, same testing
+session).** Johan: "after sending we are landing in this screen -
+/docuperfect/sales - old screen - we should be landing on
+/docuperfect/esign/my-documents." Traced to
+`SignatureController::sendForSignature()`'s "agent-complete → next party
+send" branch (~line 2032) — every OTHER redirect in this exact method for
+a `rental_upload_send` document already correctly went to
+`docuperfect.esign.myDocuments`; this one branch alone still redirected to
+the pre-wizard `docuperfect.sales`/`docuperfect.rental` dashboard for
+every other document type. A second occurrence of the identical defect
+found and fixed in the same audit: `approveAndAdvance()`'s `'sent'` branch
+(~line 3302) — its own sibling `'completed'`/fallthrough branch a few
+lines below it already correctly redirects to myDocuments; only the
+"sent to next party" branch didn't. Both now redirect unconditionally to
+`docuperfect.esign.myDocuments`. Four OTHER `$dashboardRoute` redirects in
+the same file were audited and deliberately left unchanged — they guard
+different actions (an error/not-pending-approval guard, wet-ink
+inspection approve/reject, upload-on-behalf auto-approve, return-to-
+candidate) that are not the "document sent onward" action Johan described;
+changing those would be outside what he reported. `SignatureController::$isSales`
+(the local variable feeding the old redirect at ~line 1979) is now unused
+inside `sendForSignature()` as a direct, mechanical side effect of fix #1
+here — left in place; it documents a separate, real historical fix (the
+2026-08-27 late-estate walkthrough's isSalesDocument()-vs-raw-template_type
+defect) referenced by comment from four other places in this same file,
+and removing it is outside the scope of what was asked.
+
+**Proven, on real QA1 data, inside a DB transaction rolled back at the end
+(zero lasting changes)**, per Johan's "prove it, don't assert it" standard:
+- Item 4: the same real recipient (signer_phone `0825346546`) resolved to
+  a DIFFERENT, explicitly-flagged WhatsApp number (`0825346546` → forced
+  `27721112222`) once one was flagged `is_primary_whatsapp` on their
+  Contact — confirming the override actually fires, not just that the
+  fallback still works.
+- Items 2 & 3: `outboundCommCount('whatsapp')` measured before the click
+  (0), after `logOpened()` (still 0 — not_delivered correctly uncounted),
+  and after simulating the agent's "Yes, I sent it" via
+  `CommunicationSendStatusService::markSent()` (1) — the exact same
+  service the shared modal's endpoint calls.
+- Item 5: `SignatureController::sendForSignature()` invoked directly
+  against a real, currently-`awaiting_seller` QA1 document
+  (`peekNextSigningCandidate()` confirmed `NULL` first, so this call could
+  not have dispatched a real email to a real recipient) — the returned
+  redirect targeted `.../docuperfect/esign/my-documents`, not
+  `/docuperfect/sales` or `/docuperfect/rental`.
+- Item 1: rendered `signingComplete()` (flows 454 and 455),
+  `sendConfirmation()`, and `myDocuments()` as a real authenticated request
+  as user 22 — `corex-btn-outline` present in the returned HTML on all
+  three screens, the old inline-colour-text style gone.
+- No-phone and landline-number recipients re-confirmed to still degrade to
+  an honest "unavailable — \<reason\>" message, unaffected by the phone-
+  source change (only WHERE the phone number is sourced from changed, not
+  the honesty/refusal logic once a candidate number is in hand).
+
+---
+
+### 22.17 "Send via WhatsApp" button went dead after §22.16's own fix (2026-09-07)
+
+Johan tested §22.16 and reported the button now renders correctly but
+clicking it does nothing at all, on both `/docuperfect/esign/{flow}/signing-complete`
+and `/docuperfect/esign/my-documents`. His instruction was explicit: verify
+with a real click in a real browser, not by reading markup — "that is
+precisely how it reached him broken."
+
+**Root cause.** `_whatsapp-resend-button.blade.php`'s entire interactive
+component is the value of an `x-data="..."` HTML attribute. §22.16's own
+fix added a JS `//` comment inside that attribute's content that quoted
+the words No and Yes using the double-quote character:
+`// ...confirmSent()). "No" leaves the row...`. An HTML attribute written
+with double-quote delimiters ends at the FIRST double-quote character the
+browser's parser finds, full stop — the parser has no concept of a JS
+comment, so a quote mark sitting inside one is exactly as attribute-ending
+as one sitting anywhere else. That truncated the whole `x-data` expression
+mid-comment. Alpine received an incomplete, unparsable object literal and
+failed to define ANY property or method on the component — `sendWhatsApp`
+was never a real function, so `@click="sendWhatsApp()"` silently did
+nothing (Alpine logs a console warning, never a visible page error).
+
+This is the exact rule the codebase's OWN pre-existing components already
+document in the same area — `corex/contacts/show.blade.php`'s equivalent
+`x-data` block carries repeated comments to this effect ("no literal
+double-quote characters in comments here... a stray one closes it early
+and leaks the rest of the JS onto the page as visible text") — and §22.16
+broke it anyway, in the same file, in the same kind of fix.
+
+**Proof, not assertion.** Read markup alone would not have caught this —
+the attribute value LOOKS complete when viewed as source text in the
+`.blade.php` file; the truncation only happens in the BROWSER's own
+attribute parsing of the compiled output, which a text editor or `grep`
+never performs. Confirmed with a real Chromium instance (Puppeteer,
+headless), loading the actual rendered page markup with the app's real
+compiled Alpine bundle, and directly reading back
+`document.querySelector('[x-data]').getAttribute('x-data')`:
+- Broken version: the DOM's parsed attribute was **1624 characters**,
+  cut off immediately after `...confirmSent()). ` — exactly where the
+  quote character sat — versus the intended **2586 characters**.
+- `window.open()` was stubbed and never called on click; Alpine logged
+  `Unexpected token ')'` (the truncated object literal) followed by
+  `sendWhatsApp is not defined` on click.
+
+**Fix.** Reworded the comment to describe the same behaviour without any
+double-quote character (`Answering No leaves...`, `answering Yes is...`).
+Re-verified the SAME way the defect was found — real Chromium click, not
+markup reading — with the mock `window.open`/`fetch` this time returning
+a realistic payload: the click now genuinely calls `window.open()` with
+the correct `wa.me` URL and real signing link, the honest "not confirmed
+sent" line appears, the shared "Did you send it?" modal opens, and
+clicking "Yes, I sent it" calls the real mark-sent endpoint — all with
+zero console errors, on both signing-complete and my-documents (one
+shared partial, confirmed independently on each screen since Johan asked
+for both to be checked separately).
+
+Confirmed architecturally impossible for the confirmation modal to block
+or undo the WhatsApp launch: `window.open()` is the FIRST, synchronous
+statement in `sendWhatsApp()`, called before any `await` — the modal only
+appears later, after the follow-up `fetch()` resolves, so there is no
+code path where showing or answering it could prevent a launch that
+already happened.
+
+**Rule going forward, stated plainly in the file itself now:** never use
+the double-quote character anywhere inside this component's `x-data`
+block, including inside comments — single quotes only, matching every
+string literal already in the expression.
 
 ---
 

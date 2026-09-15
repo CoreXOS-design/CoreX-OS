@@ -80,7 +80,7 @@ Update `config/corex-permissions.php` and the role defaults that already grant `
 
 Hard filters (return 0 / no match):
 - listing_type mismatch
-- property status in ['sold','withdrawn','draft']
+- property status not matchable — see §5.2, `Property::isMatchableStatus()` (the list below was a stale simplification, never the real vocabulary; do not re-list values here again)
 - explicit `hidden_property_ids` membership
 - price > price_max OR price < price_min
 - beds < beds_min, baths < baths_min, garages < garages_min
@@ -110,7 +110,7 @@ in SQL so a near-miss survives to the scoring stage, where `score()` decays it.
 | Criterion | Hard / Relaxed | Relaxed band |
 |---|---|---|
 | `listing_type` | HARD | never relaxed — sale ≠ rental |
-| property `status` | HARD | sold / draft / withdrawn etc. always excluded |
+| property `status` | HARD | non-matchable statuses always excluded — see §5.2 |
 | suburb (`p24_suburb_id`) | HARD | buyer's chosen suburb(s) only |
 | `must_have_features` | HARD | score() returns 0 if any missing |
 | price_min / price_max | Relaxed | ±30% band |
@@ -128,6 +128,70 @@ property carries `match_score` (0-100) and `match_tier`:
 filter implementation for the agent web page, agent mobile app, buyer portal and the
 public shared page. Pass `['relaxed' => false]` to `propertiesForMatch()` for the legacy
 exact-bound behaviour.
+
+## 5.2 Matchable status — ONE canonical definition (fixed 2026-09-15)
+
+Live bug, found by Falan/Johan and reported as "drafts now included on Core
+Matches." Investigated the buyer-facing side first, per explicit
+instruction, before anything else: **draft was already correctly excluded
+everywhere** — confirmed live, empirically, against a real draft property
+and a real wishlist. It was not reaching a buyer.
+
+**What was actually broken**: `prospecting` and `not_selling` were treated
+as matchable when they should never have been — ingested-but-unmandated
+stock (deeds/MIC ingest) the agency doesn't hold the mandate on. Confirmed
+empirically: **560 of 842 properties (66%) in the agency-wide matchable
+candidate pool** were prospecting/not_selling. Same root cause as the
+rental `to_let` gap (found the same day, fixed in the same pass — see
+below): the matching engine's idea of which statuses are matchable was
+wrong AND maintained in more than one place. `Property::OFF_MARKET_STATUSES`
+already had the correct, broader list; `MatchingService` maintained its own
+separately-drifted copy (`NON_MATCHABLE_STATUSES`), and
+`CoreMatchReasonClassifier` (landed the same day) had copy-pasted a THIRD,
+identically-drifted copy.
+
+**The fix — define it once**: `Property::isMatchableStatus(?string $status): bool`
+and `Property::matchingExcludedStatusList(): array` are now THE single
+canonical source. Every caller (`MatchingService::isMatchableStatus()`,
+`MatchingService::propertiesForMatch()`'s SQL, `MatchingService::matchableCandidatePool()`'s
+SQL, `CoreMatchReasonClassifier`) delegates to it — none maintain their own
+copy any more.
+
+**The full matchable/not-matchable call, by status** (real data, not the
+enum — sale-side counts shown; see the fix's own commit for the full
+vocabulary + rental-side counts):
+
+| Status | Matchable | Why |
+|---|---|---|
+| active, for_sale, to_let | Yes | Genuinely on-market. **Active is not the same as advertised** (Johan's own correction) — an agency can hold a genuine mandate and be told not to market it; that property must still match. Matching NEVER filters on syndication/portal/advertising flags, only the base `status` column — proven by a dedicated test (`test_active_but_not_advertised_still_matches`) using a property with every syndication flag off. |
+| draft | No | Incomplete record. Already correct; unchanged. |
+| prospecting, not_selling | No | **The live bug, fixed here.** Ingested-but-unmandated — no real mandate. |
+| under_offer, pending | No | On-market for every other purpose (`isOnMarket()` still returns true), but already spoken for — offering it to a new buyer sets up a disappointment. New: `Property::MATCHING_EXCLUDED_ON_MARKET_STATUSES`, deliberately kept separate from `OFF_MARKET_STATUSES` so those other consumers are unaffected. |
+| sold, sold_by_3rd_party, transferred, withdrawn, expired, cancelled, unavailable, archived, let_out, rented | No | Off-market/terminal; already correct (rented preserved from the matching engine's own prior list — flagged as arguably belonging in `OFF_MARKET_STATUSES` itself for every other consumer too, not changed there in this pass, blast radius not audited). |
+
+**`to_let` for rentals — included in this same pass**, per instruction: the
+identical defect class as prospecting/not_selling, found earlier the same
+day (only 7 of 560 rental listings carried a status the engine recognised
+at all before this). Never formally ruled on by Johan for rentals
+specifically — told to him as fixed alongside the sale-side fix, his to
+overrule if he wants it handled separately. `MatchingService::STATUS_BY_LISTING_TYPE['rental']`
+now includes `to_let`.
+
+**Tests**: `tests/Feature/Matching/MatchableStatusVocabularyTest.php` — 8
+tests pinning the whole vocabulary, including the case Johan specifically
+named as most likely to break (active-but-not-advertised still matches)
+and a consistency check that `MatchingService::isMatchableStatus()` can
+never drift from the canonical definition again. Broader regression run
+(Matching/, ThirdPartySaleExclusions, CoreMatchReasonClassifier,
+BuyerPipeline, Prospecting matcher): 75/76 — the one failure a
+pre-existing, unrelated test-construction bug (`BuyerPipelineKanbanCountsMatchFilterTest`
+manually builds a `Request` bypassing the router), untouched by this
+change.
+
+**Verified live on QA1**: see the deploy/verification note appended once
+that walk has actually been run — proving a prospecting property no
+longer appears for a buyer who previously matched it, and an
+active-but-not-advertised property still does.
 
 ## 6. Flow — Property-Triggered (the new behaviour)
 

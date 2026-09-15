@@ -827,6 +827,15 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // seller/buyer contacts + attorney supplier directory). Static paths declared
     // BEFORE the {deal} wildcards so they never shadow-capture.
     Route::get('/search/properties',            [\App\Http\Controllers\Dr2\DealRegisterController::class, 'searchProperties'])->middleware('permission:create_deals')->name('search.properties');
+    // "Add another property" eligibility, Johan 2026-09-16 — a plain
+    // dropdown of gate-eligible properties only, not a whole-book search.
+    // Same middleware convention as search.properties directly above
+    // (pre-existing note, not fixed here per anti-drift: this middleware
+    // key is stricter than the controller's own deals.create||deals.edit
+    // check, so a deals.edit-only user would 403 here before ever reaching
+    // that check — matched as-is for consistency, not introduced by this
+    // change).
+    Route::get('/search/eligible-properties',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'eligibleProperties'])->middleware('permission:create_deals')->name('search.eligible-properties');
     Route::get('/search/property-contacts/{property}', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'propertyContacts'])->middleware('permission:create_deals')->name('search.property-contacts');
     Route::get('/search/contacts',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactSearch'])->middleware('permission:create_deals')->name('search.contacts');
     Route::post('/contact/inline',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'contactInline'])->middleware('permission:create_deals')->name('contact.inline');
@@ -862,6 +871,12 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // DR1 parity: update is a POST (DR1's form.blade POSTs to it), not PUT.
     Route::post('/{deal}',       [\App\Http\Controllers\Dr2\DealRegisterController::class, 'update'])->middleware('permission:create_deals')->name('update');
     Route::post('/{deal}/quick', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'quickUpdate'])->middleware('permission:create_deals')->name('quickUpdate');
+
+    // AT-398 — multi-property. Same permission as deal setup (create_deals).
+    Route::post('/{deal}/properties',                [\App\Http\Controllers\Dr2\DealRegisterController::class, 'addProperty'])->whereNumber('deal')->middleware('permission:create_deals')->name('properties.add');
+    Route::delete('/{deal}/properties/{property}',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'removeProperty'])->whereNumber(['deal', 'property'])->middleware('permission:create_deals')->name('properties.remove');
+    Route::post('/{deal}/properties/{property}/restore', [\App\Http\Controllers\Dr2\DealRegisterController::class, 'restoreProperty'])->whereNumber(['deal', 'property'])->middleware('permission:create_deals')->name('properties.restore');
+    Route::patch('/{deal}/properties/{property}',    [\App\Http\Controllers\Dr2\DealRegisterController::class, 'updatePropertyPrice'])->whereNumber(['deal', 'property'])->middleware('permission:create_deals')->name('properties.updatePrice');
 
     // Feedback — DR2 doctrine: AGENTS may read the log + add remarks (view_deals),
     // separate from deal setup (create_deals). Pipeline step updates ride m1's routes.
@@ -1285,10 +1300,21 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/pdf-splitter/download', [PdfSplitterController::class, 'downloadLastZip'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.download');
     Route::get('/tools/pdf-splitter/properties/search', [PdfSplitterController::class, 'searchProperties'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.properties.search');
     Route::get('/tools/pdf-splitter/properties/{property}/contacts', [PdfSplitterController::class, 'propertyContacts'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.properties.contacts')->where('property', '[0-9]+');
+    // AT-392 — the standalone splitter's own no-property fallback: search
+    // for and file to a contact directly. See linkToContact()'s docblock.
+    Route::get('/tools/pdf-splitter/contacts/search', [PdfSplitterController::class, 'searchContacts'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.contacts.search');
+    Route::post('/tools/pdf-splitter/link-to-contact', [PdfSplitterController::class, 'linkToContact'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link_to_contact');
     // AT-105 enh — per-page "Link" (file + multi-FICA) is a distinct action
     // from the ZIP download. Both submit the per-page assignments for every
     // file in the batch.
     Route::post('/tools/pdf-splitter/link', [PdfSplitterController::class, 'link'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link');
+    // AT-392 — split once, at intake, before review (Johan). A rental
+    // application's own document, split through the SAME engine, filed to
+    // its contact instead of a property. intakeRentalApplicationDocument()
+    // itself also enforces guardRentalApplication() (own/branch/agency), on
+    // top of this route's own permission gate.
+    Route::post('/tools/pdf-splitter/rental-applications/{rentalApplication}/documents/{document}/split', [PdfSplitterController::class, 'intakeRentalApplicationDocument'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.intake_rental_application');
+    Route::post('/tools/pdf-splitter/rental-applications/{rentalApplication}/link', [PdfSplitterController::class, 'linkForRentalApplication'])->middleware('permission:access_pdf_splitter')->name('tools.pdf_splitter.link_rental_application');
 
     // PDF Suite — hub + 7 sibling tools (Splitter is reachable from the hub)
     Route::middleware(['permission:access_pdf_suite', 'feature:pdf-suite'])->prefix('tools/pdf-suite')->name('tools.pdf_suite.')->group(function () {
@@ -2807,6 +2833,100 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/agency-setup/collection/{collection}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'addCollectionItem'])->name('corex.agency-setup.collection.add');
         Route::delete('/agency-setup/collection/{collection}/{id}', [\App\Http\Controllers\CoreX\AgencySetupWizardController::class, 'removeCollectionItem'])->name('corex.agency-setup.collection.remove');
     });
+    // AT-392 — Rental Applications settings: agency-configurable supporting-document checklist.
+    Route::get('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'edit'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.edit');
+    Route::post('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'update'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.update');
+    // AT-392 Phase 2 — qualifying-formula threshold, same settings screen, separate
+    // form/route so it can never interfere with the existing checklist save above.
+    Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.qualifying-formula');
+
+    // Reopen/resubmit, 2026-09-08.
+    Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.reopen-link-expiry');
+    // Applicant-side autosave, 2026-09-12.
+    Route::post('/settings/rental-applications/autosave-debounce', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateAutosaveDebounce'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.autosave-debounce');
+    // Autosave volume cap, 2026-09-12.
+    Route::post('/settings/rental-applications/autosave-rate-limit', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateAutosaveRateLimit'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.autosave-rate-limit');
+    // Document upload/replace/remove volume cap, 2026-09-13.
+    Route::post('/settings/rental-applications/document-rate-limit', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDocumentRateLimit'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.document-rate-limit');
+    // AT-392 round 2, 2026-09-13 — whether approved applications still accept documents.
+    Route::post('/settings/rental-applications/document-uploads-after-approval', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDocumentUploadsOpenAfterApproval'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.document-uploads-after-approval');
+    // AT-392 round 2, 2026-09-13 — the five remaining public-route volume caps.
+    Route::post('/settings/rental-applications/route-rate-limits', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRouteRateLimits'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.route-rate-limits');
+    // FICA-mandatory, AT-392 round 3, 2026-09-13 — whether FICA must be complete before authorisation.
+    Route::post('/settings/rental-applications/require-fica-before-authorisation', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireFicaBeforeAuthorisation'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.require-fica-before-authorisation');
+    // Submission hard floor, AT-392 round 5, 2026-09-13 — every applicant
+    // form field's compulsory tick, and the agency-configurable marital
+    // status option list (Ruling 1) that drives the spouse-fields group.
+    Route::post('/settings/rental-applications/required-fields', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequiredFields'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.required-fields');
+    Route::post('/settings/rental-applications/marital-status-options', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateMaritalStatusOptions'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.marital-status-options');
+    // Return gate, AT-392 round 4, 2026-09-13 — gate method + attempt cap.
+    Route::post('/settings/rental-applications/return-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReturnGate'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.return-gate');
+    Route::post('/settings/rental-applications/identity-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateIdentityGate'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.identity-gate');
+    // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
+    Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
+    // Contact-type ruling, 2026-09-11 — tag the contact "Tenant" on approval.
+    Route::post('/settings/rental-applications/tenant-tagging', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateTenantTagging'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.tenant-tagging');
+    // AT-392 approval-leg, 2026-09-10 — max matched properties per approval email.
+    Route::post('/settings/rental-applications/approval-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateApprovalEmailSettings'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.approval-email');
+    // AT-392 authoriser flow, 2026-09-08 — decline email wording, same settings screen.
+    Route::post('/settings/rental-applications/decline-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDeclineEmail'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-email');
+    // AT-392 — validity windows per document type per purpose.
+    Route::post('/settings/rental-applications/validity-windows', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateValidityWindows'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.validity-windows');
+    // AT-392 authoriser flow, 2026-09-08 — RO/CO tiers, same settings screen.
+    Route::post('/settings/rental-applications/ro', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRO'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.ro');
+    Route::post('/settings/rental-applications/co', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateCO'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.co');
+    // Highlighter collection expansion, 2026-09-09 — Johan: "as many
+    // highlighters as they want, each with their own label." Full CRUD,
+    // same settings screen. Supersedes the fixed six-colour mark-colors
+    // route (removed — RentalApplicationHighlighter absorbs it).
+    Route::post('/settings/rental-applications/highlighters', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'store'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.store');
+    Route::put('/settings/rental-applications/highlighters/{highlighter}', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'update'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.update');
+    Route::post('/settings/rental-applications/highlighters/{highlighter}/archive', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'archive'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.archive');
+    Route::post('/settings/rental-applications/highlighters/{highlighter}/restore', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'restore'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.restore');
+    Route::post('/settings/rental-applications/highlighters/reorder', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'reorder'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.reorder');
+    // Decline reason templates, 2026-09-15 — Johan: "a decline that tells
+    // an applicant how to fix it." Full CRUD, dedicated list screen (search/
+    // sort/filter/pagination/empty state), same permission gate as every
+    // other rental-applications setting. Boundary with cc5's decline-modal/
+    // send/merge work agreed before either lane wrote code — this
+    // controller is the template library only.
+    Route::get('/settings/rental-applications/decline-reason-templates', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'index'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.index');
+    Route::post('/settings/rental-applications/decline-reason-templates', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'store'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.store');
+    Route::put('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'update'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.update');
+    Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/archive', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'archive'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.archive');
+    Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/restore', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'restore'])
+        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.restore');
+
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
@@ -2814,6 +2934,172 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/syndication-portals', [CoreXSettingsController::class, 'updateSyndicationPortals'])->middleware('permission:access_settings')->name('corex.settings.syndication-portals');
     // Feature Registry — Settings → Features (module on/off). Spec: corex-feature-registry.md §6.4.
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
+    // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
+    // separate prefix/controller, gated on RO/CO tier membership
+    // (User::isRentalApplicationRO()/isRentalApplicationCO()), not the
+    // ordinary rental_applications.view permission every agent already has.
+    // See .ai/specs/rental-applications.md "Authoriser flow". MUST be
+    // registered BEFORE the generic rental-applications/{rentalApplication}
+    // routes below (Laravel matches route-by-route in registration order —
+    // that wildcard would otherwise greedily swallow "/authorisation" as if
+    // it were an application ID and 404 on route-model-binding; caught by
+    // a real dispatch test, not assumed).
+    Route::prefix('rental-applications/authorisation')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'index'])->name('corex.rental-applications.authorisation.index');
+        Route::get('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'show'])->name('corex.rental-applications.authorisation.show');
+        Route::get('/{rentalApplication}/documents/{document}/view', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'viewDocumentInline'])->name('corex.rental-applications.authorisation.documents.view');
+        Route::get('/{rentalApplication}/documents/{document}/highlighted-file', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'highlightedFile'])->name('corex.rental-applications.authorisation.documents.highlighted-file');
+        // Progressive load + save, 2026-09-08 — the authoriser now marks up
+        // documents too (Johan). Same three endpoints as the agent's own
+        // review screen, same shared trait, same completeness guard.
+        Route::get('/{rentalApplication}/documents/{document}/highlight-data/first', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'highlightFirstPage'])->name('corex.rental-applications.authorisation.documents.highlight-data.first');
+        Route::get('/{rentalApplication}/documents/{document}/highlight-data/remaining', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'highlightRemainingPages'])->name('corex.rental-applications.authorisation.documents.highlight-data.remaining');
+        Route::post('/{rentalApplication}/documents/{document}/highlight', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'applyHighlight'])->name('corex.rental-applications.authorisation.documents.highlight');
+        // Capture-ledger rework, 2026-09-11 — the highlighter mark IS the
+        // ledger line now (Johan). Create is document-scoped (a drag on an
+        // open document); update/delete are rental-application-scoped (act
+        // on the mark_uid directly, since an unanchored/manually-typed
+        // entry has no document to route through).
+        Route::post('/{rentalApplication}/documents/{document}/capture-entries', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryCreate'])->name('corex.rental-applications.authorisation.documents.capture-entries.store');
+        Route::put('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryUpdate'])->name('corex.rental-applications.authorisation.capture-entries.update');
+        Route::delete('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryDelete'])->name('corex.rental-applications.authorisation.capture-entries.destroy');
+        // Johan's decision, 2026-09-14 — struck-out excludes from totals; see
+        // HandlesRentalApplicationDocumentMarks::captureEntryToggleStrike()'s
+        // own docblock.
+        Route::post('/{rentalApplication}/capture-entries/{markUid}/strike', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'captureEntryToggleStrike'])->name('corex.rental-applications.authorisation.capture-entries.strike');
+        // Assessment add/strike, 2026-09-08 — Johan, confirmed: "auth can
+        // rather strike out and re-add a value than edit a value. this way
+        // we have the evidence needed of who did what." No edit/update
+        // route exists anywhere in this feature — striking and adding are
+        // the only two mutations, by design, not an oversight.
+        Route::post('/{rentalApplication}/assessment/income-items', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'addIncomeItem'])->name('corex.rental-applications.authorisation.assessment.income-items.store');
+        Route::post('/{rentalApplication}/assessment/expense-items', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'addExpenseItem'])->name('corex.rental-applications.authorisation.assessment.expense-items.store');
+        Route::post('/{rentalApplication}/assessment/income-items/{item}/strike', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'toggleStrikeIncomeItem'])->name('corex.rental-applications.authorisation.assessment.income-items.strike');
+        Route::post('/{rentalApplication}/assessment/expense-items/{item}/strike', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'toggleStrikeExpenseItem'])->name('corex.rental-applications.authorisation.assessment.expense-items.strike');
+        Route::post('/{rentalApplication}/approve', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'approve'])->name('corex.rental-applications.authorisation.approve');
+        Route::post('/{rentalApplication}/decline', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'decline'])->name('corex.rental-applications.authorisation.decline');
+        Route::post('/{rentalApplication}/request-more-info', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'requestMoreInfo'])->name('corex.rental-applications.authorisation.request-more-info');
+    });
+
+    // AT-392 — Rental Applications (Phase 1). Dedicated page, not the e-sign
+    // wizard — see .ai/specs/rental-applications.md.
+    Route::prefix('rental-applications')->middleware('permission:rental_applications.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'index'])->name('corex.rental-applications.index');
+        Route::get('/returned', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'returned'])
+            ->middleware('permission:rental_applications.view_returned')->name('corex.rental-applications.returned');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'create'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.create');
+        Route::get('/search-properties', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'searchProperties'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.search-properties');
+        Route::post('/contacts/quick-create', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'quickCreateContact'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.contacts.quick-create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'store'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.store');
+        Route::get('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'show'])->name('corex.rental-applications.show');
+        Route::put('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'update'])->name('corex.rental-applications.update');
+        Route::post('/{rentalApplication}/send', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'send'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.send');
+        Route::get('/{rentalApplication}/pdf', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'pdf'])->name('corex.rental-applications.pdf');
+        Route::get('/{rentalApplication}/pdf-inline', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'pdfInline'])->name('corex.rental-applications.pdf-inline');
+        Route::get('/{rentalApplication}/documents/{document}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'downloadDocument'])->name('corex.rental-applications.documents.download');
+        Route::post('/{rentalApplication}/documents', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'uploadDocument'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.documents.upload');
+        // AT-392 "pull from contact" — attach a document already on file
+        // against this application's contact, without the applicant
+        // re-sending it. Same permission as a fresh upload.
+        Route::post('/{rentalApplication}/documents/attach-existing', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'attachExistingDocument'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.documents.attach-existing');
+        // 2026-09-12 — was gated on rental_applications.create ("Create & Send"),
+        // a mismatched permission name for an archive/restore action that has
+        // nothing to do with creating an application. New key
+        // rental_applications.archive (config/corex-permissions.php), matching
+        // the {module}.archive convention every other module uses. WHO can
+        // archive/restore is unchanged — see the migration that copied every
+        // existing .create grant onto .archive
+        // (2026_09_12_100000_migrate_rental_application_archive_permission.php).
+        Route::delete('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'destroy'])
+            ->middleware('permission:rental_applications.archive')->name('corex.rental-applications.destroy');
+        Route::post('/{rentalApplication}/restore', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'restore'])
+            ->middleware('permission:rental_applications.archive')->name('corex.rental-applications.restore');
+        Route::post('/{rentalApplication}/status', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'updateStatus'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.update-status');
+        // Johan — "on approval then we have a way for the agent to link the
+        // application to a property... rental - when an approved tenant is
+        // linked the property changes to let out status." See
+        // RentalApplicationController::linkTenantProperty()'s own docblock.
+        Route::post('/{rentalApplication}/link-tenant-property', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'linkTenantProperty'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.link-tenant-property');
+        Route::delete('/{rentalApplication}/link-tenant-property', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'unlinkTenantProperty'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.unlink-tenant-property');
+    });
+
+    // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,
+    // a new file, deliberately separate from RentalApplicationController above,
+    // which is owned by another lane and actively being edited). See
+    // .ai/specs/rental-applications.md "Phase 2 — Agent review split-screen".
+    Route::prefix('rental-applications')->middleware('permission:rental_applications.view')->group(function () {
+        Route::get('/{rentalApplication}/review', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'show'])->name('corex.rental-applications.review');
+        Route::post('/{rentalApplication}/review/assessment', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'saveAssessment'])->name('corex.rental-applications.review.assessment');
+        Route::post('/{rentalApplication}/review/link-property', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'linkProperty'])->name('corex.rental-applications.review.link-property');
+        Route::get('/{rentalApplication}/documents/{document}/view', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'viewDocumentInline'])->name('corex.rental-applications.documents.view');
+        // Usability round, 2026-09-07 — persistent highlight marks, reusing
+        // ViewingPack's redaction architecture (own the render, persist
+        // marks, play back to the next viewer) with translucent colour
+        // instead of destructive black-out.
+        // Progressive load, 2026-09-08 — page 1 fast, the rest behind it (see
+        // RentalApplicationDocumentHighlightService::firstPagePreview()).
+        Route::get('/{rentalApplication}/documents/{document}/highlight-data/first', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'highlightFirstPage'])->name('corex.rental-applications.documents.highlight-data.first');
+        Route::get('/{rentalApplication}/documents/{document}/highlight-data/remaining', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'highlightRemainingPages'])->name('corex.rental-applications.documents.highlight-data.remaining');
+        Route::post('/{rentalApplication}/documents/{document}/highlight', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'applyHighlight'])->name('corex.rental-applications.documents.highlight');
+        // Capture-ledger rework, 2026-09-11 — see the matching authoriser
+        // routes' own comment for the full reasoning (same three endpoints,
+        // same shared trait).
+        Route::post('/{rentalApplication}/documents/{document}/capture-entries', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryCreate'])->name('corex.rental-applications.documents.capture-entries.store');
+        Route::put('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryUpdate'])->name('corex.rental-applications.capture-entries.update');
+        Route::delete('/{rentalApplication}/capture-entries/{markUid}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryDelete'])->name('corex.rental-applications.capture-entries.destroy');
+        // Johan's decision, 2026-09-14 — struck-out excludes from totals; see
+        // HandlesRentalApplicationDocumentMarks::captureEntryToggleStrike()'s
+        // own docblock.
+        Route::post('/{rentalApplication}/capture-entries/{markUid}/strike', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryToggleStrike'])->name('corex.rental-applications.capture-entries.strike');
+        // Stage 3, 2026-09-11 — "Add line manually," agent-only ("Add line
+        // manually" only ever renders for $viewerRole === 'agent' in the
+        // panel — no authoriser equivalent needed).
+        Route::post('/{rentalApplication}/capture-entries', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'captureEntryCreateManual'])->name('corex.rental-applications.capture-entries.store-manual');
+        Route::get('/{rentalApplication}/documents/{document}/highlighted-file', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'highlightedFile'])->name('corex.rental-applications.documents.highlighted-file');
+        // AT-392 "pull from contact" — a REFERENCED document's download,
+        // separate from corex.rental-applications.documents.download (owned
+        // documents only, in RentalApplicationController — not edited here,
+        // owned by another lane).
+        Route::get('/{rentalApplication}/documents/{document}/referenced-download', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'downloadReferencedDocument'])->name('corex.rental-applications.documents.referenced-download');
+        // AT-410, 2026-09-13 — "File a document directly, without going
+        // through the splitter." See RentalApplicationReviewController::
+        // fileDocumentDirectly()/retypeDocument() for the full reasoning.
+        Route::post('/{rentalApplication}/documents/{document}/file-direct', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'fileDocumentDirectly'])->name('corex.rental-applications.documents.file-direct');
+        Route::post('/{rentalApplication}/documents/{document}/retype', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'retypeDocument'])->name('corex.rental-applications.documents.retype');
+        // Authoriser flow, 2026-09-08 — agent-side actions only (request more
+        // info from the applicant, submit to the authoriser). The authoriser's
+        // own actions live under a separate prefix below, gated to authorisers.
+        Route::post('/{rentalApplication}/review/request-more-info', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'requestMoreInfoFromApplicant'])->name('corex.rental-applications.review.request-more-info');
+        Route::post('/{rentalApplication}/review/submit-for-approval', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'submitForApproval'])->name('corex.rental-applications.review.submit-for-approval');
+        // Reopen/resubmit, 2026-09-08 — send a returned/under-assessment
+        // application back to the applicant to fix an answer and re-sign.
+        Route::post('/{rentalApplication}/review/reopen', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'reopen'])->name('corex.rental-applications.review.reopen');
+        // AT-392 — the agent's wishlist step on the approval leg, reusing
+        // the Core Matches form/drawer. Not under /contacts/{contact}/matches
+        // because the redirect target and guard are review-screen-specific.
+        Route::post('/{rentalApplication}/review/wishlist', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'addWishlist'])->name('corex.rental-applications.review.wishlist.add');
+        // AT-392 — the agent's own send action, once approved. One-shot,
+        // guarded by applicant_notified_at (see the method's own docblock).
+        Route::post('/{rentalApplication}/review/send', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'send'])->name('corex.rental-applications.review.send');
+        // AT-410b — decline's own send action, identical shape to the one
+        // above (see the method's own docblock).
+        Route::post('/{rentalApplication}/review/send-decline', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'sendDecline'])->name('corex.rental-applications.review.send-decline');
+        Route::put('/{rentalApplication}/review/wishlist/{match}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateWishlist'])->name('corex.rental-applications.review.wishlist.update');
+        // Read-only "what was signed at each point" — one immutable
+        // snapshot per submission round (see RentalApplicationGeneration).
+        Route::get('/{rentalApplication}/generations/{generation}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'showGeneration'])->name('corex.rental-applications.generations.show');
+    });
+
     Route::post('/settings/presentations', [CoreXSettingsController::class, 'updatePresentations'])->middleware('permission:access_settings')->name('corex.settings.presentations.update');
     // Build 4 — agency default toggles for which report sections render.
     Route::post('/settings/presentations/sections', [CoreXSettingsController::class, 'updatePresentationSections'])->middleware('permission:access_settings')->name('corex.settings.presentations.sections.update');
@@ -2824,6 +3110,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/matches-visibility-scope', [CoreXSettingsController::class, 'updateMatchesVisibilityScope'])->middleware('permission:access_settings')->name('corex.settings.matches-visibility-scope');
     Route::post('/settings/contacts-per-page', [CoreXSettingsController::class, 'updateContactsPerPage'])->middleware('permission:access_settings')->name('corex.settings.contacts-per-page');
     Route::post('/settings/properties-per-page', [CoreXSettingsController::class, 'updatePropertiesPerPage'])->middleware('permission:access_settings')->name('corex.settings.properties-per-page');
+    // AT-402 — sanity ceiling for a rental's Admin Fee / Marketing Fee (Rental tab).
+    Route::post('/settings/rental-fee-ceiling', [CoreXSettingsController::class, 'updateRentalFeeCeiling'])->middleware('permission:access_settings')->name('corex.settings.rental-fee-ceiling');
     Route::post('/settings/filing-register-per-page', [CoreXSettingsController::class, 'updateFilingRegisterPerPage'])->middleware('permission:access_settings')->name('corex.settings.filing-register-per-page');
     Route::post('/settings/properties-sort', [CoreXSettingsController::class, 'updatePropertiesSort'])->middleware('permission:access_settings')->name('corex.settings.properties-sort');
     Route::post('/settings/remote-access', [CoreXSettingsController::class, 'updateRemoteAccess'])->middleware('permission:agency.manage_access_authorization')->name('corex.settings.remote-access');
@@ -3614,6 +3902,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Bulk rental-image delete — "Delete selected" / "Delete all". One transaction,
         // same permission + HARD-delete semantics as the single rental delete above.
         Route::post('/{property}/rental-images/delete-bulk',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteRentalImages'])->name('rental-images.delete-bulk');
+        // AT-402 — Rental tab (data fields, not images). Only reachable for an
+        // EXISTING, non-pending-type-change rental property — a brand new
+        // property or a type-change draft still saves its rental fields
+        // through the main store()/update() form (see show.blade.php's Rental
+        // tab: form="prop-update-form" for those two cases). Dedicated action
+        // so this save is properly validated/transactional/scoped on its own,
+        // per Johan's build standard, without touching the large existing
+        // update() method. Spec: .ai/specs/rentals-shared-screens.md §5.
+        Route::put('/{property}/rental-details', [\App\Http\Controllers\CoreX\PropertyController::class, 'updateRentalDetails'])->name('rental-details.update');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');
@@ -3667,6 +3964,28 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/website-syndication/{apiKey}/refresh',    [\App\Http\Controllers\Website\WebsiteSyndicationController::class, 'refresh'])->name('website-syndication.refresh');
     });
 
+    // AT-401 — Rentals → Properties. Deliberately the SAME controller action
+    // as corex.properties.index above, not a copy — PropertyController::index()
+    // detects this route by NAME (request()->route()->getName(), never
+    // user-editable) and forces listing_type='rental' unconditionally, after
+    // the query string is read, so it cannot be escaped by editing the URL.
+    // See .ai/specs/rentals-shared-screens.md §2.
+    Route::get('/rentals/properties', [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])
+        ->middleware(['permission:access_properties', 'agency.required'])
+        ->name('corex.rentals.properties.index');
+
+    // AT-401 — Rentals → Rental Pipeline. Same BuyerPipelineController::index()
+    // as command-center.buyers.pipeline, detected by route name, forcing
+    // lead_type='rental' after the query string is read — same lock
+    // mechanism as Rentals → Properties above. New permission
+    // buyer_pipeline.view gates ONLY this entry point; the sales-side board
+    // is deliberately left with its current (no permission key) gating —
+    // standardising it is a separate, not-yet-approved work item. See
+    // .ai/specs/rentals-shared-screens.md §4/§6.
+    Route::get('/rentals/pipeline', [\App\Http\Controllers\CommandCenter\BuyerPipelineController::class, 'index'])
+        ->middleware(['permission:buyer_pipeline.view', 'agency.required'])
+        ->name('corex.rentals.pipeline.index');
+
     // Phase 3g — Map module (standalone page + JSON pin + detail endpoints).
     // Same permission as Properties; agency scoping enforced inside the service.
     Route::prefix('map')->middleware(['permission:access_properties', 'agency.required'])->name('corex.map.')->group(function () {
@@ -3711,6 +4030,77 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
         ->middleware('permission:core_matches.all_view')
         ->name('corex.core-matches.all');
+
+    // AT-401 — Rentals → Core Matches. Same ContactMatchController::index()/
+    // allView() as above, detected by route NAME, forcing listing_type='rental'
+    // after the query string is read — same lock mechanism as Rentals →
+    // Properties / Rental Pipeline. No new permission: reuses core_matches.view
+    // per .ai/specs/rentals-shared-screens.md §6.1 (the shared screen already
+    // gates access; the rentals lens is a lock, not a new capability).
+    Route::get('/rentals/core-matches', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'index'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.rentals.core-matches.index');
+
+    // .all is the oversight/agency-wide variant — gated by core_matches.all_view,
+    // matching corex.core-matches.all's own gate exactly. Gating it on
+    // core_matches.view alone would let anyone with base view access see
+    // every agent's rental matches through this entry point, an escalation
+    // the sales-side .all route does not allow.
+    Route::get('/rentals/core-matches/all', [\App\Http\Controllers\CoreX\ContactMatchController::class, 'allView'])
+        ->middleware('permission:core_matches.all_view')
+        ->name('corex.rentals.core-matches.all');
+
+    // AT-Core-Matches, Johan's ruling 1 — server-enforced, not a hidden
+    // button. Route middleware is the FIRST gate; ContactMatch::reassignTo()
+    // re-checks the same permission independently (defense in depth, direct-
+    // URL access must be blocked, not just absent from a menu). One route
+    // serves both the sale and rental screens — the match itself carries its
+    // own listing_type, there is no separate rentals variant needed here.
+    Route::post('/core-matches/{match}/reassign', [\App\Http\Controllers\CoreX\ContactMatchReassignmentController::class, 'reassign'])
+        ->middleware('permission:core_matches.reassign')
+        ->name('corex.core-matches.reassign');
+
+    // AT-Core-Matches, Johan's dated-link ruling — confirms a share that was
+    // already MINTED server-side when the composer rendered (see
+    // ContactMatch::mintShareLink()); this is the actual send click, and is
+    // what makes it count (channel + property snapshot + working-clock
+    // reset). Same core_matches.view gate as reading the match itself —
+    // anyone who can see a match and act on it may share its live link;
+    // reassignment is the privileged action, not this.
+    Route::post('/core-matches/shares/{share}/confirm', [\App\Http\Controllers\CoreX\ContactMatchShareController::class, 'confirm'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.core-matches.shares.confirm');
+
+    // AT-Core-Matches, share-history piece — read-only: the share log, the
+    // separate "opened" signal, and "properties not seen since last send"
+    // (today's live matches minus everything ever shared). Same gate as
+    // record-share above; this is the query cc3's screen calls to render
+    // the share-history panel, not a second data-entry endpoint.
+    Route::get('/core-matches/{match}/share-history', [\App\Http\Controllers\CoreX\ContactMatchShareHistoryController::class, 'show'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.core-matches.share-history');
+
+    // AT-Core-Matches, the board's "Send N new" popup — HTML fragment fetched
+    // into the SAME shared modal shell cc3's notes popup uses. Same gate as
+    // share-history above.
+    Route::get('/core-matches/{match}/new-since-share', [\App\Http\Controllers\CoreX\ContactMatchShareHistoryController::class, 'newSinceQuickView'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.core-matches.new-since-share');
+
+    // AT-403 — Rentals → Contacts. Johan: "rental menu - wheres my rental
+    // contacts?" Same ContactController::index() as corex.contacts.index
+    // above, detected by route NAME, locking the list to contacts holding a
+    // rental-relevant type (tenant/prospective tenant/landlord) after the
+    // query string is read — same lock mechanism as every other Rentals
+    // entry point. INCLUSIVE filter, never exclusive: a contact can be a
+    // seller AND a tenant simultaneously (Johan's explicit ruling), so this
+    // never hides a contact from the sale-side Contacts screen, it only
+    // ADDS a second door into the same record. No new permission: reuses
+    // access_contacts — the shared screen already gates access, the rentals
+    // lens is a lock, not a new capability. See .ai/specs/rentals-shared-screens.md §13.
+    Route::get('/rentals/contacts', [\App\Http\Controllers\CoreX\ContactController::class, 'index'])
+        ->middleware(['permission:access_contacts', 'agency.required'])
+        ->name('corex.rentals.contacts.index');
 
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     Route::prefix('real-estate/portal-leads')
@@ -3805,6 +4195,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/communications/{communication}/mark-sent',     [\App\Http\Controllers\CoreX\ContactController::class, 'markCommunicationSent'])->name('communications.mark-sent');
 
         // Notes
+        Route::get('/{contact}/notes/quick-view', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'quickView'])->name('notes.quick-view');
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
         Route::put('/{contact}/notes/{note}',    [\App\Http\Controllers\CoreX\ContactNoteController::class, 'update'])->name('notes.update');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');
@@ -4675,6 +5066,65 @@ Route::prefix('rental')->middleware(['auth', 'permission:view_rentals', 'feature
         Route::get('/reminders', [\App\Http\Controllers\Rental\RentalReminderSettingsController::class, 'index'])->name('reminders.index');
         Route::put('/reminders', [\App\Http\Controllers\Rental\RentalReminderSettingsController::class, 'update'])->name('reminders.update');
     });
+});
+
+// ===== AT-392 RENTAL APPLICATIONS — public, no auth, token-based =====
+// Modelled on the /sign/{token} mechanism directly below — same throttle
+// convention, same no-identity-leak treatment of an expired/used link.
+Route::prefix('rental-application')->group(function () {
+    // 2026-09-13 round 2 — was throttle:30,1 per-IP. Same defect class as
+    // documents below: a shared office/carrier-NAT connection shared one
+    // IP-keyed budget across every applicant reloading their own form.
+    // Re-keyed to the APPLICATION TOKEN — see AppServiceProvider::boot().
+    Route::get('/{token}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'show'])->middleware('throttle:rental-application-show')->name('rental-applications.public.show');
+    // Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
+    // submission we can gate on ID." Throttled by its own named limiter
+    // (rental-application-gate) — tight, agency-configurable, and its
+    // trip response IS the "contact your agent" lockout page, not a
+    // generic 429 — see AppServiceProvider::boot().
+    Route::post('/{token}/verify-gate', [\App\Http\Controllers\RentalApplicationSigningController::class, 'verifyReturnGate'])->middleware('throttle:rental-application-gate')->name('rental-applications.public.verify-gate');
+    Route::post('/{token}/gate/resend-otp', [\App\Http\Controllers\RentalApplicationSigningController::class, 'resendGateOtp'])->name('rental-applications.public.gate.resend-otp');
+    // Submission identity gate, 2026-09-13 — fires once, on a first-ever
+    // submission only (a resubmit has already proven identity via the
+    // Return Gate above to even reach its editable form). Own named
+    // limiter (rental-application-identity-gate), own settings, sibling
+    // to the Return Gate's routes but never sharing its budget or its
+    // session flag. See .ai/specs/rental-applications.md.
+    Route::get('/{token}/verify-identity', [\App\Http\Controllers\RentalApplicationSigningController::class, 'showIdentityGate'])->name('rental-applications.public.identity-gate');
+    Route::post('/{token}/verify-identity', [\App\Http\Controllers\RentalApplicationSigningController::class, 'verifyIdentityGate'])->middleware('throttle:rental-application-identity-gate')->name('rental-applications.public.verify-identity-gate');
+    Route::post('/{token}/verify-identity/resend-otp', [\App\Http\Controllers\RentalApplicationSigningController::class, 'resendIdentityGateOtp'])->name('rental-applications.public.identity-gate.resend-otp');
+    // Applicant-side autosave, 2026-09-12 — debounced client-side (agency-
+    // configurable, default 5s), so this fires far less than once per
+    // keystroke. 2026-09-13 round 2 — was throttle:40,1 per-IP; re-keyed
+    // to the token (rental-application-autosave-request, a SEPARATE
+    // setting from autosave_rate_limit_max — see that limiter's own
+    // docblock for why the two must not share one number).
+    Route::post('/{token}/autosave', [\App\Http\Controllers\RentalApplicationSigningController::class, 'autosave'])->middleware('throttle:rental-application-autosave-request')->name('rental-applications.public.autosave');
+    // 2026-09-13 round 2 — was throttle:10,1 per-IP. Johan: "several
+    // agents helping several applicants submit in the same minute" from
+    // one office IP was the actual risk this route carried — re-keyed to
+    // the token removes that collision entirely.
+    Route::post('/{token}/submit', [\App\Http\Controllers\RentalApplicationSigningController::class, 'submit'])->middleware('throttle:rental-application-submit')->name('rental-applications.public.submit');
+    // 2026-09-13 — was throttle:10,1 (per-IP, Laravel's default
+    // unauthenticated signature). Johan hit it live, blocked before golf:
+    // a shared office/mobile connection shares one IP-keyed budget across
+    // every applicant, and ten was too tight for a real multi-file phone
+    // upload with a retry in it regardless. Named limiter keyed on the
+    // APPLICATION TOKEN instead, agency-configurable — see its
+    // registration in AppServiceProvider::boot() and
+    // RentalApplicationQualifyingSetting::DEFAULT_DOCUMENT_RATE_LIMIT_MAX.
+    // Same limiter shared by upload/remove/replace below — all three are
+    // the same "managing documents on this application" action class.
+    Route::post('/{token}/documents', [\App\Http\Controllers\RentalApplicationSigningController::class, 'uploadDocuments'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents');
+    // 2026-09-13 round 2 — was throttle:30,1 per-IP; re-keyed to the token.
+    Route::get('/{token}/pdf', [\App\Http\Controllers\RentalApplicationSigningController::class, 'pdf'])->middleware('throttle:rental-application-pdf')->name('rental-applications.public.pdf');
+    // Johan, 2026-09-07 — full CRUD for the applicant's own documents, not
+    // just create. {document} is scoped inside the controller against the
+    // TOKEN's own application — a bare id proves nothing on its own.
+    // 2026-09-13 round 2 — was throttle:30,1 per-IP; re-keyed to the token.
+    Route::get('/{token}/documents/{document}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'viewDocument'])->middleware('throttle:rental-application-document-view')->name('rental-applications.public.documents.view');
+    Route::post('/{token}/documents/{document}/remove', [\App\Http\Controllers\RentalApplicationSigningController::class, 'removeDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.remove');
+    Route::post('/{token}/documents/{document}/replace', [\App\Http\Controllers\RentalApplicationSigningController::class, 'replaceDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.replace');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====

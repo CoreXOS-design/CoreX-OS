@@ -36,6 +36,18 @@
                     : 'no hits',
                 'contactIds' => [],
                 'touched'    => false,
+                // Johan, 2026-09-11 — "Same as previous/next page" buttons. False
+                // until a human sets this page's type (dropdown, same-as-*, or the
+                // bulk "Set ALL" action) — the auto-detected/'other' guess above is
+                // never treated as confirmed, since OCR detection on real scans is
+                // known-unreliable (Johan: "we tried ocr and it doesnt really
+                // work"). Copying from an untouched neighbour is refused with a
+                // toast rather than silently propagating an unconfirmed guess.
+                'labelTouched' => false,
+                // Johan, 2026-09-11 — page multi-select ("tick pg1/2/4, choose
+                // FICA once"). Purely a ticked/not-ticked UI flag, cleared after
+                // each "Apply to selected" — never persisted, never posted.
+                'selected' => false,
             ];
         }
 
@@ -108,11 +120,27 @@
     border-radius:6px; display:block; margin:0 auto; background:var(--surface-2, var(--surface));
 }
 #spr .thumb-cell .pg-num { font-weight:700; color:var(--brand-icon, #0ea5e9); font-size:.8rem; margin-top:2px; display:block; }
+#spr .pg-select-label {
+    display:flex; align-items:center; justify-content:center; gap:5px;
+    font-size:.72rem; color:var(--text-muted); cursor:pointer; margin-bottom:5px;
+    user-select:none;
+}
+#spr .pg-select-label input { accent-color: var(--brand-icon, #0ea5e9); width:14px; height:14px; cursor:pointer; }
+#spr .pg-select-label.checked { color:var(--brand-icon, #0ea5e9); font-weight:600; }
 #spr select.lbl-select {
     font-size:.82rem; padding:5px 7px; border:1px solid var(--border);
     border-radius:6px; background:var(--surface-2); color:var(--text-primary); cursor:pointer;
     width:100%; min-width:150px;
 }
+#spr .same-as-row { display:flex; gap:4px; margin-top:6px; }
+#spr button.same-as-btn {
+    flex:1; font-size:.68rem; font-weight:600; padding:4px 6px;
+    border-radius:5px; border:1px solid var(--border); cursor:pointer;
+    background:transparent; color:var(--text-secondary); white-space:nowrap;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+#spr button.same-as-btn:hover { background:var(--surface-2); border-color:var(--border-hover); color:var(--text-primary); }
+#spr button.same-as-btn:focus-visible { outline: 2px solid var(--brand-icon, #0ea5e9); outline-offset: 1px; }
 #spr .snippet { font-size:.74rem; color:var(--text-secondary); max-width:280px;
     overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 #spr .snippet.empty { color:var(--text-muted); font-style:italic; }
@@ -191,6 +219,22 @@
         </div>
     @endif
 
+    @if($rentalApplicationContact)
+        {{-- AT-392 — cc6's finding: a batch split from a rental application
+             already has its destination fully determined the moment the
+             agent clicked "Split & File" on that application — it is
+             ALWAYS that application's own contact, never a property. No
+             picker, no search box, nothing to choose — the leading thing
+             on this screen states where it's going, not asks. --}}
+        <div class="card p-4 mb-4" data-tour="spr-property" style="border-left: 3px solid var(--brand-icon, #0ea5e9);">
+            <div class="text-sm" style="color: var(--text-primary);">
+                Filing to: <span class="font-medium">{{ $rentalApplicationContact->full_name }}</span>
+            </div>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">
+                Every page below files to this applicant's contact record, by document type — no property involved.
+            </p>
+        </div>
+    @else
     {{-- Property picker — ONE property for the whole batch --}}
     <div class="card p-4 mb-4" data-tour="spr-property" style="border-left: 3px solid var(--brand-icon, #0ea5e9);">
         <div class="flex items-center justify-between mb-2">
@@ -230,10 +274,53 @@
                 <span x-show="!loadingContacts" x-text="contacts.length + ' contact' + (contacts.length===1?'':'s') + ' linked'"></span>
             </span>
         </div>
-        <p x-show="!property" class="text-xs mt-2" style="color: var(--text-muted);">
-            Pick a property to enable per-page contact assignment and the “Link” action — it applies to every file below. You can still “Download ZIP” without one.
+
+        {{-- AT-392 — Johan: "the splitter works on a linked property... for
+             an applicant we might not know the property yet, so the linked
+             contact... should be used on the splitter." A property is
+             genuinely optional here — this is a real alternative, not a
+             consolation note under a property-only requirement. --}}
+        <template x-if="!property">
+            <div class="mt-3 pt-3" style="border-top: 1px solid var(--border);">
+                <template x-if="!anchorContact">
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">
+                            Don't know the property yet? Link to a contact instead
+                        </label>
+                        <div class="relative mt-1">
+                            <input type="text" x-model="contactQ" @input.debounce.250="searchAnchorContact()" @focus="searchAnchorContact()"
+                                   placeholder="Search contact by name, phone, email, ID…"
+                                   class="w-full px-3 py-2 rounded-md text-sm"
+                                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                            <div x-show="anchorContactResults.length > 0" class="absolute left-0 right-0 top-full mt-1 rounded-md z-20 max-h-72 overflow-y-auto"
+                                 style="background: var(--surface); border: 1px solid var(--border); box-shadow: var(--pv2-shadow);">
+                                <template x-for="r in anchorContactResults" :key="r.id">
+                                    <button type="button" @click="pickAnchorContact(r)" class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
+                                        <span x-text="r.label"></span>
+                                        <div class="text-xs" style="color: var(--text-muted);" x-text="[r.identifier, r.type].filter(Boolean).join(' · ')"></div>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                <template x-if="anchorContact">
+                    <div class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
+                         style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="text-sm" style="color: var(--text-primary);">
+                            Linking to contact: <span class="font-medium" x-text="anchorContact.label"></span>
+                        </div>
+                        <button type="button" @click="clearAnchorContact()" class="text-xs underline" style="color: var(--text-secondary);">Clear</button>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <p x-show="!property && !anchorContact" class="text-xs mt-2" style="color: var(--text-muted);">
+            Pick EITHER a property (enables per-page contact assignment) OR a contact above (files everything to that person) to enable linking. You can still “Download ZIP” without either.
         </p>
     </div>
+    @endif
 
     {{-- Deal target (WS3 · D4 — register users only, optional) --}}
     @if(!empty($canLinkDeal))
@@ -301,11 +388,33 @@
                 <option value="{{ $key }}">{{ $label }}</option>
             @endforeach
         </select>
-        <button type="button" class="tb-btn" @click="setAll(bulkType)">Set ALL pages →</button>
-        <button type="button" class="tb-btn" @click="resetAuto()">Reset to auto-detected</button>
+        <button type="button" class="tb-btn" @click="setAll(bulkType)"
+                title="Sets every page you haven't already set by hand — a page you've already chosen a type for is left exactly as you left it.">Set ALL pages →</button>
+        <button type="button" class="tb-btn" @click="resetAuto()"
+                title="Clears every hand-set choice back to the auto-detected guess — do this first if you want Set ALL to touch pages you've already set.">Reset to auto-detected</button>
         <span class="tb-label" style="margin-left:auto;" x-show="property">
             Tip: the first page of each type pre-ticks its role contacts; later pages in the SAME file inherit your last choice.
         </span>
+    </div>
+
+    {{-- Johan, 2026-09-11 — page multi-select: "tick pg1/2/4, choose FICA
+         once" for a scattered bundle, same mental model as picking files in
+         a folder. Applies ONLY to the ticked pages, never cascades — a page
+         the agent already set (labelTouched) keeps its label regardless of
+         what's applied here or anywhere else (Johan: "if a user selected
+         that it doesnt get overriden... User changes pg 16-20. then for some
+         stupid reason goes and changes pg1 and the whole thing changes
+         again" — that must never happen). Only shown once at least one page
+         is ticked, so it never competes for attention on a normal pass. --}}
+    <div class="toolbar" x-show="selectedCount > 0" x-cloak data-tour="spr-multiselect">
+        <span class="tb-label"><span x-text="selectedCount"></span> page<span x-text="selectedCount === 1 ? '' : 's'"></span> selected:</span>
+        <select class="tb-select" x-model="selectedType">
+            @foreach($docTypes as $key => $label)
+                <option value="{{ $key }}">{{ $label }}</option>
+            @endforeach
+        </select>
+        <button type="button" class="tb-btn" @click="applyToSelected()">Apply to selected</button>
+        <button type="button" class="tb-btn" @click="clearSelection()">Clear selection</button>
     </div>
 
     {{-- The form. Two distinct submit actions (formaction), covering every file.
@@ -324,6 +433,7 @@
             <input type="hidden" name="manifest_ids[]" :value="file.manifestId">
         </template>
         <input type="hidden" name="property_id" :value="property ? property.id : ''">
+        <input type="hidden" name="contact_id" :value="anchorContact ? anchorContact.id : ''">
         @if(!empty($canFica))
             <input type="hidden" name="trigger_fica" :value="ficaChecked ? '1' : '0'">
         @endif
@@ -352,7 +462,11 @@
             <div>
                 <div class="file-divider">
                     <span class="name" x-text="file.originalName"></span>
-                    <span class="meta" x-text="file.pCount + ' page' + (file.pCount === 1 ? '' : 's')"></span>
+                    <span class="meta" style="display:flex; align-items:center; gap:10px;">
+                        <span x-text="file.pCount + ' page' + (file.pCount === 1 ? '' : 's')"></span>
+                        <button type="button" class="add-link" style="text-decoration:none;" @click="toggleSelectAllInFile(file)"
+                                x-text="fileAllSelected(file) ? 'Clear selection' : 'Select all pages'"></button>
+                    </span>
                 </div>
 
                 <div class="tbl-wrap">
@@ -360,7 +474,7 @@
                         <thead>
                             <tr>
                                 <th style="width:230px">Page</th>
-                                <th style="width:170px">Document type</th>
+                                <th style="width:190px">Document type</th>
                                 <th data-tour="spr-assign">Assign to contact(s)</th>
                                 <th style="width:230px">OCR snippet</th>
                             </tr>
@@ -370,6 +484,10 @@
                                 <tr>
                                     {{-- Thumbnail --}}
                                     <td class="thumb-cell">
+                                        <label class="pg-select-label" :class="pg.selected ? 'checked' : ''">
+                                            <input type="checkbox" x-model="pg.selected">
+                                            <span>Select</span>
+                                        </label>
                                         <img :src="thumbUrl(file.manifestId, pg.page)" :alt="`p${pg.page}`" loading="lazy">
                                         <span class="pg-num" x-text="`Page ${pg.page}`"></span>
                                     </td>
@@ -381,10 +499,32 @@
                                                 <option value="{{ $key }}">{{ $dtLabel }}</option>
                                             @endforeach
                                         </select>
+                                        {{-- Johan, 2026-09-11 — two explicit per-page buttons, never a cascade.
+                                             Each copies exactly one neighbour's CURRENT type onto this page and
+                                             touches nothing else — handles a scattered bundle (pg1/2/4 FICA,
+                                             pg3 ID) correctly, because a sweep-forward-from-the-start model
+                                             would silently override pg3. Absent (not just disabled) at a file's
+                                             first/last page — there's nothing on that side to copy from. --}}
+                                        <div class="same-as-row" x-show="prevPage(file, pg) || nextPage(file, pg)">
+                                            <button type="button" class="same-as-btn" x-show="prevPage(file, pg)"
+                                                    @click="sameAsPrevious(file, pg)"
+                                                    title="Copy the document type from the page above (page N-1)">
+                                                &uarr;&nbsp;Same as prev
+                                            </button>
+                                            <button type="button" class="same-as-btn" x-show="nextPage(file, pg)"
+                                                    @click="sameAsNext(file, pg)"
+                                                    title="Copy the document type from the page below (page N+1)">
+                                                &darr;&nbsp;Same as next
+                                            </button>
+                                        </div>
                                     </td>
 
                                     {{-- Contact assignment (many-to-many across roles) --}}
                                     <td>
+                                        @if($rentalApplicationContact)
+                                            {{-- AT-392 — single fixed applicant, nothing to pick per page. --}}
+                                            <span class="text-xs" style="color: var(--text-muted);">Files to {{ $rentalApplicationContact->full_name }}.</span>
+                                        @else
                                         <template x-if="!property">
                                             <span class="text-xs" style="color: var(--text-muted);">Pick a property above to assign contacts.</span>
                                         </template>
@@ -425,6 +565,7 @@
                                                 </template>
                                             </div>
                                         </template>
+                                        @endif
                                     </td>
 
                                     {{-- Snippet + scores --}}
@@ -441,11 +582,37 @@
         </template>
 
         <div class="flex items-center gap-3 flex-wrap" style="margin-top:4px;">
+            {{-- AT-392 — a rental-application-sourced batch (see
+                 PdfSplitterController::intakeRentalApplicationDocument())
+                 has exactly one destination — the applicant's own contact
+                 record — never a property, so the property-gated "Link"
+                 button below doesn't apply here. This is the ONLY change
+                 this shared view needed: one additional conditional
+                 button, the existing property-based flow untouched. --}}
+            @if(session('splitter_context.rental_application_id'))
+                <button type="submit" class="btn-gen"
+                        formaction="{{ route('tools.pdf_splitter.link_rental_application', session('splitter_context.rental_application_id')) }}"
+                        :disabled="submitting || hasMissing"
+                        title="File every page (across all files above) to the applicant's contact record, by document type">
+                    <span x-text="submitting ? 'Working…' : 'Split &amp; File to Applicant'"></span>
+                </button>
+            @else
             <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
                     :disabled="submitting || hasMissing || !property"
-                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first')">
+                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first, or use \'Link to Contact\' instead')">
                 <span x-text="submitting ? 'Working…' : 'Link'"></span>
             </button>
+            {{-- AT-392 — Johan: "the splitter works on a linked property...
+                 the linked contact... should be used on the splitter."
+                 A genuine second door, not a fallback hidden behind the
+                 property-required one above — visible and usable the moment
+                 a contact is picked, with no property involved at all. --}}
+            <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link_to_contact') }}" data-tour="spr-link-contact"
+                    :disabled="submitting || hasMissing || !anchorContact"
+                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (anchorContact ? 'File every page (across all files above) to this contact' : 'Pick a contact above first')">
+                <span x-text="submitting ? 'Working…' : 'Link to Contact'"></span>
+            </button>
+            @endif
             <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}" data-tour="spr-zip"
                     :disabled="submitting || hasMissing"
                     :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : 'Produce one combined ZIP for every file above — no filing, no FICA'">
@@ -469,6 +636,9 @@ document.addEventListener('alpine:init', () => {
         searchUrl:       '{{ route('tools.pdf_splitter.properties.search') }}',
         dealSearchUrl:   '{{ route('deals-v2.search.deals') }}',
         contactsTpl:     '{{ route('tools.pdf_splitter.properties.contacts', ['property' => '__ID__']) }}',
+        // AT-392 — the no-property fallback: search for and pick a contact
+        // directly, mirroring the property search exactly.
+        anchorContactSearchUrl: '{{ route('tools.pdf_splitter.contacts.search') }}',
         thumbTpl:        '{{ route('tools.pdf_splitter.thumb', ['page' => '__PAGE__', 'manifest' => '__MANIFEST__']) }}',
         contactSearchTpl:'{{ route('corex.properties.contacts.search', ['property' => '__PID__']) }}',
         contactLinkTpl:  '{{ route('corex.properties.contacts.link', ['property' => '__PID__']) }}',
@@ -484,12 +654,19 @@ document.addEventListener('alpine:init', () => {
         // (nothing prevents deactivating it) and would otherwise leave
         // bulkType silently pointing at an option the <select> never offers.
         bulkType:   @json(array_key_first($docTypes) ?? 'other'),
+        // Johan, 2026-09-11 — multi-select "Apply to selected" doc type, same
+        // safe-default seeding as bulkType above.
+        selectedType: @json(array_key_first($docTypes) ?? 'other'),
         q: '', propResults: [],
         // ADDITIVE — property prefill. null for every existing flow (a normal
         // run() upload never sets $prefillProperty); when present it's shaped
         // identically to what searchProps()/pickProp() already produce, so
         // every other reference to `property` in this component just works.
         property: @json($prefillProperty ?? null),
+        // AT-392 — the "or pick a contact instead" anchor, only meaningful
+        // when there's no property. Independent state, not a repurposing of
+        // `property` — a batch can only ever anchor on ONE of the two.
+        contactQ: '', anchorContactResults: [], anchorContact: null,
         dealQ: '', dealResults: [], deal: null,
         contacts: [], contactsById: {}, loadingContacts: false,
         ficaOverride: null,
@@ -520,13 +697,35 @@ document.addEventListener('alpine:init', () => {
                 this.propResults = res.ok ? await res.json() : [];
             } catch (e) { this.propResults = []; }
         },
-        pickProp(r) { this.property = r; this.q = ''; this.propResults = []; this.loadContacts(r.id); },
+        pickProp(r) { this.property = r; this.q = ''; this.propResults = []; this.clearAnchorContact(); this.loadContacts(r.id); },
         clearProperty() {
             this.property = null; this.contacts = []; this.contactsById = {};
             this.deal = null; this.dealQ = ''; this.dealResults = [];
             // Back to a clean slate: no contacts, nothing touched, in every file.
             this.allPages().forEach(p => { p.contactIds = []; p.touched = false; });
         },
+
+        // ── AT-392 — no-property fallback: pick a contact instead ──────────
+        // Johan: "the splitter works on a linked property... the linked
+        // contact... should be used on the splitter." A batch anchors on
+        // EITHER a property OR a contact, never both — picking one clears
+        // the other so the two submit buttons (formaction) never both look
+        // "ready" at once.
+        async searchAnchorContact() {
+            const q = this.contactQ.trim();
+            if (q.length < 2) { this.anchorContactResults = []; return; }
+            try {
+                const res = await fetch(`${this.anchorContactSearchUrl}?q=${encodeURIComponent(q)}`, {
+                    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin',
+                });
+                this.anchorContactResults = res.ok ? await res.json() : [];
+            } catch (e) { this.anchorContactResults = []; }
+        },
+        pickAnchorContact(c) {
+            this.anchorContact = c; this.contactQ = ''; this.anchorContactResults = [];
+            if (this.property) { this.clearProperty(); }
+        },
+        clearAnchorContact() { this.anchorContact = null; this.contactQ = ''; this.anchorContactResults = []; },
 
         // ── deal search (WS3 · D4) ────────────────────────────────────────
         async searchDeals() {
@@ -599,10 +798,23 @@ document.addEventListener('alpine:init', () => {
         // Changing a page's doc-type drops only contacts no longer valid for the
         // new type; it never touches OTHER pages and never re-resolves.
         onLabelChange(pg) {
+            pg.labelTouched = true;   // the agent set this page directly — a valid source to copy FROM now
             pg.contactIds = pg.contactIds.filter(id => this.allCandidateIds(pg.label).includes(id));
         },
+        // BUG (found live by cc4, 2026-09-12) — this used to set EVERY page
+        // unconditionally, silently overwriting pages the agent had already
+        // hand-set. That is exactly the failure Johan named as the hard
+        // constraint when he asked for multi-select: "User changes pg 16-20.
+        // then for some stupid reason goes and changes pg1 and the whole
+        // thing changes again." "Set ALL pages" is a BULK-APPLY action like
+        // same-as-*/Apply-to-selected, so it gets the SAME labelTouched
+        // protection those already had — it was the one bulk path that had
+        // been left unprotected. Now sets every page NOT already touched,
+        // and only those — a hand-set page is never in this action's target
+        // set, exactly the same guarantee applyToSelected() already gives
+        // for its own ticked set.
         setAll(slug) {
-            this.allPages().forEach(p => { p.label = slug; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
+            this.allPages().filter(p => !p.labelTouched).forEach(p => { p.label = slug; p.labelTouched = true; p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id)); });
         },
         resetAuto() {
             const seedFiles = @json($fileSeed);
@@ -610,9 +822,83 @@ document.addEventListener('alpine:init', () => {
                 f.pages.forEach((p, pi) => {
                     const seedLabel = seedFiles[fi].pages[pi].label;
                     p.label = seedLabel;
+                    p.labelTouched = false;  // back to an unconfirmed guess — same-as-* refuses to copy it again
                     p.contactIds = p.contactIds.filter(id => this.allCandidateIds(p.label).includes(id));
                 });
             });
+        },
+
+        // ── page multi-select (Johan, 2026-09-11) ───────────────────────────
+        // "I select pg1 as rental application, and everything down changes to
+        // this, and then on pg5 I select fica and it changes down same" —
+        // rejected as an auto-cascade (a real bundle is scattered: pg1/2/4
+        // FICA, pg3 ID — a sweep would overwrite pg3). This is the same idea
+        // built safely instead: the agent TICKS exactly the pages they mean
+        // (pg1, pg2, pg4 — same mental model as selecting files in a folder),
+        // picks a type once, and ONLY those ticked pages change. Nothing
+        // cascades down the document; nothing outside the ticked set is ever
+        // touched by this action.
+        //
+        // labelTouched is the actual protection Johan asked for, and it's
+        // the SAME flag setAll()/same-as-*/onLabelChange() already use:
+        // "if a user selected that it doesnt get overriden... User changes pg
+        // 16-20. then for some stupid reason goes and changes pg1 and the
+        // whole thing changes again" — that specific failure is a property of
+        // a CASCADE model, and this feature has no cascade to have it. Ticking
+        // pages 16-20 and applying to a DIFFERENT selection (even one that
+        // includes page 1) can never reach pages 16-20, because "Apply to
+        // selected" only ever iterates pg.selected === true — page 1 being
+        // touched or untouched is irrelevant to whether pages 16-20 are in
+        // THIS action's ticked set. There is no later action, bulk or
+        // otherwise, that walks "down" from any page — every apply path
+        // (same-as-*, Set ALL, Apply to selected) enumerates its own explicit
+        // target set and nothing else.
+        get selectedCount() { return this.allPages().filter(p => p.selected).length; },
+        fileAllSelected(file) { return file.pages.length > 0 && file.pages.every(p => p.selected); },
+        toggleSelectAllInFile(file) {
+            const makeSelected = !this.fileAllSelected(file);
+            file.pages.forEach(p => { p.selected = makeSelected; });
+        },
+        clearSelection() { this.allPages().forEach(p => { p.selected = false; }); },
+        applyToSelected() {
+            const slug = this.selectedType;
+            this.allPages().filter(p => p.selected).forEach(p => {
+                p.label = slug;
+                p.labelTouched = true;  // an explicit choice — protected from every OTHER apply path from here on
+                p.contactIds = p.contactIds.filter(id => this.allCandidateIds(slug).includes(id));
+                p.selected = false;     // the action is done; ticks don't linger to avoid a stray re-apply
+            });
+        },
+
+        // ── same-as-previous / same-as-next (Johan, 2026-09-11) ─────────────
+        // Explicit, one-shot, per-page. NOT a cascade — each click sets exactly
+        // one page from exactly one neighbour's CURRENT value. Johan rejected an
+        // auto-cascade specifically because real bundles are scattered (his
+        // example: pg1/2/4 FICA, pg3 ID — a sweep from pg1 would silently
+        // override pg3's ID). Same-file only: a "previous/next page" never
+        // crosses into a different uploaded PDF.
+        prevPage(file, pg) {
+            const i = file.pages.indexOf(pg);
+            return i > 0 ? file.pages[i - 1] : null;
+        },
+        nextPage(file, pg) {
+            const i = file.pages.indexOf(pg);
+            return i >= 0 && i < file.pages.length - 1 ? file.pages[i + 1] : null;
+        },
+        sameAsPrevious(file, pg) { this.copyNeighbourLabel(pg, this.prevPage(file, pg)); },
+        sameAsNext(file, pg) { this.copyNeighbourLabel(pg, this.nextPage(file, pg)); },
+        copyNeighbourLabel(pg, neighbour) {
+            if (!neighbour) return; // belt-and-braces — the button is absent at a file's first/last page
+            if (!neighbour.labelTouched) {
+                (window.showToast || alert)(
+                    `Page ${neighbour.page} hasn't had its document type set yet — set that page first, then copy from it.`,
+                    'warning'
+                );
+                return;
+            }
+            pg.label = neighbour.label;
+            pg.labelTouched = true;   // this page is now a confirmed choice too — can itself be copied from next
+            pg.contactIds = pg.contactIds.filter(id => this.allCandidateIds(pg.label).includes(id));
         },
 
         // ── FICA toggle (reactive, across every file) ──────────────────────

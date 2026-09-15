@@ -19,6 +19,37 @@ class BuyerPipelineController extends Controller
         $view = $request->get('view', 'kanban');
         $stateFilter = $request->get('state');
         $agentFilter = $request->get('agent_id');
+        $search = trim((string) $request->get('q', ''));
+        // 2026-09-14 (BUILD_STANDARD.md §1b — every list screen ships a date
+        // range filter, minimum) — filters on buyer_pipeline_entered_at, the
+        // same "Since" date already shown on every card/row, so a manager can
+        // answer "who's been sitting here since before X" directly rather
+        // than eyeballing 150+ unsorted cards. Malformed input is absorbed,
+        // not rejected: an invalid date string just fails to parse and the
+        // bound is silently skipped (BUILD_STANDARD.md §2/§3 prevent-or-absorb).
+        $enteredFrom = $this->parseFilterDate($request->get('entered_from'));
+        $enteredTo = $this->parseFilterDate($request->get('entered_to'));
+
+        // AT-401 — Rentals → Rental Pipeline is the SAME action as
+        // command-center.buyers.pipeline, reached by a second route,
+        // detected by NAME (never client-supplied). Every self-referencing
+        // route() call in pipeline.blade.php uses $indexRouteName instead of
+        // a hardcoded route name, so the toggle/sort/scope links on this
+        // entry point stay on this entry point.
+        $indexRouteName = $request->route()->getName();
+        $isRentalEntry  = $indexRouteName === 'corex.rentals.pipeline.index';
+
+        // AT-401 — remembers which lens the user most recently entered the
+        // Pipeline through, so the sidebar (and the buyer-detail page's "Back
+        // to Buyer Pipeline" link) can keep pointing at "Rentals → Rental
+        // Pipeline" after navigating into a buyer card — command-center.
+        // buyers.show shares the same route names regardless of entry point,
+        // and unlike Properties/Core Matches it isn't opened in a new tab, so
+        // this is the MAIN path an agent takes out of this list. A
+        // UI-highlighting/return-link signal only — never used for the
+        // lead_type lock above, which always derives from the route name.
+        session(['corex.lens.pipeline' => $isRentalEntry]);
+
         // Rentals vs Sales (Johan) — a portal/enquiry buyer's derived wishlist carries the
         // enquired listing's listing_type (BuyerLeadCascadeService::deriveCriteria), so a
         // tenant/rental lead is separable from a buyer/sale lead by contact_matches.listing_type.
@@ -26,6 +57,12 @@ class BuyerPipelineController extends Controller
         // buyers default to sale); null/'' = all. Rentals + Sales partition the board exactly.
         $leadType = $request->get('lead_type');
         $leadType = in_array($leadType, ['sale', 'rental'], true) ? $leadType : null;
+        // THE LOCK — applied after the query string is read, so a
+        // hand-edited ?lead_type=sale on this entry point is overridden, not
+        // trusted. Same mechanism as Rentals → Properties.
+        if ($isRentalEntry) {
+            $leadType = 'rental';
+        }
 
         // Layer 3: Pipeline workspace scope (independent of Layer 2 contact access)
         $pipelineScope = $request->get('scope', $this->defaultPipelineScope($user));
@@ -51,6 +88,18 @@ class BuyerPipelineController extends Controller
             $query->where('agent_id', (int) $agentFilter);
         }
         $this->applyLeadTypeFilter($query, $leadType);
+        // Canonical contact search (name/phone/email/id_number) — the same
+        // scope every other contact picker uses, so this board searches on
+        // exactly the fields an agent already reaches for elsewhere.
+        if ($search !== '') {
+            $query->search($search);
+        }
+        if ($enteredFrom) {
+            $query->where('buyer_pipeline_entered_at', '>=', $enteredFrom->startOfDay());
+        }
+        if ($enteredTo) {
+            $query->where('buyer_pipeline_entered_at', '<=', $enteredTo->endOfDay());
+        }
 
         // Buyer WON (Johan 2026-08-13) — converted buyers live in a SEPARATE success section, OUT of
         // the active pipeline. Build the success list from the same scope, and exclude 'won' from the
@@ -62,6 +111,15 @@ class BuyerPipelineController extends Controller
             $wonQuery->where('agent_id', (int) $agentFilter);
         }
         $this->applyLeadTypeFilter($wonQuery, $leadType);
+        if ($search !== '') {
+            $wonQuery->search($search);
+        }
+        if ($enteredFrom) {
+            $wonQuery->where('buyer_pipeline_entered_at', '>=', $enteredFrom->startOfDay());
+        }
+        if ($enteredTo) {
+            $wonQuery->where('buyer_pipeline_entered_at', '<=', $enteredTo->endOfDay());
+        }
         $wonBuyers = $wonQuery->orderByDesc('last_activity_at')->get();
 
         if (! $stateFilter) {
@@ -96,10 +154,41 @@ class BuyerPipelineController extends Controller
                 ->first(['id', 'address', 'suburb', 'price', 'portal_source']);
         }
 
+        // Column-sort doors — the query already accepted an arbitrary ?sort=
+        // via orderBy() with no header ever linking to it. Whitelisted to the
+        // three columns that map to a real, meaningful sort (name is two
+        // columns under one door); dir is whitelisted separately so a bad
+        // value can never reach the query builder.
+        $sortBy = $request->get('sort', 'last_activity_at');
+        $sortDir = $request->get('dir') === 'asc' ? 'asc' : 'desc';
+        if (!in_array($sortBy, ['name', 'buyer_state', 'last_activity_at'], true)) {
+            $sortBy = 'last_activity_at';
+        }
+
+        // Agent filter door — options come from a copy of the SAME scope +
+        // lead-type query (before state/agent/search narrow it further), so
+        // the dropdown always lists every agent reachable from here rather
+        // than shrinking to nothing once a filter is applied.
+        $agentOptionsQuery = Contact::buyers();
+        $this->applyPipelineScope($agentOptionsQuery, $user, $pipelineScope);
+        $this->applyLeadTypeFilter($agentOptionsQuery, $leadType);
+        $agentOptions = $agentOptionsQuery->whereNotNull('agent_id')
+            ->with('agent:id,name')
+            ->get()
+            ->pluck('agent')
+            ->filter()
+            ->unique('id')
+            ->sortBy('name')
+            ->values();
+
         if ($view === 'list') {
-            $sortBy = $request->get('sort', 'last_activity_at');
-            $sortDir = $request->get('dir', 'desc');
-            $buyers = $query->orderBy($sortBy, $sortDir)->paginate(25)->withQueryString();
+            $listQuery = clone $query;
+            if ($sortBy === 'name') {
+                $listQuery->orderBy('first_name', $sortDir)->orderBy('last_name', $sortDir);
+            } else {
+                $listQuery->orderBy($sortBy, $sortDir);
+            }
+            $buyers = $listQuery->paginate(25)->withQueryString();
 
             return view('command-center.buyers.pipeline', [
                 'view' => 'list',
@@ -111,16 +200,49 @@ class BuyerPipelineController extends Controller
                 'leadType' => $leadType,
                 'canSeeBranch' => (bool) $user->branch_id,
                 'contextListing' => $contextListing,
+                'isRentalEntry' => $isRentalEntry,
+                'indexRouteName' => $indexRouteName,
+                'search' => $search,
+                'agentOptions' => $agentOptions,
+                'agentFilter' => $agentFilter,
+                'stateFilter' => $stateFilter,
+                'enteredFrom' => $request->get('entered_from'),
+                'enteredTo' => $request->get('entered_to'),
+                'sortBy' => $sortBy,
+                'sortDir' => $sortDir,
             ]);
         }
 
-        // Kanban view — group by state
-        $allBuyers = $query->orderByDesc('last_activity_at')->get();
-        $columns = [
-            'new' => $allBuyers->where('buyer_state', 'new')->values(),
-            'warm' => $allBuyers->where('buyer_state', 'warm')->values(),
-            'cold' => $allBuyers->where('buyer_state', 'cold')->values(),
-            'lost' => $allBuyers->where('buyer_state', 'lost')->values(),
+        // Kanban view — group by state. Each column is capped (agency-configurable,
+        // AgencyContactSettings::buyerKanbanColumnLimit(), default 50) and queried
+        // separately rather than one unbounded ->get() grouped client-side — at real
+        // agency volume that single query was loading every buyer/tenant in scope,
+        // in every state, onto one page, with only a CSS scrollbar standing in for
+        // pagination. The true per-state count (for the "N more" affordance) still
+        // comes from stateCounts()'s aggregate COUNT query below.
+        $columnLimit = AgencyContactSettings::forAgency((int) ($user->effectiveAgencyId() ?: 0))->buyerKanbanColumnLimit();
+        // True per-state totals under EVERY active filter (scope, lead type, agent,
+        // search) — not just stateCounts()'s header-pill totals, which never applied
+        // agent/search — so the "N more" affordance always reconciles with what a
+        // search/agent filter actually narrowed to, not a stale unfiltered count.
+        $columnTotals = (clone $query)->selectRaw('buyer_state, count(*) as cnt')
+            ->groupBy('buyer_state')
+            ->pluck('cnt', 'buyer_state')
+            ->toArray();
+        $counts = $this->stateCounts($user, $pipelineScope, $leadType);
+        $columns = [];
+        foreach (['new', 'warm', 'cold', 'lost'] as $stateKey) {
+            $columns[$stateKey] = (clone $query)
+                ->where('buyer_state', $stateKey)
+                ->orderByDesc('last_activity_at')
+                ->limit($columnLimit)
+                ->get();
+        }
+        $columnTotals = [
+            'new' => $columnTotals['new'] ?? 0,
+            'warm' => $columnTotals['warm'] ?? 0,
+            'cold' => $columnTotals['cold'] ?? 0,
+            'lost' => $columnTotals['lost'] ?? 0,
         ];
 
         $riskScores = DB::table('buyer_lost_risk_scores as brs')
@@ -130,9 +252,13 @@ class BuyerPipelineController extends Controller
             )
             ->pluck('brs.score', 'brs.contact_id');
 
+        $shownIds = collect($columns)->flatMap(fn ($c) => $c->pluck('id'))->merge($wonBuyers->pluck('id'));
+
         return view('command-center.buyers.pipeline', [
             'view' => 'kanban',
             'columns' => $columns,
+            'columnTotals' => $columnTotals,
+            'columnLimit' => $columnLimit,
             'wonBuyers' => $wonBuyers,
             // 2026-08-20 (Johan, reported for a meeting) — this call was
             // missing $leadType entirely: the kanban columns are built from
@@ -143,9 +269,9 @@ class BuyerPipelineController extends Controller
             // column lists (scrollbars) shrank under a filter, the header
             // badges never moved. See list view's equivalent call above,
             // which already passed this correctly.
-            'counts' => $this->stateCounts($user, $pipelineScope, $leadType),
+            'counts' => $counts,
             'riskScores' => $riskScores,
-            'coreMatchCounts' => $this->coreMatchCounts($allBuyers->pluck('id')->merge($wonBuyers->pluck('id'))),
+            'coreMatchCounts' => $this->coreMatchCounts($shownIds),
             'pipelineScope' => $pipelineScope,
             // Also missing entirely — the Sales/Rentals button never knew
             // which one was active in kanban view (always rendered "All" as
@@ -154,6 +280,14 @@ class BuyerPipelineController extends Controller
             'leadType' => $leadType,
             'canSeeBranch' => (bool) $user->branch_id,
             'contextListing' => $contextListing,
+            'isRentalEntry' => $isRentalEntry,
+            'indexRouteName' => $indexRouteName,
+            'search' => $search,
+            'agentOptions' => $agentOptions,
+            'agentFilter' => $agentFilter,
+            'stateFilter' => $stateFilter,
+            'enteredFrom' => $request->get('entered_from'),
+            'enteredTo' => $request->get('entered_to'),
         ]);
     }
 
@@ -193,6 +327,24 @@ class BuyerPipelineController extends Controller
         $service->transitionTo($contact, $request->input('state'), 'manual_override', auth()->id());
 
         return response()->json(['success' => true, 'new_state' => $request->input('state')]);
+    }
+
+    /**
+     * BUILD_STANDARD.md §2/§3 (prevent-or-absorb) — a malformed
+     * entered_from/entered_to value is absorbed, not rejected: the filter
+     * bound is silently skipped rather than 500ing or blocking the page.
+     */
+    private function parseFilterDate(?string $value): ?\Illuminate\Support\Carbon
+    {
+        if (! $value) {
+            return null;
+        }
+
+        try {
+            return \Illuminate\Support\Carbon::parse($value);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -241,25 +393,51 @@ class BuyerPipelineController extends Controller
             ->toArray();
     }
 
+    /** Per-request memo so the 4 call sites below (main query, won query, agent-options query, stateCounts()) — all using the SAME $leadType in one page load — pay the underlying query once, not four times. */
+    private array $leadTypeContactIdsCache = [];
+
     /**
-     * Rentals vs Sales filter on a buyers query, keyed on the buyer's wishlist
-     * listing_type (contact_matches.listing_type, seeded from the enquired listing).
-     *   'rental' → buyers with at least one rental wishlist (tenant leads)
-     *   'sale'   → buyers with NO rental wishlist (sale/untyped/manual buyers)
+     * Rentals vs Sales filter on a buyers query, keyed on the buyer's
+     * PRIMARY wishlist's listing_type (contact_matches.listing_type, seeded
+     * from the enquired listing) — the SAME question pipeline.blade.php's
+     * own card label asks (Contact::primaryMatchIsRental()), not "has a
+     * match of this type ANYWHERE."
+     *
+     *   'rental' → primary wishlist is a rental listing (tenant leads)
+     *   'sale'   → primary wishlist is NOT rental, including no wishlist at
+     *              all (sale/untyped/manual buyers)
      *   null     → no filter (All). The two branches partition the board exactly.
+     *
+     * FIXED 2026-09-18 (Johan, live on QA1: "rental pipeline shows all
+     * sales and rentals") — this used to ask "has ANY match of this type",
+     * which silently disagreed with the card's own PRIMARY-based label for
+     * any contact with a mixed wishlist: admitted a sale-primary contact
+     * into the rental board because they ALSO had an old rental match (2
+     * of 174 contacts, confirmed live on QA1) — and, the half nobody
+     * reported because a missing row is invisible, excluded a genuinely
+     * sale-primary contact from the sale-filtered board entirely because
+     * they had ANY rental match at all. `Contact::primaryMatchIsRental()`
+     * now answers both this filter and the card's own label — one method,
+     * not two copies that can drift apart again. Computed via a small
+     * eager-loaded pass rather than a SQL subquery: `matches` is already
+     * eager-loaded for every candidate row on this screen for card
+     * rendering, so this reuses what's already paid for rather than
+     * adding a new query shape.
      */
     private function applyLeadTypeFilter($query, ?string $leadType): void
     {
         if ($leadType !== 'rental' && $leadType !== 'sale') {
             return;
         }
-        $rentalTypes = ['rental', 'rent', 'to_let', 'to let', 'letting'];
-        $rentalMatch = fn ($m) => $m->whereIn(DB::raw('LOWER(listing_type)'), $rentalTypes);
 
-        if ($leadType === 'rental') {
-            $query->whereHas('matches', $rentalMatch);
-        } else { // 'sale'
-            $query->whereDoesntHave('matches', $rentalMatch);
+        if (! array_key_exists($leadType, $this->leadTypeContactIdsCache)) {
+            $wantRental = $leadType === 'rental';
+            $this->leadTypeContactIdsCache[$leadType] = Contact::buyers()->with('matches')->get()
+                ->filter(fn ($contact) => $contact->primaryMatchIsRental() === $wantRental)
+                ->pluck('id')
+                ->all();
         }
+
+        $query->whereIn('contacts.id', $this->leadTypeContactIdsCache[$leadType]);
     }
 }

@@ -182,6 +182,13 @@ class P24LeadService
             'contact_id'               => $contact?->id,
             'contact_exists'           => $existed,
             'existing_contact_agent_id'=> $existed ? $existingAgentId : null,
+            // AT-Core-Matches, Johan's ruling 6 — "the board shows WHO GOT
+            // IT FIRST." Frozen at arrival, both branches: the existing
+            // contact's own agent for a returning enquirer (same fact as
+            // existing_contact_agent_id above), or the listing's agent at
+            // this exact moment for a brand-new one — never re-derived
+            // later via a live join to the property's CURRENT agent.
+            'received_by_user_id'      => $existed ? $existingAgentId : $listingAgentId,
             'name'                     => $name,
             'email'                    => $email,
             'phone'                    => $phone,
@@ -359,11 +366,20 @@ class P24LeadService
             $c->agency_id = $agencyId;
             $c->save();
 
-            // Attach to property as a 'lead' role if we have one.
+            // Attach to property as a 'lead' role if we have one. Never a
+            // bare syncWithoutDetaching() — an inbound, unattended webhook
+            // is the one place a blind-insert collision against a
+            // soft-deleted contact_property row would fail silently
+            // (highest-risk item, .ai/specs/rental-applications.md, "The
+            // contact_property hard-delete fix"). $c is always a brand-new
+            // contact here so this specific call can't actually collide,
+            // but every write to this pivot goes through the linker
+            // regardless — no future code path near it gets to reintroduce
+            // this class of bug by looking "the same" as this one.
             if ($listingId) {
                 $property = Property::query()->withoutGlobalScopes()->find($listingId);
                 if ($property) {
-                    $property->contacts()->syncWithoutDetaching([$c->id => ['role' => 'lead']]);
+                    \App\Services\Property\ContactPropertyLinker::link($c->id, $property->id, 'lead');
                 }
             }
             return $c;

@@ -202,8 +202,8 @@ class MarketingCopyService
         if ((int) $property->size_m2 > 0) {
             $lines[] = '- Floor size: ' . number_format((int) $property->size_m2) . ' m²';
         }
-        $lines[] = '- Price: ' . ($property->price
-            ? 'R ' . number_format((int) $property->price, 0, '.', ' ')
+        $lines[] = '- Price: ' . ($property->effectivePrice()
+            ? 'R ' . number_format((int) $property->effectivePrice(), 0, '.', ' ')
             : 'Price on application');
 
         $location = trim(((string) $property->suburb) . ($property->city ? ', ' . $property->city : ''), ', ');

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\PropertySgDocument;
@@ -29,6 +30,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 final class PropertySgController extends Controller
 {
+    use AuthorizesPropertyAccess;
+
     public function __construct(
         private readonly SgSearchService $svc,
         private readonly SgQueryBuilder $builder,
@@ -133,6 +136,15 @@ final class PropertySgController extends Controller
     {
         $this->guardAgency($request, $property);
         $this->guardOwnership($sgDoc, $property);
+        // AT-392 — guardAgency() only ever checked cross-agency access;
+        // within-agency own/branch/agency scope (the same rule the property
+        // list/show already enforce) was never applied here. Dormant today
+        // (every agency's split_branches_enabled is off, so 'branch' scope
+        // resolves to 'all' agency-wide anyway) but would become a real gap
+        // the moment an agency turns branch-splitting on — a write path, so
+        // mutation scope (forEdit=true), matching every other property
+        // write action.
+        $this->authorizeProperty($property, true);
 
         try {
             $saved = $this->svc->fetchAndSaveTif($sgDoc, $request->user());
@@ -175,6 +187,11 @@ final class PropertySgController extends Controller
     {
         $this->guardAgency($request, $property);
         $this->guardOwnership($sgDoc, $property);
+        // AT-392 — same own/branch/agency gap as saveDocument() above, this
+        // side is a pure read (view scope, forEdit=false) — matches the
+        // property show() page's own breadth, so an assistant can download
+        // what they can already see, never more.
+        $this->authorizeProperty($property, false);
 
         if (!$sgDoc->is_saved || !$sgDoc->storage_path) {
             abort(404, 'Document not saved to drive yet.');

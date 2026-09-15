@@ -39,6 +39,30 @@
     --corex-crimson:      #c41e3a;
 }
 
+/* AT-392 Round 16 — rental-application category colours, Johan-approved
+   exact values. ONE definitive source, shared between the review
+   screen's own panel (this file's own consumer), cc6's document
+   highlighter marks, and cc5's authoriser screen — none of the three
+   may redefine these locally. "-agent" is the shade used on the agent's
+   own review panel; "-authoriser" is the (darker/more saturated) shade
+   used on the authoriser's screen for the same category, so the two
+   screens are visually linked without needing to say so in words;
+   "-underline" is the accent used for the small category dot / accent
+   border in either context. */
+:root {
+    --ra-income-agent:        #a7f3cf;
+    --ra-income-authoriser:   #4ec99a;
+    --ra-income-underline:    #046c4e;
+
+    --ra-expense-agent:       #fde8a8;
+    --ra-expense-authoriser:  #f2b33d;
+    --ra-expense-underline:   #9a5b06;
+
+    --ra-unpaid-agent:        #fbcdc9;
+    --ra-unpaid-authoriser:   #ee7c72;
+    --ra-unpaid-underline:    #a91d13;
+}
+
 /* ========================================
    THEME SYSTEM — Light (default) & Dark
    ======================================== */

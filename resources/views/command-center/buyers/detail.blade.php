@@ -3,6 +3,15 @@
 
 @section('corex-content')
 @php
+    // AT-401 — which vocabulary ("tenant" vs "buyer") this specific contact's
+    // detail page should use. Derived from THIS contact's own primary
+    // wishlist, not from which pipeline board the agent clicked in from
+    // (session('corex.lens.pipeline')) — a contact with a rental wishlist is
+    // a tenant lead regardless of how this page was reached, and this page is
+    // also reachable from Contacts, not only the Pipeline boards.
+    $primaryWishlistForLens = $buyer->matches->firstWhere('is_primary', true) ?? $buyer->matches->first();
+    $isRentalContact = ($primaryWishlistForLens->listing_type ?? null) === 'rental';
+
     // SINGLE SOURCE for the viewing-picker. Build the property rows ONCE with
     // a shape-safe accessor (data_get works for arrays AND objects, so a
     // future $matched shape change can't silently null the id), drop any
@@ -47,12 +56,16 @@
 @endphp
 <div class="w-full space-y-5" x-data="buyerWishlists(@js($wishlistsConfig))">
 
-    {{-- Back to Buyer Pipeline --}}
+    {{-- Back to Buyer Pipeline — AT-401: honours whichever board (sales or
+         Rentals) the agent most recently entered through, so returning from
+         a buyer opened via Rentals → Rental Pipeline doesn't drop them onto
+         the sales board. session('corex.lens.pipeline') is set by
+         BuyerPipelineController::index() on the way in. --}}
     <div>
-        <a href="{{ route('command-center.buyers.pipeline') }}"
+        <a href="{{ route(session('corex.lens.pipeline', false) ? 'corex.rentals.pipeline.index' : 'command-center.buyers.pipeline') }}"
            class="inline-flex items-center gap-1 text-xs no-underline"
            style="color: var(--text-muted);">
-            ← Back to Buyer Pipeline
+            ← Back to {{ session('corex.lens.pipeline', false) ? 'Rental Pipeline' : 'Buyer Pipeline' }}
         </a>
     </div>
 
@@ -78,7 +91,7 @@
                         <span class="ds-badge {{ $stateBadgeVariant }}">{{ ucfirst($buyer->buyer_state ?? 'New') }}</span>
                         @unless($buyer->hasCountableWishlist())
                             <span class="ds-badge ds-badge-warning"
-                                  title="On the pipeline but has no countable wishlist (search criteria removed), so this buyer is excluded from all match figures. Add a wishlist to include them.">Not in figures</span>
+                                  title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $isRentalContact ? 'tenant' : 'buyer' }} is excluded from all match figures. Add a wishlist to include them.">Not in figures</span>
                         @endunless
                         <span class="text-xs text-white/60">Since {{ $buyer->buyer_pipeline_entered_at?->format('d M Y') ?? 'Unknown' }}</span>
                         <span class="text-xs text-white/60">· Last activity {{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</span>
@@ -107,7 +120,7 @@
                 @else
                 <button type="button" x-data x-on:click="$refs.reengageModal.showModal()"
                         class="corex-btn-outline corex-btn-on-brand">
-                    Re-engage Buyer
+                    Re-engage {{ $isRentalContact ? 'Tenant' : 'Buyer' }}
                 </button>
                 @endif
             </div>
@@ -183,9 +196,10 @@
         </div>
         @endif
 
-        {{-- Buyer Portal Link section --}}
+        {{-- Buyer/Tenant Portal Link section — AT-401: label follows this
+             contact's own wishlist type (see $isRentalContact above). --}}
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <h3 class="text-xs font-semibold mb-2" style="color: var(--text-primary);">Buyer Portal Link</h3>
+            <h3 class="text-xs font-semibold mb-2" style="color: var(--text-primary);">{{ $isRentalContact ? 'Tenant' : 'Buyer' }} Portal Link</h3>
             @php $portalLinks = DB::table('buyer_portal_links')->where('contact_id', $buyer->id)->orderByDesc('generated_at')->get(); @endphp
             @if($portalLinks->isNotEmpty())
                 @foreach($portalLinks as $pl)
@@ -213,7 +227,7 @@
             @if(!$portalLinks->where('revoked_at', null)->count())
                 <form method="POST" action="{{ route('command-center.buyers.portal-links.generate') }}">@csrf
                     <input type="hidden" name="contact_id" value="{{ $buyer->id }}">
-                    <button type="submit" class="corex-btn-primary">Generate Buyer Portal Link</button>
+                    <button type="submit" class="corex-btn-primary">Generate {{ $isRentalContact ? 'Tenant' : 'Buyer' }} Portal Link</button>
                 </form>
             @endif
         </div>
@@ -257,7 +271,7 @@
         @empty
             <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
                 <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No notes yet</h3>
-                <p class="text-sm" style="color: var(--text-muted);">Use the form above to record your first note for this buyer.</p>
+                <p class="text-sm" style="color: var(--text-muted);">Use the form above to record your first note for this {{ $isRentalContact ? 'tenant' : 'buyer' }}.</p>
             </div>
         @endforelse
     </div>
@@ -279,7 +293,7 @@
                     <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
                 </div>
                 <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No activity recorded yet</h3>
-                <p class="text-sm" style="color: var(--text-muted);">Activity will appear here as the buyer engages with listings.</p>
+                <p class="text-sm" style="color: var(--text-muted);">Activity will appear here as the {{ $isRentalContact ? 'tenant' : 'buyer' }} engages with listings.</p>
             </div>
         @endforelse
     </div>
@@ -344,7 +358,7 @@
                     <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
                 </div>
                 <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No wishlists yet</h3>
-                <p class="text-sm mb-4" style="color: var(--text-muted);">Add one to start matching properties to this buyer.</p>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">Add one to start matching properties to this {{ $isRentalContact ? 'tenant' : 'buyer' }}.</p>
                 <button type="button" @click="openAddDrawer()" class="corex-btn-primary">Add first wishlist</button>
             </div>
         @else
@@ -529,7 +543,7 @@
                 <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface-2); border: 1px dashed var(--border);">
                     <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No matching properties yet</h3>
                     <p class="text-sm mb-4" style="color: var(--text-muted);">
-                        This buyer's primary wishlist has no matches yet.
+                        This {{ $isRentalContact ? 'tenant' : 'buyer' }}'s primary wishlist has no matches yet.
                     </p>
                     <a href="{{ route('command-center.calendar', ['view' => 'day', 'prefill_contact_id' => $buyer->id, 'prefill_class' => 'viewing']) }}"
                        class="corex-btn-outline no-underline inline-block">
@@ -674,7 +688,13 @@
     <dialog x-ref="lostModal" class="rounded-md p-0 w-full max-w-md backdrop:bg-black/50" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
         <form method="POST" action="{{ route('command-center.buyers.mark-lost', $buyer) }}" class="p-5 space-y-4">
             @csrf
-            <h3 class="text-lg font-semibold">Why is this buyer being marked as lost?</h3>
+            {{-- AT-401 — heading/labels follow this contact's own wishlist type
+                 ($isRentalContact, computed above). The reason list itself is
+                 NOT split by listing_type today (agency_lost_deal_reasons has
+                 applies_to_buyers/applies_to_sellers only, no tenant column),
+                 so it stays the shared sales+rental list, unchanged — flagged
+                 to Johan rather than invented. --}}
+            <h3 class="text-lg font-semibold">Why is this {{ $isRentalContact ? 'tenant' : 'buyer' }} being marked as lost?</h3>
             @php $reasons = DB::table('agency_lost_deal_reasons')->where('agency_id', $buyer->agency_id)->where('applies_to_buyers', true)->where('active', true)->orderBy('display_order')->get(); @endphp
             <div class="space-y-1 max-h-48 overflow-y-auto">
                 @foreach($reasons as $reason)
@@ -692,8 +712,8 @@
                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
             </div>
             <div>
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What did the buyer say? (optional)</label>
-                <textarea name="outcome" rows="3" placeholder="Buyer's actual words…"
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">What did the {{ $isRentalContact ? 'tenant' : 'buyer' }} say? (optional)</label>
+                <textarea name="outcome" rows="3" placeholder="{{ $isRentalContact ? 'Tenant' : 'Buyer' }}'s actual words…"
                           class="w-full rounded-md px-3 py-2 text-sm"
                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
             </div>
@@ -714,9 +734,9 @@
         <form method="POST" action="{{ route('command-center.buyers.reengage', $buyer) }}" class="p-5 space-y-4">
             @csrf
             <h3 class="text-lg font-semibold">Re-engage {{ $buyer->first_name }}?</h3>
-            <p class="text-xs" style="color: var(--text-secondary);">This will bring the buyer back into the active pipeline (state: Warm).</p>
+            <p class="text-xs" style="color: var(--text-secondary);">This will bring the {{ $isRentalContact ? 'tenant' : 'buyer' }} back into the active pipeline (state: Warm).</p>
             <div>
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Why has the buyer come back? (optional)</label>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Why has the {{ $isRentalContact ? 'tenant' : 'buyer' }} come back? (optional)</label>
                 <textarea name="notes" rows="3" placeholder="e.g. Saw new listing on portal, called us back…"
                           class="w-full rounded-md px-3 py-2 text-sm"
                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>

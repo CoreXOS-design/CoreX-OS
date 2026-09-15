@@ -84,6 +84,7 @@ class Contact extends Model
         'is_buyer'          => 'boolean',
         'last_activity_at'  => 'datetime',
         'buyer_pipeline_entered_at' => 'datetime',
+        'rental_application_status_updated_at' => 'datetime',
         'preapproval_amount'        => 'decimal:2',
         'preapproval_expires_at'    => 'date',
         'messaging_opt_out_at'      => 'datetime',
@@ -181,6 +182,60 @@ class Contact extends Model
     {
         return $this->belongsToMany(ContactType::class, 'contact_contact_type')
                     ->withTimestamps();
+    }
+
+    /**
+     * AT-403 — Rentals → Contacts lens. INCLUSIVE by design (Johan's explicit
+     * ruling): a seller whose unit hasn't sold and decides to rent in the
+     * meantime is a seller AND a tenant simultaneously — this must never
+     * become an "is only a tenant" filter, and a contact matching this scope
+     * is never hidden from the sale-side Contacts screen either.
+     *
+     * Two signals, matched to ContactController::index()'s own existing
+     * 'lessor' type-filter branch rather than inventing a second one:
+     *   - parentTypes() (AT-79's multi-type pivot), esign_role IN
+     *     (lessor, lessee) — the live, uncontested signal for tenant/
+     *     prospective tenant, and the same pivot Contact::syncTypeAssignments()
+     *     writes to (the mechanism a rental-application approval's
+     *     "add Tenant, don't replace" step uses).
+     *   - the contact_property pivot's own 'landlord'/'lessor' role —
+     *     REQUIRED for landlords specifically: esign_role='lessor' contacts
+     *     are undercounted via the type pivot alone (13 vs 66 real matches,
+     *     measured live on QA1) because most landlords are linked via the
+     *     property pivot, never actually assigned the Lessor/Landlord type.
+     *     Skipping this half would silently drop most real landlords.
+     */
+    public function scopeRentalRelevant($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereHas('parentTypes', fn ($t) => $t->whereIn('esign_role', ['lessor', 'lessee']))
+              ->orWhereHas('properties', fn ($p) => $p->whereIn('contact_property.role', ['landlord', 'lessor']));
+        });
+    }
+
+    /**
+     * AT-403 — "what the contact IS in rental terms" (Johan), for the
+     * Rentals → Contacts list. Reads the SAME two signals scopeRentalRelevant()
+     * filters on, from already-eager-loaded relations (parentTypes, properties)
+     * — never a fresh query per row. Returns BOTH roles when a contact holds
+     * both (e.g. a landlord on one unit who is also renting elsewhere) —
+     * the inclusive rule applies here too, not just at the list-filter level.
+     *
+     * @return string[] e.g. ['Tenant'], ['Landlord'], ['Tenant', 'Landlord'], or [] if neither relation is loaded/matches
+     */
+    public function rentalRoleLabels(): array
+    {
+        $labels = [];
+        if ($this->relationLoaded('parentTypes') && $this->parentTypes->contains(fn ($t) => $t->esign_role === 'lessee')) {
+            $labels[] = 'Tenant';
+        }
+        $isLandlord = ($this->relationLoaded('parentTypes') && $this->parentTypes->contains(fn ($t) => $t->esign_role === 'lessor'))
+            || ($this->relationLoaded('properties') && $this->properties->contains(fn ($p) => in_array($p->pivot->role ?? null, ['landlord', 'lessor'], true)));
+        if ($isLandlord) {
+            $labels[] = 'Landlord';
+        }
+
+        return $labels;
     }
 
     /**
@@ -289,6 +344,57 @@ class Contact extends Model
     }
 
     /**
+     * AT-392 — the missing inverse relation. rental_application_status is a
+     * derived cache (kept in sync by App\Listeners\Contact\
+     * RecomputeRentalApplicationStatus); this is the real, permanent
+     * record — every application this contact has ever had.
+     *
+     * UNSCOPED by viewer — for internal/system use only (e.g. deriving
+     * rental_application_status, which must see every application on this
+     * contact regardless of who's currently looking). The Contact page's
+     * Rental History tab and its badge count do NOT use this directly —
+     * see visibleRentalApplicationsFor() below, which is what a viewer
+     * actually sees.
+     */
+    public function rentalApplications(): HasMany
+    {
+        return $this->hasMany(\App\Models\RentalApplication::class)->latest();
+    }
+
+    /**
+     * AT-392 — the viewer-scoped read the Contact page's Rental History
+     * tab and its badge count both use. Johan: "agency wide... any user
+     * working with a contact can see the history... add to role manager
+     * where this can be set." Routes through RentalApplication's own
+     * scopeVisibleForContactHistory() (the SAME own/branch/all filtering
+     * scopeVisibleTo() uses on the list screens, via a shared private
+     * helper — never a parallel implementation), driven by its own
+     * independent role-manager grant
+     * (PermissionService::contactRentalHistoryScope()), not
+     * rental_applications.view's ceiling.
+     *
+     * cc4 walk, finding 8, 2026-09-13 — this used to end in ->latest()
+     * (orderBy created_at desc), a leftover from before the tab had any
+     * real sort control. Once ContactController::show() started applying
+     * FiltersRentalApplicationList::applySearchSortAndDateRange() on top
+     * (2026-09-12), that trailing ->latest() became a SILENT, DOMINANT
+     * first orderBy clause — Eloquent appends orderBy calls, it doesn't
+     * replace them, so every row sorted by created_at regardless of
+     * what the trait (or the tab's own sort control) asked for
+     * afterward, except for exact created_at ties. Removed — ordering
+     * is now entirely the caller's job, same as scopeVisibleTo() (used
+     * by index()/returned()/the authoriser queue) already does it: no
+     * built-in order at all, left to whoever applies the real sort. The
+     * only other caller of this method only ever counts the result, so
+     * removing the order changes nothing there.
+     */
+    public function visibleRentalApplicationsFor(\App\Models\User $viewer): \Illuminate\Database\Eloquent\Builder
+    {
+        return \App\Models\RentalApplication::where('contact_id', $this->id)
+            ->visibleForContactHistory($viewer);
+    }
+
+    /**
      * Signed e-signature documents linked to this contact via pivot.
      */
     public function signedDocuments(): BelongsToMany
@@ -360,6 +466,31 @@ class Contact extends Model
     public function matches(): HasMany
     {
         return $this->hasMany(ContactMatch::class)->latest();
+    }
+
+    /**
+     * Buyer Pipeline fix, 2026-09-18 — Johan: rental pipeline showed a
+     * handful of sale-primary contacts; the reverse (sale-filtered board
+     * silently dropping contacts whose primary flipped to sale) turned out
+     * to be true too. Root cause: the pipeline's rental/sale FILTER asked
+     * "does this contact have ANY match of this type anywhere" while each
+     * card's own displayed label asked "is the PRIMARY match this type" —
+     * two different questions, silently disagreeing for any contact with a
+     * mixed (sale + rental) wishlist. This is now the ONE place either
+     * question is answered — `matches` must already be eager-loaded on the
+     * caller (this reads the collection already sorted by the `matches()`
+     * relation's own `->latest()`, never re-queries) — used by BOTH
+     * BuyerPipelineController's filter and every card's own label, so they
+     * can't independently drift again.
+     */
+    public function primaryMatch(): ?ContactMatch
+    {
+        return $this->matches->firstWhere('is_primary', true) ?? $this->matches->first();
+    }
+
+    public function primaryMatchIsRental(): bool
+    {
+        return ContactMatch::listingTypeIsRental($this->primaryMatch()?->listing_type);
     }
 
     public function clientPageLink(): HasOne
@@ -579,10 +710,30 @@ class Contact extends Model
         return $this->matches->contains(fn (ContactMatch $m) => $m->isCountable());
     }
 
+    /**
+     * `wherePivotNull('deleted_at')` hides a soft-removed link; use
+     * `withTrashedProperties()` below for the full history. Mirrors
+     * `Deal::properties()`'s own shape exactly (app/Models/Deal.php) — see
+     * .ai/specs/rental-applications.md, "The contact_property hard-delete
+     * fix". Writes go through App\Services\Property\ContactPropertyLinker,
+     * never a bare attach()/sync() (which would blind-insert against a
+     * soft-deleted row and collide with the unique index).
+     */
     public function properties(): BelongsToMany
     {
         return $this->belongsToMany(Property::class, 'contact_property')
-                    ->withPivot('role')
+                    ->using(\App\Models\ContactProperty::class)
+                    ->withPivot(['id', 'role', 'is_primary', 'source', 'deleted_at'])
+                    ->wherePivotNull('contact_property.deleted_at')
+                    ->withTimestamps();
+    }
+
+    /** Every property EVER linked, including soft-removed ones — for history/audit views. */
+    public function withTrashedProperties(): BelongsToMany
+    {
+        return $this->belongsToMany(Property::class, 'contact_property')
+                    ->using(\App\Models\ContactProperty::class)
+                    ->withPivot(['id', 'role', 'is_primary', 'source', 'deleted_at'])
                     ->withTimestamps();
     }
 

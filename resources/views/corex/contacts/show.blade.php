@@ -87,6 +87,7 @@
                 ['key'=>'viewings','label'=>'Viewings &amp; Feedback <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($viewingsCount ?? 0) .'</span>'],
                 ['key'=>'notes','label'=>'Notes &amp; Testimonials <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contact->contactNotes->count() + $contact->testimonials->count()) .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
+                ['key'=>'rental','label'=>'Rental Applications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $rentalApplicationsTotalCount .'</span>'],
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'consent','label'=>'Consent'],
                 ['key'=>'communications','label'=>'Communications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contactThreads ?? collect())->count() .'</span>'],
@@ -1418,6 +1419,17 @@
         </div>
 
         {{-- ════════════════════════════
+             RENTAL APPLICATIONS TAB
+             AT-392 — Johan: "the rental application is not a pillar of
+             corex but the contact is" — current status plus every
+             application this contact has ever had, retrievable here at
+             any time by anyone who needs it.
+             ════════════════════════════ --}}
+        <div x-show="activeTab === 'rental'" x-cloak class="p-6 space-y-5" id="tab-rental">
+            @include('corex.contacts._rental-applications-tab-body')
+        </div>
+
+        {{-- ════════════════════════════
              FICA COMPLIANCE TAB
              ════════════════════════════ --}}
         <div x-show="activeTab === 'fica'" x-cloak class="p-6 space-y-6" id="tab-fica">
@@ -1519,11 +1531,15 @@
                                 @if($match->price_min || $match->price_max)
                                 <span class="text-sm font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
                                 @endif
-                                @if($match->suburb)
+                                @if(!empty($match->suburbList()))
                                 <span class="text-xs px-2 py-0.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">
-                                    📍 {{ $match->suburb }}
+                                    📍 {{ implode(', ', $match->suburbList()) }}
                                 </span>
                                 @endif
+                                {{-- AT-402 audit — dates on entries (Johan). --}}
+                                <span class="text-xs" style="color:var(--text-muted);" title="Saved">
+                                    Saved {{ $match->created_at?->format('d M Y') ?? '—' }}
+                                </span>
                             </div>
 
                             {{-- Detail grid --}}

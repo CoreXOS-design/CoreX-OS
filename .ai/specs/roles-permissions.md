@@ -194,3 +194,88 @@ plus the audited callers in §4.4.
 **Modify:** `app/Console/Commands/SyncPermissions.php` (per-agency fan-out),
 `.ai/specs/multi-tenancy.md` (sync note).
 **Tests:** one focused feature test for cross-agency isolation of role/permission edits.
+
+---
+
+## 10. Addendum (2026-09-07) — SyncPermissions silent-failure fix
+
+Found while wiring the Rental Applications module's `role_defaults` entries
+(a Rental Applications lane task, not a roles-permissions design change —
+recorded here because the defect and fix are squarely inside
+`app/Console/Commands/SyncPermissions.php`, one of this spec's own §9
+files). Johan: "the platform wide bug - needs attention and get fixed. hate
+silent fails."
+
+**The defect.** `seedRoleDefaults()`/`mergeRoleDefaults()` both did:
+
+```php
+try {
+    $roles = Role::all(['name', 'is_owner', 'agency_id']);
+} catch (\Throwable $e) {
+    $roles = collect(<synthetic template roles from role_defaults keys>);
+}
+```
+
+`Role::all()` on a genuinely EMPTY `roles` table (the real state until Role
+Manager or a seeder populates it — nothing seeds it automatically, and this
+spec's own §8 acceptance criterion "Creating a new agency auto-provisions
+the full role set + default grants" describes exactly the moment this bug
+would fire) returns an empty `Collection`; it does not throw. The catch
+never engaged, the synthetic fallback never ran, the per-role loop iterated
+zero times, and the command printed a "0 new row(s) inserted" success line
+and exited 0 — a fresh environment (or a fresh agency, or a QA1 reset)
+looked healthy while every permission in CoreX was silently missing, for
+every module, not just the one being actively developed at the time.
+
+**The fix.**
+- New shared `resolveRolesOrFail()`: treats an empty result the same as a
+  thrown one, always tells the operator which path was taken (real DB rows
+  vs. synthetic fallback) via `$this->warn()` — never silently — and
+  returns `null` (a hard failure the caller must not ignore) only when even
+  the config-driven fallback has nothing to offer (`role_defaults` itself
+  empty).
+- `seedRoleDefaults()`'s destructive `RolePermission::query()->forceDelete()`
+  wipe-and-reseed now checks role resolution BEFORE the wipe, not after —
+  the old code would have wiped every existing grant and replaced it with
+  nothing, on the exact same empty-roles-table trigger.
+- `mergeRoleDefaults()` now tracks pending-keys-vs-inserted-rows across the
+  whole run and fails loudly (`$this->error()` + non-zero exit) if keys
+  were genuinely pending but zero rows landed — a merge that finds nothing
+  to do because everything is already correct is NOT this condition
+  (that's the normal idempotent no-op); a merge that found real gaps and
+  still inserted nothing is.
+- `handle()` now propagates both methods' success/failure into the
+  command's own exit code — a chained deploy script can no longer sail
+  past a run that granted nothing.
+- Also caught and surfaced (not separately hard-failed): a `role_defaults`
+  entry that exists for a role but resolves to zero keys via
+  `RoleDefaultsResolver::keysForDef()` (e.g. a typo'd `'inlcude'` instead of
+  `'include'`) previously read identically to a healthy "up to date" role
+  in the merge summary — now flagged as its own WARNING line naming the
+  role, so a malformed config entry cannot hide behind a healthy-looking
+  status.
+
+**Proven, defect demonstrated before the fix** (per the project's "show
+both behaviours" standard) in
+`tests/Feature/Permissions/SyncPermissionsResilienceTest.php`: a faithful
+reproduction of the exact pre-fix snippet against a real, genuinely empty
+`roles` table returns an empty Collection without throwing (the root
+cause, isolated); the fixed command recovers via the fallback and grants
+correctly with loud warnings on that same empty table; the fixed command
+fails loudly with a non-zero exit when even the fallback has nothing
+(`role_defaults` forced empty); a normal populated run is unaffected and
+remains idempotent on a second call. `RentalApplicationPermissionDefaultsTest.php`
+(Rental Applications' own clean-state proof) re-confirmed passing under
+the fixed code unchanged.
+
+**Found and reported, not touched (report-only, outside this fix's
+responsibility):** `corex:reconcile-role-grants` (the drift-reconciler
+sibling command) does not share this exact `Role::all()`/try-catch
+pattern — checked, not affected. `RoleDefaultsResolver::keysForDef()`
+itself (shared by both `corex:sync-permissions` and
+`corex:reconcile-role-grants`) silently returns `[]` for ANY unrecognised
+`role_defaults` shape, not just the specific "entry exists but malformed"
+case this fix now surfaces from the `SyncPermissions` side — a deeper fix
+inside the shared resolver itself would need to consider `reconcile-role-grants`
+too, which is outside this command's own responsibility per the scope
+given for this task.

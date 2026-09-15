@@ -46,7 +46,10 @@
                     &larr; Back to {{ $preLinkedContact->full_name }}
                 </a>
                 @else
-                <a href="{{ route('corex.properties.index') }}"
+                {{-- AT-401 — honours whichever Properties list (sales or Rentals)
+                     the agent most recently entered through
+                     (session('corex.lens.properties')), same as show.blade.php. --}}
+                <a href="{{ route(session('corex.lens.properties', false) ? 'corex.rentals.properties.index' : 'corex.properties.index') }}"
                    class="text-xs font-medium px-3 py-1.5 rounded-md transition-all duration-300"
                    style="background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.15);">
                     &larr; Back to listings

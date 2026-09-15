@@ -18,6 +18,8 @@ These override everything else. Violating scope is worse than doing nothing. Whe
 
 7. REPORT EXACTLY. When done, report exactly what changed (files + why) and how you proved it, and confirm nothing outside the task was touched.
 
+8. FULL CRUD, LIST-SCREEN COMPLETENESS, AND OWN/BRANCH/AGENCY SCOPING ARE THE FLOOR — DESIGNED IN, NOT REQUESTED. Johan's words: "we always need proper crud? search / sort / own / branch / agency levels. that should be the design standard. not me asking for it once we get to that stage." Every entity ships with Create, Read, Update, Archive (soft delete only — never hard delete) and Restore from the first build, not as a later ask. Every list screen ships with search (named fields), sort (every sensible column + a stated default), filter (status + date range minimum), pagination, and a real empty state. Every list, detail view, export, download, and API endpoint enforces OWN / BRANCH / AGENCY visibility scoping at the query layer (BelongsToAgency / AgencyScope, never a hidden UI link) — direct-URL access by ID is blocked, not just unlinked. The spec for any new feature states search fields, sort/default, filters, and per-screen scoping BEFORE code is written; a spec missing these is not ready to build. Full detail: §1a below.
+
 This applies to the conductor too.
 
 
@@ -26,6 +28,46 @@ This applies to the conductor too.
 > happy-path test is NOT done. This is the senior-engineer baseline.
 > Every prompt references this file. No feature is complete until it
 > satisfies every section below that applies to it.
+
+---
+
+## §0a. The render gate + browser smoke — required, not optional, for any Blade/Alpine change
+
+See STANDARDS.md "Standard −1" for the full incident history and the
+per-file contract (`scripts/fetch-authenticated-page.php` +
+`scripts/verify-alpine-render.mjs`). The rule in this file is the
+Definition-of-Done consequence: **a feature touching a Blade file with
+Alpine in it is not done until both the render gate and the browser smoke
+below are green.** `php -l` passing and PHPUnit passing are necessary and
+proven NOT sufficient — three separate incidents shipped a completely dead
+screen to QA1 with both green.
+
+**`scripts/rental-smoke.mjs`** is the browser-level companion: a REAL
+headless browser (Puppeteer) drives the actual rental-applications journey
+— applications list (control-centre tiles), review screen, the mark-up
+view with documents open, authorisation screen, applicant link, Rentals →
+Contacts, contact edit, PDF splitter review — and for EVERY screen reports
+a console-error count plus a real-data assertion (a total with a figure
+beside it, a list with rows in it — never just that labels rendered). Zero
+console errors is the pass mark. **A 200 HTTP status is never treated as a
+pass signal anywhere in this script or the render gate** — that is the
+entire lesson of this section's existence: 200 is exactly what all three
+incidents returned.
+
+```bash
+node scripts/rental-smoke.mjs
+```
+
+Run this after every pull into `/corex-qa1` that touches rental-application
+views, and before every push that touches one. Report per-screen console
+error counts, not a single pass/fail line — "0 tests failed" told nobody
+which screen was actually dead.
+
+**`scripts/dev-check.ps1` is PowerShell. This box has no `pwsh`. It has
+NEVER run here, for any build in this repo's history on this environment —
+do not cite it as a verification gate, do not tell Johan or the conductor
+it ran, and do not wait for it. The two scripts above are its replacement
+in this environment.**
 
 ---
 
@@ -42,14 +84,91 @@ nothing to a user.
 
 ---
 
-## 1. Full CRUD is the default, never a request
+## 1. Full CRUD, list-screen completeness, and own/branch/agency scoping are the floor
+
+Johan, verbatim: *"we always need proper crud? search / sort / own /
+branch / agency levels. that should be the design standard. not me
+asking for it once we get to that stage. so get that going as well
+that we design and build correctly from the word go."*
+
+He should never have to ask for these after a feature is built. They
+are designed in at spec time, every time, without him mentioning it. A
+feature that ships with only create-and-list is incomplete — it is not
+"phase 1," it is not done.
+
+### 1a. Full CRUD is the default, never a request
 
 Every entity that can be created can be read, updated, and archived
 (soft-deleted). If a prompt says "add the ability to create X", the
-build INCLUDES list, view, edit, and archive for X unless the prompt
-explicitly scopes it down. Never ship a create with no edit. Never ship
-an edit with no archive. Asking for "full CRUD" should never be a
-thought — it is the floor.
+build INCLUDES list, view, edit, archive, AND **restore from archive**
+for X unless the prompt explicitly scopes it down. Never ship a create
+with no edit. Never ship an edit with no archive. Never ship an archive
+with no restore path — an archived record an admin cannot bring back is
+a hard delete wearing a soft-delete costume. **Hard deletes are
+forbidden anywhere in CoreX, no exceptions** (CLAUDE.md Non-negotiable
+#1). Asking for "full CRUD" should never be a thought — it is the
+floor.
+
+### 1b. Every list screen ships with search, sort, filter, pagination, and a real empty state
+
+No exceptions, no "add it later":
+
+- **Search** — across the fields a user would actually search by. The
+  spec names those fields explicitly; "search" with no named fields is
+  not a spec, it's a placeholder.
+- **Sort** — on every sensible column, with a **stated default sort**.
+  A list with no default order is non-deterministic to the user — same
+  query, different-looking results, every reload.
+- **Filter** — by status and by date range, at minimum. Add
+  domain-specific filters (branch, agent, type) where the entity has
+  them.
+- **Pagination** — a sensible page size. Never dump an unbounded result
+  set into the DOM.
+- **A real empty state** — copy that tells the user why the list is
+  empty and what to do next (no results for this filter vs. genuinely
+  nothing yet are different messages). A blank table with no rows and
+  no explanation is a bug, not an edge case.
+
+### 1c. Three visibility levels, always: OWN / BRANCH / AGENCY
+
+Every list, every detail view, every export, every document download,
+and every API endpoint respects three scoping levels:
+
+- **OWN** — records belonging to the logged-in user.
+- **BRANCH** — records belonging to their branch.
+- **AGENCY** — records belonging to their agency.
+
+Which level a given user sees is **permission-driven**, decided at spec
+time per screen. This is layered on top of, not a replacement for,
+CLAUDE.md Non-negotiable #7 (multi-tenancy / `AgencyScope`) — agency is
+the outer boundary that can never be crossed; own/branch is the
+narrower scoping WITHIN an agency that a role's permissions resolve.
+
+**An agency must never see another agency's data. This is a hard
+security boundary, enforced at the query layer** (`BelongsToAgency` /
+the global `AgencyScope`), **never by hiding a link in the UI.**
+Removing a menu item is not access control. **Direct-URL access by ID
+must be blocked, not just absent from the menu** — every `show`/`edit`/
+`destroy`/download/export action re-checks scope against the
+authenticated user's own/branch/agency, independent of how the request
+arrived. A controller that trusts "they wouldn't have found the URL" is
+a security bug, not a low-risk gap.
+
+### 1d. This is design-time, not retrofit
+
+The spec for any new feature states, **before code is written**:
+
+- the search fields, named explicitly,
+- the sort columns and the stated default,
+- the filters,
+- and how own/branch/agency scoping is enforced, **per screen** (list,
+  detail, export, download, API).
+
+**A spec missing these is not ready to build.** This is not a
+checklist item to satisfy after the feature works — the input-space
+rule in §2 below and the CRUD/scoping standard here are decided
+together, at the same spec stage, for the same reason: discovering
+either after code is written means a rebuild, not a review comment.
 
 ---
 
@@ -132,6 +251,85 @@ paths were tested. "12 tests pass" means nothing. "Tests pass for:
 all-fields, no-last-name, email-only, malformed-phone-rejected,
 deleted-contact-renders" means something.
 
+### 5a. Verification has two independent axes — vary both
+
+A "verified working" report can still miss a real bug if it only varies
+one axis of how a test is run. AT-392's RA-04/RA-06 pair (2026-09-08) is
+the concrete case this rule is written from: a highlight-save endpoint was
+re-verified over real HTTP — real login, real CSRF, real curl, a real
+database read — specifically because in-process dispatch was suspected of
+producing false positives. That re-verification passed cleanly and was
+correct as far as it went. Minutes later, adversarial testing against a
+document whose highlight row had already been through a soft-delete/
+recreate cycle threw a raw SQLSTATE error straight to the browser. The
+real-HTTP re-verification could not have caught it, for a specific
+mechanical reason, not a rigor gap.
+
+The two axes:
+
+- **Transport** — real HTTP request vs. in-process dispatch.
+- **Data state** — a clean/fresh fixture vs. an already-touched record.
+
+These are ORTHOGONAL. Upgrading transport rigor says nothing about
+data-state rigor, and vice versa. A test that varies only the axis that
+was under suspicion and then reports the feature "proven end to end" is
+a false positive waiting to happen. **Verify both axes, not just the one
+someone doubted.**
+
+- A clean-fixture, single-pass test only proves a table's CREATE path.
+  It proves nothing about what happens the second time a record with
+  that same key comes back into existence.
+- Any table combining a UNIQUE constraint with SoftDeletes requires an
+  explicit **create → soft-delete → recreate** pass before it is called
+  verified. MySQL's unique index has no soft-delete awareness — it
+  enforces uniqueness across ALL rows, trashed or not — while Eloquent's
+  default query scope (used by `firstOrNew`, `find`, `where`, etc.) hides
+  trashed rows from the very query that would otherwise find and restore
+  them instead of colliding with them. A naive `firstOrNew()`-then-
+  `save()` on a key that was ever soft-deleted throws a raw duplicate-key
+  exception, not a graceful restore, unless the code explicitly queries
+  `withTrashed()` and calls `restore()`.
+- Adversarial testing deliberately reuses already-touched records as
+  standard practice, not just fresh fixtures. Production data is never
+  clean — a real agency database has records that were created, edited,
+  cleared, and re-entered many times over. A test suite that only ever
+  exercises brand-new rows is testing a database that does not exist in
+  production.
+
+### 5b. Never perform, inside a test, the exact automatic behaviour the test exists to check
+
+A distinct failure mode from §5a, found the same night on the same
+module: a test that verifies an AUTOMATIC/PROACTIVE behaviour (autosave,
+auto-focus, auto-anything the code is supposed to do without being
+asked) must never manually trigger that same behaviour itself before
+checking whether it happened. Doing so silently changes the claim being
+tested — from "does the code do this on its own" to the much weaker "is
+this element/state capable of this at all" — and the test will pass
+either way, so the difference is invisible until someone else runs the
+real thing without the same manual step.
+
+Concretely: a note-placement feature was supposed to auto-focus a text
+box the instant it appeared (`$nextTick(() => el.focus())`). The
+verification script placed the note, then called `.click()` on the
+textarea itself, THEN checked focus and typed — and reported success.
+That `.click()` was never part of the feature; it was the tester's own
+workaround, inserted one line before the assertion, and it made a
+genuinely broken auto-focus pass every time. The real bug — the
+underlying `x-ref` was shared across every loop iteration of a list, so
+Alpine's ref resolution was unreliable and `.focus()` was silently
+landing on a hidden element for a different item, which real browsers
+don't even error on — was found only when a second person drove the
+real screen with no such extra click and watched
+`document.activeElement` stay on the wrong element.
+
+**The rule:** when a test's own actions include a step that duplicates
+what the code under test is supposed to do automatically, stop and
+delete that step before trusting the result. Check the state
+IMMEDIATELY after the triggering action (the one a real user actually
+performs — clicking to place the note, not clicking on its result), with
+zero intervening steps of your own. If the test needs an extra action to
+make the assertion pass, that extra action IS the missing feature.
+
 ---
 
 ## 6. Fix the class, not the instance
@@ -156,7 +354,9 @@ reach, or can reach without permission, is not done.
 
 A feature is DONE only when ALL apply:
 
-- [ ] Full CRUD present (or explicitly scoped out in the prompt)
+- [ ] Full CRUD present — create, read, update, archive, AND restore (or explicitly scoped out in the prompt)
+- [ ] List screen has search (named fields), sort (every sensible column + stated default), filter (status + date range minimum), pagination, and a real empty state
+- [ ] OWN / BRANCH / AGENCY scoping enforced at the query layer on every list, detail view, export, download, and API endpoint for this feature — verified by direct-URL-by-ID test, not just absence from the menu
 - [ ] Every NOT-NULL column supplied a value for every input combination
 - [ ] Every optional-empty path accepted gracefully (no 500)
 - [ ] Every required-empty path rejected with a user-clear message

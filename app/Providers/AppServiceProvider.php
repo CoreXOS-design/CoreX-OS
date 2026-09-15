@@ -248,6 +248,8 @@ class AppServiceProvider extends ServiceProvider
         CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
         CalendarEvent::observe(CalendarEventObserver::class);
         Contact::observe(ContactObserver::class);
+        // AT-Core-Matches, Johan's ruling 2 — a note added resets the working clock.
+        \App\Models\ContactNote::observe(\App\Observers\ContactNoteObserver::class);
         ContactPhone::observe(ContactPhoneObserver::class);
         ContactEmail::observe(ContactEmailObserver::class);
         ContactAccessLog::observe(ContactAccessLogObserver::class);
@@ -317,6 +319,20 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(
             \App\Events\AgencyCreated::class,
             \App\Listeners\Onboarding\CreateAgencySetupPortal::class,
+        );
+        // Highlighter collection expansion, 2026-09-09 — a second,
+        // independent reaction to the same AgencyCreated signal: seeds the
+        // six starting highlighters for a brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalApplicationHighlighters::class,
+        );
+        // Decline reason templates, 2026-09-15 — same signal, same
+        // established mechanism, one more independent reaction: seeds the
+        // two starting decline reason templates for a brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalApplicationDeclineReasonTemplates::class,
         );
         Event::listen(
             \App\Events\Contact\ContactTestimonialSubmitted::class,
@@ -561,6 +577,18 @@ class AppServiceProvider extends ServiceProvider
             \App\Listeners\Property\DismissComplianceClearedChores::class,
         );
 
+        // AT-410d, 2026-09-16 — a rental application approved subject to
+        // FICA verification resolves itself the moment FICA actually gets
+        // verified, from the exact place that already happens. Second
+        // listener on FicaApproved (LogFicaEvent, registered above via
+        // handleFicaApprovedReview/spineCredits, is the first) — this event
+        // already supports more than one subscriber, so this is the
+        // established pattern here, not a new one.
+        Event::listen(
+            \App\Events\Fica\FicaApproved::class,
+            \App\Listeners\RentalApplications\ResolveConditionalApprovalOnFicaVerified::class,
+        );
+
         // SPINE-3 — model observers that dispatch the missing domain events
         // (ProspectingClaim::created → ClaimCreated; updated released_at
         // NULL→set → ClaimReleased; PropertyMarketingPost::updated
@@ -682,6 +710,32 @@ class AppServiceProvider extends ServiceProvider
             Event::listen($eventClass, $listenerClass);
         }
 
+        // AT-392 — Contact::rental_application_status is a derived cache over
+        // the contact's own RentalApplication rows, kept in sync via domain
+        // events per non-negotiable #9, rather than written ad-hoc from each
+        // controller action. One listener, four triggers.
+        // Spec: .ai/specs/rental-applications.md — Contact status section.
+        foreach ([
+            \App\Events\RentalApplication\RentalApplicationSubmitted::class,
+            \App\Events\RentalApplication\RentalApplicationApproved::class,
+            \App\Events\RentalApplication\RentalApplicationDeclined::class,
+            \App\Events\RentalApplication\RentalApplicationReopened::class,
+        ] as $rentalApplicationEvent) {
+            Event::listen($rentalApplicationEvent, \App\Listeners\Contact\RecomputeRentalApplicationStatus::class);
+        }
+
+        // Contact-type ruling, 2026-09-11 — Johan: "contact type can be
+        // added, not changed... the seller of unit a decides to rent but
+        // their property has not sold yet." Approval ADDS "Tenant" to the
+        // contact's existing types (never replaces). Only Approved — see
+        // the listener's own docblock for why decline/withdrawal don't.
+        // AT-261: discovery is OFF, this explicit registration is the only
+        // thing that wires this listener up at all.
+        Event::listen(
+            \App\Events\RentalApplication\RentalApplicationApproved::class,
+            \App\Listeners\Contact\AddTenantTypeOnRentalApproval::class,
+        );
+
         // 2026-08-24 (Johan) — public-link resilience: a SECOND listener on
         // AgentDeactivated (already logged via the wave6 map above through
         // LogAgentEvent). NOT added as a second key in $wave6 above — that
@@ -753,6 +807,22 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(
             \App\Events\Website\ArticleVisibilityChanged::class,
             \App\Listeners\Webhooks\DispatchArticleWebhooks::class,
+        );
+
+        // AT-Core-Matches, Task 6 — Buyer Pipeline "Lost" takes a buyer's
+        // matches off the Core Matches board; moving off "Lost" restores
+        // them. Fired explicitly from BuyerStateService::transitionTo()
+        // (updateQuietly() there suppresses model events, so no observer
+        // would ever see this). Replaces the never-built, wrongly-named
+        // ContactBuyerStatusChanged this file used to document — see the
+        // corrected entry in .ai/specs/corex-domain-events-spec.md.
+        Event::listen(
+            \App\Events\Contact\ContactMarkedLostInBuyerPipeline::class,
+            \App\Listeners\CoreMatches\SetAsideCoreMatchesOnBuyerLost::class,
+        );
+        Event::listen(
+            \App\Events\Contact\ContactRestoredFromLostInBuyerPipeline::class,
+            \App\Listeners\CoreMatches\RestoreCoreMatchesOnBuyerRestored::class,
         );
         \App\Models\AgentArticle::observe(\App\Observers\AgentArticleObserver::class);
 
@@ -912,6 +982,202 @@ class AppServiceProvider extends ServiceProvider
                 \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, 1)->by('token:' . $request->route('token')),
                 \Illuminate\Cache\RateLimiting\Limit::perMinute(5)->by('ip:' . $request->ip()),
             ];
+        });
+
+        // Rental application document uploads, 2026-09-13 — Johan, live on
+        // QA1, blocked before golf by the stock `throttle:10,1` this
+        // replaces on uploadDocuments()/removeDocument()/replaceDocument().
+        // That default keys by IP (Laravel's ThrottleRequests default
+        // unauthenticated signature) — an entire shared office connection
+        // or carrier-grade-NAT mobile line is ONE applicant as far as it's
+        // concerned, and ten was too tight for a real multi-file phone
+        // upload with a retry in it regardless of who it's keyed by.
+        // Keyed on the APPLICATION TOKEN instead — deliberately no IP
+        // component at all (unlike reengage-shared-link's belt-and-braces
+        // second limit): the whole point here is that one applicant's
+        // uploads must never be able to exhaust a DIFFERENT applicant's
+        // allowance just because they happen to share a connection, and an
+        // IP-keyed second limit would silently reintroduce exactly that.
+        // Agency-configurable, never hardcoded, same as every other
+        // threshold this feature carries — see
+        // RentalApplicationQualifyingSetting::DEFAULT_DOCUMENT_RATE_LIMIT_MAX's
+        // own docblock for how the default is sized. A malformed/unknown
+        // token still gets its own isolated bucket (keyed by that literal
+        // string) at the agency default — harmless, never unlimited.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-documents', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::documentRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::documentRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-documents:' . $token)
+                ->response(function () {
+                    // The applicant-facing message this whole fix exists
+                    // for — Johan: "'Too many attempts' told our own CEO
+                    // nothing; it tells an applicant less." Read by the
+                    // SAME frontend error-handling show.blade.php/
+                    // already-submitted.blade.php already have
+                    // (`data.message`) — no frontend change needed for
+                    // this to surface correctly.
+                    return response()->json([
+                        'message' => "You've made a lot of document changes in a short time, so uploads are paused for a moment. Everything you've already uploaded is safe — please wait a minute and try again.",
+                    ], 429);
+                });
+        });
+
+        // AT-392 round 2, 2026-09-13 — the conductor's sweep from the
+        // document-upload incident: five more public routes carried
+        // Laravel's stock per-IP `throttle:N,1`, the exact defect that
+        // incident closed for documents. Same token-only key (no IP
+        // component — see rental-application-documents above for why),
+        // each with its own agency-configurable default. Conductor's
+        // priority order by real-world risk: submit, show, pdf,
+        // document-view, autosave.
+        //
+        // SUBMIT — Johan: "several agents helping several applicants
+        // submit in the same minute" from the one HFC office IP was the
+        // actual risk; per-token removes that collision entirely.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-submit', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::submitRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::submitRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-submit:' . $token)
+                ->response(fn () => response()->json([
+                    'message' => "You've submitted a lot in a short time, so submitting is paused for a moment. Nothing has been lost — please wait a minute and try again.",
+                ], 429));
+        });
+
+        // SHOW — a real applicant reloading a slow page repeatedly on bad
+        // mobile data (Johan's named scenario) needs more headroom than a
+        // single-minute window; per-token removes the shared-carrier risk
+        // entirely regardless.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-show', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::showRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::showRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-show:' . $token)
+                ->response(fn () => response()->view('rental-applications.public.unavailable', [
+                    'reason' => 'rate_limited',
+                ], 429));
+        });
+
+        // PDF — read-only render, generous default, same window as
+        // documents for one consistent rule.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-pdf', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::pdfRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::pdfRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-pdf:' . $token)
+                ->response(fn () => response()->json([
+                    'message' => "This is being requested a lot right now, so it's paused for a moment. Please wait a minute and try again.",
+                ], 429));
+        });
+
+        // DOCUMENT VIEW — read-only render, same category and sizing as pdf above.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-document-view', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::documentViewRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::documentViewRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-document-view:' . $token)
+                ->response(fn () => response()->json([
+                    'message' => "Documents are being viewed a lot right now, so this is paused for a moment. Please wait a minute and try again.",
+                ], 429));
+        });
+
+        // AUTOSAVE (outer request-level throttle only) — kept last in the
+        // conductor's priority order since the existing per-application
+        // draft-save counter (autosave_rate_limit_max/window_minutes,
+        // already token-scoped inside the controller itself) already
+        // protects this route; moved anyway "so there is one consistent
+        // rule rather than a special case somebody has to remember"
+        // (Johan, verbatim). Deliberately a SEPARATE setting
+        // (autosave_request_rate_limit_max/window_minutes, NOT the
+        // existing autosave_rate_limit_max pair) — sharing one number
+        // between this outer middleware and the inner per-app counter
+        // would make the middleware intercept every request at the exact
+        // count the inner counter is meant to catch, silently replacing
+        // its distinct `{saved:false, rate_limited:true}` signal with a
+        // generic 429 the frontend doesn't expect on this route. Always
+        // 200 + {saved:false} when tripped, matching autosave()'s own
+        // contract ("Always returns 200 — never a visible error... the
+        // frontend treats non-2xx the same as network failure").
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-autosave-request', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::autosaveRequestRateLimitMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::autosaveRequestRateLimitWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-autosave-request:' . $token)
+                ->response(fn () => response()->json(['saved' => false], 200));
+        });
+
+        // Return gate, AT-392 round 4, 2026-09-13 — Johan: "failed attempts
+        // must be limited and must not leak whether the ID was close... an
+        // applicant who cannot get past the gate must have a way forward
+        // that is not 'give up': a plain sentence naming the agent to
+        // contact." Tight, agency-configurable cap (default 5/15min) —
+        // deliberately NOT a generic 429 message: the person most likely
+        // to trip this is a real applicant who mistyped their own ID, and
+        // "try again later" is the wrong advice when the real fix is
+        // reaching a human. Same token-only key as every other limiter
+        // here — never IP, for the same shared-connection reason.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-gate', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->with('createdBy')->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-gate:' . $token)
+                ->response(function () use ($application) {
+                    return response()->view('rental-applications.public.gate', [
+                        'lockedOut' => true,
+                        'agentName' => $application?->createdBy?->name,
+                        'agentEmail' => $application?->createdBy?->email,
+                        'agentPhone' => $application?->createdBy?->cell ?: $application?->createdBy?->phone,
+                    ], 429);
+                });
+        });
+
+        // Submission identity gate, 2026-09-13 — Johan found this hole
+        // himself walking the applicant link live: sign both pads, press
+        // submit, land straight in FICA with no identity challenge at all.
+        // Same two-layer shape and same "never a bare 429" rule as the
+        // Return Gate immediately above (sibling limiter, own settings,
+        // own lockout copy) — never shares the Return Gate's own attempt
+        // budget, since this fires at a different moment in the journey
+        // for a different reason. See .ai/specs/rental-applications.md,
+        // "Submission identity gate" section.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-application-identity-gate', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+            $application = \App\Models\RentalApplication::queryWithoutAgencyScope()->where('token', $token)->with('createdBy')->first();
+            $max = \App\Models\RentalApplicationQualifyingSetting::identityGateAttemptMaxFor($application?->agency_id);
+            $windowMinutes = \App\Models\RentalApplicationQualifyingSetting::identityGateAttemptWindowMinutesFor($application?->agency_id);
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
+                ->by('rental-application-identity-gate:' . $token)
+                ->response(function () use ($application) {
+                    return response()->view('rental-applications.public.gate', [
+                        'lockedOut' => true,
+                        'agentName' => $application?->createdBy?->name,
+                        'agentEmail' => $application?->createdBy?->email,
+                        'agentPhone' => $application?->createdBy?->cell ?: $application?->createdBy?->phone,
+                    ], 429);
+                });
         });
     }
 }

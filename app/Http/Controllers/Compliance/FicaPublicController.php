@@ -20,16 +20,41 @@ class FicaPublicController extends Controller
         $submission = $this->resolveSubmission($token);
 
         $returnUrl = $request->query('return_url', '');
+        // AT-392 round 3, 2026-09-13 — optional, consumer-agnostic context
+        // string threaded alongside return_url so the shared confirmation
+        // page can speak in the right terms (a rental applicant isn't
+        // "signing a document"). Defaults to null everywhere, which
+        // preserves the existing e-sign copy exactly.
+        $returnContext = $request->query('return_context', '');
 
         // Already submitted — show confirmation
         if (in_array($submission->status, ['submitted', 'under_review', 'approved'])) {
-            return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl]);
+            return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl, 'return_context' => $returnContext]);
         }
 
         $contact = $submission->contact;
         $agency  = $submission->agency;
 
-        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl'));
+        // AT-392 round 5, 2026-09-13 — Johan/conductor: uploadDocument()
+        // already saves the file to the DB and encrypted storage the
+        // instant it's picked, independent of the form's own submit — but
+        // this method never loaded or showed them back, so an applicant
+        // who left and returned saw no sign of what they'd already sent
+        // and re-uploaded it. Display-only: filename and type, never the
+        // decrypted bytes themselves, so nothing about the encrypt-on-write
+        // storage seam (FicaDocumentStorage) is touched. One row per
+        // document_type — sortByDesc('id') picks the most recent if a type
+        // was ever uploaded more than once in the same session.
+        $existingDocuments = FicaDocument::where('fica_submission_id', $submission->id)
+            ->get()
+            ->groupBy('document_type')
+            ->map(function ($docs) {
+                $doc = $docs->sortByDesc('id')->first();
+
+                return ['name' => $doc->file_name, 'status' => 'existing', 'id' => $doc->id];
+            });
+
+        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext', 'existingDocuments'));
     }
 
     /**
@@ -190,8 +215,9 @@ class FicaPublicController extends Controller
         ]);
 
         $returnUrl = $request->input('return_url', '');
+        $returnContext = $request->input('return_context', '');
 
-        return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl]);
+        return redirect()->route('fica.confirmation', ['token' => $token, 'return_url' => $returnUrl, 'return_context' => $returnContext]);
     }
 
     /**
@@ -238,8 +264,9 @@ class FicaPublicController extends Controller
         $submission = FicaSubmission::where('token', $token)->firstOrFail();
         $agency     = $submission->agency;
         $returnUrl  = $request->query('return_url', '');
+        $returnContext = $request->query('return_context', '');
 
-        return view('fica.confirmation', compact('submission', 'agency', 'returnUrl'));
+        return view('fica.confirmation', compact('submission', 'agency', 'returnUrl', 'returnContext'));
     }
 
     /**

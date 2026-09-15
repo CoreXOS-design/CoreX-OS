@@ -15,6 +15,7 @@
                 <div class="text-xs" style="color:var(--text-muted);">{{ $note->created_at->format('d M Y H:i') }} · {{ $note->created_at->diffForHumans() }}</div>
             </div>
         </div>
+        @unless($readOnly ?? false)
         <div class="flex items-center gap-3 flex-shrink-0">
             <button type="button" @click="editing = !editing" class="text-xs font-semibold" style="color:var(--brand-icon, #0ea5e9);">Edit</button>
             <form method="POST" action="{{ route('corex.contacts.notes.destroy', [$note->contact_id, $note]) }}"
@@ -23,6 +24,7 @@
                 <button type="submit" class="text-xs font-semibold" style="color: var(--ds-crimson);">Delete</button>
             </form>
         </div>
+        @endunless
     </div>
 
     {{-- Read view --}}

@@ -9,8 +9,10 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Contacts</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Manage your contacts and leads.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $isRentalEntry ? 'Rental Contacts' : 'Contacts' }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    {{ $isRentalEntry ? 'Tenants, prospective tenants, and landlords — anyone rental-relevant, even if they hold other roles too.' : 'Manage your contacts and leads.' }}
+                </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
             @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
@@ -33,15 +35,19 @@
                 <div x-show="exportOpen" x-cloak x-transition.opacity
                      class="absolute right-0 mt-1 w-56 rounded-md py-1 z-20 shadow-lg"
                      style="background:var(--surface); border:1px solid var(--border);">
-                    <a href="{{ route('corex.contacts.export', request()->only(['search', 'type', 'agent_id'])) }}"
+                    {{-- AT-403 — ?rental=1 travels the lens into the export
+                         (a separate route/name from this list, so it can't
+                         detect the lens by route name the way the list
+                         itself does — see ContactExportController::buildQuery()). --}}
+                    <a href="{{ route('corex.contacts.export', array_merge(request()->only(['search', 'type', 'agent_id']), $isRentalEntry ? ['rental' => 1] : [])) }}"
                        class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
                        onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
                         Export current view
                     </a>
-                    <a href="{{ route('corex.contacts.export', ['all' => 1]) }}"
+                    <a href="{{ route('corex.contacts.export', array_merge(['all' => 1], $isRentalEntry ? ['rental' => 1] : [])) }}"
                        class="block px-4 py-2 text-sm transition-colors" style="color:var(--text-primary);"
                        onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                        Export all contacts
+                        Export all {{ $isRentalEntry ? 'rental ' : '' }}contacts
                     </a>
                 </div>
             </div>
@@ -382,7 +388,16 @@
          }"
          class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route('corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
+        {{-- cc4 walk, 2026-09-13 — this action was hardcoded to the main
+             Contacts route regardless of entry point: submitting ANY
+             filter (search, type, agent pill — now also sort) from the
+             Rentals → Contacts lens silently redirected to the plain
+             Contacts screen, losing the rentalRelevant() lock entirely.
+             Confirmed live before this fix: the rendered form's action was
+             literally corex/contacts on a page loaded from
+             corex/rentals/contacts. Route-aware now, same pattern the pill
+             URLs above already use. --}}
+        <form method="GET" action="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Street & Complex Search — AT-273. Lives at the far left of the filter
                  bar as just the property icon + a "?" help popover. Clicking the house
@@ -475,10 +490,14 @@
             <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
             @endif
 
-            {{-- Type filter --}}
+            {{-- Type filter — AT-403: on the Rentals lens, $typeFilterOptions is
+                 already narrowed to Lessor/Lessee (the rental-relevant
+                 canonical parents); "All Types" here means "all rental
+                 types", the lock in the controller keeps it from ever
+                 escaping to Buyer/Seller/Owner regardless. --}}
             <select name="type" onchange="this.form.submit()" class="list-header-filter">
-                <option value="">All Types</option>
-                @foreach($contactTypes as $type)
+                <option value="">{{ $isRentalEntry ? 'All Rental Types' : 'All Types' }}</option>
+                @foreach($typeFilterOptions as $type)
                     <option value="{{ $type->id }}" {{ request('type') == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
                 @endforeach
             </select>
@@ -489,10 +508,12 @@
                 $cuId      = (string) auth()->id();
                 $vtIsMine  = (string) $filterAgentId === $cuId;
                 $vtIsAll   = $filterAgentId === '';
-                $vtDScope  = \App\Services\PermissionService::getDataScope(auth()->user(), 'contacts');
+                $vtIsBranch = $filterAgentId === 'branch';
+                $vtDScope  = $dataScope ?? \App\Services\PermissionService::getDataScope(auth()->user(), 'contacts');
                 $vtCarry   = request()->except(['agent_id', 'page']);
-                $vtMineUrl = route('corex.contacts.index', array_merge($vtCarry, ['agent_id' => $cuId]));
-                $vtAllUrl  = route('corex.contacts.index', array_merge($vtCarry, ['agent_id' => '']));
+                $vtMineUrl = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => $cuId]));
+                $vtAllUrl  = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => '']));
+                $vtBranchUrl = route('corex.rentals.contacts.index', array_merge($vtCarry, ['agent_id' => 'branch']));
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
                 <a href="{{ $vtMineUrl }}" @click.prevent="pickAgent('{{ $cuId }}')"
@@ -501,13 +522,55 @@
                    title="Show only my contacts">
                     My Contacts
                 </a>
+                {{-- cc4 walk, finding B, 2026-09-13 — Rentals → Contacts
+                     ONLY (the main Contacts screen's pill is unchanged).
+                     Johan: "the pill currently offers only Mine and All —
+                     there is no explicit Branch option... a branch manager
+                     cannot select the level they actually manage." Shown to
+                     anyone who can reach at least branch level (both
+                     'branch'- and 'all'-scoped users — for an 'all'-scoped
+                     admin this is a genuinely useful middle tier, their own
+                     branch, narrower than the full agency). --}}
+                @if($isRentalEntry)
+                <a href="{{ $vtBranchUrl }}" @click.prevent="pickAgent('branch')"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="border-left:1px solid var(--border); {{ $vtIsBranch ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show all contacts in my branch">
+                    Branch
+                </a>
+                @endif
+                {{-- A 'branch'-scoped user's real ceiling IS branch — "All"
+                     would only ever resolve to the exact same rows as the
+                     Branch pill above, just under a misleading label, so on
+                     the rentals lens it's dropped rather than kept as a
+                     confusing duplicate. The main Contacts screen keeps
+                     showing it (unchanged) since it predates this pass and
+                     nobody asked for that screen to change. --}}
+                @if(!$isRentalEntry || $vtDScope !== 'branch')
                 <a href="{{ $vtAllUrl }}" @click.prevent="pickAgent('')"
                    class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
                    style="border-left:1px solid var(--border); {{ $vtIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
                    title="Show all {{ $vtDScope === 'branch' ? 'branch' : 'agency' }} contacts">
-                    All Contacts
+                    {{ $isRentalEntry ? 'Agency' : 'All Contacts' }}
                 </a>
+                @endif
             </div>
+            @endif
+
+            {{-- cc4 walk, finding 8, 2026-09-13 — real sort control, Rentals
+                 → Contacts only. Default: Name (unchanged from before this
+                 control existed). See ContactController::index() for the
+                 full reasoning and the sortable column list. --}}
+            @if($isRentalEntry)
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter">
+                <option value="name" {{ request('sort', 'name') === 'name' ? 'selected' : '' }}>Sort: Name</option>
+                <option value="created" {{ request('sort') === 'created' ? 'selected' : '' }}>Sort: Date added</option>
+                <option value="updated" {{ request('sort') === 'updated' ? 'selected' : '' }}>Sort: Last updated</option>
+            </select>
+            <select name="direction" onchange="this.form.submit()" class="list-header-filter">
+                <option value="asc" {{ request('direction', 'asc') === 'asc' ? 'selected' : '' }}>A–Z / Oldest first</option>
+                <option value="desc" {{ request('direction') === 'desc' ? 'selected' : '' }}>Z–A / Newest first</option>
+            </select>
             @endif
 
             {{-- Agent picker (admin/BM only) — centered modal (matches the Properties
@@ -612,7 +675,7 @@
 
             <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
             @if(request()->hasAny(['search','type']))
-            <a href="{{ route('corex.contacts.index', $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
+            <a href="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
                class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
             @endif
 
@@ -647,6 +710,34 @@
             // since every row there is already known to be the viewer's own.
             $contactOwnerId = $contact->agent_id ?? $contact->created_by_user_id;
             $isOtherAgent   = request()->filled('search') && $contactOwnerId && (int) $contactOwnerId !== (int) auth()->id();
+
+            // AT-392, 2026-09-11 (cc4's end-to-end walk, same root cause as the
+            // contact-type picker fix) — a contact holds a SET of types, not
+            // one. This used to show only $contact->type (the primary-type
+            // mirror) here, plus — in the rental lens only — a second,
+            // separately-sourced rentalRoleLabels() badge for Tenant/Landlord.
+            // That produced two bugs: (a) a contact whose PRIMARY type was
+            // Tenant showed "Tenant" twice (once from each source), and (b) a
+            // Seller+Tenant contact showed only "Tenant" on this row — Seller
+            // never appeared, defeating the whole point of add-don't-replace.
+            // $typeBadges is now the single, deduped source for every badge
+            // this row shows: every real parentTypes name, plus — in the
+            // rental lens only — "Landlord" when the contact is linked to a
+            // property with a landlord/lessor role but holds no Lessor TYPE
+            // (the property-pivot-only signal scopeRentalRelevant() also
+            // matches on; skipping it would silently drop most real landlords
+            // — AT-403's own finding, 13 vs 66 real matches from the pivot
+            // alone). No duplication: if the contact already holds the Lessor
+            // type, "Landlord" is not added a second time.
+            $typeBadges = $contact->parentTypes->pluck('name')->all();
+            if ($isRentalEntry) {
+                $hasLessorType = $contact->parentTypes->contains(fn ($t) => $t->esign_role === 'lessor');
+                $isPropertyLandlord = $contact->relationLoaded('properties')
+                    && $contact->properties->contains(fn ($p) => in_array($p->pivot->role ?? null, ['landlord', 'lessor'], true));
+                if ($isPropertyLandlord && !$hasLessorType) {
+                    $typeBadges[] = 'Landlord';
+                }
+            }
         @endphp
         <div class="px-5 py-4 transition-all duration-300" style="border-bottom:1px solid var(--border);"
              onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
@@ -669,18 +760,32 @@
                                style="color:var(--text-primary);"
                                onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">{{ $contact->full_name }}</a>
                             @endif
+                            {{--
+                                AT-392, 2026-09-12 (cc4's finding) — the "Agent: X" tag is
+                                purely informational (per its own original comment/title —
+                                "found elsewhere", "belongs to a different agent") and must
+                                never REPLACE the type badges, only sit alongside them. An
+                                @if/@else here made them mutually exclusive: an admin
+                                searching agency-wide for a colleague's contact saw the
+                                Agent tag and NOTHING else — no Tenant, no Seller — on the
+                                exact screen that exists to show where a contact already
+                                sits. Same root rule as everywhere else in this file: a
+                                contact holds a SET of types, shown in full, regardless of
+                                who is looking or whose contact it is.
+                            --}}
                             @if($isRestricted || $isOtherAgent)
                             <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
                                   style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);"
                                   title="{{ $isRestricted ? 'Found elsewhere in the agency — not in your own contacts' : 'This contact belongs to a different agent' }}">
                                 Agent: {{ $contact->agent->name ?? $contact->createdBy->name ?? 'Unassigned' }}
                             </span>
-                            @elseif($contact->type)
+                            @endif
+                            @foreach($typeBadges as $badgeName)
                             <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
                                   style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
-                                {{ $contact->type->name }}
+                                {{ $badgeName }}
                             </span>
-                            @endif
+                            @endforeach
                         </div>
                         <div class="mt-1 flex flex-wrap gap-x-4 gap-y-1">
                             <span class="text-xs flex items-center gap-1" style="color:var(--text-secondary);">
@@ -790,8 +895,19 @@
                  style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color: var(--brand-icon,#0ea5e9);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" /></svg>
             </div>
-            <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No contacts yet</h3>
-            <p class="text-sm mb-4" style="color: var(--text-muted);">Add your first contact to start tracking relationships.</p>
+            @if($isRentalEntry)
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No rental contacts {{ request()->hasAny(['search', 'type']) ? 'match this filter' : 'yet' }}</h3>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">
+                    @if(request()->hasAny(['search', 'type']))
+                        Try clearing the search or type filter above.
+                    @else
+                        Tenants, prospective tenants, and landlords show up here automatically once they're typed on the Contacts screen, or once a rental application is approved.
+                    @endif
+                </p>
+            @else
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No contacts yet</h3>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">Add your first contact to start tracking relationships.</p>
+            @endif
             <button type="button" @click="showAdd = true" class="corex-btn-primary text-sm">Add Contact</button>
         </div>
         @endforelse

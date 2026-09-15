@@ -5,10 +5,15 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactMatch;
+use App\Models\ContactMatchShare;
+use App\Models\ContactMatchShareProperty;
 use App\Models\Deal;
 use App\Models\Property;
 use App\Models\PropertySettingItem;
+use App\Models\Scopes\BranchScope;
+use App\Models\Scopes\ContactScope;
 use App\Models\User;
+use App\Services\BuyerStateService;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -57,93 +62,406 @@ class ContactMatchController extends Controller
 
     public function __construct(protected MatchingService $matching) {}
 
-    public function index()
+    /**
+     * "Mine" entry point — always scope=own, no selector shown. Same
+     * rendering path as allView() below; the only difference is which
+     * scope this route is willing to default to and which permission
+     * gates it. See renderBoard()'s own docblock for why the two entry
+     * points share one query/view implementation now instead of two.
+     */
+    public function index(Request $request)
     {
-        /** @var \App\Models\User $user */
-        $user = auth()->user();
-
-        $allMatches = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
-            ->whereHas('contact')
-            ->where('created_by_user_id', $user->id)
-            ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
-            ->latest()
-            ->get();
-
-        $matchCounts = $this->propertyCountsFor($allMatches);
-
-        $matches = $allMatches->groupBy('contact_id');
-
-        $contacts = Contact::whereIn('id', $matches->keys())
-            ->with('type')
-            ->orderBy('first_name')
-            ->get()
-            ->map(fn($c) => [
-                'contact' => $c,
-                'matches' => $matches->get($c->id, collect()),
-            ]);
-
-        return view('corex.core-matches.index', compact('contacts', 'matchCounts'));
+        return $this->renderBoard($request, defaultScope: 'own');
     }
 
     /**
-     * All View — agency-wide (or branch-wide when branch-split is on) list of
-     * every Core Match, for branch managers and admins to oversee what their
-     * agents are doing. Gated by the `core_matches.all_view` permission.
+     * "All View" entry point — agency managers/admins. Same rendering path
+     * as index() above; defaults to the widest scope this viewer holds
+     * (agency, or branch if that's all `core_matches.all_view` earns them
+     * once branch-split is on) rather than a hardcoded 'agency', so a BM
+     * on a branch-split agency lands on a scope they can actually see.
      */
     public function allView(Request $request)
+    {
+        return $this->renderBoard($request, defaultScope: 'agency');
+    }
+
+    /**
+     * The Core Matches board, TASK 1 rebuild. One query-building path, one
+     * view, for both entry points — Johan's own design standard (BUILD_
+     * STANDARD.md §1c) already says visibility level is "permission-driven,
+     * decided at spec time per screen," which is a single screen with a
+     * scope control, not two hand-maintained screens. Full reasoning:
+     * .ai/specs/core-matches.md, "Screen & scoping".
+     *
+     * Route middleware is UNCHANGED on purpose (the access_contacts vs
+     * core_matches.view vs access_core_matches mismatch across the four
+     * routes is reported, not fixed here — conductor's call). What
+     * changes is everything downstream of "the request reached this
+     * method": scope is resolved and enforced HERE, at the query layer,
+     * not by which URL the request came in on.
+     */
+    private function renderBoard(Request $request, string $defaultScope)
     {
         /** @var \App\Models\User $user */
         $user = auth()->user();
 
-        // Scope: whole agency, or just the viewer's branch when branch-split is on.
-        $agency   = \App\Models\Agency::find($user->effectiveAgencyId());
-        $splitOn  = (bool) ($agency?->split_branches_enabled);
-        $branchId = $user->effectiveBranchId();
-        $branchLimited = $splitOn && $branchId;
+        // AT-401 — unchanged lock mechanism: detected by route NAME (never
+        // client-supplied), applied after the query string is read so a
+        // hand-edited ?listing_type=sale on a Rentals entry is overridden,
+        // not trusted.
+        $indexRouteName = $request->route()->getName();
+        $isRentalEntry  = in_array($indexRouteName, [
+            'corex.rentals.core-matches.index', 'corex.rentals.core-matches.all',
+        ], true);
+        $isAllRoute = in_array($indexRouteName, [
+            'corex.core-matches.all', 'corex.rentals.core-matches.all',
+        ], true);
+        $counterpartRouteName = match ($indexRouteName) {
+            'corex.rentals.core-matches.index' => 'corex.rentals.core-matches.all',
+            'corex.rentals.core-matches.all'   => 'corex.rentals.core-matches.index',
+            'corex.core-matches.all'           => 'corex.core-matches.index',
+            default                            => 'corex.core-matches.all',
+        };
 
-        // Agents available in the filter dropdown.
-        $agentsQuery = User::agencyMembers()
-            ->where('is_active', 1)
-            ->orderBy('name');
-        if ($branchLimited) {
-            $agentsQuery->where('branch_id', $branchId);
+        session(['corex.lens.core_matches' => $isRentalEntry]);
+
+        $listingType = $request->query('listing_type', '');
+        if ($isRentalEntry) {
+            $listingType = 'rental';
         }
-        $agents = $agentsQuery->get(['id', 'name']);
 
-        // Resolve the selected agent filter (ignored if outside the viewer's scope).
-        $agentId = $request->query('agent_id');
-        $agentId = ($agentId === null || $agentId === '' || $agentId === 'all') ? null : (int) $agentId;
-        if ($agentId !== null && ! $agents->pluck('id')->contains($agentId)) {
-            $agentId = null;
+        // SCOPE — resolved and enforced here, not trusted from the query
+        // string, not inferred from which route the request arrived on.
+        // A user without core_matches.all_view asking for branch/agency
+        // silently narrows to 'own' — same precedent as the agent_id
+        // filter below ("ignored if outside the viewer's scope"), not a
+        // 403: this is a visibility floor, not an authorisation wall.
+        $canSeeAll = $user->hasPermission('core_matches.all_view');
+        $agency    = \App\Models\Agency::find($user->effectiveAgencyId());
+        $splitOn   = (bool) ($agency?->split_branches_enabled);
+        $branchId  = $user->effectiveBranchId();
+
+        $availableScopes = ['own'];
+        if ($canSeeAll) {
+            if ($splitOn && $branchId) {
+                $availableScopes[] = 'branch';
+            }
+            $availableScopes[] = 'agency';
         }
 
-        // ContactMatch carries BelongsToAgency, so the agency is already scoped.
-        $query = ContactMatch::with(['contact.type', 'createdBy', 'feedback'])
-            ->whereHas('contact')
+        $requestedScope = $request->query('scope', $isAllRoute ? $defaultScope : 'own');
+        $scope = in_array($requestedScope, $availableScopes, true) ? $requestedScope : 'own';
+
+        // SEARCH — contact name/phone/email. Never against criteria fields;
+        // those are filters, not a search (BUILD_STANDARD.md §1b).
+        $search = trim((string) $request->query('q', ''));
+
+        // FILTERS — status, date range (on the match's own saved date).
+        $statusFilter = $request->query('status', '');
+        if (! in_array($statusFilter, ['', ContactMatch::STATUS_ACTIVE, ContactMatch::STATUS_PAUSED, ContactMatch::STATUS_FULFILLED, ContactMatch::STATUS_EXPIRED], true)) {
+            $statusFilter = '';
+        }
+        $savedFrom = $request->query('saved_from', '');
+        $savedTo   = $request->query('saved_to', '');
+
+        // Agent filter — manager scopes only, same validation precedent as
+        // before (an id outside the viewer's own agent list is dropped,
+        // not trusted).
+        $agents  = collect();
+        $agentId = null;
+        if ($scope !== 'own') {
+            $agentsQuery = User::agencyMembers()->where('is_active', 1)->orderBy('name');
+            if ($scope === 'branch') {
+                $agentsQuery->where('branch_id', $branchId);
+            }
+            $agents  = $agentsQuery->get(['id', 'name']);
+            $agentId = $request->query('agent_id');
+            $agentId = ($agentId === null || $agentId === '' || $agentId === 'all') ? null : (int) $agentId;
+            if ($agentId !== null && ! $agents->pluck('id')->contains($agentId)) {
+                $agentId = null;
+            }
+        }
+
+        // SORT — default stays the deliberate status-priority order
+        // (active > paused > fulfilled > expired), now expressed at the
+        // CONTACT level (a contact's "rank" is its best-ranked match) so a
+        // manager scanning the board still sees the most actionable
+        // buyers first. Two selectable alternates.
+        $sort = $request->query('sort', 'priority');
+        if (! in_array($sort, ['priority', 'saved', 'contact'], true)) {
+            $sort = 'priority';
+        }
+
+        // Base match-level constraints. Applied ONLY at the top level of a
+        // fresh ContactMatch::query() everywhere it's used below — NEVER
+        // nested inside a whereHas()/withExists()/withMax() closure.
+        // Proven empirically (not assumed) that Eloquent does not reliably
+        // propagate a withoutGlobalScope() call made INSIDE those relation-
+        // constraint closures through to the compiled SQL: a disposable
+        // two-branch test agency showed a manager's cross-branch match
+        // still silently excluded even with the bypass written exactly
+        // there, while the identical bypass applied directly on a
+        // top-level ContactMatch::query() worked correctly every time. See
+        // .ai/specs/core-matches.md, "Screen & scoping" for the full
+        // before/after. No whereHas('contact', ...) here at all any more —
+        // it's redundant now every caller resolves contact_id from an
+        // ALREADY correctly-scoped Contact set (below), and it was the
+        // other half of this same nested-bypass trap.
+        $matchConstraints = function ($q) use ($listingType, $statusFilter, $savedFrom, $savedTo, $scope, $branchId, $agentId) {
+            // ContactMatch carries BranchScope (via BelongsToBranch), NOT
+            // just BelongsToAgency — found during a same-class-bug sweep
+            // after the ContactScope fix below: an 'agency' scope
+            // selection would still be silently narrowed to the viewer's
+            // own branch by ContactMatch's OWN branch scope, for any
+            // manager who holds core_matches.all_view but not
+            // branches.view_all, on any agency with branch-split on.
+            $q->when($scope !== 'own', fn ($q2) => $q2->withoutGlobalScope(BranchScope::class))
+                ->when($listingType !== '', fn ($q2) => $q2->where('listing_type', $listingType))
+                ->when($statusFilter !== '', fn ($q2) => $q2->where('status', $statusFilter))
+                ->when($savedFrom !== '', fn ($q2) => $q2->whereDate('created_at', '>=', $savedFrom))
+                ->when($savedTo !== '', fn ($q2) => $q2->whereDate('created_at', '<=', $savedTo));
+
+            if ($scope === 'own') {
+                $q->where('created_by_user_id', auth()->id());
+            } elseif ($scope === 'branch') {
+                $q->whereHas('createdBy', fn ($q2) => $q2->where('branch_id', $branchId));
+            }
+            // scope === 'agency': no extra constraint beyond the
+            // BranchScope bypass above — ContactMatch's BelongsToAgency
+            // global scope (untouched, never bypassed) is the real outer
+            // boundary an agency can never cross.
+
+            if ($agentId !== null) {
+                $q->where('created_by_user_id', $agentId);
+            }
+        };
+
+        // Qualifying contact ids — a plain, top-level ContactMatch query
+        // (the proven-safe pattern), never a whereHas('matches', ...) on
+        // Contact (the proven-BROKEN nested pattern this replaces).
+        $qualifyingContactIds = ContactMatch::query()->tap($matchConstraints)
+            ->pluck('contact_id')->unique()->values();
+
+        // Contact ALSO carries BranchScope (via BelongsToBranch), same as
+        // ContactMatch above and found the same way — bypassed alongside
+        // ContactScope for the same reason: an oversight scope must not
+        // be silently re-narrowed by either of Contact's own unrelated
+        // visibility rules.
+        $contactsQuery = Contact::query()
+            ->when($scope !== 'own', fn ($q) => $q->withoutGlobalScope(ContactScope::class)->withoutGlobalScope(BranchScope::class))
+            ->whereIn('id', $qualifyingContactIds)
+            // A Lost buyer never renders on this board, full stop — history
+            // and future in one filter, no dependency on an event having
+            // fired. contact_matches.set_aside_at (the event/listener pair
+            // in App\Listeners\CoreMatches\*OnBuyerLost/Restored) is single-
+            // purpose and now redundant for THIS screen's own correctness:
+            // it is set by exactly one listener and read by exactly one
+            // other, both built solely for this mechanism (confirmed by
+            // grep — no other caller exists), so carrying both here is how
+            // two signals drift apart, not a safety net. Deliberately reads
+            // buyer_state directly rather than set_aside_at: a buyer moved
+            // to Lost before that column/listener existed (the entire
+            // backlog this replaces) has buyer_state='lost' correctly set,
+            // regardless of whether any event ever fired for them. Won is
+            // excluded the same way — Johan: "any buyer moving to won or
+            // lost needs to update core matches," a converted buyer is as
+            // finished as one who walked away. Both states are written by
+            // the SAME BuyerStateService::transitionTo() regardless of
+            // whether the move was manual or the nightly auto-recompute, so
+            // this filter covers all four cases (manual/auto x won/lost)
+            // with no extra branching.
+            // whereNotIn() alone would wrongly exclude a NULL buyer_state
+            // (never-classified / non-buyer) row — MySQL's NOT IN evaluates
+            // to NULL, not true, against a NULL column — so NULL is
+            // explicitly kept via orWhereNull().
+            ->where(fn ($q) => $q->whereNull('buyer_state')->orWhereNotIn('buyer_state', ['lost', BuyerStateService::WON]))
+            ->when($search !== '', function ($q) use ($search) {
+                $q->where(function ($q2) use ($search) {
+                    $q2->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhere('phone', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%");
+                });
+            })
+            ->with('type')
+            ->withCount('contactNotes');
+
+        // Sort aggregates — same rule: a plain correlated subquery via
+        // addSelect(), built from a top-level ContactMatch::query(), never
+        // withMax()/withExists() (the same broken-nested-bypass pattern).
+        if ($sort === 'saved') {
+            $contactsQuery->addSelect(['core_matches_latest_saved' => ContactMatch::query()->tap($matchConstraints)
+                ->whereColumn('contact_id', 'contacts.id')
+                ->selectRaw('MAX(created_at)'),
+            ])->orderByDesc('core_matches_latest_saved');
+        } elseif ($sort === 'contact') {
+            // Longest-since-contact first; never-contacted floats to the
+            // very top (nulls-first is MySQL's default ASC behaviour).
+            $contactsQuery->orderBy('last_contacted_at');
+        } else {
+            // Status-priority at the contact level: a contact with at
+            // least one ACTIVE match ranks above one with only paused
+            // matches, etc. — the same FIELD() ordering the match rows
+            // already use, generalised to "does this contact have one of
+            // these" rather than sorting raw match rows. Each count
+            // reuses $matchConstraints, not a bare status lookup —
+            // otherwise a contact could rank as "has an active match"
+            // because of a match the current filters have hidden.
+            foreach ([ContactMatch::STATUS_ACTIVE, ContactMatch::STATUS_PAUSED, ContactMatch::STATUS_FULFILLED] as $i => $rankStatus) {
+                $flag = "core_matches_has_{$i}";
+                $contactsQuery->addSelect([$flag => ContactMatch::query()->tap($matchConstraints)
+                    ->where('status', $rankStatus)
+                    ->whereColumn('contact_id', 'contacts.id')
+                    ->selectRaw('COUNT(*)'),
+                ])->orderByDesc($flag);
+            }
+        }
+        $contactsQuery->orderBy('first_name');
+
+        $perPage  = 25;
+        $contacts = $contactsQuery->paginate($perPage)->withQueryString();
+
+        // Load matches for ONLY this page's contacts — the whole point of
+        // paginating at the contact level.
+        $pageContacts   = collect($contacts->items())->keyBy('id');
+        $pageContactIds = $pageContacts->keys();
+        // 'contact' is NOT eager-loaded here on purpose — that would
+        // re-run Contact's own query (and its ContactScope) a second
+        // time, undoing the bypass above for a manager's branch/agency
+        // view. The Contact models already loaded on this page (correctly
+        // scoped) are reused below instead of fetched twice.
+        $allMatches = ContactMatch::with(['createdBy', 'feedback'])
+            ->whereIn('contact_id', $pageContactIds)
+            ->tap($matchConstraints)
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
-            ->latest();
+            ->latest()
+            ->get()
+            ->each(fn ($match) => $match->setRelation('contact', $pageContacts->get($match->contact_id)));
 
-        if ($branchLimited) {
-            $query->whereHas('createdBy', fn ($q) => $q->where('branch_id', $branchId));
+        $matchCounts  = $this->propertyCountsFor($allMatches);
+        $matchesByContact = $allMatches->groupBy('contact_id');
+
+        // AT-Core-Matches, "send N new" board badge. TWO batched queries for
+        // the WHOLE page, never one per row — the exact discipline
+        // propertyCountsForMatches() already established for match counts.
+        // "Ever shared" is an identity diff against $matchCounts[...]['ids']
+        // above (already resolved, zero extra resolve passes); "last shared"
+        // is a single grouped MAX() query. Both filter to CONFIRMED shares
+        // only (see ContactMatchShare's own docblock) — a link an agent
+        // opened but never sent must never read as "shared".
+        $matchIds = $allMatches->pluck('id');
+        $everSharedByMatch = ContactMatchShareProperty::query()
+            ->whereHas('share', fn ($q) => $q->whereNotNull('confirmed_at'))
+            ->whereIn('contact_match_id', $matchIds)
+            ->get(['contact_match_id', 'property_id'])
+            ->groupBy('contact_match_id')
+            ->map(fn ($rows) => $rows->pluck('property_id')->unique()->all());
+        $lastSharedByMatch = ContactMatchShare::query()
+            ->whereNotNull('confirmed_at')
+            ->whereIn('contact_match_id', $matchIds)
+            ->selectRaw('contact_match_id, MAX(shared_at) as last_shared_at')
+            ->groupBy('contact_match_id')
+            ->pluck('last_shared_at', 'contact_match_id');
+
+        foreach ($allMatches as $match) {
+            $resolvedIds = $matchCounts[$match->id]['ids'] ?? [];
+            $everShared = $everSharedByMatch->get($match->id, []);
+            $match->neverSharedCount = collect($resolvedIds)->diff($everShared)->count();
+            $match->lastSharedAt = $lastSharedByMatch->has($match->id)
+                ? \Illuminate\Support\Carbon::parse($lastSharedByMatch->get($match->id))
+                : null;
         }
-        if ($agentId !== null) {
-            $query->where('created_by_user_id', $agentId);
+
+        // TASK 2 fields tied to cc4's data layer — guarded on the column
+        // actually existing, so this activates the moment cc4 lands it
+        // rather than needing a follow-up change here. Never displayed
+        // until the guard passes (view checks the same flags).
+        $hasAgentColumn = \Schema::hasColumn('contact_matches', 'agent_id');
+        $assignedAgentNames = collect();
+        if ($hasAgentColumn) {
+            $agentIds = $allMatches->pluck('agent_id')->filter()->unique();
+            $assignedAgentNames = User::whereIn('id', $agentIds)->pluck('name', 'id');
         }
 
-        $allMatches  = $query->get();
-        $matchCounts = $this->propertyCountsFor($allMatches);
+        // Deliberately does NOT depend on a relation name on PortalLead —
+        // only the column's existence, batch-resolving the user name
+        // separately below. Avoids guessing a method name cc4 hasn't
+        // published yet.
+        $hasFirstReceivedColumn = \Schema::hasTable('portal_leads') && \Schema::hasColumn('portal_leads', 'received_by_user_id');
+        $firstReceivedByContact = collect();
+        $firstReceivedNames = collect();
+        if ($hasFirstReceivedColumn) {
+            $firstReceivedByContact = \App\Models\PortalLead::whereIn('contact_id', $pageContactIds)
+                ->whereNotNull('received_by_user_id')
+                ->orderBy('received_at')
+                ->get(['contact_id', 'received_by_user_id', 'received_at'])
+                ->unique('contact_id')
+                ->keyBy('contact_id');
+            $firstReceivedNames = User::whereIn('id', $firstReceivedByContact->pluck('received_by_user_id')->filter()->unique())
+                ->pluck('name', 'id');
+        }
 
-        // Group by owning agent for the oversight view.
-        $byAgent = $allMatches->groupBy('created_by_user_id')
-            ->map(fn ($items) => [
-                'agent'   => $items->first()->createdBy,
-                'matches' => $items,
-            ])
-            ->sortBy(fn ($row) => $row['agent']?->name ?? 'zzz')
-            ->values();
+        // Johan's own addition, not gated on cc4 at all — the properties a
+        // portal lead arrived on, via PortalLead::listing() (the actual
+        // relation name on this model — belongsTo(Property::class,
+        // 'listing_id'), confirmed against the model, not guessed from
+        // the column name). Grouped per contact, deduplicated by property.
+        $leadPropertiesByContact = \App\Models\PortalLead::whereIn('contact_id', $pageContactIds)
+            ->whereNotNull('listing_id')
+            ->with('listing:id,title,suburb,price,listing_type')
+            ->get()
+            ->groupBy('contact_id')
+            ->map(fn ($leads) => $leads->pluck('listing')->filter()->unique('id')->values());
 
-        return view('corex.core-matches.all', compact(
-            'byAgent', 'matchCounts', 'agents', 'agentId', 'branchLimited'
+        $hasWorkingWindowSetting = \Schema::hasColumn('agency_contact_settings', 'core_matches_working_window_days');
+        $workingWindowDays = null;
+        if ($hasWorkingWindowSetting) {
+            // AgencyContactSettings::coreMatchesWorkingWindowDays() is the
+            // resolved value (null-safe default + 1-90 clamp) — reading the
+            // raw column directly would skip both.
+            $workingWindowDays = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId())
+                ->coreMatchesWorkingWindowDays();
+        }
+
+        // A REMAINING count, not a static label. The clock is
+        // Contact::last_contacted_at — per AgencyContactSettings'
+        // coreMatchesWorkingWindowDays() docblock, this setting measures
+        // days without a note/message/live-link-share/"Last Contacted"
+        // press, NOT days since the lead was first received (a different
+        // clock entirely — that one only feeds the "first received" badge
+        // above). No fallback to created_at when never contacted: the
+        // header's own "Never contacted" badge already carries that signal,
+        // and there's no last-contact instant to count down from — showing
+        // a second badge for the same underlying fact would be exactly the
+        // "never the same fact twice" case.
+        if ($hasWorkingWindowSetting && $workingWindowDays) {
+            foreach ($allMatches as $match) {
+                $lastContactedAt = $match->contact?->last_contacted_at;
+                if (! $lastContactedAt) {
+                    continue;
+                }
+                $elapsedDays = (int) floor($lastContactedAt->diffInDays(now()));
+                $match->workingWindowRemainingDays = $workingWindowDays - $elapsedDays;
+            }
+        }
+
+        $rows = collect($contacts->items())->map(fn ($c) => [
+            'contact' => $c,
+            'matches' => $matchesByContact->get($c->id, collect()),
+            'firstReceived' => $firstReceivedByContact->get($c->id),
+            'leadProperties' => $leadPropertiesByContact->get($c->id, collect()),
+        ]);
+
+        $totalMatches = $allMatches->count();
+
+        return view('corex.core-matches.index', compact(
+            'rows', 'contacts', 'matchCounts', 'totalMatches',
+            'listingType', 'isRentalEntry', 'isAllRoute', 'indexRouteName', 'counterpartRouteName',
+            'scope', 'availableScopes', 'canSeeAll', 'agents', 'agentId', 'branchId', 'splitOn',
+            'search', 'statusFilter', 'savedFrom', 'savedTo', 'sort',
+            'hasAgentColumn', 'assignedAgentNames', 'hasFirstReceivedColumn', 'firstReceivedNames',
+            'hasWorkingWindowSetting', 'workingWindowDays',
         ));
     }
 
@@ -212,7 +530,19 @@ class ContactMatchController extends Controller
     public function update(Request $request, Contact $contact, ContactMatch $match)
     {
         abort_if($match->contact_id !== $contact->id, 403);
-        $match->update($this->validatePayload($request));
+
+        $data = $this->validatePayload($request);
+
+        // AT-401 — a wishlist's listing_type is set once at creation and never
+        // switchable via edit, in any context: the criteria fields (property
+        // types, price bands, etc.) mean something different for a buyer than
+        // a tenant, and the edit form itself no longer renders a togglable
+        // control (_match-form.blade.php), so this is the authoritative lock,
+        // not a UI nicety. Any listing_type in the submitted payload is
+        // ignored; the match keeps whatever it already was.
+        $data['listing_type'] = $match->listing_type;
+
+        $match->update($data);
 
         return redirect()->route('corex.contacts.matches.results', [$contact, $match])
             ->with('success', 'Match updated.');

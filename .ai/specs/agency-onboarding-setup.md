@@ -283,6 +283,24 @@ by oversight — do not reinstate them without asking:
   Settings → Prospecting Setup → Stale-claim rules. **Pending Johan's confirmation** — §10a makes
   the keep-it-out call his, not the lane's.
 
+- **Rental application "Property Link Lock"** (`rental_application_qualifying_settings.
+  lock_property_after_submission`, added 2026-09-10). A fine-tuning toggle on an already-
+  running rental-applications feature (whether the linked property can still be changed once
+  submitted for authorisation) — configured after an agency has real applications moving
+  through the flow, not a decision made at signup. Consistent with every other rental-
+  application setting (qualifying formula, reopen-link expiry, RO/CO tiers, approval-email
+  matched-property cap) — none of which are in the wizard either, and none of those omissions
+  are separately recorded here, only noticed while adding this one. **Pending Johan's
+  confirmation** — §10a makes the keep-it-out call his, not the lane's; flagging that the
+  whole rental-applications settings category shares this gap, not just this one setting.
+  Configured on Settings → Rental Applications → "Property Link Lock".
+
+- **Rental application "Tag Contact as Tenant on Approval"** (`rental_application_qualifying_settings.
+  tag_contact_as_tenant_on_approval`, added 2026-09-11). Same reasoning and same category as the
+  Property Link Lock entry immediately above: a fine-tuning toggle on an already-running feature
+  (whether approving a rental application adds "Tenant" to the contact's types), not a signup-time
+  decision. Configured on Settings → Rental Applications → "Tag Contact as Tenant on Approval".
+
 **From the feature switchboard (spec `.ai/specs/agency-onboarding-feature-switchboard.md` §3.5):**
 
 - **P24 / Private Property portal *credentials* and the `p24_enabled` / `pp_enabled` /

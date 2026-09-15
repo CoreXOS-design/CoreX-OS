@@ -235,8 +235,12 @@ class PropertyMatchScoringService
         // Pre-approved buyers (per spec D3 — preapproval lives on Contact).
         // Counted: agency buyers with a non-expired preapproval >= property price
         // AND at least one active ContactMatch (otherwise they're not in the buyer pool).
+        // Bond preapproval is a purchasing concept — it has no meaning against a
+        // rental's rent, so this count is sale-only (never route rental_amount
+        // through here; that would compare a monthly rent to a bond preapproval
+        // and trivially "pass" every buyer).
         $preapprovedCount = 0;
-        if ($property && $property->price) {
+        if ($property && !$property->isRental() && $property->price) {
             $q = DB::table('contacts as c')
                 ->join('contact_matches as cm', 'cm.contact_id', '=', 'c.id')
                 ->where('c.agency_id', $agencyId)
@@ -889,7 +893,7 @@ class PropertyMatchScoringService
         if (!$match->price_min && !$match->price_max) {
             return ['points' => 20, 'gap' => null]; // no-signal default (preserved)
         }
-        $price = $property->price ?? 0;
+        $price = $property->effectivePrice();
         if (!$price) {
             return ['points' => 15, 'gap' => null];
         }

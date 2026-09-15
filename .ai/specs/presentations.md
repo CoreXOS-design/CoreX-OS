@@ -11,6 +11,8 @@
 
 One click on a Property → fully-assembled presentation in 30-60 seconds. Zero agent inputs beyond the click (or one optional asking-price confirmation for properties without a listing price). Built-in engagement tracking, teaser vs full distinction, static snapshots, refresh-request flow, and outcome enforcement via Event Classes.
 
+**Sale properties only.** AT-400 (Johan, 2026-09-10): "presentations for rentals should almost certainly be disabled. we dont have rental data like we have sales data." CoreX does not have rental comparable/comp data the way it has sale comp data, so a rental property is never comparable to other stock and cannot generate a presentation. Enforced at `PresentationGeneratorService::generateForProperty()` (throws if `$property->isRental()`) and the Generate Presentation button on the property page, which shows a plain-language "Presentation not available — this is a rental" message instead of hiding silently. See §11 below for what a rental property keeps instead.
+
 ---
 
 ## 2. Core Principles
@@ -531,6 +533,20 @@ All 13 must pass on staging before deploying to live.
 - Static vs live: **static, with refresh-request escalation**
 - Teaser vs full choice: **agent's call at send time, sticky default**
 - Multi-recipient: **checkboxes per linked contact, send-to-all default**
+
+---
+
+## 11. Rentals — AT-400 (2026-09-10)
+
+Presentations, comparables, and the Property Intelligence "Market Positioning" card are **sale-only**. A rental property:
+
+- Cannot generate a presentation. `PresentationGeneratorService::generateForProperty()` throws if `$property->isRental()` (mirrors the existing blank-`property_type` guard). The Generate Presentation button on the property page is replaced with a plain-language message — "Presentation not available — this is a rental" — never a silently hidden/dead control.
+- Gets no comparable stock. `CompetitorStockMatchService::resolveCriteria()` — the single shared criteria builder both `findComparableStock()` (own-agency stock) and `findCompetitors()` (prospecting pool) call — returns `null` for a rental subject, the same "can't be compared" path already used when a subject is missing agency/suburb/family. Both callers already degrade to an empty collection.
+- Gets no "Market Positioning" card. `PropertyIntelligenceService::getLatestMarketPosition()` returns `null` for a rental (same path as its existing "nothing meaningful to show" case) — it recommends a sale price and counts comparable sales, neither of which applies to a rental.
+
+**What a rental KEEPS — this is deliberate, not an oversight.** Johan: "we can switch off comparables for intelligence as well - we will carry the same seller which will be owner feedback from appointments, viewings from portals, portal leads etc, but we dont need to compare like sales to other properties." Owner/seller feedback (`calendar_event_feedback`, `feedback_kind='listing_presentation'`), portal viewings (`PropertyPortalMetric`), and portal leads (`PortalLead`, via `P24LeadService`/`PpLeadService` — both already rental-aware) are untouched: none of them call any of the three gated methods above. `PropertyIntelligenceService.php` contains both the gated methods and the KEEP methods in the same file — the gates are per-method, deliberately, so this distinction survives.
+
+Defence-in-depth: `SubjectFieldCompleteness::missingSoftInputs()` (`app/Support/Presentations/SubjectFieldCompleteness.php:37`) reads a subject's `effectivePrice()` rather than the raw `price` column, so a rental with a real `rental_amount` is never reported as "missing price" — fixed regardless of the gates above making this currently unreachable in practice, so a future caller can't resurrect the old false claim.
 
 ---
 

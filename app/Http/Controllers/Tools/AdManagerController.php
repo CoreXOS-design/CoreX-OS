@@ -176,7 +176,7 @@ class AdManagerController extends Controller
                 'title'      => $p->title,
                 'address'    => trim((string) ($p->street_address ?? $p->address ?? '')),
                 'suburb'     => trim(((string) $p->suburb) . ($p->city ? ', ' . $p->city : ''), ', '),
-                'price'      => $p->price ? 'R ' . number_format((int) $p->price, 0, '.', ' ') : 'POA',
+                'price'      => $p->effectivePrice() ? 'R ' . number_format((int) $p->effectivePrice(), 0, '.', ' ') : 'POA',
                 'agent_id'   => (int) $p->agent_id,
                 'agent_name' => $p->agent?->name ?? 'Unassigned',
                 'thumb'      => $imgs[0] ?? null,

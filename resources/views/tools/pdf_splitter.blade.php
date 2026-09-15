@@ -200,11 +200,17 @@
         @if(session('splitter_linked'))
         <div class="upload-card">
             <h3>All done with this batch</h3>
-            <p class="subtitle">The documents above have been filed{{ session('splitter_fica_results') ? ' and the FICA verification(s) opened' : '' }}. You can return to the property or split another batch.</p>
+            <p class="subtitle">The documents above have been filed{{ session('splitter_fica_results') ? ' and the FICA verification(s) opened' : '' }}. You can return to {{ session('splitter_contact_url') ? 'the contact' : 'the property' }} or split another batch.</p>
             <div class="flex flex-wrap items-center gap-3" style="margin-top:8px;">
                 @if(session('splitter_property_url'))
                     <a href="{{ session('splitter_property_url') }}" class="corex-btn-primary text-sm">
                         Finish &mdash; back to {{ session('splitter_property_label') ?: 'the property' }}
+                    </a>
+                @endif
+                {{-- AT-392 — the contact-anchor path's own equivalent finish link. --}}
+                @if(session('splitter_contact_url'))
+                    <a href="{{ session('splitter_contact_url') }}" class="corex-btn-primary text-sm">
+                        Finish &mdash; back to {{ session('splitter_contact_label') ?: 'the contact' }}
                     </a>
                 @endif
                 <a href="{{ route('tools.pdf_splitter.index') }}" class="corex-btn-outline text-sm">Split another batch</a>

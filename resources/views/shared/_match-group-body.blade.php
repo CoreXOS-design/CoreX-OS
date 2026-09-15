@@ -118,6 +118,20 @@
                 default     => 'ds-badge-default',
             };
             $statusLabel = $property->status === 'active' ? 'For Sale' : ucfirst($property->status);
+            // AT-Core-Matches, Johan's "interactive" ruling — buyer-safe markers
+            // only (see SharedMatchController::buildMatchGroups() — widened-
+            // criteria is filtered out before this view ever sees it). Bare
+            // "Reduced", no old/new figures — Johan's own ruling on wording;
+            // the old price stays internal-only pending his separate call on
+            // whether to ever reveal it here.
+            $marker = $markers[$property->id] ?? null;
+            $markerLabel = match($marker) {
+                \App\Services\Matching\CoreMatchReasonClassifier::REASON_NEW => 'New',
+                \App\Services\Matching\CoreMatchReasonClassifier::REASON_REDUCED => 'Reduced',
+                \App\Services\Matching\CoreMatchReasonClassifier::REASON_BACK_ON_MARKET => 'Back on the market',
+                default => null,
+            };
+            $markerVariant = $marker === \App\Services\Matching\CoreMatchReasonClassifier::REASON_REDUCED ? 'ds-badge-info' : 'ds-badge-success';
         @endphp
         <article class="match-card surface-card overflow-hidden"
                  data-price="{{ (int) $property->price > 0 ? (int) $property->price : '' }}"
@@ -145,6 +159,9 @@
                     @endif
                     @if($score > 0)
                     <div class="absolute top-2 left-2 ds-badge {{ $scoreVariant }}" style="backdrop-filter: blur(6px);">{{ $score }}% match</div>
+                    @endif
+                    @if($markerLabel)
+                    <div class="absolute top-2 right-2 ds-badge {{ $markerVariant }}" style="backdrop-filter: blur(6px);">{{ $markerLabel }}</div>
                     @endif
                 </div>
 

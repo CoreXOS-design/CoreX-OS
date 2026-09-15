@@ -374,7 +374,7 @@ final class MapPinService
         $this->applyPropertyTypeFilter($q, $req, 'property_type');
         $this->applyTypeFilter($q, $req, 'property_type');
         $this->applyBedroomsFilter($q, $req, 'beds');
-        $this->applyPriceFilter($q, $req, 'price');
+        $this->applyEffectivePriceFilter($q, $req);
         $this->applyRangeFilter($q, $req->bedroomsMin,  $req->bedroomsMax,  'beds');
         $this->applyRangeFilter($q, $req->bathroomsMin, $req->bathroomsMax, 'baths');
         $this->applyRangeFilter($q, $req->standMin,     $req->standMax,     'erf_size_m2');
@@ -391,7 +391,7 @@ final class MapPinService
     private function agencyStockColumns(): array
     {
         return [
-            'id', 'agency_id', 'address', 'property_type', 'price', 'status',
+            'id', 'agency_id', 'address', 'property_type', 'price', 'rental_amount', 'status',
             'latitude', 'longitude', 'suburb', 'city', 'town', 'province',
             'pp_ref', 'p24_ref', 'pp_syndication_status', 'p24_syndication_status',
             'pp_suburb_id', 'listing_type',
@@ -418,6 +418,7 @@ final class MapPinService
             'p24_syndication_status' => $r->p24_syndication_status,
             'pp_suburb_id'           => $r->pp_suburb_id,
             'listing_type'           => $r->listing_type,
+            'rental_amount'          => $r->rental_amount,
         ]);
 
         return [
@@ -426,8 +427,8 @@ final class MapPinService
             'lat'                  => (float) $r->latitude,
             'lng'                  => (float) $r->longitude,
             'title'                => $r->address ?: 'Property #' . $r->id,
-            'subtitle'             => $this->formatPropertySubtitle($r),
-            'price'                => $r->price !== null ? (int) $r->price : null,
+            'subtitle'             => $this->formatPropertySubtitle($p),
+            'price'                => $p->effectivePrice() > 0 ? (int) $p->effectivePrice() : null,
             'date'                 => $date,
             'detail_url'           => route('corex.properties.map-card', ['property' => $r->id]),
             'sensitive'            => false,
@@ -1412,6 +1413,20 @@ final class MapPinService
         if ($req->priceMax !== null) $q->where($column, '<=', $req->priceMax);
     }
 
+    /**
+     * Agency-stock-only price filter: this layer's `properties` rows can be
+     * sale OR rental, and the raw `price` column is 0/null on a rental (the
+     * rent lives in rental_amount) — filtering the raw column silently
+     * dropped every rental from the map's price-range filter. Mirrors
+     * Property::effectivePrice() at the SQL layer.
+     */
+    private function applyEffectivePriceFilter($q, MapBoundsRequest $req): void
+    {
+        $sql = \App\Models\Property::effectivePriceSql('properties');
+        if ($req->priceMin !== null) $q->whereRaw("({$sql}) >= ?", [$req->priceMin]);
+        if ($req->priceMax !== null) $q->whereRaw("({$sql}) <= ?", [$req->priceMax]);
+    }
+
     private function applyDateFilter($q, MapBoundsRequest $req, string $column): void
     {
         if ($req->dateFrom !== null) $q->where($column, '>=', $req->dateFrom);
@@ -1595,11 +1610,11 @@ final class MapPinService
         }));
     }
 
-    private function formatPropertySubtitle($r): string
+    private function formatPropertySubtitle(\App\Models\Property $p): string
     {
-        $type = $r->property_type ?: 'Property';
-        if ($r->price !== null && $r->price > 0) {
-            return $type . ' · R ' . number_format((int) $r->price, 0, '.', ' ');
+        $type = $p->property_type ?: 'Property';
+        if ($p->effectivePrice() > 0) {
+            return $type . ' · R ' . number_format((int) $p->effectivePrice(), 0, '.', ' ');
         }
         return $type . ' · Not priced';
     }

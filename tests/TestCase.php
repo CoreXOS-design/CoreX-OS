@@ -27,6 +27,16 @@ abstract class TestCase extends BaseTestCase
 
         parent::setUp();
 
+        // No feature test worktree ever needs `npm run build` — a Blade
+        // view's @vite() directive would otherwise throw
+        // ViteManifestNotFoundException the instant a test renders one,
+        // which has nothing to do with that test's own code. This used to
+        // be ~90 individual test files each calling withoutVite()
+        // themselves; fixed at the class here instead (BUILD_STANDARD §6)
+        // so every feature test is covered automatically, including ones
+        // that don't know yet that they'll ever render a view.
+        $this->withoutVite();
+
         // Reset the per-request permission memo between tests. PermissionService caches
         // `$seeded` (= "role_permissions has any row") as a process-static; without this
         // reset, a test that seeds a role_permission flips it true for the REST of the

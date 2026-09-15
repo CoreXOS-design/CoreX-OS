@@ -235,7 +235,15 @@ class BuyerDetailController extends Controller
 
         DB::transaction(function () use ($contact, $match, $validated) {
             $this->applyPreapproval($contact, $validated);
-            $match->update($this->extractMatchFields($validated));
+            $matchFields = $this->extractMatchFields($validated);
+
+            // AT-401 — a wishlist's listing_type is set once at creation and
+            // never switchable via edit (same lock and same reasoning as
+            // ContactMatchController::update()) — the edit form no longer
+            // renders a togglable control, so this is the authoritative lock.
+            $matchFields['listing_type'] = $match->listing_type;
+
+            $match->update($matchFields);
         });
 
         return redirect()

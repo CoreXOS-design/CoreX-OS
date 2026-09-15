@@ -22,6 +22,8 @@ These override everything else. Violating scope is worse than doing nothing. Whe
    • Report in plain language: what was broken, what it looked like on screen, what it looks like now, what he should click to check it. No file paths, line numbers, commit hashes, column names, function names or code unless he asks for them.
    • He can look at a screen and say "I don't like that" — that is his job and it is enough. Translating that into code is yours.
 
+8. FULL CRUD, LIST-SCREEN COMPLETENESS, AND OWN/BRANCH/AGENCY SCOPING ARE THE FLOOR — DESIGNED IN, NOT REQUESTED. Johan's words: "we always need proper crud? search / sort / own / branch / agency levels. that should be the design standard. not me asking for it once we get to that stage." Every entity ships with Create, Read, Update, Archive (soft delete only — never hard delete) and Restore from the first build, not as a later ask. Every list screen ships with search (named fields), sort (every sensible column + a stated default), filter (status + date range minimum), pagination, and a real empty state. Every list, detail view, export, download, and API endpoint enforces OWN / BRANCH / AGENCY visibility scoping at the query layer (BelongsToAgency / AgencyScope, never a hidden UI link) — direct-URL access by ID is blocked, not just unlinked. The spec for any new feature states search fields, sort/default, filters, and per-screen scoping BEFORE code is written; a spec missing these is not ready to build. Full detail: BUILD_STANDARD.md §1a.
+
 This applies to the conductor too.
 
 # CoreX OS — Claude Instructions

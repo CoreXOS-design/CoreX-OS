@@ -205,6 +205,18 @@ class ContactExportController extends Controller
             }
         }
 
+        // AT-403 — Rentals → Contacts lens. This route has no separate
+        // "corex.rentals.contacts.export" name to detect by (one export
+        // endpoint serves both entry points), so the lens travels as an
+        // explicit ?rental=1 the export link itself sets whenever it's
+        // rendered from the Rentals lens (see corex/contacts/index.blade.php).
+        // Applied UNCONDITIONALLY, including under ?all=1 — "export
+        // everything in my scope" must still mean "everything rental-
+        // relevant," never escape the lens the agent is actually working in.
+        if ($request->boolean('rental')) {
+            $query->rentalRelevant();
+        }
+
         return $query;
     }
 }

@@ -74,6 +74,7 @@ class ComposeSellerService
         $links = DB::table('contact_property')
             ->where('property_id', $propertyId)
             ->where('role', 'seller')
+            ->whereNull('deleted_at')
             ->get(['contact_id', 'is_primary'])
             ->keyBy('contact_id');
 
@@ -127,14 +128,21 @@ class ComposeSellerService
         })->sortByDesc('is_primary')->values()->all();
     }
 
-    /** Make ONE seller the primary for the property (others become secondary). */
+    /**
+     * Make ONE seller the primary for the property (others become secondary).
+     * Both updates exclude soft-deleted rows — a removed seller must never
+     * hold `is_primary=true` invisibly, and a stray unset must never touch
+     * a link that no longer exists. See .ai/specs/rental-applications.md,
+     * "The contact_property hard-delete fix".
+     */
     public function markPrimary(int $propertyId, int $contactId): void
     {
         DB::transaction(function () use ($propertyId, $contactId) {
             DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
+                ->whereNull('deleted_at')
                 ->update(['is_primary' => false, 'updated_at' => now()]);
             DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
-                ->where('contact_id', $contactId)
+                ->where('contact_id', $contactId)->whereNull('deleted_at')
                 ->update(['is_primary' => true, 'updated_at' => now()]);
         });
     }
@@ -143,12 +151,12 @@ class ComposeSellerService
     public function ensurePrimaryDefault(int $propertyId): void
     {
         $hasPrimary = DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
-            ->where('is_primary', true)->exists();
+            ->where('is_primary', true)->whereNull('deleted_at')->exists();
         if ($hasPrimary) {
             return;
         }
         $firstId = DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
-            ->orderBy('id')->value('contact_id');
+            ->whereNull('deleted_at')->orderBy('id')->value('contact_id');
         if ($firstId) {
             $this->markPrimary($propertyId, (int) $firstId);
         }
@@ -315,20 +323,34 @@ class ComposeSellerService
     /** Link a contact to the property as a seller (idempotent). `source`: 'deed' | 'manual'. */
     public function linkSellerToProperty(int $contactId, int $propertyId, string $source = 'manual'): void
     {
-        DB::table('contact_property')->updateOrInsert(
-            ['contact_id' => $contactId, 'property_id' => $propertyId],
-            ['role' => 'seller', 'source' => $source, 'updated_at' => now(), 'created_at' => now()],
-        );
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        $property = Property::find($propertyId);
+        if ($property) {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'seller');
+        }
+
+        // ContactPropertyLinker, not a raw updateOrInsert() — a plain
+        // updateOrInsert would silently rewrite role/source on a
+        // soft-deleted row while leaving deleted_at set (still invisible
+        // as linked), rather than restoring it. See .ai/specs/
+        // rental-applications.md, "The contact_property hard-delete fix".
+        \App\Services\Property\ContactPropertyLinker::link($contactId, $propertyId, 'seller', ['source' => $source]);
     }
 
-    /** Remove a seller link (the contact + property both survive — only the link is dropped). */
+    /** Remove a seller link (the contact + property both survive — only the link is dropped, soft). */
     public function unlinkSeller(int $contactId, int $propertyId): void
     {
-        DB::table('contact_property')
-            ->where('contact_id', $contactId)
-            ->where('property_id', $propertyId)
-            ->where('role', 'seller')
-            ->delete();
+        // AT-398 — the owner set behind an open deal cannot move underneath it.
+        $property = Property::find($propertyId);
+        if ($property) {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanUnlink($property, $contactId);
+        }
+
+        // Soft-delete via ContactPropertyLinker — Johan: "corex is a no
+        // delete system." 'seller' is an ASSERTION: if the role changed
+        // under us, this throws rather than silently leaving the
+        // (now differently-roled) link intact.
+        \App\Services\Property\ContactPropertyLinker::unlink($contactId, $propertyId, 'seller');
     }
 
     /**
@@ -451,6 +473,13 @@ class ComposeSellerService
             return;
         }
 
+        // AT-398 — selecting a deed resyncs the WHOLE seller set; the owner
+        // set behind an open deal cannot move underneath it.
+        $lockedProperty = Property::find($propertyId);
+        if ($lockedProperty) {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($lockedProperty, 'seller');
+        }
+
         DB::transaction(function () use ($agencyId, $listing, $propertyId, $deedTp, $deedTpId, $branchId, $userId) {
             DB::table('prospecting_listings')->where('id', $listing->id)->update([
                 'linked_deed_tracked_property_id' => $deedTpId,
@@ -464,11 +493,16 @@ class ComposeSellerService
 
             // Drop prior deed-sourced sellers not in the new deed (keep manual sellers).
             $priorDeedContactIds = DB::table('contact_property')
-                ->where('property_id', $propertyId)->where('role', 'seller')->where('source', 'deed')->pluck('contact_id');
+                ->where('property_id', $propertyId)->where('role', 'seller')->where('source', 'deed')
+                ->whereNull('deleted_at')->pluck('contact_id');
             foreach ($priorDeedContactIds as $cid) {
                 $idn = Contact::withoutGlobalScopes()->where('id', $cid)->value('id_number');
                 if (! $idn || ! in_array((string) $idn, $newIds, true)) {
-                    DB::table('contact_property')->where('property_id', $propertyId)->where('contact_id', $cid)->where('role', 'seller')->delete();
+                    // Soft-delete via ContactPropertyLinker — Johan: "corex
+                    // is a no delete system." See .ai/specs/
+                    // rental-applications.md, "The contact_property
+                    // hard-delete fix".
+                    \App\Services\Property\ContactPropertyLinker::unlink((int) $cid, $propertyId, 'seller');
                 }
             }
 
@@ -492,8 +526,22 @@ class ComposeSellerService
      *  revert the property address to the listing's portal address. */
     public function unlinkDeed(int $agencyId, object $listing, int $propertyId): void
     {
+        // AT-398 — unlinking a deed drops the WHOLE deed-sourced seller set;
+        // the owner set behind an open deal cannot move underneath it.
+        $lockedProperty = Property::find($propertyId);
+        if ($lockedProperty) {
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertOwnershipMutable($lockedProperty);
+        }
+
         DB::transaction(function () use ($listing, $propertyId) {
-            DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->where('source', 'deed')->delete();
+            // Soft-delete — Johan: "corex is a no delete system." A bulk
+            // filtered removal (this whole deed's seller set), not a
+            // single-pair unlink, so a direct update rather than the
+            // per-pair linker. See .ai/specs/rental-applications.md, "The
+            // contact_property hard-delete fix".
+            DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')
+                ->where('source', 'deed')->whereNull('deleted_at')
+                ->update(['deleted_at' => now()]);
             DB::table('prospecting_listings')->where('id', $listing->id)->update([
                 'linked_deed_tracked_property_id' => null,
                 'linked_deed_by_user_id'          => null,

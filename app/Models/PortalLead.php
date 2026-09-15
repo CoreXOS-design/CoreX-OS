@@ -28,6 +28,7 @@ class PortalLead extends Model
         'contact_id',
         'contact_exists',
         'existing_contact_agent_id',
+        'received_by_user_id',
         'name',
         'email',
         'phone',
@@ -64,6 +65,12 @@ class PortalLead extends Model
     public function existingContactAgent(): BelongsTo
     {
         return $this->belongsTo(User::class, 'existing_contact_agent_id');
+    }
+
+    /** AT-Core-Matches, Johan's ruling 6 — the agent this lead was frozen to at arrival. */
+    public function receivedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_by_user_id');
     }
 
     public function portalLabel(): string

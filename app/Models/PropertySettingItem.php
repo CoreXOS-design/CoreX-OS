@@ -30,6 +30,9 @@ class PropertySettingItem extends Model
     const GROUP_MANDATE_TYPE    = 'mandate_type';
     // Build 3 — condition levels with adjustment_pct.
     const GROUP_CONDITION_LEVEL = 'condition_level';
+    // AT-402 — the Rental tab's Furnished Status: an agency-managed list,
+    // not a hardcoded enum, same as every other group here.
+    const GROUP_FURNISHED_STATUS = 'furnished_status';
 
     /** 'Average' is the baseline (0%) and cannot be deleted. The controller
      *  enforces this; the UI surfaces it so the agent knows. */
@@ -135,6 +138,15 @@ class PropertySettingItem extends Model
             ['name' => 'Very Good',   'adjustment_pct' => 12.00],
             ['name' => 'Excellent',   'adjustment_pct' => 20.00],
             ['name' => 'Exceptional', 'adjustment_pct' => 38.00],
+        ],
+
+        // AT-402 — rental-only, but modelled the same way as every other
+        // group: an agency starting point, not a hardcoded enum an agency
+        // can never adjust.
+        self::GROUP_FURNISHED_STATUS => [
+            ['name' => 'Unfurnished'],
+            ['name' => 'Furnished'],
+            ['name' => 'Part-Furnished'],
         ],
     ];
 

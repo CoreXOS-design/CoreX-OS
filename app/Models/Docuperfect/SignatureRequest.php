@@ -434,6 +434,28 @@ class SignatureRequest extends Model
         if ((bool) $this->is_deceased) {
             return $this->role_identity; // never stamped in the DOM; value is moot
         }
+        // 2026-09-07 — a non-persisted instance (no signature_template_id) can
+        // never resolve a real position via the query below: WHERE
+        // signature_template_id = NULL matches nothing in SQL regardless of
+        // role_index, silently returning position=1 for EVERY such instance.
+        // Found via CanonicalInkIdentityScopingTest's own no-DB fixture style
+        // (two distinct unsaved SignatureRequest doubles, same role, different
+        // role_index, both resolving to "seller_1") — a genuine bug in this
+        // method, though NOT reachable from real signing: both real callers of
+        // CanonicalInkComposer::bakeInk() (SigningController::completeWeb(),
+        // SignatureController's amendment-initial path) always pass a
+        // persisted row resolved by token or by a real template relation,
+        // confirmed by re-running the identical two-signer scenario against
+        // real, persisted rows — attestationIdentity() already returns the
+        // correct position there, unaffected by this fix. This fallback
+        // mirrors role_identity's own shape (party_role . '_' . role_index)
+        // rather than a deceased-aware DB count — correct for the common no-
+        // deceased-sibling case any unsaved-object caller will have; a
+        // persisted instance never takes this branch, so the deceased-
+        // exclusion behaviour this method exists for is completely unchanged.
+        if (! $this->exists) {
+            return $this->party_role . '_' . ((int) ($this->role_index ?? 1));
+        }
         $position = 1 + static::query()
             ->where('signature_template_id', $this->signature_template_id)
             ->where('party_role', $this->party_role)

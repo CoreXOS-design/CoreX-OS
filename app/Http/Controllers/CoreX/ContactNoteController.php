@@ -11,6 +11,24 @@ class ContactNoteController extends Controller
 {
     use \App\Http\Controllers\Concerns\AuthorizesContactAccess;
 
+    /**
+     * Read-only notes fragment for a popup (Core Matches board — Johan:
+     * "the notes should open in a popup not redirect to the contact").
+     * No authorizeContact() call: this is a VIEW, and route-model binding
+     * already scopes which contacts a user can bind at all via the global
+     * ContactScope — the same reasoning show() uses canMutateContact() only
+     * to compute $canEdit, never to gate access. Read-only by design (see
+     * _note-item's readOnly flag) — adding a note from the popup was ruled
+     * out of scope to keep this a quick-glance surface, not a second write
+     * path for the same form.
+     */
+    public function quickView(Contact $contact)
+    {
+        $notes = $contact->contactNotes()->with('user')->latest()->get();
+
+        return view('corex.contacts._notes-quick-view', compact('contact', 'notes'));
+    }
+
     public function store(Request $request, Contact $contact)
     {
         // AT-267 — assistants may VIEW a colleague's contact but only EDIT the agent's own.

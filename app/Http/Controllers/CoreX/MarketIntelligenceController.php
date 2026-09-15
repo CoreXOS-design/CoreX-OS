@@ -709,6 +709,12 @@ class MarketIntelligenceController extends Controller
                 ->onMarket()
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
+                // Sale-only: this injects agency stock into a prospecting/canvass
+                // pool of sales leads (ProspectingListing has no listing_type or
+                // rental concept at all). A rental doesn't compete with sale leads
+                // here, and would show with a wrong price (this view reads `price`
+                // directly, synthesised onto a ProspectingListing further below).
+                ->where('listing_type', 'sale')
                 ->when($request->filled('suburb'), fn ($q) => $q->where('suburb', $request->get('suburb')))
                 // The stock injection must respect the SAME search/address filters the
                 // agent already applied to the canvass pool above — otherwise ticking

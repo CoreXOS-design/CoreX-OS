@@ -1086,11 +1086,17 @@ final class DeedsCaptureController extends Controller
             if ($ownerContactIds->isEmpty() && $trackedProperty->owner_contact_id) {
                 $ownerContactIds = collect([$trackedProperty->owner_contact_id]);
             }
+            // AT-398 — promotion can MATCH an existing property (not only
+            // create a new one); the owner set behind an open deal on that
+            // existing property cannot move underneath it.
+            app(\App\Services\Property\PropertyOwnershipGuard::class)->assertCanLink($property, 'owner');
+            // ContactPropertyLinker, not a raw updateOrInsert() — promotion
+            // can match an EXISTING property (comment above), a real risk
+            // of colliding with a soft-deleted contact_property row. See
+            // .ai/specs/rental-applications.md, "The contact_property
+            // hard-delete fix".
             foreach ($ownerContactIds as $contactId) {
-                DB::table('contact_property')->updateOrInsert(
-                    ['contact_id' => $contactId, 'property_id' => $property->id],
-                    ['role' => 'owner', 'updated_at' => now(), 'created_at' => now()],
-                );
+                \App\Services\Property\ContactPropertyLinker::link((int) $contactId, $property->id, 'owner');
             }
 
             // Ticked TVA numbers land on the contact in this SAME transaction.

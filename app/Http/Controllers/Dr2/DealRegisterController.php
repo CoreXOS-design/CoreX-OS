@@ -7,6 +7,7 @@ use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\Deal;
 use App\Models\DealLog;
+use App\Models\DealProperty;
 use App\Models\DealSettlement;
 use App\Models\DealV2\AgencyServiceProvider;
 use App\Models\DealV2\AgencyServiceProviderContact;
@@ -365,8 +366,26 @@ class DealRegisterController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('deals.create'), 403);
 
+        // Create-time multi-property, Johan 2026-09-14/16 — his own finding:
+        // the "Add another property" control only existed on the EDIT
+        // screen, so a user building a two-property deal was told to save
+        // first, then add — forcing a deal register to carry either
+        // knowingly-wrong figures or a deliberately unbalanced intermediate
+        // state, however briefly. His words: "2 properties sold together
+        // makes up 1 selling price... that was never the spec." Validated
+        // for shape and BALANCE here, before anything is persisted — pure
+        // arithmetic needs no DB write to check, so an obviously-wrong
+        // payload writes nothing at all, not even the deal itself. The
+        // same-owner gate can only run once the primary property is
+        // actually linked (assertCanAddToDeal() reads $deal->properties()),
+        // so that check happens after persistDeal() below, still inside the
+        // SAME transaction — any failure there rolls back everything
+        // already written this request, deal number allocation included.
+        // The deal is never created half-right.
+        $additionalProperties = $this->validateAdditionalPropertiesPayload($request);
+
         try {
-            return DB::transaction(function () use ($request) {
+            return DB::transaction(function () use ($request, $additionalProperties) {
                 $deal = new Deal();
 
                 // NUMERIC DEAL NUMBERING — supports legacy D-#### and numeric formats (DR1 parity).
@@ -403,12 +422,21 @@ class DealRegisterController extends Controller
                             ]);
                         }
                     }
+
+                    if ($additionalProperties !== null) {
+                        $this->applyCreateTimeMultiProperty($deal, $additionalProperties);
+                    }
                 }
 
                 return $resp;
             });
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
+        } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+            // Same exact shape as addProperty()'s own catch — the plain-
+            // English refusal message travels unwrapped, never behind the
+            // generic "Failed to save deal:" prefix below.
+            return back()->withErrors(['property_id' => $e->getMessage()])->withInput();
         } catch (\Throwable $e) {
             \Log::error('DR2 store() failed', [
                 'error' => $e->getMessage(),
@@ -416,6 +444,142 @@ class DealRegisterController extends Controller
                 'input' => $request->except(['_token']),
             ]);
             return back()->withErrors('Failed to save deal: ' . $e->getMessage())->withInput();
+        }
+    }
+
+    /**
+     * Create-time multi-property, Johan 2026-09-14/16. Validates the shape of
+     * the client's staged `properties[]` array (see dr2/create.blade.php's
+     * own create-mode JS) and enforces the balance rule server-side — never
+     * trusting the browser's own live check, same posture as every other
+     * gate on this feature. Returns null when this wasn't a genuine
+     * multi-property submission at all (fewer than 2 entries — the client
+     * only ever sends this array once a second property is staged), in
+     * which case store() proceeds exactly as it always has.
+     *
+     * @return array<int, array{property_id:int, allocated_price:float, allocated_commission:float}>|null
+     */
+    private function validateAdditionalPropertiesPayload(Request $request): ?array
+    {
+        $raw = $request->input('properties');
+        if (! is_array($raw) || count($raw) < 2) {
+            return null;
+        }
+
+        $validated = $request->validate([
+            'properties' => ['required', 'array', 'min:2'],
+            'properties.*.property_id' => ['required', 'integer', 'exists:properties,id'],
+            'properties.*.allocated_price' => ['required', 'numeric', 'min:0'],
+            'properties.*.allocated_commission' => ['required', 'numeric', 'min:0'],
+        ])['properties'];
+
+        $ids = array_column($validated, 'property_id');
+        if (count($ids) !== count(array_unique($ids))) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'properties' => 'The same property was submitted twice.',
+            ]);
+        }
+
+        // AT-flow-fix, Johan 2026-09-19 — SUPERSEDES the sum-vs-total
+        // balance check that used to live here. His own correction: "the
+        // master must never be a second, independently-typed figure — it
+        // IS the sum, displayed." The client no longer submits a competing
+        // property_value/total_commission for a multi-property deal (those
+        // fields are read-only, JS-derived from these same rows) — there is
+        // no longer a second number that could disagree with this one to
+        // validate against. A crafted request that posts a mismatched
+        // top-level total anyway is already harmless: applyCreateTimeMultiProperty()
+        // calls DealPropertyPricingService::recalculateTotals() unconditionally,
+        // inside the same transaction, which force-overwrites
+        // property_value/total_commission from the REAL sum of the
+        // persisted deal_properties rows regardless of what was submitted —
+        // the same mechanism the edit screen has relied on as its sole
+        // integrity guarantee since the original split-pricing build, with
+        // no client-side check of its own. Do NOT reinstate a sum-vs-total
+        // comparison here — see .ai/specs/dr2-multi-property.md §8e for the
+        // full reasoning; it is a superseded design, not a gap.
+        return $validated;
+    }
+
+    /**
+     * Create-time multi-property, Johan 2026-09-14/16 — links every
+     * additional property, corrects the primary's own allocation (the
+     * automatic single-property mirror in Deal::booted() already ran by the
+     * time this executes, guessing the primary's price from property_value/
+     * total_commission — the TOTAL, for a multi-property submission, which
+     * is wrong for the primary's own individual allocation), then
+     * recalculates the deal's totals as the true sum. Runs inside the SAME
+     * transaction store() already wraps everything in — a thrown
+     * PropertyOwnerMismatchException here rolls back the whole request,
+     * deal creation included, via that transaction's own exception
+     * propagation. Never a second, looser gate for the create-time path —
+     * the exact same DealPropertyOwnerGate/DealPropertyStatusService checks
+     * addProperty() already runs for the edit-mode case.
+     */
+    private function applyCreateTimeMultiProperty(Deal $deal, array $properties): void
+    {
+        $gate = app(\App\Services\Deal\DealPropertyOwnerGate::class);
+
+        foreach ($properties as $row) {
+            $property = Property::findOrFail($row['property_id']);
+
+            if ((int) $row['property_id'] === (int) $deal->property_id) {
+                DealProperty::where('deal_id', $deal->id)->where('property_id', $property->id)->update([
+                    'allocated_price' => $row['allocated_price'],
+                    'allocated_commission' => $row['allocated_commission'],
+                ]);
+                continue;
+            }
+
+            $gate->assertCanAddToDeal($deal, $property);
+
+            if (in_array($deal->accepted_status, ['G', 'R'], true)) {
+                $conflict = app(\App\Services\Deal\DealPropertyStatusService::class)
+                    ->committedDealOnProperty($property->id, $deal->id);
+                if ($conflict !== null) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'property_id' => "Can't add {$property->address} — deal #{$conflict->deal_no} already carries a Granted or Registered status on it.",
+                    ]);
+                }
+            }
+
+            DealProperty::create([
+                'deal_id' => $deal->id,
+                'property_id' => $property->id,
+                'is_primary' => false,
+                'allocated_price' => $row['allocated_price'],
+                'allocated_commission' => $row['allocated_commission'],
+            ]);
+
+            // Branch sharing (spec §6) — same co-share rule addProperty() already applies.
+            if ($property->branch_id && $property->branch_id !== $deal->branch_id) {
+                $deal->attachCoBranch($property->branch_id);
+            }
+        }
+
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal->fresh());
+
+        // Bug found live on QA1, 2026-09-15 (Johan, deal #181): the primary's
+        // deal_properties row is written by persistDeal() above BEFORE this
+        // method ever runs, so DealCreated (fired off that same persistDeal()
+        // save) only ever sees the primary — every additional property linked
+        // HERE was invisible to FlagPropertyUnderOfferOnDealCreated and every
+        // other create-time listener, every time. Same fix, same precedent,
+        // as addProperty() already uses when it attaches a property to an
+        // EXISTING deal: re-fire the create-time events now that every
+        // property is actually linked, so the listeners see the complete set.
+        // Idempotent on the primary — FlagPropertyUnderOfferOnDealCreated and
+        // EnsurePropertyUnderOfferOnGrant both skip a property already at
+        // 'under_offer' before doing anything, so the primary (already
+        // correctly flagged by the first, real DealCreated firing) gets no
+        // second save, no duplicate audit row, no duplicate portal push —
+        // confirmed by reading both listeners, not assumed.
+        $fresh = $deal->fresh();
+        if (in_array($fresh->accepted_status, ['P', 'G'], true)) {
+            event(new \App\Events\Deal\DealCreated($fresh, auth()->id()));
+        }
+        if (in_array($fresh->accepted_status, ['G', 'R'], true)) {
+            event(new \App\Events\Deal\DealStageAdvanced($fresh, $fresh->accepted_status, $fresh->accepted_status, auth()->id()));
         }
     }
 
@@ -616,6 +780,23 @@ class DealRegisterController extends Controller
         // §2.2 — resolve the picked property link (manual pick = exact confidence).
         $propertyId = !empty($data['property_id']) ? (int) $data['property_id'] : null;
 
+        // AT-398 — Johan: "there cannot be a deal without an owner." Whenever a
+        // property IS being linked (this field is nullable — a name-only deal
+        // with no property at all is unaffected, that's a different, pre-existing
+        // DR1-parity capability), that property must have a resolvable seller-
+        // side contact. A refusal here, not a silent empty owner list to design
+        // around later.
+        if ($propertyId) {
+            $linkCandidate = Property::find($propertyId);
+            if ($linkCandidate) {
+                try {
+                    app(\App\Services\Deal\DealPropertyOwnerGate::class)->assertHasKnownOwner($linkCandidate);
+                } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+                    return back()->withErrors(['property_id' => $e->getMessage()])->withInput();
+                }
+            }
+        }
+
         // Wave 2 granted-uniqueness — a property may carry multiple concurrent
         // deals, but AT MOST ONE granted. Block a NEW grant here (before any
         // write) when another deal already holds the granted/registered lane.
@@ -699,8 +880,8 @@ class DealRegisterController extends Controller
         if ($propertyId) {
             $linkProperty = Property::find($propertyId);
             if ($linkProperty) {
-                $this->syncPartyLinks($linkProperty, $sellerIds, 'seller');
-                $this->syncPartyLinks($linkProperty, $buyerIds, 'buyer');
+                $this->syncPartyLinks($linkProperty, $sellerIds, 'seller', (int) $deal->id);
+                $this->syncPartyLinks($linkProperty, $buyerIds, 'buyer', (int) $deal->id);
             }
         }
 
@@ -871,6 +1052,140 @@ class DealRegisterController extends Controller
         });
 
         return response()->json($results);
+    }
+
+    /**
+     * "Add another property" eligibility, Johan 2026-09-16 — his own
+     * finding, live: "add another property should only display the other
+     * properties on this seller. why offer a search, it can be a plain
+     * dropdown." Refined by him one step further before any code was
+     * written: "properties on this seller" and "properties this deal will
+     * accept" are not the same set — DealPropertyOwnerGate compares exact
+     * OWNER SETS, not a single seller, so a seller who owns one property
+     * solely and another jointly has two DIFFERENT owner sets, and a
+     * dropdown scoped to "linked to this seller" would still offer
+     * something the gate then refuses — the exact defect in a new shape.
+     * Reuses DealPropertyOwnerGate's own sellerSideContactIds()/
+     * ownerSetsMatch() verbatim, never a second, looser comparison
+     * invented for this endpoint.
+     *
+     * Johan's follow-up ruling, 2026-09-16, after being told how many real
+     * QA1 properties fall in exactly that gap (31 — sized on real data
+     * BEFORE this was built, per his own instruction not to decide it
+     * silently): "those properties must NOT be silently absent. An agent
+     * who knows their seller owns three houses, opens the dropdown and
+     * sees two, will conclude the system lost one." So a candidate sharing
+     * a seller but failing the owner-set match is still RETURNED, marked
+     * `eligible: false` with a plain-language `reason` — never the gate's
+     * own vocabulary — rather than dropped. G/R exclusivity remains a hard
+     * exclusion (see below) — a genuinely separate, still-open question,
+     * not decided the same way here.
+     *
+     * ONE shared endpoint for create AND edit (Johan: "same behaviour on
+     * create and on edit. One implementation, not two.") — the reference
+     * property is passed explicitly rather than resolved from a Deal,
+     * because create mode has no Deal yet; edit mode passes its own
+     * primary property_id the same way.
+     */
+    public function eligibleProperties(Request $request): JsonResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $reference = Property::find((int) $request->input('reference_property_id'));
+        if (! $reference) {
+            return response()->json(['properties' => []]);
+        }
+
+        $gate = app(\App\Services\Deal\DealPropertyOwnerGate::class);
+        $referenceOwnerIds = $gate->sellerSideContactIds($reference);
+        if (empty($referenceOwnerIds)) {
+            // No resolvable owner on the reference at all — nothing can
+            // ever match (assertHasKnownOwner()'s own precondition would
+            // refuse any candidate regardless of set comparison).
+            return response()->json(['properties' => []]);
+        }
+
+        $excludeIds = array_values(array_filter(array_map('intval', (array) $request->input('exclude', []))));
+        $excludeIds[] = $reference->id;
+
+        $showAll = $request->boolean('all');
+
+        // Cheap, necessary pre-filter: any candidate whose owner set
+        // exactly matches the reference's must share at least one contact
+        // with it. Narrows a whole-agency scan down to a small pool before
+        // the real (exact-set) comparison runs.
+        $candidateIds = DB::table('contact_property')
+            ->whereIn('contact_id', $referenceOwnerIds)
+            ->whereIn('role', ['owner', 'seller', 'landlord', 'lessor'])
+            ->whereNull('deleted_at')
+            ->whereNotIn('property_id', $excludeIds)
+            ->distinct()
+            ->pluck('property_id');
+
+        if ($candidateIds->isEmpty()) {
+            return response()->json(['properties' => []]);
+        }
+
+        $candidates = Property::query()
+            ->visibleTo($request->user())
+            ->whereIn('id', $candidateIds)
+            ->when(! $showAll, fn ($q) => $q->onMarket())
+            ->with('agent')
+            ->get();
+
+        // Same G/R exclusivity check addProperty() already runs (only ever
+        // relevant when the deal itself is already Granted/Registered) —
+        // reused verbatim, never a second set of status rules for this
+        // dropdown. $dealId is null on create (no Deal exists yet, so
+        // nothing to exclude the candidate FROM). Kept as a hard exclusion
+        // (never shown, not even disabled) — Johan's ruling on the
+        // owner-set gap below does not extend here automatically; whether
+        // this deserves the same disabled-with-reason treatment is a
+        // separate, explicitly open question (see the conductor's own
+        // brief and this endpoint's class-level docblock).
+        $acceptedStatus = (string) $request->input('accepted_status', 'P');
+        $dealId = $request->filled('deal_id') ? (int) $request->input('deal_id') : null;
+        $statusService = in_array($acceptedStatus, ['G', 'R'], true)
+            ? app(\App\Services\Deal\DealPropertyStatusService::class)
+            : null;
+        $candidates = $candidates
+            ->filter(fn (Property $p) => $statusService === null || $statusService->committedDealOnProperty($p->id, $dealId) === null)
+            ->values();
+
+        // Johan's ruling, 2026-09-16: "31 IS MEANINGFUL... those properties
+        // must NOT be silently absent. An agent who knows their seller
+        // owns three houses, opens the dropdown and sees two, will
+        // conclude the system lost one." So an owner-set MISMATCH is no
+        // longer filtered out — it's returned, marked ineligible, with a
+        // plain-language reason (never the gate's own vocabulary: "owner
+        // set" means nothing to a working agent). Sorted eligible-first so
+        // the real choices are never buried under the ones that can't be
+        // picked (his own explicit instruction).
+        $eligible = [];
+        $ineligible = [];
+        foreach ($candidates as $p) {
+            if ($gate->ownerSetsMatch($reference, $p)) {
+                $eligible[] = $p;
+            } else {
+                $ineligible[] = $p;
+            }
+        }
+
+        $toRow = fn (Property $p, bool $isEligible) => $p->toSearchResult([
+            // Enough to tell two of the same seller's properties apart
+            // without a search (Johan's own requirement) — same fields
+            // searchProperties() already surfaces for this reason.
+            'ref' => $p->property_number,
+            'price' => $p->listing_price ?? $p->price ?? null,
+            'eligible' => $isEligible,
+            'reason' => $isEligible ? null : "Can't be added — the owners on this property aren't the same as the owners on this deal.",
+        ]);
+
+        return response()->json([
+            'properties' => collect($eligible)->map(fn (Property $p) => $toRow($p, true))
+                ->concat(collect($ineligible)->map(fn (Property $p) => $toRow($p, false)))
+                ->values(),
+        ]);
     }
 
     /**
@@ -1094,7 +1409,7 @@ class DealRegisterController extends Controller
         }
     }
 
-    private function syncPartyLinks(Property $property, array $contactIds, string $role): void
+    private function syncPartyLinks(Property $property, array $contactIds, string $role, ?int $excludingDealId = null): void
     {
         foreach ($contactIds as $cid) {
             // Respect an existing link of ANY role — no silent re-roling.
@@ -1105,7 +1420,21 @@ class DealRegisterController extends Controller
             if (! $contact) {
                 continue;
             }
-            $property->contacts()->attach($cid, ['role' => $role]);
+            // AT-398 — the owner set behind an open deal cannot move
+            // underneath it. Excludes THIS deal's own lock: syncing this
+            // deal's own seller onto its own property is the lock's purpose,
+            // not a violation of it — a genuinely different seller arriving
+            // here while another deal is open is exactly what must be caught.
+            app(\App\Services\Property\PropertyOwnershipGuard::class)
+                ->assertCanLink($property, $role, $excludingDealId);
+            // ContactPropertyLinker, not a bare attach() — the exists()
+            // check above already preserves this method's own "no silent
+            // re-roling" rule for an ACTIVE link (we never reach this line
+            // for one); what a plain attach() would still get wrong is a
+            // TRASHED row for this exact pair, which a blind insert would
+            // collide with. The linker restores it instead. See .ai/specs/
+            // rental-applications.md, "The contact_property hard-delete fix".
+            \App\Services\Property\ContactPropertyLinker::link($cid, $property->id, $role);
             if ($role === 'seller') {
                 \App\Models\PropertySellerLink::ensureExists((int) $property->id, $cid);
             }
@@ -1253,5 +1582,203 @@ class DealRegisterController extends Controller
         return trim(($firm ?? '')
             . ($attorney ? ' — ' . $attorney : '')
             . ($contact ? ' (via ' . $contact . ')' : ''));
+    }
+
+    // ── AT-398 — multi-property ──────────────────────────────────────────────
+
+    /**
+     * Add a property to a deal. Johan's strict rule: the property's owners
+     * must be EXACTLY the same set as the deal's existing properties — every
+     * seller on the deal must be able to sign for every property on it.
+     * Refused (never silently dropped) with a plain-English reason when the
+     * owners don't match, the owners aren't known yet, or the property is
+     * already committed elsewhere and this deal is already Granted/Registered.
+     */
+    public function addProperty(Request $request, Deal $deal): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        // AT-398 split-pricing: the FIRST property on a deal inherits its price
+        // from the deal's own (already-required) property_value/total_commission
+        // fields — see Deal::syncPrimaryPropertyPivot(). Every property after
+        // that needs its OWN price entered here; Johan's ruling (via
+        // AskUserQuestion): the existing price is never redistributed, and the
+        // deal total is always the sum of every property's own price — never a
+        // separately-typed total that could disagree with the parts.
+        $isFirst = $deal->properties()->count() === 0;
+        $data = $request->validate([
+            'property_id' => ['required', 'integer', 'exists:properties,id'],
+            'allocated_price' => [$isFirst ? 'nullable' : 'required', 'numeric', 'min:0'],
+            'allocated_commission' => [$isFirst ? 'nullable' : 'required', 'numeric', 'min:0'],
+        ]);
+        $property = Property::findOrFail($data['property_id']);
+
+        try {
+            app(\App\Services\Deal\DealPropertyOwnerGate::class)->assertCanAddToDeal($deal, $property);
+        } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+            return back()->withErrors(['property_id' => $e->getMessage()]);
+        }
+
+        // A deal already Granted/Registered may only gain a property that is
+        // not itself already committed elsewhere — the same exclusivity rule
+        // a fresh grant would be checked against, applied at add-time because
+        // this deal will not pass through a fresh grant again.
+        if (in_array($deal->accepted_status, ['G', 'R'], true)) {
+            $conflict = app(\App\Services\Deal\DealPropertyStatusService::class)
+                ->committedDealOnProperty($property->id, $deal->id);
+            if ($conflict !== null) {
+                return back()->withErrors([
+                    'property_id' => "Can't add {$property->address} — deal #{$conflict->deal_no} already carries a Granted or Registered status on it.",
+                ]);
+            }
+        }
+
+        DB::transaction(function () use ($deal, $property, $isFirst, $data) {
+            $row = DealProperty::withTrashed()->where('deal_id', $deal->id)->where('property_id', $property->id)->first();
+            if ($row) {
+                if ($row->trashed()) {
+                    $row->restore();
+                }
+                if (! $isFirst) {
+                    $row->update(['allocated_price' => $data['allocated_price'], 'allocated_commission' => $data['allocated_commission']]);
+                }
+            } else {
+                DealProperty::create(['deal_id' => $deal->id, 'property_id' => $property->id, 'is_primary' => $isFirst]);
+                if ($isFirst) {
+                    // saveQuietly() bypasses Deal::booted()'s updated hook (by
+                    // design — see that hook's own docblock), so the price
+                    // mirror it would normally do never fires here. Mirror it
+                    // explicitly onto the row just created instead.
+                    $deal->forceFill(['property_id' => $property->id])->saveQuietly();
+                    DealProperty::where('deal_id', $deal->id)->where('property_id', $property->id)->update([
+                        'allocated_price' => $deal->property_value,
+                        'allocated_commission' => $deal->total_commission,
+                    ]);
+                } else {
+                    DealProperty::where('deal_id', $deal->id)->where('property_id', $property->id)->update([
+                        'allocated_price' => $data['allocated_price'],
+                        'allocated_commission' => $data['allocated_commission'],
+                    ]);
+                }
+            }
+
+            // Johan (Q3, answered): share the deal across both branches when a
+            // linked property belongs to a different one — reuses the existing
+            // co-branch pivot (Deal::attachCoBranch()), never invents a new one.
+            if ($property->branch_id && (int) $property->branch_id !== (int) $deal->branch_id) {
+                $deal->attachCoBranch((int) $property->branch_id);
+            }
+
+            $this->logDealEvent($deal, 'property_added', null, null, "Property added: {$property->address}");
+        });
+
+        // Split-pricing: deal totals are always the SUM of every linked
+        // property's own allocation — never a separately-entered figure that
+        // could disagree with the parts (Johan's ruling). No-op while the
+        // deal has 0-1 properties (nothing to sum beyond what's already there).
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal);
+
+        // Bring the newly added property into sync with the deal's CURRENT
+        // status — re-fires the same, already-tested Wave 2 listeners rather
+        // than duplicating their logic. Idempotent: a property already in the
+        // right state is left alone; the deal's OTHER properties are untouched
+        // (each listener acts on its own linked properties independently).
+        $fresh = $deal->fresh();
+        if (in_array($fresh->accepted_status, ['P', 'G'], true)) {
+            event(new \App\Events\Deal\DealCreated($fresh, auth()->id()));
+        }
+        if (in_array($fresh->accepted_status, ['G', 'R'], true)) {
+            event(new \App\Events\Deal\DealStageAdvanced($fresh, $fresh->accepted_status, $fresh->accepted_status, auth()->id()));
+        }
+
+        return back()->with('success', "{$property->address} added to this deal.");
+    }
+
+    /**
+     * Remove a property from a deal. SOFT removal only (deal_properties.deleted_at)
+     * — Johan: keep a note it was once there, never let it just disappear. The
+     * primary property may not be removed directly here — reassign a different
+     * property as primary first (editing property_id already does this via
+     * Deal's own syncPrimaryPropertyPivot()).
+     */
+    public function removeProperty(Request $request, Deal $deal, Property $property): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $row = $deal->properties()->where('properties.id', $property->id)->first();
+        if (! $row) {
+            return back()->withErrors(['property_id' => 'That property is not on this deal.']);
+        }
+        if ((bool) $row->pivot->is_primary) {
+            return back()->withErrors(['property_id' => 'This is the primary property on the deal — pick a different property as primary before removing this one.']);
+        }
+
+        DealProperty::where('id', $row->pivot->id)->delete(); // soft
+        $this->logDealEvent($deal, 'property_removed', null, null, "Property removed: {$property->address}");
+
+        // Split-pricing: dropping a property's allocation out of the sum.
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal);
+
+        return back()->with('success', "{$property->address} removed from this deal.");
+    }
+
+    /**
+     * AT-398 — restore a soft-removed property link. A distinct action from
+     * addProperty() (rather than "search and re-add") so the Archived/Restore
+     * UI (BUILD_STANDARD full-CRUD floor) has a direct, one-click affordance —
+     * mirrors dr2/_removed-steps.blade.php's restore pattern for pipeline steps.
+     */
+    public function restoreProperty(Request $request, Deal $deal, Property $property): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        $row = DealProperty::onlyTrashed()->where('deal_id', $deal->id)->where('property_id', $property->id)->first();
+        if (! $row) {
+            return back()->withErrors(['property_id' => 'That property is not in this deal\'s removed list.']);
+        }
+
+        try {
+            app(\App\Services\Deal\DealPropertyOwnerGate::class)->assertCanAddToDeal($deal, $property);
+        } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+            return back()->withErrors(['property_id' => $e->getMessage()]);
+        }
+
+        $row->restore();
+        $this->logDealEvent($deal, 'property_restored', null, null, "Property restored: {$property->address}");
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal);
+
+        return back()->with('success', "{$property->address} restored to this deal.");
+    }
+
+    /**
+     * AT-398 split-pricing — edit an already-linked property's own price.
+     * Only meaningful once a deal has 2+ properties (below that, the deal's
+     * own property_value/total_commission fields ARE the property's price —
+     * see Deal::syncPrimaryPropertyPivot()); this endpoint refuses otherwise
+     * so there is never a second place editing the same single figure.
+     */
+    public function updatePropertyPrice(Request $request, Deal $deal, Property $property): RedirectResponse
+    {
+        abort_unless(auth()->user()?->hasPermission('deals.create') || auth()->user()?->hasPermission('deals.edit'), 403);
+
+        if ($deal->properties()->count() < 2) {
+            return back()->withErrors(['allocated_price' => 'This deal has only one property — edit its price on the main deal form above.']);
+        }
+
+        $row = DealProperty::where('deal_id', $deal->id)->where('property_id', $property->id)->whereNull('deleted_at')->first();
+        if (! $row) {
+            return back()->withErrors(['allocated_price' => 'That property is not on this deal.']);
+        }
+
+        $data = $request->validate([
+            'allocated_price' => ['required', 'numeric', 'min:0'],
+            'allocated_commission' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $row->update($data);
+        $this->logDealEvent($deal, 'property_price_updated', null, null, "Price updated for {$property->address}");
+        app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal);
+
+        return back()->with('success', "Price updated for {$property->address}.");
     }
 }

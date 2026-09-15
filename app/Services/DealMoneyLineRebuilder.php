@@ -37,27 +37,21 @@ class DealMoneyLineRebuilder
         $listingSideInc = (float)$totalCommissionIncVat * ($listingSplitPct / 100.0);
         $sellingSideInc = (float)$totalCommissionIncVat * ($sellingSplitPct / 100.0);
 
-        $listingSideEx = ($listingSideInc > 0) ? ($listingSideInc / (1.0 + $vatRate)) : 0.0;
-        $sellingSideEx = ($sellingSideInc > 0) ? ($sellingSideInc / (1.0 + $vatRate)) : 0.0;
-
         $listingOurPct = max(0.0, min(100.0, (float)($deal->listing_our_share_percent ?? 100)));
         $sellingOurPct = max(0.0, min(100.0, (float)($deal->selling_our_share_percent ?? 100)));
 
-        if ($deal->listing_external) {
-            $listingPool = 0.0;
-            $listingExternalPayable = $listingSideInc;
-        } else {
-            $listingPool = $listingSideEx * ($listingOurPct / 100.0);
-            $listingExternalPayable = max(0, $listingSideInc * (1.0 - ($listingOurPct / 100.0)));
-        }
+        $listingPool = \App\Services\Finance\CommissionPoolCalculator::internalPool($totalCommissionExVat, (bool) $deal->listing_external, $listingSplitPct);
+        $sellingPool = \App\Services\Finance\CommissionPoolCalculator::internalPool($totalCommissionExVat, (bool) $deal->selling_external, $sellingSplitPct);
 
-        if ($deal->selling_external) {
-            $sellingPool = 0.0;
-            $sellingExternalPayable = $sellingSideInc;
-        } else {
-            $sellingPool = $sellingSideEx * ($sellingOurPct / 100.0);
-            $sellingExternalPayable = max(0, $sellingSideInc * (1.0 - ($sellingOurPct / 100.0)));
-        }
+        // What's owed OUT to the external agency for a side — unrelated to the
+        // internal-pool defect above, left exactly as it was.
+        $listingExternalPayable = $deal->listing_external
+            ? $listingSideInc
+            : max(0, $listingSideInc * (1.0 - ($listingOurPct / 100.0)));
+
+        $sellingExternalPayable = $deal->selling_external
+            ? $sellingSideInc
+            : max(0, $sellingSideInc * (1.0 - ($sellingOurPct / 100.0)));
 
         $externalPayableTotal = $listingExternalPayable + $sellingExternalPayable;
 
@@ -127,15 +121,12 @@ class DealMoneyLineRebuilder
             $sellingSplit = round(($sellingSplit / $splitSum) * 100.0, 2);
         }
 
-        $listingOur = self::clampPct($deal->listing_our_share_percent ?? 100);
-        $sellingOur = self::clampPct($deal->selling_our_share_percent ?? 100);
-
         $listingExternal = (int)($deal->listing_external ?? 0) === 1;
         $sellingExternal = (int)($deal->selling_external ?? 0) === 1;
 
         $sidePool = [
-            'listing' => $listingExternal ? 0.0 : round($totalEx * ($listingSplit/100.0) * ($listingOur/100.0), 2),
-            'selling' => $sellingExternal ? 0.0 : round($totalEx * ($sellingSplit/100.0) * ($sellingOur/100.0), 2),
+            'listing' => round(\App\Services\Finance\CommissionPoolCalculator::internalPool($totalEx, $listingExternal, $listingSplit), 2),
+            'selling' => round(\App\Services\Finance\CommissionPoolCalculator::internalPool($totalEx, $sellingExternal, $sellingSplit), 2),
         ];
 
         $du = DB::table('deal_user')->where('deal_id', $deal->id)->get();

@@ -1,0 +1,849 @@
+<?php
+
+namespace App\Http\Controllers\CoreX;
+
+use App\Http\Controllers\Concerns\AuthorizesRentalApplicationAccess;
+use App\Http\Controllers\Concerns\HandlesRentalApplicationDocumentMarks;
+use App\Http\Controllers\Controller;
+use App\Models\Document;
+use App\Models\RentalApplication;
+use App\Models\RentalApplicationAssessment;
+use App\Models\RentalApplicationDocumentHighlight;
+use App\Models\RentalApplicationDocumentMark;
+use App\Models\RentalApplicationDeclineEmailSetting;
+use App\Models\RentalApplicationDocumentValidityWindow;
+use App\Models\RentalApplicationExpenseItem;
+use App\Models\RentalApplicationIncomeItem;
+use App\Models\RentalApplicationStatusHistory;
+use App\Models\User;
+use App\Services\RentalApplications\RentalApplicationAuditService;
+use App\Services\RentalApplications\RentalApplicationNotifier;
+use Illuminate\Http\Request;
+use Illuminate\View\View;
+
+/**
+ * AT-392 authoriser flow, 2026-09-08. Johan, verbatim: "auth goes through
+ * and only the auth can accept / reject / ask for more information etc,"
+ * and the two-tier design: "ro then co approval process? so admin or bm
+ * acts like the co. selected agents act as ro... ro can approve / decline.
+ * but then lets say the tenant speaks to admin and they decide they want to
+ * override ro, then can approve / decline with reasons given... like an
+ * admin override."
+ *
+ * A NEW controller, not an addition to RentalApplicationReviewController —
+ * access here is gated on RO/CO tier membership (User::isRentalApplicationRO()
+ * / isRentalApplicationCO()), a completely different check from the
+ * ordinary rental_applications.view permission every agent already has.
+ *
+ * Tier rules, enforced server-side on every action below, not by hiding a
+ * button:
+ *   - RO or CO may make the FIRST decision on a pending application
+ *     (approve/decline/request-more-info) — reason optional.
+ *   - Once a decision exists (status is already approved/declined), only a
+ *     CO may change it — that's an OVERRIDE, is_override=true on the audit
+ *     row, reason REQUIRED. An RO attempting to override is refused (403).
+ */
+class RentalApplicationAuthorisationController extends Controller
+{
+    use HandlesRentalApplicationDocumentMarks;
+    use \App\Http\Controllers\Concerns\FiltersRentalApplicationList;
+    use AuthorizesRentalApplicationAccess;
+
+    /** Mime types the browser can render natively — mirrors RentalApplicationReviewController exactly. */
+    private const INLINE_VIEWABLE_MIME_PREFIXES = ['application/pdf', 'image/'];
+
+    /**
+     * Fulfils HandlesRentalApplicationDocumentMarks's guard requirement.
+     * 2026-09-08 — Johan: "the auth should be able to write on the docs as
+     * well making notes etc." Deliberately guardCanView(), not
+     * guardCanDecide() — marking up a document is not itself a decision,
+     * and an RO/CO who can see the application can mark it up regardless
+     * of whether they're the one who'll end up deciding it.
+     */
+    protected function guardDocumentMarkAccess(RentalApplication $rentalApplication, Document $document): void
+    {
+        $this->guardCanView($rentalApplication);
+        $this->guardDocumentBelongsToApplication($rentalApplication, $document);
+    }
+
+    /** Every mark this controller's save creates is stamped 'authoriser' — this is the authorisation screen. */
+    protected function markAuthorRole(): string
+    {
+        return 'authoriser';
+    }
+
+    /**
+     * Johan, 2026-09-09, verbatim ruling: "Self approve should only work for
+     * the co of rentals or admin - rest agents and ro can not approve their
+     * own." Applies to every decision (approve/decline/request-more-info) —
+     * the point is an independent set of eyes on the file, and a self-
+     * reviewer asking themselves for more information isn't independent
+     * review either. "Administrator" isn't a separate concept here — the
+     * plain users.role column, same check AgencySetupWizardController
+     * already uses ('admin'); super_admin included too since it's strictly
+     * the same tier one level up, not a different concept.
+     */
+    private function guardNotSelfApproving(RentalApplication $rentalApplication, User $user): void
+    {
+        if ((int) $rentalApplication->created_by_user_id !== (int) $user->id) {
+            return;
+        }
+
+        abort_unless(
+            $user->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id),
+            403,
+            'You created this application, so it needs another authoriser.',
+        );
+    }
+
+    /**
+     * @return array{tier: string, is_override: bool}
+     */
+    private function guardCanDecide(RentalApplication $rentalApplication): array
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+        abort_unless($user !== null, 403);
+
+        $isRO = $user->isRentalApplicationRO((int) $rentalApplication->agency_id);
+        $isCO = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
+        abort_unless($isRO || $isCO, 403, 'Only a configured Reviewer or Override user may act on this application.');
+
+        // AT-392 — own/branch/agency, Johan's design standard, enforced at
+        // the query layer here too — genuinely different question from the
+        // RO/CO tier check above (that's WHO may act as an authoriser at
+        // all; this is WHICH records they may act on), so both are checked,
+        // neither replaces the other. Same reusable scope trait the agent
+        // screens already use for this exact model — not a second,
+        // hand-rolled comparison that could drift from it.
+        $this->guardRentalApplication($rentalApplication);
+
+        $this->guardNotSelfApproving($rentalApplication, $user);
+
+        $alreadyDecided = in_array($rentalApplication->status, ['approved', 'declined'], true);
+
+        if ($alreadyDecided) {
+            abort_unless($isCO, 403, 'This application already has a decision — only an Override (CO) user may change it.');
+
+            return ['tier' => 'co', 'is_override' => true];
+        }
+
+        abort_unless($rentalApplication->isPendingAuthorisation(), 422, 'This application is not currently awaiting authorisation.');
+
+        return ['tier' => $isCO ? 'co' : 'ro', 'is_override' => false];
+    }
+
+    private function guardCanView(RentalApplication $rentalApplication): void
+    {
+        $user = auth()->user();
+        abort_unless($user !== null, 403);
+        abort_unless(
+            $user->isRentalApplicationRO((int) $rentalApplication->agency_id) || $user->isRentalApplicationCO((int) $rentalApplication->agency_id),
+            403,
+        );
+
+        // AT-392 — own/branch/agency, Johan's design standard, at the query
+        // layer: RO/CO tier is agency-wide role ELIGIBILITY (a deliberate,
+        // separate ruling — see this class's own show() docblock), never a
+        // data-visibility grant on its own. A branch-scoped authoriser must
+        // not reach another branch's application by direct URL either.
+        $this->guardRentalApplication($rentalApplication);
+    }
+
+    /**
+     * Everything an agency's RO/CO users currently have waiting on them —
+     * the underlying BelongsToAgency global scope on RentalApplication still
+     * means a user can only ever see their OWN agency's applications, cross-
+     * agency data never reaches this query at all.
+     *
+     * Search/sort, 2026-09-09 (design-standard audit) — Johan: "search must
+     * cover what an RO or CO would actually type: applicant name, property,
+     * agent." Reuses FiltersRentalApplicationList — the exact same logic
+     * index()/returned() already have — rather than a third hand-rolled
+     * copy. Sortable: contact, property, agent, submitted. Default stays
+     * submitted-oldest-first (unchanged from before this task): the point
+     * of a decision queue is working the longest-waiting application first,
+     * so this is the one screen where the shared trait's own default
+     * (newest-first) would be the wrong choice — passed explicitly.
+     */
+    public function index(Request $request): View
+    {
+        $user = $request->user();
+        abort_unless($user->isRentalApplicationRO() || $user->isRentalApplicationCO(), 403,
+            'You are not configured as a rental application Reviewer or Override user. Ask an admin to add you in Settings.');
+
+        // 2026-09-09 (cc5 regression pass) — this was the one place the
+        // "one trait, three screens" symmetry broke: hardcoded paginate(20),
+        // ?per_page= silently ignored, no selector in the blade. Now
+        // identical to index()/returned() — same options, same default —
+        // not just the search/sort logic.
+        $perPage = $this->resolvePerPage($request);
+
+        // AT-392 — own/branch/agency at the query layer, same reusable scope
+        // scopeVisibleTo() already applies for the agent's own index()/
+        // returned() screens on this exact model. RO/CO tier (checked above)
+        // answers WHO may act as an authoriser; this answers WHICH records
+        // they see — a branch-scoped authoriser's queue is their own
+        // branch's applications, never the whole agency's.
+        $query = RentalApplication::whereNotNull('submitted_for_approval_at')
+            ->where('rental_applications.status', 'under_assessment')
+            ->visibleTo($user)
+            ->with(['contact', 'property', 'createdBy']);
+
+        $this->applySearchSortAndDateRange($query, $request, 'submitted_for_approval_at', 'submitted_for_approval_at', 'asc');
+
+        $applications = $query->paginate($perPage)->withQueryString();
+
+        return view('corex.rental-applications.authorisation.index', compact('applications', 'perPage'));
+    }
+
+    /**
+     * The authoriser's read view. Deliberately reuses the SAME document +
+     * highlight + assessment data shape RentalApplicationReviewController::
+     * show() builds — Johan: "the authoriser must see the agent's
+     * highlights on the documents — that is what persisting marks was for."
+     */
+    public function show(Request $request, RentalApplication $rentalApplication): View
+    {
+        $this->guardCanView($rentalApplication);
+
+        $rentalApplication->load(['contact', 'property', 'signatures', 'documents.documentType', 'referencedDocuments.documentType']);
+
+        $assessment = RentalApplicationAssessment::firstOrNew(
+            ['rental_application_id' => $rentalApplication->id],
+            ['agency_id' => $rentalApplication->agency_id],
+        );
+
+        // AT-392 "pull from contact" — the unified screen shows the
+        // authoriser the same set of documents the agent sees, including
+        // anything pulled from the contact's file history (not just what
+        // this application owns).
+        $allDocIds = $rentalApplication->documents->pluck('id')->merge($rentalApplication->referencedDocuments->pluck('id'));
+        $highlightedByDocId = RentalApplicationDocumentHighlight::whereIn('document_id', $allDocIds)
+            ->whereNotNull('highlighted_file_path')
+            ->pluck('id', 'document_id');
+        // Hover-fold, 2026-09-11 — same reasoning as RentalApplicationReviewController::show().
+        $markCountByDocId = RentalApplicationDocumentMark::whereIn('document_id', $allDocIds)
+            ->selectRaw('document_id, count(*) as cnt')
+            ->groupBy('document_id')
+            ->pluck('cnt', 'document_id');
+
+        $agencyId = (int) $rentalApplication->agency_id;
+        $documents = $rentalApplication->documents->map(function (Document $document) use ($highlightedByDocId, $markCountByDocId, $agencyId) {
+            return [
+                'document' => $document,
+                'inline_viewable' => $this->isInlineViewable($document->mime_type),
+                'has_highlights' => $highlightedByDocId->has($document->id),
+                'mark_count' => (int) ($markCountByDocId[$document->id] ?? 0),
+                'pulled_from_contact' => false,
+                'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
+                    $document->created_at, $agencyId, 'rental_application', $document->document_type_id
+                ),
+            ];
+        })->concat($rentalApplication->referencedDocuments->map(function (Document $document) use ($highlightedByDocId, $markCountByDocId, $agencyId) {
+            return [
+                'document' => $document,
+                'inline_viewable' => $this->isInlineViewable($document->mime_type),
+                'has_highlights' => $highlightedByDocId->has($document->id),
+                'mark_count' => (int) ($markCountByDocId[$document->id] ?? 0),
+                'pulled_from_contact' => true,
+                'staleness_warning' => RentalApplicationDocumentValidityWindow::stalenessWarning(
+                    $document->created_at, $agencyId, 'rental_application', $document->document_type_id
+                ),
+            ];
+        }));
+
+        $history = $rentalApplication->statusHistory()->with('changedBy')->latest('created_at')->get();
+
+        // Conductor, 2026-09-08 (night run) — a busy application's audit
+        // trail is unbounded by construction (every strike/add/replace/mark
+        // writes a row); rendering ALL of it buried the Decision panel below
+        // an ever-growing scroll and ran an uncapped query on every page
+        // load. Capped at a sane ceiling; the view shows the newest 10 by
+        // default with a "Show all" toggle for the rest of this page's load,
+        // and tells the user honestly if even the cap was hit.
+        $auditLogTotal = $rentalApplication->auditLog()->count();
+        $auditLog = $rentalApplication->auditLog()->with('user')->latest('created_at')->limit(200)->get();
+
+        $user = $request->user();
+        $canOverride = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
+        $alreadyDecided = in_array($rentalApplication->status, ['approved', 'declined'], true);
+
+        // Johan, 2026-09-09 — self-approval block (see guardNotSelfApproving()
+        // on the decision endpoints for the server-enforced version this
+        // mirrors). Computed here, read-only, purely so the Decision panel
+        // can say WHY the buttons are gone instead of leaving Johan to guess
+        // — never the actual gate; guardNotSelfApproving() alone decides
+        // what the server will accept.
+        $selfCreated = (int) $rentalApplication->created_by_user_id === (int) $user->id;
+        $blockedBySelfApproval = $selfCreated && ! $user->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id);
+
+        // Highlighter collection expansion, 2026-09-09 — same reasoning as
+        // RentalApplicationReviewController::show().
+        $highlighters = \App\Models\RentalApplicationHighlighter::allFor((int) $rentalApplication->agency_id)
+            ->map(fn ($h) => [
+                'id' => $h->id, 'label' => $h->label, 'color' => $h->color,
+                // 2026-09-13 — see RentalApplicationReviewController::show()'s
+                // own comment: capture_type is the stable identity, never
+                // derived from the label.
+                'capture_type' => $h->capture_type,
+                'role_scope' => $h->role_scope, 'archived' => $h->trashed(),
+            ])->values();
+
+        // Unified screen, 2026-09-09 — Johan: "did I not tell you the
+        // reviewer screen is essentially the same screen as the agent
+        // screen? same fucking problem I have been describing all along."
+        // This route stays separate (guardCanView()'s RO/CO tier check is a
+        // genuinely different question from guardRentalApplication()'s
+        // ownership/branch/agency scope — collapsing the two guards would be
+        // exactly the fragile conflation that's bitten this feature before),
+        // but now renders the SAME view as RentalApplicationReviewController
+        // ::show() rather than a second blade — $viewerRole is the only
+        // thing telling it which role is looking. The authorisation queue's
+        // links are unchanged; they still point here.
+        $viewerRole = 'authoriser';
+
+        // Capture-ledger rework, 2026-09-11 — see RentalApplicationReviewController
+        // ::show()'s own comment for the full reasoning; identical query,
+        // same shared view.
+        // 2026-09-12 — see RentalApplicationReviewController::show()'s own
+        // comment for the full reasoning: document_missing tells this
+        // screen's ledger row its evidence document is gone, which is
+        // exactly the case an authoriser most needs to see, not silently
+        // trust.
+        $liveDocumentIds = $documents->pluck('document.id')->flip();
+        $captureEntries = RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)
+            ->whereIn('entry_type', RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)
+            ->orderBy('created_at')->orderBy('id')
+            ->get()
+            ->map(fn (RentalApplicationDocumentMark $mark) => $mark->toMarkArray() + [
+                'document_missing' => $mark->document_id !== null && ! $liveDocumentIds->has($mark->document_id),
+            ])
+            ->values();
+
+        // AT-410b, 2026-09-15 — the Decline modal's reason-template picker.
+        // cc2 owns the model/CRUD (agency-scoped, soft-delete, seeded
+        // defaults) — activeFor() is their own read method, not a
+        // hand-rolled query here, so this can never drift from what their
+        // CRUD screen considers "active" for this agency. Guidance text is
+        // resolved server-side in decline() itself, never sent to this
+        // screen ahead of the decision being made.
+        $declineReasonTemplates = \App\Models\RentalApplicationDeclineReasonTemplate::activeFor($agencyId);
+
+        return view('corex.rental-applications.review', compact(
+            'rentalApplication', 'assessment', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
+            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries', 'declineReasonTemplates'
+        ));
+    }
+
+    public function approve(
+        Request $request,
+        RentalApplication $rentalApplication,
+        RentalApplicationAuditService $audit,
+        RentalApplicationNotifier $notifier,
+    ) {
+        $decision = $this->guardCanDecide($rentalApplication);
+
+        // RA-02 (cc5 re-test, Round 8) — "the screen where an authoriser
+        // APPROVES a tenant still rejects a comma in the rand amount."
+        // Same sanitizer as every other money field on this feature: strip
+        // thousand-separator commas, spaces, and a leading "R" prefix
+        // before validation ever sees it.
+        $request->merge(RentalApplication::sanitizeNumericInput(
+            $request->only(['approved_rental_amount']),
+            ['approved_rental_amount'],
+        ));
+
+        $validated = $request->validate([
+            // Johan: "capture the approved amount... update agent rental
+            // screen - tenant approved for x amount." Required — the whole
+            // point of this outcome is that figure.
+            'approved_rental_amount' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            'reason' => $decision['is_override'] ? ['required', 'string', 'max:2000'] : ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $fromStatus = $rentalApplication->status;
+        $oldAmount = $rentalApplication->approved_rental_amount;
+
+        // AT-410d, 2026-09-16 — Johan's ruling: "yes, can become approved
+        // subject to fica verification." Not a block, not a second status —
+        // status stays exactly 'approved'; whether FICA is still
+        // outstanding for the applicant AT THIS MOMENT decides whether the
+        // approval carries the condition. Live check (ficaOutstanding()
+        // reads the contact's current FICA status fresh, same as the badge
+        // at the top of this screen already does) — never a stale snapshot.
+        $isSubjectToFica = $rentalApplication->ficaOutstanding();
+
+        $rentalApplication->status = 'approved';
+        $rentalApplication->approved_rental_amount = $validated['approved_rental_amount'];
+        $rentalApplication->approved_subject_to_fica_at = $isSubjectToFica ? now() : null;
+        $rentalApplication->save();
+
+        RentalApplicationStatusHistory::record(
+            $rentalApplication, $fromStatus, 'approved', $request->user(), $validated['reason'] ?? null,
+        );
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'authorisation',
+            eventType: $decision['is_override'] ? 'approved_override' : 'approved',
+            user: $request->user(),
+            isOverride: $decision['is_override'],
+            reason: $validated['reason'] ?? null,
+            oldValues: ['status' => $fromStatus, 'approved_rental_amount' => $oldAmount],
+            newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount'], 'approved_subject_to_fica' => $isSubjectToFica],
+            humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to approve' : 'Approved')
+                . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})"
+                . ($isSubjectToFica ? ', subject to FICA verification' : ''),
+        );
+
+        // AT-392 — Johan changed the flow: approval no longer auto-emails
+        // the applicant. "no, agent gets back and upon them being happy it
+        // gets sent out." The agent decides the wishlist and sends —
+        // see RentalApplicationAgentSendController::send(). notifyAgentOfDecision
+        // is how the agent finds out approval happened at all; sendApproved()
+        // no longer fires from here.
+        $notifier->notifyAgentOfDecision($rentalApplication, 'approved', $validated['reason'] ?? null, $decision['is_override']);
+
+        // AT-392 — keeps Contact::rental_application_status in sync
+        // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
+        event(new \App\Events\RentalApplication\RentalApplicationApproved($rentalApplication, $request->user()?->id));
+
+        // Feedback parity, 2026-09-13 — Johan: the authoriser must see
+        // plainly what was recorded — the decision, the amount, and that
+        // it saved — the agent is not worse informed than the authoriser
+        // about the authoriser's own decision (cc2 separately surfaces the
+        // amount on the agent's own read-only screen). Same shape as
+        // decline()'s own message below: "{Decision} — {contact} …".
+        return redirect()->route('corex.rental-applications.authorisation.index')
+            ->with('success', 'Approved — ' . $rentalApplication->contact->full_name . ' for R'
+                . number_format((float) $validated['approved_rental_amount'], 2)
+                . ($isSubjectToFica ? ', subject to FICA verification' : '') . '. Saved.');
+    }
+
+    public function decline(
+        Request $request,
+        RentalApplication $rentalApplication,
+        RentalApplicationAuditService $audit,
+        RentalApplicationNotifier $notifier,
+    ) {
+        $decision = $this->guardCanDecide($rentalApplication);
+
+        // Johan, 2026-09-09, verbatim: "yes they should see it. the auth
+        // needs to report back to the agent why the application has been
+        // rejected." A decline with no reason tells the agent nothing — the
+        // exact failure this closes. Required unconditionally now, not just
+        // on override; Approve stays reason-optional on a first decision
+        // (Johan: "an approval with an amount is self-explanatory").
+        //
+        // AT-410b, 2026-09-15 — decline_reason_template_id is a SEPARATE,
+        // ALSO-required field from 'reason' above: 'reason' is the
+        // authoriser's own note to the AGENT (unchanged — status history,
+        // audit, notifyAgentOfDecision below all still use it exactly as
+        // before); decline_reason_template_id is which APPLICANT-facing
+        // reason+guidance template applies (cc2's build — the template
+        // CRUD/model). Two different audiences, two different fields.
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'max:2000'],
+            'decline_reason_template_id' => ['required', 'integer'],
+        ]);
+
+        // cc2's template model — agency-scoped read, 404s on a template
+        // belonging to another agency or already archived (soft-deleted),
+        // same "can't decline with a template you can't see" guarantee
+        // every other agency-scoped lookup on this feature already gives.
+        $template = \App\Models\RentalApplicationDeclineReasonTemplate::query()
+            ->where('agency_id', $rentalApplication->agency_id)
+            ->findOrFail($validated['decline_reason_template_id']);
+
+        // The full, merged, human-editable draft — built ONCE, here, at the
+        // moment of the decision. Stored on the application for the AGENT
+        // to read and edit; nothing is sent from this action. See
+        // RentalApplicationDeclineEmailSetting::draftFor()'s own docblock
+        // and RentalApplicationReviewController::sendDecline() — Johan,
+        // 2026-09-15: "the authoriser picks the reason at the moment of
+        // declining; the AGENT is the one who sends... the gap between
+        // those two people is the entire point."
+        $draft = RentalApplicationDeclineEmailSetting::draftFor($rentalApplication, $template->reason, $template->guidance);
+
+        $fromStatus = $rentalApplication->status;
+        $rentalApplication->status = 'declined';
+        $rentalApplication->decline_reason_template_id = $template->id;
+        $rentalApplication->decline_email_subject = $draft['subject'];
+        $rentalApplication->decline_email_body = $draft['body'];
+        // Applicant link lifetime, 2026-09-14 — Johan, final version after
+        // two rejected designs (a 7-day grace window, then a revive link in
+        // the decline email): "the link dies. done. declined is declined.
+        // if the applicant wants to do anything it will be from the
+        // agent's side sending a new link to reopen the application."
+        // Unconditional, no setting, no exposure window. The existing
+        // token_expires_at->isPast() check show()/pdf()/viewDocument()
+        // already run on every request is the only enforcement needed —
+        // reopen() (already unconditional on this column, already extends
+        // the SAME token) remains the one way back in, exactly as today.
+        $rentalApplication->token_expires_at = now();
+        $rentalApplication->save();
+
+        RentalApplicationStatusHistory::record(
+            $rentalApplication, $fromStatus, 'declined', $request->user(), $validated['reason'] ?? null,
+        );
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'authorisation',
+            eventType: $decision['is_override'] ? 'declined_override' : 'declined',
+            user: $request->user(),
+            isOverride: $decision['is_override'],
+            reason: $validated['reason'] ?? null,
+            newValues: ['status' => 'declined', 'decline_reason_template_id' => $template->id, 'decline_reason_template' => $template->reason],
+            oldValues: ['status' => $fromStatus],
+            humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to decline' : 'Declined')
+                . " ({$decision['tier']}), reason template: {$template->reason}",
+        );
+
+        $notifier->notifyAgentOfDecision($rentalApplication, 'declined', $validated['reason'] ?? null, $decision['is_override']);
+        // AT-410b, 2026-09-15 — Johan: "the auth sends back to agent who
+        // receives it back. so the agent needs a deliberate action to send
+        // the email out to the applicant." NOTHING outbound to the
+        // applicant happens from this action any more — the draft above is
+        // read-only to the applicant until RentalApplicationReviewController
+        // ::sendDecline() actually sends it. (notifyAgentOfDecision above is
+        // the internal "you have a decision waiting" notice to the AGENT,
+        // not applicant-facing — unchanged from before this build.)
+
+        // AT-392 — Johan: "the documents / application / approval gets
+        // filed on the contact." Best-effort, same as the approval leg —
+        // QUEUED (2026-09-13, see FileRentalApplicationDecisionPdfJob's own
+        // docblock for why): filing shells out to a real headless-Chromium
+        // Puppeteer subprocess (~9s observed), long enough for an unrelated
+        // concurrent request on this session to race the redirect's flash
+        // message and silently clobber it — traced live, not theoretical.
+        \App\Jobs\FileRentalApplicationDecisionPdfJob::dispatch($rentalApplication->id, 'Declined Rental Application');
+
+        // AT-392 — keeps Contact::rental_application_status in sync
+        // (App\Listeners\Contact\RecomputeRentalApplicationStatus).
+        event(new \App\Events\RentalApplication\RentalApplicationDeclined($rentalApplication, $request->user()?->id));
+
+        // Feedback parity, 2026-09-13 — same reasoning as approve()'s own
+        // message above: decision + confirmation it saved, same shape.
+        // No amount on a decline (there isn't one), so this reads slightly
+        // shorter than approve's — the SHAPE is what has to match, not the
+        // field count; an amount-shaped placeholder here would be a lie.
+        return redirect()->route('corex.rental-applications.authorisation.index')
+            ->with('success', 'Declined — ' . $rentalApplication->contact->full_name . '. Saved.');
+    }
+
+    /**
+     * The AUTHORISER's "request more information" — a separate thing from
+     * the agent's own version (which goes to the applicant). This one goes
+     * back to the AGENT — Johan confirmed: "my reading is it goes back to
+     * the AGENT, who then decides whether they need to go back to the
+     * applicant" and this was subsequently confirmed as correct. Clears
+     * submitted_for_approval_at (same marker the agent's submit-for-approval
+     * action sets) — the application returns to "agent working," not a new
+     * status value.
+     */
+    public function requestMoreInfo(
+        Request $request,
+        RentalApplication $rentalApplication,
+        RentalApplicationAuditService $audit,
+        RentalApplicationNotifier $notifier,
+    ) {
+        // Not guardCanDecide() — this is only ever a FIRST-stage action (you
+        // cannot "request more info" on an application that already has a
+        // final decision; that's what override is for), so it always uses
+        // the non-override gate directly.
+        $user = auth()->user();
+        abort_unless($user !== null, 403);
+        abort_unless(
+            $user->isRentalApplicationRO((int) $rentalApplication->agency_id) || $user->isRentalApplicationCO((int) $rentalApplication->agency_id),
+            403,
+        );
+        $this->guardNotSelfApproving($rentalApplication, $user);
+        abort_unless($rentalApplication->isPendingAuthorisation(), 422, 'This application is not currently awaiting authorisation.');
+
+        // A blank request tells the agent nothing — required, same reasoning
+        // as the agent's own request-more-info-from-applicant action.
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $rentalApplication->submitted_for_approval_at = null;
+        $rentalApplication->save();
+
+        RentalApplicationStatusHistory::record(
+            $rentalApplication, $rentalApplication->status, $rentalApplication->status, $request->user(),
+            'Authoriser requested more information: ' . $validated['reason'],
+        );
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'authorisation',
+            eventType: 'more_info_requested',
+            user: $request->user(),
+            reason: $validated['reason'],
+            humanSummary: 'Requested more information, returned to agent',
+        );
+
+        $notifier->notifyAgentOfDecision($rentalApplication, 'more_info_requested', $validated['reason']);
+
+        return redirect()->route('corex.rental-applications.authorisation.index')
+            ->with('success', 'Sent back to the agent for more information.');
+    }
+
+    /**
+     * AT-392 authoriser assessment markup, 2026-09-08. Johan first: "so the
+     * auth can verify working through the doc... add / edit / remove
+     * (remove im thinking is just a strike out tick)." Then, confirmed
+     * directly, superseding "edit": "auth can rather strike out and re-add
+     * a value than edit a value. this way we have the evidence needed of
+     * who did what." This is Johan's stated rule, not a decision awaiting
+     * his review — his own reason (the evidence trail) is what drives every
+     * choice below where he didn't spell out the detail.
+     *
+     * There is no EDIT verb. Two mutations only:
+     *   STRIKE  — anyone with review/authorisation access, on ANY row,
+     *             including the agent's own capture. Server-enforced with
+     *             no ownership check at all — that's deliberate, not an
+     *             oversight: disagreement is expressed by striking +
+     *             adding, never by changing a figure in place, so there is
+     *             nothing to protect a row's owner FROM here.
+     *   ADD     — anyone with review/authorisation access, attributed to
+     *             them via added_by_user_id. Optionally carries
+     *             replaces_item_id — set when this add follows a strike in
+     *             the same flow, so the struck row and its replacement stay
+     *             linked ("this figure was replaced by that one, by this
+     *             person, at this time") even after a reload, not just for
+     *             the current page session.
+     *
+     * Editing another user's captured value is not a withheld permission —
+     * there is no code path anywhere below that can do it. Nobody may ever
+     * change a value someone else typed; the only way to correct it is to
+     * strike it and add the correct one.
+     */
+    public function addIncomeItem(Request $request, RentalApplication $rentalApplication, RentalApplicationAuditService $audit)
+    {
+        return $this->addAssessmentItem($request, $rentalApplication, $audit, RentalApplicationIncomeItem::class, 'income');
+    }
+
+    public function addExpenseItem(Request $request, RentalApplication $rentalApplication, RentalApplicationAuditService $audit)
+    {
+        return $this->addAssessmentItem($request, $rentalApplication, $audit, RentalApplicationExpenseItem::class, 'expense');
+    }
+
+    private function addAssessmentItem(Request $request, RentalApplication $rentalApplication, RentalApplicationAuditService $audit, string $modelClass, string $kind)
+    {
+        $this->guardCanView($rentalApplication);
+
+        $validated = $request->validate([
+            'description' => ['nullable', 'string', 'max:255'],
+            'amount' => ['required', 'numeric', 'min:0', 'max:9999999999.99'],
+            // "Dates on entries" (Johan, 2026-09-10) — same column, same
+            // rule as the agent's own inline capture (see
+            // RentalApplicationReviewController::saveAssessment()): an
+            // authoriser-added or replacement line is the identical kind of
+            // row on the identical table, so it gets the identical date
+            // field rather than shipping half the column.
+            'entry_date' => ['nullable', 'date', 'before_or_equal:today'],
+            'replaces_item_id' => ['nullable', 'integer'],
+        ]);
+
+        $assessment = RentalApplicationAssessment::firstOrCreate(
+            ['rental_application_id' => $rentalApplication->id],
+            ['agency_id' => $rentalApplication->agency_id],
+        );
+
+        $replacesId = null;
+        if (!empty($validated['replaces_item_id'])) {
+            // Must genuinely be a struck row on THIS assessment — never a
+            // free-floating id a crafted request could point anywhere.
+            $struckRow = $modelClass::where('rental_application_assessment_id', $assessment->id)
+                ->where('id', $validated['replaces_item_id'])
+                ->whereNotNull('struck_out_at')
+                ->first();
+            $replacesId = $struckRow?->id;
+        }
+
+        $maxSort = $modelClass::where('rental_application_assessment_id', $assessment->id)->max('sort_order');
+
+        $item = $modelClass::create([
+            'agency_id' => $rentalApplication->agency_id,
+            'rental_application_assessment_id' => $assessment->id,
+            'description' => $validated['description'] ?? null,
+            'amount' => $validated['amount'],
+            'entry_date' => $validated['entry_date'] ?? null,
+            'sort_order' => ($maxSort ?? -1) + 1,
+            'added_by_user_id' => $request->user()->id,
+            'replaces_item_id' => $replacesId,
+        ]);
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'authorisation',
+            eventType: 'assessment_item_added',
+            user: $request->user(),
+            newValues: ['kind' => $kind, 'description' => $item->description, 'amount' => (string) $item->amount, 'replaces_item_id' => $replacesId],
+            humanSummary: ($replacesId
+                ? "Replaced a struck-out {$kind} line with: "
+                : "Added a {$kind} line: ") . ($item->description ?: '(no description)') . ' — R' . number_format((float) $item->amount, 2),
+        );
+
+        return response()->json(['ok' => true, 'item' => $this->serializeItem($item, $request->user())]);
+    }
+
+    public function toggleStrikeIncomeItem(Request $request, RentalApplication $rentalApplication, RentalApplicationIncomeItem $item, RentalApplicationAuditService $audit)
+    {
+        return $this->toggleStrikeAssessmentItem($request, $rentalApplication, $item, $audit, 'income');
+    }
+
+    public function toggleStrikeExpenseItem(Request $request, RentalApplication $rentalApplication, RentalApplicationExpenseItem $item, RentalApplicationAuditService $audit)
+    {
+        return $this->toggleStrikeAssessmentItem($request, $rentalApplication, $item, $audit, 'expense');
+    }
+
+    /**
+     * "Remove" — Johan, verbatim: "remove im thinking is just a strike out
+     * tick - which leaves the amount there but removes it from the calcs...
+     * it shows the authoriser disagreed with a specific line rather than
+     * the figure quietly vanishing. It is an audit trail, not a display
+     * choice." Never a delete, never SoftDeletes — struck_out_at/by stay on
+     * the row. Toggle, not one-way — a reviewer can un-strike a line they
+     * struck in error. Deliberately NO ownership guard here (see this
+     * method's own class docblock above) — anyone with view access may
+     * strike ANY row.
+     *
+     * 2026-09-14 — the only consumer of isStruckOut() (RentalApplication
+     * Assessment::qualifyingResult(), which excluded struck lines from its
+     * total) was removed as dead code (see .ai/specs/rental-applications.md,
+     * "qualifyingResult() removed"). This toggle and struck_out_at/by still
+     * work exactly as before — the audit trail this docblock describes is
+     * unaffected — but no current calculation reads the flag any more.
+     * Reported, not touched: this whole old income/expense-items subsystem
+     * (this endpoint, addIncomeItem(), the two old tables) is a separate,
+     * broader question from the one qualifyingResult()'s removal answered.
+     */
+    private function toggleStrikeAssessmentItem(Request $request, RentalApplication $rentalApplication, $item, RentalApplicationAuditService $audit, string $kind)
+    {
+        $this->guardCanView($rentalApplication);
+        $this->guardItemBelongsToApplication($rentalApplication, $item);
+
+        $nowStriking = $item->struck_out_at === null;
+        $item->struck_out_at = $nowStriking ? now() : null;
+        $item->struck_out_by_user_id = $nowStriking ? $request->user()->id : null;
+        $item->save();
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'authorisation',
+            eventType: $nowStriking ? 'assessment_item_struck' : 'assessment_item_unstruck',
+            user: $request->user(),
+            newValues: ['kind' => $kind, 'description' => $item->description, 'amount' => (string) $item->amount],
+            humanSummary: ($nowStriking ? 'Struck out a ' : 'Restored a ') . "{$kind} line: " . ($item->description ?: '(no description)') . ' — R' . number_format((float) $item->amount, 2),
+        );
+
+        return response()->json(['ok' => true, 'item' => $this->serializeItem($item, $request->user())]);
+    }
+
+    private function guardItemBelongsToApplication(RentalApplication $rentalApplication, $item): void
+    {
+        abort_unless(
+            (int) $item->assessment->rental_application_id === (int) $rentalApplication->id,
+            404
+        );
+    }
+
+    private function serializeItem($item, User $viewer): array
+    {
+        $replacedBy = $item->replacedBy;
+
+        return [
+            'id' => $item->id,
+            'description' => $item->description,
+            'amount' => (float) $item->amount,
+            'entry_date' => $item->entry_date?->format('Y-m-d'),
+            'struck_out' => $item->struck_out_at !== null,
+            // "by this person, at this time" — Johan's own phrasing for
+            // what the record must read as.
+            'struck_out_by' => $item->struckOutBy?->name,
+            'struck_out_at' => $item->struck_out_at?->format('d M Y H:i'),
+            'added_by_authoriser' => $item->added_by_user_id !== null,
+            'added_by' => $item->addedBy?->name,
+            'added_at' => $item->created_at?->format('d M Y H:i'),
+            'replaces_item_id' => $item->replaces_item_id,
+            // The struck row's own view of "what replaced me" — enough to
+            // render "→ replaced by R{amount}, by {who}, at {when}" right
+            // under the struck line without a second request.
+            'replaced_by_item_id' => $replacedBy?->id,
+            'replaced_by_amount' => $replacedBy !== null ? (float) $replacedBy->amount : null,
+            'replaced_by_description' => $replacedBy?->description,
+            'replaced_by_user' => $replacedBy?->addedBy?->name,
+            'replaced_by_at' => $replacedBy?->created_at?->format('d M Y H:i'),
+        ];
+    }
+
+    /**
+     * The authoriser's own document view — deliberately NOT
+     * RentalApplicationReviewController::viewDocumentInline(), which is
+     * gated by the AGENT's own/branch/agency guard
+     * (AuthorizesRentalApplicationAccess). An authoriser's access model is
+     * different — RO/CO tier membership for the agency, not owner/branch of
+     * this specific record.
+     */
+    public function viewDocumentInline(RentalApplication $rentalApplication, Document $document)
+    {
+        $this->guardCanView($rentalApplication);
+        $this->guardDocumentBelongsToApplication($rentalApplication, $document);
+
+        if (! $this->isInlineViewable($document->mime_type)) {
+            abort(404);
+        }
+
+        return response()->streamDownload(
+            function () use ($document) {
+                echo $document->decryptedContents();
+            },
+            $document->original_name,
+            ['Content-Type' => $document->mime_type ?: 'application/octet-stream'],
+            'inline',
+        );
+    }
+
+    /** Same substitution RentalApplicationReviewController::highlightedFile() does — the marked-up copy if one exists. */
+    public function highlightedFile(RentalApplication $rentalApplication, Document $document)
+    {
+        $this->guardCanView($rentalApplication);
+        $this->guardDocumentBelongsToApplication($rentalApplication, $document);
+
+        $highlight = RentalApplicationDocumentHighlight::where('document_id', $document->id)->first();
+        abort_if(! $highlight || ! $highlight->highlighted_file_path, 404);
+        abort_unless(\Storage::disk('local')->exists($highlight->highlighted_file_path), 404);
+
+        return response()->streamDownload(
+            function () use ($highlight) {
+                echo \Storage::disk('local')->get($highlight->highlighted_file_path);
+            },
+            $document->original_name,
+            ['Content-Type' => 'application/pdf'],
+            'inline',
+        );
+    }
+
+    /** AT-392 "pull from contact" — see the identical guard in RentalApplicationReviewController for the full rationale. */
+    private function guardDocumentBelongsToApplication(RentalApplication $rentalApplication, Document $document): void
+    {
+        $owned = $document->source_type === 'rental_application' && (int) $document->source_id === $rentalApplication->id;
+        abort_unless($owned || $rentalApplication->referencedDocuments()->where('documents.id', $document->id)->exists(), 404);
+    }
+
+    private function isInlineViewable(?string $mimeType): bool
+    {
+        $mimeType = $mimeType ?? '';
+        foreach (self::INLINE_VIEWABLE_MIME_PREFIXES as $prefix) {
+            if (str_starts_with($mimeType, $prefix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}

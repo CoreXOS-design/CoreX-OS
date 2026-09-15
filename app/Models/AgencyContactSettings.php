@@ -16,6 +16,9 @@ class AgencyContactSettings extends Model
         'agency_id',
         'sharing_mode', // DEPRECATED — visibility now governed by role_permissions.scope
         'buyer_pipeline_default_scope',
+        // Most buyers/tenants shown per Kanban column before it points the
+        // agent at the (fully paginated) List view instead.
+        'buyer_kanban_column_limit',
         'duplicate_mode',
         'duplicate_match_fields',
         'address_match_mode', // AT-60 — address-duplicate-guard aggressiveness (off|standard|strict)
@@ -24,6 +27,9 @@ class AgencyContactSettings extends Model
         'buyer_warm_days',
         'buyer_cold_days',
         'buyer_lost_days',
+        // AT-Core-Matches, Johan's ruling 5 — "the working window is an
+        // agency SETTING, default 7 days, never hardcoded."
+        'core_matches_working_window_days',
         // AT-81 — days a contact may sit PENDING (consent-request sent, no reply)
         // before being lapsed to a no_response opt-out.
         'outreach_no_response_days',
@@ -33,6 +39,9 @@ class AgencyContactSettings extends Model
         // AT-75 — MIC buyer-match knobs (agency-configurable, never hardcoded).
         'mic_match_threshold',
         'mic_price_band_pct',
+        // AT-Core-Matches, "reduced into match" ruling — newsworthy price-drop
+        // threshold (%, agency-configurable, never hardcoded).
+        'core_matches_price_drop_threshold_pct',
         'contact_retention_years',
         'consent_retention_years',
         'access_log_retention_years',
@@ -53,13 +62,16 @@ class AgencyContactSettings extends Model
         'duplicate_match_fields' => 'array',
         'warn_on_held_address_capture' => 'boolean',
         'portal_lead_auto_seed_buyer' => 'boolean',
+        'buyer_kanban_column_limit' => 'integer',
         'buyer_warm_days' => 'integer',
         'buyer_cold_days' => 'integer',
         'buyer_lost_days' => 'integer',
+        'core_matches_working_window_days' => 'integer',
         'outreach_no_response_days' => 'integer',
         'min_countable_criteria' => 'array',
         'mic_match_threshold' => 'integer',
         'mic_price_band_pct' => 'integer',
+        'core_matches_price_drop_threshold_pct' => 'integer',
         'contact_retention_years' => 'integer',
         'consent_retention_years' => 'integer',
         'access_log_retention_years' => 'integer',
@@ -103,6 +115,9 @@ class AgencyContactSettings extends Model
     /** AT-75 — price-band drift tolerance (%) past the stated band before decay. */
     public const DEFAULT_MIC_PRICE_BAND_PCT = 10;
 
+    /** AT-Core-Matches — default "reduced into match" newsworthiness threshold (%). */
+    public const DEFAULT_CORE_MATCHES_PRICE_DROP_THRESHOLD_PCT = 3;
+
     /**
      * AT-71 — default countable-buyer bar. ['any'] = a wishlist is countable if
      * it has AT LEAST ONE non-empty criteria field (only a completely empty
@@ -111,6 +126,12 @@ class AgencyContactSettings extends Model
      * ContactMatch::presentCriteriaGroups().
      */
     public const DEFAULT_MIN_COUNTABLE_CRITERIA = ['any'];
+
+    /** Buyer/Rental Pipeline kanban: max cards shown per column before "View all in List". */
+    public const DEFAULT_BUYER_KANBAN_COLUMN_LIMIT = 50;
+
+    /** AT-Core-Matches, Johan's ruling 5 — default working-window length (days). */
+    public const DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS = 7;
 
     /** Per-request cache of the resolved min-countable bar, keyed by agency id. */
     protected static array $minCountableCache = [];
@@ -123,6 +144,7 @@ class AgencyContactSettings extends Model
         $defaults = [
             'sharing_mode' => 'branch',
             'buyer_pipeline_default_scope' => 'own',
+            'buyer_kanban_column_limit' => self::DEFAULT_BUYER_KANBAN_COLUMN_LIMIT,
             'duplicate_mode' => 'soft_warn',
             // entity_reg_no added 2026-08-13 (.ai/specs/contact-entity-type.md
             // §6.7) — an entity contact dedups on its registration number the
@@ -136,10 +158,12 @@ class AgencyContactSettings extends Model
             'buyer_warm_days' => 14,
             'buyer_cold_days' => 30,
             'buyer_lost_days' => 60,
+            'core_matches_working_window_days' => self::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS,
             'outreach_no_response_days' => self::DEFAULT_OUTREACH_NO_RESPONSE_DAYS,
             'min_countable_criteria' => self::DEFAULT_MIN_COUNTABLE_CRITERIA,
             'mic_match_threshold' => self::DEFAULT_MIC_MATCH_THRESHOLD,
             'mic_price_band_pct' => self::DEFAULT_MIC_PRICE_BAND_PCT,
+            'core_matches_price_drop_threshold_pct' => self::DEFAULT_CORE_MATCHES_PRICE_DROP_THRESHOLD_PCT,
             'contact_retention_years' => 5,
             'consent_retention_years' => 5,
             'access_log_retention_years' => 5,
@@ -159,6 +183,25 @@ class AgencyContactSettings extends Model
         }
 
         return self::withoutGlobalScopes()->firstOrCreate(['agency_id' => $agencyId], $defaults);
+    }
+
+    /** Buyer/Rental Pipeline kanban: resolved column card limit (null-safe, clamped 10–500). */
+    public function buyerKanbanColumnLimit(): int
+    {
+        $v = (int) ($this->buyer_kanban_column_limit ?? self::DEFAULT_BUYER_KANBAN_COLUMN_LIMIT);
+        return max(10, min(500, $v));
+    }
+
+    /**
+     * AT-Core-Matches, Johan's ruling 5 — resolved working-window length in
+     * days (null-safe, clamped 1–90). The clock itself is
+     * Contact::last_contacted_at; this is only the length of the window
+     * before a buyer counts as "gone quiet."
+     */
+    public function coreMatchesWorkingWindowDays(): int
+    {
+        $v = (int) ($this->core_matches_working_window_days ?? self::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS);
+        return max(1, min(90, $v));
     }
 
     /** Recurring-events: resolved max occurrences per series per query (null-safe, clamped 1–1000). */
@@ -260,6 +303,19 @@ class AgencyContactSettings extends Model
     public function micPriceBandFraction(): float
     {
         $pct = (int) ($this->mic_price_band_pct ?? self::DEFAULT_MIC_PRICE_BAND_PCT);
+        return max(0, min(100, $pct)) / 100;
+    }
+
+    /**
+     * AT-Core-Matches, "reduced into match" ruling — resolved price-drop
+     * newsworthiness threshold as a fraction (e.g. 0.03). A cut smaller
+     * than this, even one that crosses into a buyer's range, is not
+     * flagged as "Reduced" — Johan's own bar: a rounding-error drop is not
+     * news.
+     */
+    public function coreMatchesPriceDropThresholdFraction(): float
+    {
+        $pct = (int) ($this->core_matches_price_drop_threshold_pct ?? self::DEFAULT_CORE_MATCHES_PRICE_DROP_THRESHOLD_PCT);
         return max(0, min(100, $pct)) / 100;
     }
 

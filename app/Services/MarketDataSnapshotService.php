@@ -95,7 +95,7 @@ class MarketDataSnapshotService
             ->map(fn($p) => [
                 'id' => $p->id,
                 'address' => $p->title,
-                'price' => $p->price,
+                'price' => $p->effectivePrice(),
                 'days_on_market' => ($dom = $p->listed_date ?? $p->p24_activated_at ?? $p->pp_activated_at ?? $p->published_at ?? $p->created_at)
                     ? (int) \App\Support\HumanDiff::daysBetween($dom) : null,
             ]);
@@ -182,7 +182,7 @@ class MarketDataSnapshotService
             'erf_m2'        => $property->erf_size ?? null,
             // Anchor the price band on the subject's asking so an off-profile
             // pool cannot drag the recommendation down (AT-22 §1.5).
-            'anchor_price'  => $property->price ? (int) $property->price : null,
+            'anchor_price'  => $property->effectivePrice() ? (int) $property->effectivePrice() : null,
             'address'       => $property->address,
         ];
 

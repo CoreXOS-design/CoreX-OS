@@ -1,0 +1,200 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Concerns\BelongsToAgency;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+/**
+ * AT-401 — one row per highlight or note drawn on a rental-application
+ * document. Replaces marks_json (a single JSON blob per document) so
+ * ownership can be enforced PER MARK, at the database/service layer, not by
+ * trusting a save's merge logic to be correct every time. See the creating
+ * migration's docblock for the full reasoning.
+ *
+ * `mark_uid` is the client-generated stable id every mark has always
+ * carried (unchanged) — the client/server contract (marks matched by this
+ * id across saves) needs no change; only where a mark is PERSISTED changed.
+ *
+ * Capture-ledger rework, 2026-09-11 — Johan: "the highlighter mark IS the
+ * ledger line." `entry_type`/`entry_date`/`entry_description`/`entry_amount`
+ * turn a mark into an affordability-ledger entry when `entry_type` is
+ * 'income' or 'expense'; 'annotation' (the default — every mark before this
+ * work, and every plain highlight/note drawn after it) means "not a ledger
+ * line, never shown in the panel." `document_id`/`page`/`type` are now
+ * nullable so an UNANCHORED entry (typed manually, or migrated from the old
+ * separate income/expense-item tables) can live in this same table with no
+ * document, no page, no drawn geometry at all — see the migration's own
+ * docblock. `source`/`confidence` are pre-existing, reserved for a future
+ * OCR decision Johan has not made — untouched, unpopulated, unreferenced by
+ * this feature.
+ */
+class RentalApplicationDocumentMark extends Model
+{
+    use BelongsToAgency;
+    use SoftDeletes;
+
+    public const ENTRY_TYPE_INCOME = 'income';
+    public const ENTRY_TYPE_EXPENSE = 'expense';
+    public const ENTRY_TYPE_ANNOTATION = 'annotation';
+    public const LEDGER_ENTRY_TYPES = [self::ENTRY_TYPE_INCOME, self::ENTRY_TYPE_EXPENSE];
+
+    protected $fillable = [
+        'agency_id', 'document_id', 'rental_application_id', 'mark_uid', 'type', 'page',
+        'points', 'width', 'x', 'y', 'text',
+        'highlighter_id', 'author_user_id', 'author_name', 'author_role',
+        'source', 'confidence',
+        'entry_type', 'entry_date', 'entry_description', 'entry_amount',
+    ];
+
+    protected $casts = [
+        'points' => 'array',
+        'x' => 'float',
+        'y' => 'float',
+        'width' => 'integer',
+        'page' => 'integer',
+        'confidence' => 'float',
+        'entry_date' => 'date:Y-m-d',
+        'entry_amount' => 'decimal:2',
+        'struck_out_at' => 'datetime',
+    ];
+
+    public function document(): BelongsTo
+    {
+        return $this->belongsTo(Document::class);
+    }
+
+    public function rentalApplication(): BelongsTo
+    {
+        return $this->belongsTo(RentalApplication::class);
+    }
+
+    public function highlighter(): BelongsTo
+    {
+        return $this->belongsTo(RentalApplicationHighlighter::class, 'highlighter_id');
+    }
+
+    public function author(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'author_user_id');
+    }
+
+    public function struckOutBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'struck_out_by_user_id');
+    }
+
+    public function isLedgerEntry(): bool
+    {
+        return in_array($this->entry_type, self::LEDGER_ENTRY_TYPES, true);
+    }
+
+    /**
+     * Johan's decision, 2026-09-14: a struck-out line stays visible but is
+     * EXCLUDED from the affordability totals — never hidden, never hard
+     * deleted. struck_out_at/struck_out_by_user_id are set/cleared ONLY by
+     * the dedicated toggle action (HandlesRentalApplicationDocumentMarks::
+     * captureEntryToggleStrike()), never via mass assignment — deliberately
+     * absent from $fillable above so a generic captureEntryUpdate() payload
+     * can never touch them.
+     */
+    public function isStruckOut(): bool
+    {
+        return $this->struck_out_at !== null;
+    }
+
+    public function isAnchored(): bool
+    {
+        return $this->document_id !== null;
+    }
+
+    /**
+     * AT-410, 2026-09-13 — the live-capture-mark guard, extracted from
+     * PdfSplitterController::linkForRentalApplication() so the new
+     * "file directly" action (RentalApplicationReviewController::
+     * fileDocumentDirectly()) refuses on the exact same condition as the
+     * splitter, not a re-derived lookalike. Reasoning unchanged from the
+     * splitter's own original comment: splitting/refiling a document does
+     * not, by construction, preserve which resulting piece a given page's
+     * marks now belong to — a wrong guess would silently move evidence to
+     * a plausible-but-wrong page, which is worse than blocking. Returns
+     * null when the document is clear to split/file; otherwise the exact
+     * user-facing message both callers show.
+     */
+    public static function blockingMarksMessageFor(int $documentId): ?string
+    {
+        $existingMarks = self::where('document_id', $documentId)->get();
+        if ($existingMarks->isEmpty()) {
+            return null;
+        }
+
+        $captureMarks = $existingMarks->whereIn('entry_type', self::LEDGER_ENTRY_TYPES);
+        $parts = [];
+        if ($captureMarks->isNotEmpty()) {
+            $amounts = $captureMarks->map(fn (self $m) => 'R' . number_format((float) $m->entry_amount, 2))->implode(', ');
+            $parts[] = $captureMarks->count() . ' captured ledger ' . ($captureMarks->count() === 1 ? 'entry' : 'entries') . ' (' . $amounts . ')';
+        }
+        $plainCount = $existingMarks->count() - $captureMarks->count();
+        if ($plainCount > 0) {
+            $parts[] = $plainCount . ' highlight/note ' . ($plainCount === 1 ? 'mark' : 'marks');
+        }
+
+        return 'This document has ' . implode(' and ', $parts) . ' drawn on it. Splitting or re-filing it would break the link between that evidence and its figures. Remove those marks first if you need to re-file this document.';
+    }
+
+    /**
+     * The exact snake_case array shape marks_json has always used —
+     * unchanged, so firstPagePreview()/remainingPagePreviews()'s JSON
+     * response, and the burn/legend rendering that already consumes this
+     * shape, need no changes. Not simply toArray() — this is a stable
+     * wire contract independent of column additions.
+     */
+    public function toMarkArray(): array
+    {
+        $base = [
+            'id' => $this->mark_uid,
+            'type' => $this->type,
+            'highlighter_id' => $this->highlighter_id,
+            'author_user_id' => $this->author_user_id,
+            'author_name' => $this->author_name,
+            'author_role' => $this->author_role,
+            'document_id' => $this->document_id,
+            // Stage 2, 2026-09-11 — the capture panel's row-click-to-jump
+            // needs a mark's page to scroll it into view; every other
+            // existing consumer already gets page from the OUTER key of the
+            // {pageIndex: [...marks]} shape firstPagePreview()/
+            // remainingPagePreviews() return (see
+            // RentalApplicationDocumentHighlightService::firstPagePreview()),
+            // so this is a purely additive field, never read by them.
+            'page' => $this->page,
+            // Capture-ledger rework — carried on every mark (default
+            // 'annotation') so the client can tell a plain highlight/note
+            // apart from a ledger entry without a second lookup.
+            'entry_type' => $this->entry_type,
+            'entry_date' => $this->entry_date?->format('Y-m-d'),
+            'entry_description' => $this->entry_description,
+            'entry_amount' => $this->entry_amount !== null ? (float) $this->entry_amount : null,
+            // Johan's decision, 2026-09-14 — struck lines stay in this same
+            // array (never filtered out here); the client excludes them from
+            // totals but still renders them, struck-through.
+            'struck_out' => $this->isStruckOut(),
+            'struck_out_by' => $this->struckOutBy?->name,
+            'struck_out_at' => $this->struck_out_at?->format('d M Y H:i'),
+        ];
+
+        if ($this->type === 'note') {
+            return $base + [
+                'x' => $this->x,
+                'y' => $this->y,
+                'text' => $this->text,
+            ];
+        }
+
+        return $base + [
+            'points' => $this->points,
+            'width' => $this->width,
+        ];
+    }
+}

@@ -31,11 +31,28 @@ class ContactMatch extends Model
     public const STATUS_FULFILLED = 'fulfilled';
     public const STATUS_EXPIRED   = 'expired';
 
+    /**
+     * Buyer Pipeline fix, 2026-09-18 — the one vocabulary of "this listing
+     * type counts as rental" everything checks against. Previously this
+     * exact array was duplicated inline in BuyerPipelineController's filter
+     * AND in the kanban card's own per-row label — same list, two places,
+     * no way to notice if a third value ever needed adding to one and not
+     * the other.
+     */
+    public const RENTAL_LISTING_TYPES = ['rental', 'rent', 'to_let', 'to let', 'letting'];
+
+    public static function listingTypeIsRental(?string $listingType): bool
+    {
+        return in_array(strtolower((string) $listingType), self::RENTAL_LISTING_TYPES, true);
+    }
+
     protected $fillable = [
         'agency_id',
         'contact_id',
         'created_by_user_id',
         'updated_by_user_id',
+        'agent_id',
+        'set_aside_at',
         'name',
         'share_token',
         'share_slug',
@@ -47,6 +64,8 @@ class ContactMatch extends Model
         'property_types',
         'price_min',
         'price_max',
+        'move_in_date',
+        'rental_term_months',
         'beds_min',
         'bedrooms_max',
         'baths_min',
@@ -73,6 +92,8 @@ class ContactMatch extends Model
         'is_primary'            => 'boolean',
         'price_min'             => 'integer',
         'price_max'             => 'integer',
+        'move_in_date'          => 'date',
+        'rental_term_months'    => 'integer',
         'beds_min'              => 'integer',
         'bedrooms_max'          => 'integer',
         'baths_min'             => 'integer',
@@ -93,6 +114,7 @@ class ContactMatch extends Model
         'property_view_counts'  => 'array',
         'last_engaged_at'       => 'datetime',
         'auto_archive_at'       => 'date',
+        'set_aside_at'          => 'datetime',
     ];
 
     protected static function boot(): void
@@ -106,11 +128,13 @@ class ContactMatch extends Model
                 $match->status = self::STATUS_ACTIVE;
             }
             $match->syncSuburbsFromP24Ids();
+            self::enforceRentalApprovedAmountCap($match);
         });
         static::updating(function (self $match) {
             if ($match->isDirty('p24_suburb_ids')) {
                 $match->syncSuburbsFromP24Ids();
             }
+            self::enforceRentalApprovedAmountCap($match);
         });
         static::created(function (self $match) {
             if (empty($match->share_slug)) {
@@ -118,6 +142,75 @@ class ContactMatch extends Model
                 $match->saveQuietly();
             }
         });
+    }
+
+    /**
+     * AT-392, Johan verbatim: "if a tenant is approved for 10k we do not
+     * show them anything higher than 10k. done... if the agent believes
+     * the approved amount is wrong, the route is changing the approved
+     * amount through the proper authorisation path, not raising the
+     * wishlist above it."
+     *
+     * Universal backstop — fires on every create/update of a rental
+     * ContactMatch, from EVERY entry point (the rental-application drawer,
+     * the Contact page, the Buyer Pipeline drawer, the mobile API, and any
+     * future one), not just the one screen this feature adds a UI for.
+     * "Fix the class, not the instance" (BUILD_STANDARD §6): the same
+     * approved-amount ceiling RentalApplicationPropertyMatcher already
+     * enforces independently on the actual outbound email is now also
+     * unbypassable at the point the wishlist ITSELF is saved, so a
+     * price_max above the approved amount can never even be persisted.
+     *
+     * Deliberately a silent CLAMP here, not a thrown exception — this hook
+     * runs in background/automated paths too (e.g.
+     * BuyerLeadCascadeService::seedFromListing() deriving a wishlist from a
+     * portal lead), where throwing would break an unrelated pipeline. A
+     * clamp is also the more literal reading of "it simply cannot be set
+     * higher" — the stored value provably never exceeds the ceiling,
+     * regardless of caller. The PRIMARY, agent-facing entry point
+     * (RentalApplicationReviewController::validateWishlistPayload()) gives
+     * a clear, named rejection with plain-language guidance BEFORE the
+     * model is ever touched, so an agent using the intended screen always
+     * sees why, in full sentences — this clamp is the backstop for every
+     * other path, not the agent's primary feedback.
+     *
+     * Governing amount = the contact's most recent APPROVED rental
+     * application. A contact can have more than one rental application
+     * over time (a past tenancy, then a new one); this deliberately does
+     * not try to determine which approval is "still current" beyond
+     * recency — flagged in the build report as a known simplification.
+     *
+     * Does NOT retroactively touch an already-saved price_max if the
+     * governing application's approved amount is later reduced — that is
+     * a separate, explicitly-flagged question for Johan, not decided here.
+     */
+    protected static function enforceRentalApprovedAmountCap(self $match): void
+    {
+        if ($match->listing_type !== 'rental') {
+            return;
+        }
+        if (empty($match->price_max) || (int) $match->price_max <= 0) {
+            return;
+        }
+        if (empty($match->contact_id)) {
+            return;
+        }
+
+        $governingApplication = \App\Models\RentalApplication::where('contact_id', $match->contact_id)
+            ->where('status', 'approved')
+            ->whereNotNull('approved_rental_amount')
+            ->latest('id')
+            ->first();
+
+        if (!$governingApplication) {
+            return;
+        }
+
+        $approvedAmount = (float) $governingApplication->approved_rental_amount;
+
+        if ((float) $match->price_max > $approvedAmount) {
+            $match->price_max = (int) floor($approvedAmount);
+        }
     }
 
     public static function generateSlug(self $match): string
@@ -134,9 +227,22 @@ class ContactMatch extends Model
         return $candidate;
     }
 
+    /**
+     * The permanent, static per-wishlist link — unchanged, still what the
+     * "Client Page" preview anchor uses. Deliberately NOT what a WhatsApp/
+     * Email send embeds any more (see mintShareLink()) — this one is never
+     * recorded as a share, since opening it proves nothing about whether
+     * the buyer was ever sent anything.
+     */
     public function sharedUrl(): string
     {
         return route('shared.match', $this->share_slug ?: $this->share_token);
+    }
+
+    /** A fresh, dated, independently-resolvable link — see ContactMatchShare::mint(). */
+    public function mintShareLink(int $mintedByUserId): ContactMatchShare
+    {
+        return ContactMatchShare::mint($this, $mintedByUserId);
     }
 
     public function contact(): BelongsTo
@@ -147,6 +253,22 @@ class ContactMatch extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /** The OWNING agent — the field a reassignment moves. Distinct from createdBy(). */
+    public function agent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'agent_id');
+    }
+
+    public function reassignments(): HasMany
+    {
+        return $this->hasMany(ContactMatchReassignment::class)->latest('id');
+    }
+
+    public function shares(): HasMany
+    {
+        return $this->hasMany(ContactMatchShare::class)->latest('shared_at');
     }
 
     public function updatedBy(): BelongsTo
@@ -188,6 +310,81 @@ class ContactMatch extends Model
      * (ContactMatchObserver::$demoting). We set the flag here so the
      * observer's saved() returns early when our own $this->save() fires.
      */
+    /**
+     * AT-Core-Matches, Johan's ruling 1 + Task 3 — the ONLY path that may
+     * change agent_id. Server-enforced independently of the route's own
+     * `permission:core_matches.reassign` middleware (defense in depth —
+     * BUILD_STANDARD §1c: direct-URL access must be blocked, not just
+     * absent from a menu). $movedBy must hold core_matches.reassign
+     * (branch_manager/admin only, per Johan — never an agent, including
+     * reassigning to themselves). $reason is required: Johan's model is
+     * that the manager has the conversation with the agent first.
+     *
+     * @throws \App\Exceptions\CoreMatches\ReassignmentNotAuthorizedException
+     */
+    public function reassignTo(User $toAgent, User $movedBy, string $reason): ContactMatchReassignment
+    {
+        if (! $movedBy->hasPermission('core_matches.reassign')) {
+            throw new \App\Exceptions\CoreMatches\ReassignmentNotAuthorizedException(
+                'Only a branch manager or admin can move a buyer between agents.'
+            );
+        }
+
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new \InvalidArgumentException('A reason is required to reassign a buyer.');
+        }
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($toAgent, $movedBy, $reason) {
+            $record = ContactMatchReassignment::record(
+                $this,
+                $this->agent_id,
+                $toAgent->id,
+                $movedBy->id,
+                $reason,
+            );
+
+            $this->agent_id = $toAgent->id;
+            $this->updated_by_user_id = $movedBy->id;
+            $this->save();
+
+            return $record;
+        });
+    }
+
+    /**
+     * AT-Core-Matches, Task 6 — the buyer moved to Lost in the Buyer
+     * Pipeline. Set aside, never deleted; scopeVisible() (the screen
+     * owner's query) is expected to exclude set-aside rows by default.
+     */
+    public function setAside(): void
+    {
+        if ($this->set_aside_at === null) {
+            $this->forceFill(['set_aside_at' => now()])->save();
+        }
+    }
+
+    /**
+     * AT-Core-Matches, Task 6 — "comes back if the buyer does." The
+     * buyer moved OFF Lost in the Buyer Pipeline.
+     */
+    public function restoreFromSetAside(): void
+    {
+        if ($this->set_aside_at !== null) {
+            $this->forceFill(['set_aside_at' => null])->save();
+        }
+    }
+
+    public function scopeNotSetAside(Builder $q): Builder
+    {
+        return $q->whereNull('set_aside_at');
+    }
+
+    public function scopeSetAside(Builder $q): Builder
+    {
+        return $q->whereNotNull('set_aside_at');
+    }
+
     public function setAsPrimary(): void
     {
         DB::transaction(function () {
