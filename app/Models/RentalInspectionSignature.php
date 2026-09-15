@@ -60,4 +60,26 @@ class RentalInspectionSignature extends Model
     {
         return $note !== null && str_contains(strtolower($note), strtolower(self::REQUIRED_REFUSAL_PHRASE));
     }
+
+    /**
+     * §0.7/§11 — record a signature on an inspection. An agent_on_behalf
+     * signature is rejected outright unless refused_note carries Johan's
+     * exact required phrase — this is the only gate here; capturing the
+     * canvas image itself (storage_path) is a Stage 3/controller concern.
+     */
+    public static function capture(RentalInspection $inspection, string $signerRole, array $attributes = []): self
+    {
+        if ($signerRole === self::SIGNER_AGENT_ON_BEHALF && ! self::refusalNoteIsValid($attributes['refused_note'] ?? null)) {
+            throw new \InvalidArgumentException(
+                'An agent_on_behalf signature requires refused_note to contain: "' . self::REQUIRED_REFUSAL_PHRASE . '".'
+            );
+        }
+
+        return self::create(array_merge($attributes, [
+            'agency_id' => $inspection->agency_id,
+            'rental_inspection_id' => $inspection->id,
+            'signer_role' => $signerRole,
+            'signed_at' => $attributes['signed_at'] ?? now(),
+        ]));
+    }
 }

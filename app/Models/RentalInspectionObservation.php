@@ -104,4 +104,31 @@ class RentalInspectionObservation extends Model
     {
         return $this->condition !== self::CONDITION_GOOD;
     }
+
+    /**
+     * §0.1/§11 — a tenant fault report made after the fault-report window
+     * closed doesn't block anything on its own; the agent decides whether
+     * to accept, reject, or defer it, and that decision is recorded here.
+     * This is the one sanctioned exception to this model's immutability:
+     * the underlying FACT (condition/notes/photos) is never touched, only
+     * the agency's later decision about a report that arrived late — and
+     * only once, since a decision already on record is not this method's
+     * to revise.
+     */
+    public function recordWindowDecision(string $decision, User $decidedBy, ?string $note = null): void
+    {
+        if (! $this->reported_outside_window) {
+            throw new \LogicException('recordWindowDecision() only applies to an observation reported outside the fault-report window.');
+        }
+        if ($this->window_decision !== null) {
+            throw new \LogicException('This observation already has a window decision on record.');
+        }
+
+        $this->forceFill([
+            'window_decision' => $decision,
+            'window_decision_note' => $note,
+            'window_decision_by_user_id' => $decidedBy->id,
+            'window_decision_at' => now(),
+        ])->save();
+    }
 }
