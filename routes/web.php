@@ -3057,6 +3057,21 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:leases.create')->name('corex.leases.restore');
     });
 
+    // .ai/specs/rental-inspections.md §5 — the tracked/searchable list of
+    // every inspection. Recording observations/photos/signatures happens on
+    // the property's Rental Images tab (a separate controller, §1/§4), not
+    // here — this is Read plus administrative lifecycle only.
+    Route::prefix('rental-inspections')->middleware('permission:rental_inspections.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'index'])->name('corex.rental-inspections.index');
+        Route::get('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'show'])->name('corex.rental-inspections.show');
+        Route::post('/{rentalInspection}/cancel', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'cancel'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.cancel');
+        Route::delete('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'destroy'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.destroy');
+        Route::post('/{rentalInspection}/restore', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'restore'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.restore');
+    });
+
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,
     // a new file, deliberately separate from RentalApplicationController above,
     // which is owned by another lane and actively being edited). See

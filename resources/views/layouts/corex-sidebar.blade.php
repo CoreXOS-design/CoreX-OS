@@ -1089,6 +1089,13 @@
                 <a href="{{ route('corex.leases.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.leases.*') ? 'active' : '' }}">Leases</a>
                 @endpermission
 
+                {{-- .ai/specs/rental-inspections.md §5 — the tracked/searchable list of
+                     every inspection; recording actually happens on the property's
+                     Rental Images tab. Same-day nav entry per non-negotiable #2. --}}
+                @permission('rental_inspections.view')
+                <a href="{{ route('corex.rental-inspections.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inspections.*') ? 'active' : '' }}">Rental Inspections</a>
+                @endpermission
+
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif

@@ -120,6 +120,42 @@ class RentalInspection extends Model
     }
 
     /**
+     * §3.3 — deletable through the ordinary CRUD path only while nothing has
+     * been recorded against it yet. Once a single observation exists, this
+     * is evidence and may only be cancelled, never deleted — same reasoning
+     * and shape as Lease::isDeletable().
+     */
+    public function isDeletable(): bool
+    {
+        return $this->observations()->doesntExist();
+    }
+
+    /**
+     * §5/§7 — OWN/BRANCH/AGENCY scoping, layered on top of the hard
+     * AgencyScope boundary. Same PermissionService::getDataScope() +
+     * clampScope() convention as Lease::scopeVisibleTo() and rental
+     * applications, so the existing role-manager scope UI covers this
+     * module without a new mechanism.
+     */
+    public function scopeVisibleTo($query, User $user, ?string $requestedScope = null)
+    {
+        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_inspections');
+        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+
+        if ($scope === 'all') {
+            return $query;
+        }
+        if ($scope === 'branch') {
+            return $query->whereHas('property', fn (Builder $p) => $p->where('properties.branch_id', $user->effectiveBranchId()));
+        }
+        if ($scope === 'own') {
+            return $query->whereIn('rental_inspections.created_by_user_id', $user->dataIdentityIds());
+        }
+
+        return $query->whereRaw('1 = 0');
+    }
+
+    /**
      * §3.5/§0.7 — an out-inspection moves to awaiting_signature once the
      * walkthrough is done, opening the tenant's signing window. Guarded the
      * same way completion is: cannot proceed while a discrepancy is still

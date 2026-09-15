@@ -138,6 +138,17 @@ return [
         ['key' => 'leases.renew',  'label' => 'Record Escalations / Renewals', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 3],
         ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 4],
 
+        // ── Rental Inspections (rental-inspections.md) ──
+        ['key' => 'rental_inspections.view',              'label' => 'View Rental Inspections',                'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inspections', 'sort_order' => 1],
+        ['key' => 'rental_inspections.create',             'label' => 'Record Inspections & Observations',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 2],
+        // §6 — deliberately separate from .create [cc5 design call, flagged for
+        // Johan]: resolving a discrepancy decides which of two conflicting
+        // accounts of an item's condition is accepted as current, a judgement
+        // call heavier than recording a routine observation.
+        ['key' => 'rental_inspections.resolve_discrepancy', 'label' => 'Resolve Inspection Discrepancies',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 3],
+        // Separately gated per §6 — overrides a party's own consent to sign.
+        ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign Out-Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
+
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
         ['key' => 'daily_activity.create',   'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 43],
