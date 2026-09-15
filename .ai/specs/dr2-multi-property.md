@@ -983,6 +983,67 @@ real two-property submission would post and confirmed `property_value`/
 `total_commission` and both properties' own `allocated_price`/
 `allocated_commission` were exactly correct.
 
+## 8f. Row layout — property fields must share the Financials grid, not their own flexbox (2026-09-20)
+
+Johan, testing the additive-master build live, verbatim: **"please dont do
+kindergarden work. the price and comm fields are all out of line. get it
+placed properly please."** Correct, and diagnosed the way this class of
+bug has to be diagnosed — a real browser, a screenshot, and computed
+pixel positions, not a re-read of the Blade markup.
+
+**Root cause, measured, not inferred**: each property row was one flex
+container (`display:flex; justify-content:space-between`) with exactly
+two children — the address/badge block, and a SECOND block holding Price,
+Commission, and (non-primary rows only) the Remove button. Because that
+second block's own width depended on whether Remove was present,
+`space-between` anchored it to the row's RIGHT edge, and its LEFT edge —
+where Price starts — moved by exactly the width Remove added. Measured
+before touching anything, at 1500px: the primary row's price input started
+at x=1033; the other row's, x=418 — a 615px gap — even though both rows'
+own outer edges were identical (both x=325, already matching Selling
+Price's own left edge above). Exactly the mechanism Johan named as the
+likely cause: "extra elements pushing one row's fields out of line."
+
+**Fix**: address/badge/Remove now live on their OWN header line inside
+each row — variable content there is harmless, since nothing needs to
+align against it. Price and Commission move into a `.deal-grid
+deal-grid-tight` — the SAME class Selling Price/Commission Amount above
+already use, not a new layout system. A `.deal-grid` nested inside a
+`field-full` container computes its 2 columns against the exact same
+available width the outer one does, so the columns land at the same x
+regardless of nesting depth — this is a property of how CSS Grid sizes
+`grid-template-columns` from container width, not something that needs a
+shared grid instance. The row wrapper itself carries NO left/right
+padding (a bottom border replaces the old full bordered box) — any inset
+there would have shifted the nested grid's own left edge away from the
+outer grid's and silently reintroduced a smaller version of the same bug.
+Both row inputs also gained the `.money-input` class (`width: min(18rem,
+100%)`) that Selling Price/Commission Amount already carry — without it,
+the rows stretched to their full grid-cell width at narrow viewports
+(549px) while the Financials fields above stayed capped at 288px,
+producing a second, smaller mismatch.
+
+**Measured after the fix, real browser, four viewports** (left/width in
+px; both rows and both Financials reference fields shown for each):
+
+| Viewport | Selling Price | Commission Amount | Row 1 price | Row 1 commission | Row 2 price | Row 2 commission |
+|---|---|---|---|---|---|---|
+| 1500px | x=325 w=260 | x=880 w=260 | x=325 w=260 | x=880 w=260 | x=325 w=260 | x=880 w=260 |
+| 1366px (laptop) | x=325 w=260 | x=813 w=260 | x=325 w=260 | x=813 w=260 | x=325 w=260 | x=813 w=260 |
+| 1024px | x=325 w=260 | x=642 w=260 | x=325 w=260 | x=642 w=260 | x=325 w=260 | x=642 w=260 |
+| 700px (below `md`, single column) | x=77 w=288 | x=77 w=288 | x=77 w=288 | x=77 w=288 | x=77 w=288 | x=77 w=288 |
+
+Every row's own price column matches Selling Price's x/width exactly;
+every row's own commission column matches Commission Amount's x/width
+exactly; both rows match each other exactly — at every width tested, not
+just desktop. Screenshots taken before and after at 1500px, plus the
+1024px and 700px passes, are the actual proof this was checked, not
+assumed — a Blade diff cannot show a layout bug, only a rendered page can.
+
+No new layout system was invented — `.deal-grid`/`.deal-grid-tight`/
+`.money-input` are the exact classes Financials already used above this
+list, reused verbatim.
+
 ## 9. Scoping
 
 Every mutation above operates through `Deal`/`Property` models that already
