@@ -60,6 +60,14 @@ class ContactGovernanceController extends Controller
             'buyer_warm_days' => 'required|integer|min:1|max:365',
             'buyer_cold_days' => 'required|integer|min:1|max:365',
             'buyer_lost_days' => 'required|integer|min:1|max:730',
+            // AT-Core-Matches — auto-lost is agency-configurable, OFF by
+            // default. The warning window must never exceed the stale
+            // window it warns about (a 14-day warning on a 7-day rule would
+            // "warn" about buyers who are already Lost) — refused outright
+            // at save time rather than silently clamped, so the agency
+            // finds out immediately, not by a badge that never appears.
+            'buyer_auto_lost_enabled' => 'nullable|boolean',
+            'buyer_lost_warning_days' => 'required|integer|min:1|max:730|lte:buyer_lost_days',
             // AT-Core-Matches, Johan's ruling 5 — the Core Matches working window, never hardcoded.
             'core_matches_working_window_days' => 'required|integer|min:1|max:90',
             // AT-81 — no-response window before a pending outreach contact lapses.
@@ -82,6 +90,7 @@ class ContactGovernanceController extends Controller
                 'buyer_warm_days',
                 'buyer_cold_days',
                 'buyer_lost_days',
+                'buyer_lost_warning_days',
                 'core_matches_working_window_days',
                 'outreach_no_response_days',
                 'contact_retention_years',
@@ -92,6 +101,7 @@ class ContactGovernanceController extends Controller
             [
                 'warn_on_held_address_capture' => $request->boolean('warn_on_held_address_capture'),
                 'portal_lead_auto_seed_buyer'  => $request->boolean('portal_lead_auto_seed_buyer'),
+                'buyer_auto_lost_enabled'      => $request->boolean('buyer_auto_lost_enabled'),
             ],
         ));
 

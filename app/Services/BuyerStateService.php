@@ -65,7 +65,56 @@ class BuyerStateService
         if ($daysSinceActivity <= $settings->buyer_cold_days) {
             return 'cold';
         }
-        return 'lost';
+
+        // AT-Core-Matches, Johan (2026-09-15) — auto-lost is agency-
+        // configurable and OFF by default: "I dont like it happening
+        // silently." Before this, ANYTHING past buyer_cold_days became
+        // 'lost' immediately, and buyer_lost_days — a real, saved,
+        // validated setting with a working input on screen — was never
+        // read by this method at all. Fixed in the same line: when the
+        // toggle is off, a stale buyer stays 'cold' forever (an agent must
+        // move them manually); when it's on, buyer_lost_days is finally
+        // the real threshold it always claimed to be.
+        if ($settings->buyerAutoLostEnabled() && $daysSinceActivity > $settings->buyerLostDays()) {
+            return 'lost';
+        }
+
+        return 'cold';
+    }
+
+    /**
+     * Days remaining before a stale buyer auto-transitions to Lost, or null
+     * if the at-risk badge does not apply — not a buyer, no activity yet,
+     * auto-lost off for the agency, already Lost/Won, or outside the
+     * warning window. Never returns 0 or negative: once the threshold is
+     * actually crossed the buyer becomes 'lost' on the next recompute and
+     * the badge's own gate (buyer_state !== 'lost') removes it, so "at
+     * risk" and "already lost" never overlap on screen.
+     */
+    public function daysUntilAutoLost(Contact $contact): ?int
+    {
+        if (!$contact->is_buyer || in_array($contact->buyer_state, ['lost', self::WON], true)) {
+            return null;
+        }
+        if (!$contact->last_activity_at) {
+            return null;
+        }
+
+        $agencyId = (int) ($contact->agency_id ?: 0);
+        $settings = AgencyContactSettings::forAgency($agencyId);
+
+        if (!$settings->buyerAutoLostEnabled()) {
+            return null;
+        }
+
+        $daysSinceActivity = (int) $contact->last_activity_at->diffInDays(now());
+        $remaining = $settings->buyerLostDays() - $daysSinceActivity;
+
+        if ($remaining < 1 || $remaining > $settings->buyerLostWarningDays()) {
+            return null;
+        }
+
+        return $remaining;
     }
 
     /**

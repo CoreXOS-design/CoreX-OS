@@ -27,6 +27,12 @@ class AgencyContactSettings extends Model
         'buyer_warm_days',
         'buyer_cold_days',
         'buyer_lost_days',
+        // AT-Core-Matches — auto-lost is agency-configurable and OFF by
+        // default (Johan: "I dont like it happening silently"). The
+        // warning window for the at-risk badge is its own setting, not a
+        // fraction of buyer_lost_days.
+        'buyer_auto_lost_enabled',
+        'buyer_lost_warning_days',
         // AT-Core-Matches, Johan's ruling 5 — "the working window is an
         // agency SETTING, default 7 days, never hardcoded."
         'core_matches_working_window_days',
@@ -63,6 +69,8 @@ class AgencyContactSettings extends Model
         'buyer_warm_days' => 'integer',
         'buyer_cold_days' => 'integer',
         'buyer_lost_days' => 'integer',
+        'buyer_auto_lost_enabled' => 'boolean',
+        'buyer_lost_warning_days' => 'integer',
         'core_matches_working_window_days' => 'integer',
         'outreach_no_response_days' => 'integer',
         'min_countable_criteria' => 'array',
@@ -126,6 +134,11 @@ class AgencyContactSettings extends Model
     /** AT-Core-Matches, Johan's ruling 5 — default working-window length (days). */
     public const DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS = 7;
 
+    /** AT-Core-Matches — auto-lost is OFF until an agency explicitly opts in. */
+    public const DEFAULT_BUYER_AUTO_LOST_ENABLED = false;
+    /** AT-Core-Matches — at-risk badge warning window (days before auto-lost fires). */
+    public const DEFAULT_BUYER_LOST_WARNING_DAYS = 7;
+
     /** Per-request cache of the resolved min-countable bar, keyed by agency id. */
     protected static array $minCountableCache = [];
 
@@ -151,6 +164,8 @@ class AgencyContactSettings extends Model
             'buyer_warm_days' => 14,
             'buyer_cold_days' => 30,
             'buyer_lost_days' => 60,
+            'buyer_auto_lost_enabled' => self::DEFAULT_BUYER_AUTO_LOST_ENABLED,
+            'buyer_lost_warning_days' => self::DEFAULT_BUYER_LOST_WARNING_DAYS,
             'core_matches_working_window_days' => self::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS,
             'outreach_no_response_days' => self::DEFAULT_OUTREACH_NO_RESPONSE_DAYS,
             'min_countable_criteria' => self::DEFAULT_MIN_COUNTABLE_CRITERIA,
@@ -194,6 +209,37 @@ class AgencyContactSettings extends Model
     {
         $v = (int) ($this->core_matches_working_window_days ?? self::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS);
         return max(1, min(90, $v));
+    }
+
+    /** Whether the nightly recompute may EVER move a stale buyer to Lost (null-safe). */
+    public function buyerAutoLostEnabled(): bool
+    {
+        return (bool) ($this->buyer_auto_lost_enabled ?? self::DEFAULT_BUYER_AUTO_LOST_ENABLED);
+    }
+
+    /**
+     * At-risk badge warning window (days), null-safe, clamped 1-730 and
+     * NEVER allowed past buyer_lost_days itself — a warning window longer
+     * than the stale window it warns about is nonsense (14-day warning on a
+     * 7-day rule would "warn" about buyers who are already Lost). Clamped
+     * here rather than only at save time so a value that predates this
+     * clamp, or a buyer_lost_days lowered afterward, can never produce a
+     * nonsense reading.
+     */
+    public function buyerLostWarningDays(): int
+    {
+        $v = (int) ($this->buyer_lost_warning_days ?? self::DEFAULT_BUYER_LOST_WARNING_DAYS);
+        $v = max(1, min(730, $v));
+
+        return min($v, $this->buyerLostDays());
+    }
+
+    /** Resolved Cold -> Lost threshold (days since last activity), null-safe, clamped 1-730. */
+    public function buyerLostDays(): int
+    {
+        $v = (int) ($this->buyer_lost_days ?? 60);
+
+        return max(1, min(730, $v));
     }
 
     /** Recurring-events: resolved max occurrences per series per query (null-safe, clamped 1–1000). */

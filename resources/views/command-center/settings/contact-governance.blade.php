@@ -223,7 +223,7 @@
             <div class="corex-panel-body space-y-4">
                 <p class="text-xs" style="color:var(--text-muted);">Number of days since last activity before buyer lifecycle state changes.</p>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Warm → Cold (days)</label>
                         <input type="number" name="buyer_warm_days" value="{{ $settings->buyer_warm_days }}" min="1" max="365"
@@ -234,16 +234,11 @@
                         <input type="number" name="buyer_cold_days" value="{{ $settings->buyer_cold_days }}" min="1" max="365"
                                class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
                     </div>
-                    <div>
-                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Lost threshold (days)</label>
-                        <input type="number" name="buyer_lost_days" value="{{ $settings->buyer_lost_days }}" min="1" max="730"
-                               class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
-                    </div>
                 </div>
             </div>
         </div>
 
-        {{-- ═══════ CORE MATCHES — WORKING WINDOW (Johan's ruling 5) ═══════ --}}
+        {{-- ═══════ CORE MATCHES — WORKING WINDOW + AUTO-LOST (Johan's rulings 5 & 6) ═══════ --}}
         <div class="corex-panel mb-6">
             <div class="corex-panel-header">
                 <h3 class="corex-panel-title">Core Matches</h3>
@@ -256,6 +251,35 @@
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Working window (days)</label>
                         <input type="number" name="core_matches_working_window_days" value="{{ $settings->core_matches_working_window_days ?? \App\Models\AgencyContactSettings::DEFAULT_CORE_MATCHES_WORKING_WINDOW_DAYS }}" min="1" max="90"
                                class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                    </div>
+                </div>
+
+                <hr style="border-color:var(--border);">
+
+                <label class="flex items-start gap-2 cursor-pointer">
+                    <input type="hidden" name="buyer_auto_lost_enabled" value="0">
+                    <input type="checkbox" name="buyer_auto_lost_enabled" value="1" class="mt-0.5"
+                           {{ $settings->buyer_auto_lost_enabled ? 'checked' : '' }}>
+                    <span class="text-xs" style="color:var(--text-secondary);">
+                        <span class="font-medium" style="color:var(--text-primary);">Automatically move a stale buyer to Lost</span><br>
+                        When on, a buyer with no activity for the "Lost threshold" below is moved to Lost by
+                        the nightly recompute — the same as if an agent had moved them manually. <strong>Off by
+                        default.</strong> When off, a buyer can sit stale indefinitely; only an agent moving
+                        them on the Buyer Pipeline marks them Lost.
+                    </span>
+                </label>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Lost threshold (days)</label>
+                        <input type="number" name="buyer_lost_days" value="{{ $settings->buyer_lost_days }}" min="1" max="730"
+                               class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">At-risk warning (days before)</label>
+                        <input type="number" name="buyer_lost_warning_days" value="{{ $settings->buyer_lost_warning_days ?? \App\Models\AgencyContactSettings::DEFAULT_BUYER_LOST_WARNING_DAYS }}" min="1" max="730"
+                               class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
+                        <p class="text-xs mt-1" style="color:var(--text-muted);">How long before the Lost threshold a "Moves to Lost in N days" badge appears on Core Matches. Cannot exceed the Lost threshold itself.</p>
                     </div>
                 </div>
             </div>
