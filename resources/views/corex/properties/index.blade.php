@@ -62,11 +62,21 @@
          style="border-bottom: 1px solid var(--border);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-properties-intro">
+                @if($importedStock ?? false)
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Imported Stock</h1>
+                <p class="text-xs" style="color:var(--text-muted);">Off-market P24-imported listings (withdrawn, sold, expired, etc.) — active imported stock stays on Properties.</p>
+                @else
                 <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Properties</h1>
                 <p class="text-xs" style="color:var(--text-muted);">Manage listings and publish to website.</p>
+                @endif
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                {{-- AT-419 — Imported Stock holds no-longer-marketed stock; the
+                     creation shortcuts below (Import Sold, Classic form, Drafts,
+                     New Property) are for adding/continuing NEW listings and have
+                     no place here. --}}
+                @unless($importedStock ?? false)
                 @if(auth()->user() && auth()->user()->isOwnerRole())
                 <a href="{{ route('corex.properties.import-sold') }}"
                    class="corex-btn-outline text-xs"
@@ -160,6 +170,7 @@
                     </svg>
                     New Property
                 </a>
+                @endunless
                 @permission('access_settings')
                 <a href="{{ url('/corex/settings?s=feature-properties') }}"
                    title="Properties Settings"
@@ -812,6 +823,9 @@
                     @if($property->mandate_type)
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
                     @endif
+                    @if($importedStock ?? false)
+                    <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Imported from Property24">Imported</span>
+                    @endif
                 </div>
 
                 {{-- Photo count (bottom-right glass) --}}
@@ -863,6 +877,10 @@
                     @if($property->baths)<span>{{ $property->baths }} Bath</span>@endif
                     @if($property->garages)<span>{{ $property->garages }} Gar</span>@endif
                     @if($property->size_m2)<span>{{ number_format($property->size_m2) }} m²</span>@endif
+                    @if(($importedStock ?? false) && $property->p24_imported_at)
+                    <span style="color:var(--border);">|</span>
+                    <span title="When this listing was brought into CoreX by the P24 importer">Imported {{ $property->p24_imported_at->format('j M Y') }}</span>
+                    @endif
                 </div>
 
                 {{-- Portal references — P24 and Private Property side by side, each
@@ -945,6 +963,12 @@
                     ['key' => 'marketing_status',  'label' => 'Marketing', 'align' => 'text-center', 'hide' => 'hidden md:table-cell'],
                     ['key' => 'status',            'label' => 'Status',    'align' => 'text-center', 'hide' => ''],
                 ];
+                // AT-419 — Imported Stock's one extra column, appended at the end
+                // (after the splice below, so its fixed index-6 insert point for
+                // website stats is unaffected).
+                if ($importedStock ?? false) {
+                    $sortCols[] = ['key' => 'p24_imported_at', 'label' => 'Imported Date', 'align' => 'text-left', 'hide' => 'hidden md:table-cell'];
+                }
                 // AT-383 — website engagement, only for an agency whose site actually
                 // reports it. Spec: .ai/specs/website-listing-stats.md §5.2
                 if ($hasWebsiteStats ?? false) {
@@ -1086,6 +1110,11 @@
                             <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowStatusPillStyle }}">{{ $rowStatusLabel }}</span>
                         </div>
                     </td>
+                    @if($importedStock ?? false)
+                    <td class="px-4 py-2.5 text-xs hidden md:table-cell" style="color:var(--text-secondary);">
+                        {{ $property->p24_imported_at?->format('j M Y') ?? '—' }}
+                    </td>
+                    @endif
                     <td class="px-4 py-2.5 text-right">
                         <div class="flex items-center justify-end gap-1">
                             @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'row'])

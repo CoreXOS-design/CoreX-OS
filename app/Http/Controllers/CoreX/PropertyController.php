@@ -28,7 +28,18 @@ class PropertyController extends Controller
     use \App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
     use \App\Http\Concerns\AppliesP24Location;
 
-    public function index(Request $request)
+    /**
+     * AT-419 — thin entry point for the Imported Stock page. Same list, filters,
+     * search, sort and agent handling as index() — just scoped to P24-imported
+     * off-market stock instead of everything else. See index()'s $importedStock
+     * branches for the two places that actually differ.
+     */
+    public function importedStock(Request $request)
+    {
+        return $this->index($request, true);
+    }
+
+    public function index(Request $request, bool $importedStock = false)
     {
         /** @var User $user */
         $user           = auth()->user();
@@ -52,7 +63,11 @@ class PropertyController extends Controller
         // redirected to the canonical URL so links, chips and pagination all
         // carry the state. This replaces the previous behaviour that silently
         // reset to "my listings" on any nav that dropped ?agent_id=.
-        $SESSION_KEY = 'corex.properties.filters';
+        // AT-419 — a distinct session key for Imported Stock so its filters
+        // (e.g. a picked agent) never bleed into/from the Properties page;
+        // they're two different lists a user may want filtered differently.
+        $ROUTE_NAME  = $importedStock ? 'corex.properties.imported-stock' : 'corex.properties.index';
+        $SESSION_KEY = $importedStock ? 'corex.properties.imported_stock.filters' : 'corex.properties.filters';
         $FILTER_KEYS = [
             'status', 'search', 'listing_type', 'property_type', 'category',
             'mandate_type', 'branch_id', 'price_min', 'price_max',
@@ -62,7 +77,7 @@ class PropertyController extends Controller
         // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
         if ($request->boolean('clear')) {
             $request->session()->forget($SESSION_KEY);
-            return redirect()->route('corex.properties.index');
+            return redirect()->route($ROUTE_NAME);
         }
 
         // Did this request carry any filter signal? (incl. the legacy single
@@ -75,7 +90,7 @@ class PropertyController extends Controller
         if (! $hasFilterParam) {
             $saved = (array) $request->session()->get($SESSION_KEY, []);
             if (! empty($saved)) {
-                return redirect()->route('corex.properties.index', $saved);
+                return redirect()->route($ROUTE_NAME, $saved);
             }
         }
 
@@ -102,6 +117,15 @@ class PropertyController extends Controller
             'agent', 'branch', 'secondAgent',
             'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
         ]);
+
+        // AT-419 — the two pages partition every property between them: Imported
+        // Stock gets P24-imported off-market rows, Properties gets everything
+        // else (including active imported stock, unchanged).
+        if ($importedStock) {
+            $query->importedOffMarket();
+        } else {
+            $query->excludingImportedOffMarket();
+        }
 
         // ── Agent multi-select ────────────────────────────────────────────
         // agent_ids = comma list of ids | 'all' | (absent). Falls back to the
@@ -444,7 +468,7 @@ class PropertyController extends Controller
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
-            'myDrafts', 'hasWebsiteStats'
+            'myDrafts', 'hasWebsiteStats', 'importedStock'
         ));
     }
 

@@ -115,6 +115,41 @@ class Property extends Model
     }
 
     /**
+     * AT-419 — the Properties list = everything EXCEPT P24-imported stock that
+     * has gone off-market. Paired with scopeImportedOffMarket() below: together
+     * they partition every property between the two pages with no row on both
+     * or neither. Case-insensitive on purpose (LOWER(status)) — some P24-import
+     * statuses land capitalised (e.g. "Withdrawn") while OFF_MARKET_STATUSES is
+     * lowercase snake_case; a strict match would leave capitalised off-market
+     * imports stranded on the Properties page. Scoped to this pair of scopes
+     * only — isOnMarket()/scopeOnMarket() themselves are unchanged (wide blast
+     * radius across MIC matching, syndication stats, the deal register and
+     * more; out of scope for this build — reported to Johan separately).
+     */
+    public function scopeExcludingImportedOffMarket($query)
+    {
+        $placeholders = implode(',', array_fill(0, count(self::OFF_MARKET_STATUSES), '?'));
+
+        return $query->where(function ($q) use ($placeholders) {
+            $q->whereNull('p24_imported_at')
+              ->orWhereRaw("LOWER(status) NOT IN ($placeholders)", self::OFF_MARKET_STATUSES);
+        });
+    }
+
+    /**
+     * AT-419 — the Imported Stock page: P24-imported properties that are off
+     * market (withdrawn, sold, expired, cancelled, …). See
+     * scopeExcludingImportedOffMarket() above for the casing note.
+     */
+    public function scopeImportedOffMarket($query)
+    {
+        $placeholders = implode(',', array_fill(0, count(self::OFF_MARKET_STATUSES), '?'));
+
+        return $query->whereNotNull('p24_imported_at')
+            ->whereRaw("LOWER(status) IN ($placeholders)", self::OFF_MARKET_STATUSES);
+    }
+
+    /**
      * Most recent of the four portal submit/activate timestamps we hold — the
      * "last advertised" signal for isStaleStock() below. Null when the property
      * has never been synced to either portal (e.g. hand-captured stock).
@@ -398,6 +433,7 @@ class Property extends Model
     protected $fillable = [
         'external_id',
         'p24_listing_number',
+        'p24_imported_at',
         'title',
         'excerpt',
         'description',
@@ -575,6 +611,7 @@ class Property extends Model
         'pet_friendly'        => 'boolean',
         'spaces_json'         => 'array',
         'published_at'        => 'datetime',
+        'p24_imported_at'      => 'datetime',
         'price'               => 'integer',
         'price_on_application' => 'boolean',
         'has_deposit'         => 'boolean',

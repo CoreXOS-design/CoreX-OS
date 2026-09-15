@@ -339,6 +339,9 @@ return [
 
         // ── Properties ──
         ['key' => 'access_properties',           'label' => 'Access Properties',           'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 1],
+        // AT-419 — separate from access_properties so Imported Stock visibility
+        // can be toggled per role independently of the main Properties page.
+        ['key' => 'access_imported_stock',       'label' => 'Access Imported Stock',       'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 1.1],
         ['key' => 'create_properties',           'label' => 'Create & Edit Properties',    'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 2],
         ['key' => 'publish_properties',          'label' => 'Publish Properties',          'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 3],
         ['key' => 'delete_properties',           'label' => 'Delete Properties',           'section' => 'properties',       'type' => 'access',  'module' => 'properties',       'sort_order' => 4],
@@ -848,7 +851,7 @@ return [
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
-                'access_properties', 'create_properties', 'publish_properties', 'delete_properties',
+                'access_properties', 'access_imported_stock', 'create_properties', 'publish_properties', 'delete_properties',
                 'properties.view', 'properties.create', 'properties.edit', 'properties.ad_templates.manage', 'properties.share',
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
@@ -944,7 +947,7 @@ return [
                 'access_calculators', 'access_ad_manager', 'ad_manager.view', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_prospecting', 'access_evaluation',
-                'access_properties', 'create_properties',
+                'access_properties', 'access_imported_stock', 'create_properties',
                 'properties.view', 'properties.create', 'properties.edit', 'properties.share',
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit',
@@ -1016,7 +1019,7 @@ return [
                 'access_sales_documents', 'sales_docs.view',
                 'access_calculators', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_prospecting', 'access_evaluation',
-                'access_properties', 'properties.view',
+                'access_properties', 'access_imported_stock', 'properties.view',
                 'access_contacts', 'contacts.view', 'contacts.export',
                 'access_core_matches', 'core_matches.view',
                 'access_portal_leads', 'portal_leads.view',
