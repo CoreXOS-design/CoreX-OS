@@ -81,7 +81,12 @@ class CoreMatchReasonClassifier
 
     private function classifyOne(Property $property, ContactMatch $match, ?Carbon $lastSharedAt, float $threshold): array
     {
-        if ($lastSharedAt === null || ($property->created_at && $property->created_at->greaterThan($lastSharedAt))) {
+        // >= not > : a property created in the SAME instant as the last share
+        // (timestamp columns are second-precision — a fast backfill/import can
+        // genuinely tie) could not have been captured in that share's snapshot,
+        // so a tie must read as "not yet seen", not fall through to the
+        // criteria-widened catch-all.
+        if ($lastSharedAt === null || ($property->created_at && !$property->created_at->lessThan($lastSharedAt))) {
             return ['reason' => self::REASON_NEW, 'meta' => []];
         }
 
@@ -138,11 +143,11 @@ class CoreMatchReasonClassifier
         return null;
     }
 
-    /** A status audit row showing a move OUT of a non-matchable status, after the last share. */
+    /** A status audit row showing a move OUT of a non-matchable status, at/after the last share. */
     private function wentBackOnMarket(Property $property, Carbon $lastSharedAt): bool
     {
         return PropertyAuditLog::forProperty($property->id)
-            ->where('created_at', '>', $lastSharedAt)
+            ->where('created_at', '>=', $lastSharedAt)
             ->where(function ($q) {
                 $q->where('event_type', 'price_changed')->orWhere('event_type', 'property_updated');
             })

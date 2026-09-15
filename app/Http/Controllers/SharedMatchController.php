@@ -24,7 +24,11 @@ use Illuminate\Support\Collection;
 
 class SharedMatchController extends Controller
 {
-    public function __construct(protected MatchingService $matching) {}
+    public function __construct(
+        protected MatchingService $matching,
+        protected \App\Services\Matching\CoreMatchShareHistoryService $shareHistory,
+        protected \App\Services\Matching\CoreMatchReasonClassifier $reasonClassifier,
+    ) {}
 
     public function show(Request $request, string $token)
     {
@@ -401,9 +405,23 @@ class SharedMatchController extends Controller
 
             $properties = $this->matching->propertiesForMatch($m, $matchOverrides);
 
+            // AT-Core-Matches, Johan's "interactive" ruling — per-property
+            // New/Reduced/Back-on-market markers on the buyer's OWN page.
+            // Computed against the wishlist's own saved criteria (never the
+            // ad-hoc override form above), same reason source as the
+            // agent's board popup. CRITERIA_WIDENED is filtered out here,
+            // unconditionally, server-side — it is never sent to this view,
+            // never mind hidden by it; "this now matches because you
+            // widened their budget" is not a sentence for a buyer to read.
+            $markers = $this->reasonClassifier
+                ->classify($m, $this->shareHistory->neverSentProperties($m))
+                ->filter(fn ($row) => in_array($row['reason'], \App\Services\Matching\CoreMatchReasonClassifier::BUYER_VISIBLE_REASONS, true))
+                ->pluck('reason', 'property.id');
+
             return [
                 'match'      => $m,
                 'properties' => $properties,
+                'markers'    => $markers,
                 'feedback'   => $m->feedback()->get()->keyBy('property_id'),
                 'filters'    => [
                     'category'     => $matchOverrides['category']      ?? $m->category,

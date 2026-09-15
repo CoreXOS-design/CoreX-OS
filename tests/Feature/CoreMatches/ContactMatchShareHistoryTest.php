@@ -327,7 +327,7 @@ final class ContactMatchShareHistoryTest extends TestCase
             'contact_id' => $this->contact->id,
             'from_state' => 'warm',
             'to_state'   => 'lost',
-            'reason'     => 'manual_pipeline_move',
+            'reason'     => 'manual_override',
             'occurred_at' => now(),
         ]);
 

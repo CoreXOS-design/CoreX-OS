@@ -4080,6 +4080,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.view')
         ->name('corex.core-matches.share-history');
 
+    // AT-Core-Matches, the board's "Send N new" popup — HTML fragment fetched
+    // into the SAME shared modal shell cc3's notes popup uses. Same gate as
+    // share-history above.
+    Route::get('/core-matches/{match}/new-since-share', [\App\Http\Controllers\CoreX\ContactMatchShareHistoryController::class, 'newSinceQuickView'])
+        ->middleware('permission:core_matches.view')
+        ->name('corex.core-matches.new-since-share');
+
     // AT-403 — Rentals → Contacts. Johan: "rental menu - wheres my rental
     // contacts?" Same ContactController::index() as corex.contacts.index
     // above, detected by route NAME, locking the list to contacts holding a

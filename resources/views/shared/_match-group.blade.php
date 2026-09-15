@@ -11,6 +11,9 @@
     $feedback   = $group['feedback'];
     $filters    = $group['filters'];
     $groupToken = $group['token'];
+    // AT-Core-Matches — property_id => 'new'|'reduced'|'back_on_market'.
+    // Already filtered to buyer-safe reasons server-side (SharedMatchController).
+    $markers    = $group['markers'] ?? collect();
     $totalCount = $properties->count();
 
     $priceVals  = $properties->pluck('price')->filter(fn ($p) => (int) $p > 0)->map(fn ($p) => (int) $p)->values();

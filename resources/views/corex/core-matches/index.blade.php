@@ -373,6 +373,37 @@
                         @endif
                     </div>
 
+                    {{-- Share status — Johan's rule: no badge lit on every row.
+                         Never-shared gets its own honest fact-badge (no count —
+                         a baseline-less "new" tells the agent nothing). Shared
+                         with nothing unseen is silence — the absence IS the
+                         signal, same convention this board already uses for the
+                         hidden-count and reassigned badges. Shared WITH unseen
+                         matches is the one state that earns the actionable
+                         badge — the whole point of the feature: scan the board,
+                         see instantly who's worth sending to again. --}}
+                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                        @if(!$match->lastSharedAt)
+                        <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
+                              style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);">
+                            Never shared
+                        </span>
+                        @else
+                        <span class="text-xs whitespace-nowrap" style="color:var(--text-muted);"
+                              title="Last shared {{ $match->lastSharedAt->format('d M Y, H:i') }}">
+                            Shared {{ $match->lastSharedAt->diffForHumans() }}
+                        </span>
+                        @if($match->neverSharedCount > 0)
+                        <button type="button" x-data
+                                @click="$dispatch('open-new-since-share', { url: '{{ route('corex.core-matches.new-since-share', $match) }}' })"
+                                class="text-xs px-2 py-0.5 rounded-md font-semibold whitespace-nowrap border-0 cursor-pointer"
+                                style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 14%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 28%, transparent);">
+                            Send {{ $match->neverSharedCount }} new
+                        </button>
+                        @endif
+                        @endif
+                    </div>
+
                     {{-- Action --}}
                     @if(auth()->user()->hasPermission('access_core_matches'))
                     <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
@@ -420,6 +451,29 @@
                 <div x-show="!loading" x-html="html"></div>
                 <div class="mt-5 text-right">
                     <button type="button" class="corex-btn-outline text-xs" @click="$dispatch('close-modal', 'notes-quick-view')">Close</button>
+                </div>
+            </div>
+        </x-modal>
+    </div>
+
+    {{-- "Send N new" popup — same shell/pattern as the notes popup above
+         (one modal, content fetched on demand for whichever row's badge was
+         clicked), not a second convention. --}}
+    <div x-data="{ loading: false, html: '' }"
+         @open-new-since-share.window="
+             loading = true; html = '';
+             $dispatch('open-modal', 'new-since-share');
+             fetch($event.detail.url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                 .then(r => r.text())
+                 .then(t => { html = t; loading = false; })
+                 .catch(() => { html = '<p class=&quot;text-sm&quot; style=&quot;color:var(--ds-crimson);&quot;>Could not load.</p>'; loading = false; })
+         ">
+        <x-modal name="new-since-share" max-width="lg">
+            <div class="p-6">
+                <div x-show="loading" class="text-sm" style="color:var(--text-muted);">Loading…</div>
+                <div x-show="!loading" x-html="html"></div>
+                <div class="mt-5 text-right">
+                    <button type="button" class="corex-btn-outline text-xs" @click="$dispatch('close-modal', 'new-since-share')">Close</button>
                 </div>
             </div>
         </x-modal>
