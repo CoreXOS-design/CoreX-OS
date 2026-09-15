@@ -11,6 +11,9 @@ use App\Models\Docuperfect\AmendmentAcceptance;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\DocumentAmendment;
 use App\Models\Docuperfect\LeaseRecord;
+use App\Models\Lease;
+use App\Models\LeaseTenant;
+use App\Services\Rentals\TenantContactResolver;
 use App\Models\Docuperfect\Signature;
 use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
@@ -4076,6 +4079,9 @@ class SignatureService
                     // 6. Extract lease data if this is a lease/rental document
                     if ($this->isLeaseDocument($template)) {
                         $this->createLeaseRecord($template);
+                        // .ai/specs/leases.md §1.2 — self-guarded, see the method's own
+                        // idempotency check.
+                        $this->createLeaseFromSignedDocument($template);
                     }
 
                     $this->recordFinalizationSucceeded($template);
@@ -4291,11 +4297,15 @@ class SignatureService
         // 6. Extract lease data if this is a lease/rental document — guarded against
         // a duplicate LeaseRecord, which createLeaseRecord() itself does not check
         // (it was never called more than once per template before this job existed).
-        if (
-            $this->isLeaseDocument($template)
-            && !LeaseRecord::where('signature_template_id', $template->id)->exists()
-        ) {
-            $this->createLeaseRecord($template);
+        if ($this->isLeaseDocument($template)) {
+            if (!LeaseRecord::where('signature_template_id', $template->id)->exists()) {
+                $this->createLeaseRecord($template);
+            }
+
+            // .ai/specs/leases.md §1.2 — the new Lease model, built alongside the
+            // legacy LeaseRecord above. Self-guarded (see the method's own
+            // idempotency check), so calling it every time this cascade runs is safe.
+            $this->createLeaseFromSignedDocument($template);
         }
     }
 
@@ -5363,8 +5373,8 @@ class SignatureService
         $parties = $template->parties_json ?? [];
 
         // Extract party details from parties_json
-        $tenant = collect($parties)->firstWhere('role', 'tenant');
-        $landlord = collect($parties)->firstWhere('role', 'landlord');
+        $tenant = $this->firstPartyWithRole($parties, ['tenant', 'lessee']);
+        $landlord = $this->firstPartyWithRole($parties, ['landlord', 'lessor']);
 
         // Extract lease-specific fields from document fields_json
         $fields = $this->extractLeaseFields($document);
@@ -5401,19 +5411,135 @@ class SignatureService
     }
 
     /**
-     * Extract lease-specific fields from a document's fields_json.
+     * .ai/specs/leases.md §1.2 — the live bug: this extractor looked for
+     * `lease_start_date`/`commencement_date`/`start_date`, but the real
+     * templates (`lease-agreement-popi-v8.blade.php`,
+     * `commercial-lease-agreement-v5.blade.php` — confirmed by reading
+     * their actual `data-field` attributes) name the field `lease_start`.
+     * None of the old candidates ever matched, which is very likely why
+     * only 2 LeaseRecords existed against 58 manually-captured legacy
+     * `rentals` rows. Fixed by adding the REAL field names as the primary
+     * candidates — `lease_start`/`lease_end`/`street_address`/`erf_no` —
+     * while keeping every old guessed key as a fallback for any other
+     * template this doesn't cover. Broadening only, nothing removed, so
+     * this cannot regress a template that happened to already work.
      */
     private function extractLeaseFields(Document $document): array
     {
         $fields = $document->fields_json ?? [];
 
         return [
-            'property_address' => $fields['property_address'] ?? $fields['address'] ?? $fields['premises_address'] ?? null,
-            'property_id' => $fields['property_id'] ?? $fields['erf_number'] ?? null,
-            'rental_amount' => (float) ($fields['monthly_rental'] ?? $fields['rental_amount'] ?? $fields['rent'] ?? 0),
-            'lease_start_date' => $this->parseLeaseDate($fields['lease_start_date'] ?? $fields['commencement_date'] ?? $fields['start_date'] ?? null),
-            'lease_end_date' => $this->parseLeaseDate($fields['lease_end_date'] ?? $fields['termination_date'] ?? $fields['end_date'] ?? null),
+            'property_address' => $fields['street_address'] ?? $fields['property_address'] ?? $fields['address'] ?? $fields['premises_address'] ?? null,
+            'property_id' => $fields['property_id'] ?? $fields['erf_no'] ?? $fields['erf_number'] ?? null,
+            'rental_amount' => (float) ($fields['rental_amount'] ?? $fields['monthly_rental'] ?? $fields['rent'] ?? 0),
+            'lease_start_date' => $this->parseLeaseDate($fields['lease_start'] ?? $fields['lease_start_date'] ?? $fields['commencement_date'] ?? $fields['start_date'] ?? null),
+            'lease_end_date' => $this->parseLeaseDate($fields['lease_end'] ?? $fields['lease_end_date'] ?? $fields['termination_date'] ?? $fields['end_date'] ?? null),
+            'escalation_percent' => isset($fields['escalation_percent']) && $fields['escalation_percent'] !== ''
+                ? (float) $fields['escalation_percent'] : null,
         ];
+    }
+
+    /**
+     * Case-insensitive party lookup across a list of acceptable role names —
+     * `parties_json['role']` is free text set per-template (there is no
+     * fixed 'tenant'/'landlord' vocabulary enforced anywhere), and the real
+     * lease templates use lessee/lessor terminology throughout their own
+     * field names, so a strict 'tenant'/'landlord' match alone would miss
+     * them.
+     */
+    private function firstPartyWithRole(array $parties, array $acceptableRoles): ?array
+    {
+        $acceptableRoles = array_map('mb_strtolower', $acceptableRoles);
+
+        foreach ($parties as $party) {
+            $role = mb_strtolower((string) ($party['role'] ?? ''));
+            $baseRole = preg_replace('/_\d+$/', '', $role); // strip "_2" etc multi-instance suffix
+
+            if (in_array($role, $acceptableRoles, true) || in_array($baseRole, $acceptableRoles, true)) {
+                return $party;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * .ai/specs/leases.md §1.2 — the new, correctly-populated Lease model,
+     * built alongside (not instead of) the legacy LeaseRecord above so
+     * LeaseRecord's existing consumers (LeaseController, CheckLeaseExpiry,
+     * LeaseExpirationAlert, RentalCalendarSource) are entirely unaffected.
+     * Idempotent by itself (checks source_document_id) so it's safe to call
+     * from either completion-cascade call site without touching their
+     * surrounding dedup logic.
+     *
+     * Property resolution deliberately does NOT trust
+     * `Document::property_id` — see LeasePropertyResolver's own docblock
+     * for why (it points at a different, unrelated table). Falls back to
+     * confident address-matching against the real `properties` table
+     * instead. No confident match = no Lease created here; an agent can
+     * always create one manually from the property's Rental tab.
+     */
+    public function createLeaseFromSignedDocument(SignatureTemplate $template): ?Lease
+    {
+        $template->loadMissing(['document']);
+        $document = $template->document;
+
+        if (!$document || Lease::withoutGlobalScopes()->where('source_document_id', $document->id)->exists()) {
+            return null;
+        }
+
+        $fields = $this->extractLeaseFields($document);
+        $property = app(\App\Services\Rentals\LeasePropertyResolver::class)
+            ->matchOneByAddress($fields['property_address']);
+
+        if (!$property || !$property->agency_id) {
+            return null;
+        }
+
+        $parties = $template->parties_json ?? [];
+        $tenant = $this->firstPartyWithRole($parties, ['tenant', 'lessee']);
+
+        $startDate = $fields['lease_start_date'] ?? now()->toDateString();
+        $endDate = $fields['lease_end_date'] ?? null;
+
+        $lease = Lease::withoutGlobalScopes()->create([
+            'agency_id' => $property->agency_id,
+            'branch_id' => $property->branch_id,
+            'property_id' => $property->id,
+            'status' => Lease::STATUS_ACTIVE,
+            'rental_amount' => $fields['rental_amount'] ?? 0,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'source' => 'esign_document',
+            'source_document_id' => $document->id,
+        ]);
+
+        if ($tenant) {
+            $tenantContact = app(TenantContactResolver::class)->matchOrCreate(
+                $property->agency_id,
+                $property->branch_id,
+                $tenant['name'] ?? null,
+                $tenant['email'] ?? null,
+            );
+
+            if ($tenantContact) {
+                LeaseTenant::create([
+                    'lease_id' => $lease->id,
+                    'contact_id' => $tenantContact->id,
+                    'is_primary' => true,
+                ]);
+            }
+        }
+
+        SignatureAuditLog::log(
+            $template,
+            'lease_created_from_document',
+            SignatureAuditLog::ACTOR_SYSTEM,
+            'System',
+            metadata: ['lease_id' => $lease->id, 'property_id' => $property->id],
+        );
+
+        return $lease;
     }
 
     /**

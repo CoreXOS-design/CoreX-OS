@@ -1082,6 +1082,13 @@
                 <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Applications</a>
                 @endpermission
 
+                {{-- .ai/specs/leases.md — the spine of rentals: property + tenant(s) +
+                     terms, with in-inspection/out-inspection/work-orders all hanging
+                     off it. Same-day nav entry per non-negotiable #2. --}}
+                @permission('leases.view')
+                <a href="{{ route('corex.leases.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.leases.*') ? 'active' : '' }}">Leases</a>
+                @endpermission
+
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif

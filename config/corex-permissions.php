@@ -129,6 +129,15 @@ return [
         // never the role-manager screen's own 'own' fallback.
         ['key' => 'contact_rental_history.view', 'label' => 'View Rental History on Contact', 'section' => 'contacts', 'type' => 'action', 'module' => 'contact_rental_history', 'sort_order' => 1],
 
+        // ── Leases (leases.md) — the spine of rentals ──
+        ['key' => 'leases.view',   'label' => 'View Leases',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'leases', 'sort_order' => 1],
+        ['key' => 'leases.create', 'label' => 'Create & Activate Leases', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 2],
+        // Separate from .create per leases.md §8 [cc5 design call, flagged for
+        // Johan] — renewal touches the overlap-prevention guard; if the
+        // distinction is unwanted, collapsing it into .create is a one-line change.
+        ['key' => 'leases.renew',  'label' => 'Record Escalations / Renewals', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 3],
+        ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 4],
+
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
         ['key' => 'daily_activity.create',   'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 43],

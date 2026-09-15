@@ -4179,6 +4179,43 @@
                     </div>
                 </div>
             @else
+                {{-- .ai/specs/leases.md §7 — the active lease's tenant(s), dates,
+                     and rent, read-only. This is what fills the gap the Rental
+                     tab's own governing spec (rentals-shared-screens.md §11.1)
+                     already named: "Tenant link... Not built." Sourced from the
+                     `leases` table, never from this tab's own pricing fields
+                     below (those are the property's ASKING terms; a lease's
+                     rental_amount is the AGREED terms for a specific tenancy —
+                     leases.md §6 is explicit these are not the same fact). --}}
+                {{-- Block form, never the one-liner @php(...) -- see this file's own
+                     AT-243/AT-252 comment ~280 lines below (Linked Contacts section)
+                     for exactly why: the one-liner has no guard in Blade's raw-PHP
+                     extraction regex and swallows every line up to the next @endphp
+                     in the whole file. --}}
+                @php
+                    $activeLease = \App\Models\Lease::where('property_id', $property->id)->where('status', 'active')->with('tenants.contact')->first();
+                @endphp
+                <div class="rounded-md p-3 text-sm" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    @if($activeLease)
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <strong>Active lease:</strong> {{ $activeLease->tenantNames() }}
+                                — R{{ number_format((float) $activeLease->rental_amount, 2) }}/mo
+                                ({{ $activeLease->start_date?->format('Y-m-d') }}
+                                &ndash; {{ $activeLease->end_date?->format('Y-m-d') ?? ($activeLease->is_month_to_month ? 'month-to-month' : 'no end date') }})
+                            </div>
+                            <a href="{{ route('corex.leases.show', $activeLease) }}" class="corex-btn-outline text-xs">View lease</a>
+                        </div>
+                    @else
+                        <div class="flex items-center justify-between">
+                            <span style="color: var(--text-muted);">No active lease on this property.</span>
+                            @permission('leases.create')
+                            <a href="{{ route('corex.leases.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs">Create lease</a>
+                            @endpermission
+                        </div>
+                    @endif
+                </div>
+
                 {{-- Settled rental property — dedicated save action
                      (PropertyController::updateRentalDetails()): its own
                      validation, its own DB transaction, the same

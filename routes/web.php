@@ -3033,6 +3033,30 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.unlink-tenant-property');
     });
 
+    // .ai/specs/leases.md — leases as the spine of rentals. Johan: "a tenant
+    // is not linked to a property, a tenant is linked to a LEASE, and the
+    // lease is linked to the property."
+    Route::prefix('leases')->middleware('permission:leases.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\LeaseController::class, 'index'])->name('corex.leases.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\LeaseController::class, 'create'])
+            ->middleware('permission:leases.create')->name('corex.leases.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\LeaseController::class, 'store'])
+            ->middleware('permission:leases.create')->name('corex.leases.store');
+        Route::get('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
+        Route::put('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'update'])
+            ->middleware('permission:leases.create')->name('corex.leases.update');
+        Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
+            ->middleware('permission:leases.create')->name('corex.leases.activate');
+        Route::post('/{lease}/cancel', [\App\Http\Controllers\CoreX\LeaseController::class, 'cancel'])
+            ->middleware('permission:leases.cancel')->name('corex.leases.cancel');
+        Route::post('/{lease}/escalate', [\App\Http\Controllers\CoreX\LeaseController::class, 'escalate'])
+            ->middleware('permission:leases.renew')->name('corex.leases.escalate');
+        Route::delete('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'destroy'])
+            ->middleware('permission:leases.create')->name('corex.leases.destroy');
+        Route::post('/{lease}/restore', [\App\Http\Controllers\CoreX\LeaseController::class, 'restore'])
+            ->middleware('permission:leases.create')->name('corex.leases.restore');
+    });
+
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,
     // a new file, deliberately separate from RentalApplicationController above,
     // which is owned by another lane and actively being edited). See
