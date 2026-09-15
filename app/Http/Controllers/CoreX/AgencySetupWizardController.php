@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\AgencyOnboardingSetup;
+use App\Models\LeaseSetting;
 use App\Models\PerformanceSetting;
 use App\Models\Proforma\AgencyProformaSettings;
 use App\Models\Prospecting\Town;
@@ -429,6 +430,10 @@ class AgencySetupWizardController extends Controller
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
                 'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                // .ai/specs/leases.md §5.2 — always resolves to a real number
+                // (the constant default when unset), never null, matching
+                // LeaseSetting::expiryNoticeWindowDaysFor()'s own contract.
+                'leases'    => LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
                 // AT-395 — the outgoing-mail step reads the CURRENT ADMIN's own
                 // mailbox row, never any other agent's. Password is never
                 // resolved back (write-only, same rule as every mailbox screen).

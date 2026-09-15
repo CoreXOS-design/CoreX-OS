@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\ProformaSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
+use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
 /**
@@ -319,6 +320,30 @@ return [
              'label' => 'Bank details',
              'explain' => 'The account details a client pays into — bank name, account name, account number, branch code.',
              'affects' => 'Printed on every proforma invoice CoreX generates, so a client knows exactly where to pay.'],
+        ],
+    ],
+
+    // .ai/specs/leases.md §5.2 — conductor ruling 2026-09-15. Johan's standing
+    // rule: any threshold is agency-configurable with a sensible default from
+    // day one, never hardcoded. A compliance-confirmed number later only
+    // changes what the default starts at, not whether the control exists.
+    'leases' => [
+        'title' => 'Leases',
+        'intro' => 'How CoreX warns your agents before a tenant\'s lease expires.',
+        'what' => [
+            'title' => 'What this covers',
+            'body'  => 'Every lease CoreX tracks has a start and end date. This setting controls how many '
+                . 'days before that end date your agents get warned that a lease is coming up for renewal '
+                . 'or expiry — it does not change anything about the lease itself.',
+        ],
+        'savers' => [
+            ['controller' => LeaseSettingsController::class, 'method' => 'update'],
+        ],
+        'controls' => [
+            ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
+             'label' => 'Warn me this many days before a lease expires',
+             'explain' => 'The number of days before a lease\'s end date that CoreX should treat it as approaching expiry.',
+             'affects' => 'When a lease starts showing as due for attention. 60 days suits most agencies — change it to match your own notice practice.'],
         ],
     ],
 
