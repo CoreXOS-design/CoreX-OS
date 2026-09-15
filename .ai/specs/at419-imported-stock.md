@@ -2,6 +2,17 @@
 
 > Status: Draft — awaiting Johan's sign-off before build starts.
 
+> **Amendment, 2026-09-15 (Andre):** "off-market" for this page is narrower than
+> `Property::OFF_MARKET_STATUSES`. A withdrawn/expired/sold P24 import that later gets
+> picked up by the unrelated stale-stock/duplicate-resolution pipeline
+> (`TrackedPropertyMatchOrCreateService` / `PropertyDuplicateTakeService`) and reclassified
+> to `draft` or `prospecting`/`not_selling` has left the "imported off-market P24 stock"
+> bucket — it belongs to the Drafts/Prospecting workflow, not here, even though
+> `p24_imported_at` is still set. New `Property::IMPORTED_STOCK_STATUSES` (sold,
+> sold_by_3rd_party, transferred, withdrawn, expired, cancelled, let_out, archived,
+> unavailable) is the actual set used by both AT-419 scopes — `OFF_MARKET_STATUSES` itself
+> is untouched. Found live on HFC's restored data: 3 drafts + 7 prospecting rows.
+
 ## 1. What this feature does and why
 
 Today, when an admin confirms a P24 (Property24) CSV import via Admin → Importer, every
