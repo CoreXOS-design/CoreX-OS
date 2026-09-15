@@ -2838,6 +2838,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.edit');
     Route::post('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'update'])
         ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.update');
+    // .ai/specs/leases.md §5.2 — expiry-notice window, agency-configurable, default 60 days.
+    Route::get('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'edit'])
+        ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');
+    Route::post('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'update'])
+        ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.update');
     // AT-392 Phase 2 — qualifying-formula threshold, same settings screen, separate
     // form/route so it can never interfere with the existing checklist save above.
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
