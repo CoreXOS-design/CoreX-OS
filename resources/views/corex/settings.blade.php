@@ -104,6 +104,9 @@
                     $can('rental_applications.manage_settings')
                         ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
                         : null,
+                    $can('leases.manage_settings')
+                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry notice window warn days']
+                        : null,
                     ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags labels phone email personal business dial code country prefix'],
                     ['key'=>'feature-properties',    'label'=>'Properties & Listings', 'type'=>'section', 'keywords'=>'syndication portals marketing'],
                     ['key'=>'feature-presentations', 'label'=>'Presentations',         'type'=>'section', 'keywords'=>'cma coverage thresholds comps period rich moderate thin comparable selection price band radius erf percentile range widen anchor'],

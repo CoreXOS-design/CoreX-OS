@@ -136,7 +136,8 @@ return [
         // Johan] — renewal touches the overlap-prevention guard; if the
         // distinction is unwanted, collapsing it into .create is a one-line change.
         ['key' => 'leases.renew',  'label' => 'Record Escalations / Renewals', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 3],
-        ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 4],
+        ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 5],
+        ['key' => 'leases.manage_settings', 'label' => 'Manage Lease Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 6],
 
         // ── Rental Inspections (rental-inspections.md) ──
         ['key' => 'rental_inspections.view',              'label' => 'View Rental Inspections',                'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inspections', 'sort_order' => 1],

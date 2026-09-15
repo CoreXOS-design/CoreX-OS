@@ -28,8 +28,8 @@
         <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-xs">&larr; All leases</a>
     </div>
 
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="grid grid-cols-2 gap-3 text-sm">
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
+        <div class="grid grid-cols-2 gap-3 text-sm" x-show="!editing">
             <div><span style="color: var(--text-muted);">Tenant(s):</span> {{ $lease->tenantNames() }}</div>
             <div><span style="color: var(--text-muted);">Monthly rental:</span> R{{ number_format((float) $lease->rental_amount, 2) }}</div>
             <div><span style="color: var(--text-muted);">Deposit:</span> {{ $lease->deposit_amount !== null ? 'R' . number_format((float) $lease->deposit_amount, 2) : '—' }}</div>
@@ -38,6 +38,50 @@
             <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
             <div><span style="color: var(--text-muted);">Source:</span> {{ str_replace('_', ' ', ucfirst($lease->source)) }}</div>
         </div>
+
+        {{-- .ai/specs/leases.md — full CRUD floor: deposit/end date/lease type
+             editable after creation. Rent amount is deliberately NOT editable
+             here — it only ever changes via a recorded escalation (§3.4), so
+             the rate history stays a true, unbroken record. Start date is
+             fixed once a lease exists; correcting it is a delete-and-recreate
+             (only possible while nothing has attached — see isDeletable()),
+             not a silent edit of a term the tenant agreed to. --}}
+        @permission('leases.create')
+        <div x-show="!editing" class="pt-1">
+            <button type="button" @click="editing = true" class="corex-btn-outline text-xs">Edit</button>
+        </div>
+        <form x-show="editing" x-cloak method="POST" action="{{ route('corex.leases.update', $lease) }}" class="space-y-3">
+            @csrf
+            @method('PUT')
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="text-xs font-medium">Deposit (R)</label>
+                    <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount', $lease->deposit_amount) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs font-medium">End date</label>
+                    <input type="date" name="end_date" min="{{ $lease->start_date?->format('Y-m-d') }}" value="{{ old('end_date', $lease->end_date?->format('Y-m-d')) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div class="col-span-2">
+                    <label class="text-xs font-medium">Lease type</label>
+                    <select name="lease_type" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <option value="" @selected(!$lease->lease_type)>—</option>
+                        @foreach(['Net', 'Gross', 'Modified Gross', 'Percentage'] as $type)
+                            <option value="{{ $type }}" @selected($lease->lease_type === $type)>{{ $type }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <label class="flex items-center gap-2 text-sm col-span-2">
+                    <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month', $lease->is_month_to_month))>
+                    Month-to-month (no fixed end date)
+                </label>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="corex-btn-primary text-xs">Save changes</button>
+                <button type="button" @click="editing = false" class="corex-btn-outline text-xs">Cancel</button>
+            </div>
+        </form>
+        @endpermission
 
         @if($lease->previousLease)
             <p class="text-xs" style="color: var(--text-muted);">Renewed from <a href="{{ route('corex.leases.show', $lease->previousLease) }}" class="underline">lease #{{ $lease->previousLease->id }}</a>.</p>
