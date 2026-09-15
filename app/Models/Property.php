@@ -115,6 +115,77 @@ class Property extends Model
     }
 
     /**
+     * Buyer-wishlist matching exclusion BEYOND plain off-market. An under-offer
+     * property is still genuinely on-market for every other purpose in the app
+     * (display, syndication, isOnMarket()) — it just must never be offered as a
+     * NEW match: it's already spoken for, and surfacing it to another buyer
+     * sets up a disappointment (Johan, 2026-09-15). Kept separate from
+     * OFF_MARKET_STATUSES rather than added to it, because those other
+     * consumers must NOT start treating under-offer stock as off-market.
+     *
+     * 'pending' alongside it for the same reason (a mid-transaction "offer
+     * accepted, not yet transferred" state, not a terminal one). 'rented' is
+     * here too, preserving the matching engine's own PRIOR (pre-this-fix,
+     * MatchingService::NON_MATCHABLE_STATUSES) correct exclusion of it — it
+     * reads as the rental equivalent of 'sold'/'let_out', a genuinely
+     * terminal state, and arguably belongs in OFF_MARKET_STATUSES itself for
+     * every OTHER consumer too (display, syndication) — flagged, not changed
+     * here, since that constant's blast radius across the app wasn't
+     * audited in this pass; kept here so this fix is a strict superset of
+     * the old matching behaviour, never a narrower one.
+     */
+    public const MATCHING_EXCLUDED_ON_MARKET_STATUSES = ['under_offer', 'pending', 'rented'];
+
+    /**
+     * THE canonical single source for "should this property ever be offered as
+     * a buyer-wishlist match" — every matching code path (MatchingService,
+     * CoreMatchReasonClassifier, anything else that asks this question) must
+     * call this rather than maintain its own copy of the exclusion list.
+     *
+     * Found live on QA1, 2026-09-15 (Falan/Johan): 'prospecting' and
+     * 'not_selling' were being treated as matchable by MatchingService's own,
+     * separately-maintained exclusion list — 560 of 842 properties (66%) in
+     * the agency-wide matchable candidate pool were ingested-but-unmandated
+     * stock the agency doesn't hold the mandate on. Same defect class as the
+     * rental to_let gap: the matching engine's idea of which statuses are
+     * matchable was wrong and duplicated in more than one place. This method
+     * is the fix for the class, not the instance — it derives from
+     * OFF_MARKET_STATUSES (already correct) instead of re-listing it.
+     *
+     * NULL/blank status is matchable — an incomplete-but-live listing must
+     * not be silently suppressed by a missing status value (existing rule,
+     * unchanged, both call sites already relied on this).
+     */
+    public static function isMatchableStatus(?string $status): bool
+    {
+        $s = strtolower(trim((string) $status));
+        if ($s === '') {
+            return true;
+        }
+        if (static::isSoldByThirdPartyStatus($s)) {
+            return false;
+        }
+
+        return ! in_array($s, self::OFF_MARKET_STATUSES, true)
+            && ! in_array($s, self::MATCHING_EXCLUDED_ON_MARKET_STATUSES, true);
+    }
+
+    /**
+     * The exclusion list isMatchableStatus() enforces, as literals — for the
+     * few call sites that build raw SQL (`status NOT IN (...)`) rather than
+     * evaluating a hydrated model per row. Kept in lockstep with
+     * isMatchableStatus() by construction: both read the same two constants,
+     * neither re-lists the values.
+     */
+    public static function matchingExcludedStatusList(): array
+    {
+        return array_values(array_unique(array_merge(
+            self::OFF_MARKET_STATUSES,
+            self::MATCHING_EXCLUDED_ON_MARKET_STATUSES
+        )));
+    }
+
+    /**
      * Most recent of the four portal submit/activate timestamps we hold — the
      * "last advertised" signal for isStaleStock() below. Null when the property
      * has never been synced to either portal (e.g. hand-captured stock).

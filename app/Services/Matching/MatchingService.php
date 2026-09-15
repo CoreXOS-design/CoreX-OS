@@ -35,7 +35,14 @@ class MatchingService
      */
     private const STATUS_BY_LISTING_TYPE = [
         'sale'   => ['for_sale', 'forsale', 'active', 'available', 'on_market'],
-        'rental' => ['for_rent', 'forrent', 'to_rent', 'torent', 'available_rent', 'active'],
+        // 'to_let' added 2026-09-15 alongside the prospecting/not_selling fix —
+        // same defect class, flagged separately: this is the real "available
+        // to rent" status this system's data actually uses (found live: 18
+        // to_let listings existed and were invisible to matching before this;
+        // only 7 of 560 rental listings carried a status this list recognised
+        // at all). Never formally ruled on by Johan for rentals specifically —
+        // told to him as fixed alongside the sale-side fix, his to overrule.
+        'rental' => ['for_rent', 'forrent', 'to_rent', 'torent', 'available_rent', 'active', 'to_let'],
     ];
 
     /** Allowed values for the agency `matches_visibility_scope` setting. */
@@ -136,55 +143,23 @@ class MatchingService
      * cancelled mandate: none of these may ever surface as a "new match" or fire
      * a match email. A property is "matchable" only while it is genuinely live.
      *
-     * THE single source of truth for match eligibility. It replaces the earlier
-     * split EXCLUDED_FOR_NOTIFY / EXCLUDED_FOR_DISPLAY lists, which (a) disagreed
-     * — notify was missing let_out/expired/cancelled/unavailable — and (b) were
-     * compared with a case-SENSITIVE `in_array(..., true)` against a lowercase
-     * list, while the `status` column is stored mixed-case across ingress paths
-     * (P24 sync writes capitalised 'Sold'/'Withdrawn'/'Rented'; the wizard writes
-     * lowercase). The result: 769 `Sold` and every `let_out` rental leaked into
-     * agent match emails. Fix-the-class — one list, one normalised predicate
-     * (isMatchableStatus), every matching entry point routed through it.
-     */
-    private const NON_MATCHABLE_STATUSES = [
-        // AT-350 — a property another agency sold is as unavailable to our buyers
-        // as one we sold ourselves. Omitting it would leak exactly what the note
-        // above records leaking for 'Sold': match emails to agents, offering
-        // buyers a house that has already changed hands. The comparison below is
-        // an exact in_array, so the value has to be listed literally.
-        'sold', 'sold_by_3rd_party', 'transferred', 'rented', 'let_out',
-        'withdrawn', 'expired', 'cancelled',
-        'unavailable', 'archived', 'draft', 'pending',
-    ];
-
-    /**
-     * Case-insensitive match-eligibility test for a property's lifecycle status.
-     *
-     * A NULL / blank status is treated as matchable: an incomplete-but-live
-     * listing must not be silently suppressed — the same "incomplete listings
-     * shouldn't be penalised" rule the scorer applies. Only an EXPLICIT
-     * off-market status blocks the match.
+     * THE single source of truth for match eligibility USED TO be maintained
+     * here as its own copy (NON_MATCHABLE_STATUSES) — replaced 2026-09-15
+     * after it was found live, missing 'prospecting'/'not_selling' (560 of
+     * 842 properties in the agency-wide matchable pool, 66%, were
+     * ingested-but-unmandated stock with no real mandate). Same defect class
+     * as the rental to_let gap: the matching engine's idea of which statuses
+     * are matchable was wrong AND duplicated in more than one place
+     * (Property::OFF_MARKET_STATUSES already had the correct broader list;
+     * this class's own copy had drifted from it). Now delegates to
+     * Property::isMatchableStatus() — the ONE place this is defined — instead
+     * of re-listing the values. Method kept here (not just called directly)
+     * so every existing caller of MatchingService::isMatchableStatus()
+     * continues to work unchanged.
      */
     public static function isMatchableStatus(?string $status): bool
     {
-        $s = strtolower(trim((string) $status));
-
-        if ($s === '') {
-            return true;
-        }
-
-        // AT-350 — routed through the model helper rather than trusting the
-        // literal below. The list is an EXACT match on a lowercased string, so it
-        // only ever catches the underscore slug `sold_by_3rd_party`; the stored
-        // value is genuinely mixed-vocabulary (this class's own note above records
-        // 769 capitalised 'Sold' rows leaking for precisely this reason), so
-        // "Sold by 3rd Party" with spaces would sail straight through and keep
-        // offering buyers a house that has already changed hands.
-        if (Property::isSoldByThirdPartyStatus($s)) {
-            return false;
-        }
-
-        return !in_array($s, self::NON_MATCHABLE_STATUSES, true);
+        return Property::isMatchableStatus($status);
     }
 
     /**
@@ -267,7 +242,7 @@ class MatchingService
             ->where(function (Builder $sub) {
                 $sub->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
-                        . collect(self::NON_MATCHABLE_STATUSES)->map(fn ($s) => "'$s'")->implode(',')
+                        . collect(Property::matchingExcludedStatusList())->map(fn ($s) => "'$s'")->implode(',')
                         . ')');
             });
 
@@ -506,7 +481,7 @@ class MatchingService
             ->where(function (Builder $sub) {
                 $sub->whereNull('status')
                     ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
-                        . collect(self::NON_MATCHABLE_STATUSES)->map(fn ($s) => "'$s'")->implode(',')
+                        . collect(Property::matchingExcludedStatusList())->map(fn ($s) => "'$s'")->implode(',')
                         . ')');
             });
         if ($agencyId) {
