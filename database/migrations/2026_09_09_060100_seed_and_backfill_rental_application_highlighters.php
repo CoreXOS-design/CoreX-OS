@@ -66,7 +66,35 @@ return new class extends Migration
                 ];
             }
 
-            RentalApplicationHighlighter::seedDefaultsFor((int) $agencyId, $colors);
+            // NOT RentalApplicationHighlighter::seedDefaultsFor() — that
+            // method writes `capture_type` (added 2026-09-13, cc2's finding,
+            // a later migration). On a fresh from-scratch migrate (Staging
+            // promotion, 2026-09-15) this migration's own date runs BEFORE
+            // that column exists, so calling the live model method 500s with
+            // "Unknown column 'capture_type'". QA1 never hit this because its
+            // migrations ran incrementally in real time, always in the order
+            // they were authored. Inlined here as the exact pre-2026-09-13
+            // insert shape instead — the 2026-09-13 migration backfills
+            // capture_type immediately after by matching on label ('income'/
+            // 'expense'), so the seeded rows end up byte-identical to what
+            // seedDefaultsFor() would produce today either way.
+            if (RentalApplicationHighlighter::withTrashed()->where('agency_id', $agencyId)->exists()) {
+                continue;
+            }
+            $rows = [];
+            foreach (RentalApplicationHighlighter::DEFAULT_SEED as $order => $seed) {
+                $color = $colors[$seed['legacy_role']][$seed['legacy_category']] ?? $seed['color'];
+                $rows[] = [
+                    'agency_id' => $agencyId,
+                    'label' => $seed['label'],
+                    'color' => $color,
+                    'role_scope' => $seed['role_scope'],
+                    'sort_order' => $order,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ];
+            }
+            DB::table('rental_application_highlighters')->insert($rows);
         }
 
         // Build a (agency_id, category, role) -> highlighter_id lookup from
