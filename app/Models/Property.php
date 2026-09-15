@@ -698,7 +698,7 @@ class Property extends Model
 
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(Branch::class);
+        return $this->belongsTo(Branch::class)->withTrashed();
     }
 
     /** Build 3 — the property's recorded condition level (drives CMA

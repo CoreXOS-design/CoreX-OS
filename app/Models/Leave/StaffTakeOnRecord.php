@@ -45,7 +45,7 @@ class StaffTakeOnRecord extends Model
     // ── Relationships ──
 
     public function agency(): BelongsTo { return $this->belongsTo(Agency::class); }
-    public function branch(): BelongsTo { return $this->belongsTo(Branch::class); }
+    public function branch(): BelongsTo { return $this->belongsTo(Branch::class)->withTrashed(); }
     public function user(): BelongsTo { return $this->belongsTo(User::class); }
     public function payrollEmployee(): BelongsTo { return $this->belongsTo(PayrollEmployee::class); }
     public function completedBy(): BelongsTo { return $this->belongsTo(User::class, 'completed_by_user_id'); }

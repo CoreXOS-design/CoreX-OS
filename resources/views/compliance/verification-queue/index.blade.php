@@ -154,7 +154,7 @@
                         @foreach($pending as $doc)
                         <tr>
                             <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $doc->user->name ?? 'Unknown' }}</td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->user->branch->name ?? '—' }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $doc->user->branch->display_name ?? '—' }}</td>
                             <td class="px-4 py-3">
                                 <span class="ds-badge ds-badge-info">{{ \App\Models\UserDocument::$documentTypeLabels[$doc->document_type] ?? ucfirst(str_replace('_', ' ', $doc->document_type)) }}</span>
                             </td>

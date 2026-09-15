@@ -334,21 +334,54 @@ public function listingPool()
         return $this->listingPool() + $this->sellingPool();
     }
 
+    // ── Branch attribution (spec: branch-archive-reassignment.md §5, AT-420) ──
+    //
+    // The branch a deal's money rolls up to is the branch STAMPED ON THE DEAL
+    // when it was loaded (deals.branch_id) — never the agents' current home
+    // branch, which changes when an agent moves or a branch is archived.
+    // Legacy deals loaded before the stamp existed (branch_id NULL) fall back
+    // to each agent's current branch, exactly as before.
+
     /**
-     * Branch-specific commission: sum of allocations for agents belonging to the given branch.
+     * SQL expression for "which branch does this deal_user row roll up to".
+     * Requires `deals` and `users` to be joined on the query.
+     */
+    public static function branchAttributionSql(): string
+    {
+        return 'COALESCE(deals.branch_id, users.branch_id)';
+    }
+
+    /**
+     * The (distinct) agent ids on this deal whose share rolls up to $branchId.
+     * Requires the `agents` relation (loaded lazily if not eager-loaded).
+     *
+     * @return int[]
+     */
+    public function agentIdsAttributedTo(int $branchId): array
+    {
+        if ($this->branch_id) {
+            return (int) $this->branch_id === $branchId
+                ? $this->agents->pluck('id')->map(fn ($id) => (int) $id)->unique()->values()->all()
+                : [];
+        }
+
+        return $this->agents
+            ->filter(fn ($agent) => (int) $agent->branch_id === $branchId)
+            ->pluck('id')->map(fn ($id) => (int) $id)->unique()->values()->all();
+    }
+
+    /**
+     * Branch-specific commission: sum of allocations for the agents whose share
+     * rolls up to the given branch (see agentIdsAttributedTo()).
      * Uses the canonical allocations() engine (respects settlements, external sides, our-share %).
      */
     public function branchCommission(int $branchId): float
     {
         $allocations = $this->allocations();
         $total = 0.0;
-        $counted = [];
 
-        foreach ($this->agents as $agent) {
-            if ((int) $agent->branch_id === $branchId && !in_array($agent->id, $counted)) {
-                $total += (float) ($allocations[$agent->id] ?? 0);
-                $counted[] = $agent->id;
-            }
+        foreach ($this->agentIdsAttributedTo($branchId) as $agentId) {
+            $total += (float) ($allocations[$agentId] ?? 0);
         }
 
         return $total;
@@ -441,11 +474,12 @@ public function listingPool()
         $start = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
         $end   = (clone $start)->endOfMonth();
 
-        // DISTINCT deal IDs touching this branch via agents in the period
+        // DISTINCT deal IDs attributed to this branch in the period — by the
+        // branch stamped on the deal, not the agents' current branch (AT-420).
         $dealIds = \DB::table('deal_user')
             ->join('users', 'users.id', '=', 'deal_user.user_id')
             ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
-            ->where('users.branch_id', $branchId)
+            ->whereRaw(self::branchAttributionSql() . ' = ?', [$branchId])
             ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
             ->distinct()
             ->pluck('deals.id');
@@ -473,14 +507,11 @@ public function listingPool()
             // Canonical split engine (respects external sides, our-share %, settlement overrides, etc.)
             $allocations = $deal->allocations(); // [user_id => amount_ex_vat], plus optional [0 => company remainder]
 
-            // Branch share = sum of allocated amounts for agents in this branch
+            // Branch share = sum of allocated amounts for the agents whose share
+            // rolls up to this branch (deal stamp first, legacy fallback — AT-420)
             $branchShare = 0.0;
-            $counted = [];
-            foreach ($deal->agents as $agent) {
-                if ((int) $agent->branch_id === $branchId && !in_array($agent->id, $counted)) {
-                    $branchShare += (float) ($allocations[$agent->id] ?? 0);
-                    $counted[] = $agent->id;
-                }
+            foreach ($deal->agentIdsAttributedTo($branchId) as $agentId) {
+                $branchShare += (float) ($allocations[$agentId] ?? 0);
             }
 
             // If this branch has no share on this deal, it should not count or add money.
@@ -588,14 +619,15 @@ public function listingPool()
         $vatRate = $vatRatePercent / 100.0;
         $vatDiv = 1.0 + $vatRate;
 
-        // Use agent branch membership (same logic as statusSummaryForBranch)
-        // so cross-branch deals where this branch's agents participate are included.
+        // Same attribution as statusSummaryForBranch: the branch stamped on the
+        // deal, with the legacy agent-branch fallback for unstamped deals (AT-420).
         $q = self::query()
               ->whereIn('id', function ($sub) use ($branchId) {
                   $sub->select('deal_user.deal_id')
                       ->from('deal_user')
                       ->join('users', 'users.id', '=', 'deal_user.user_id')
-                      ->where('users.branch_id', $branchId)
+                      ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
+                      ->whereRaw(self::branchAttributionSql() . ' = ?', [$branchId])
                       ->distinct();
               });
 
@@ -803,11 +835,15 @@ public function listingPool()
         if ($scope === 'all') return $query;
 
         if ($scope === 'branch') {
+            // A branch manager sees the deals attributed to their branch — by the
+            // branch stamped on the deal, so a deal loaded under this branch stays
+            // visible here after its agent moves elsewhere (AT-420).
             return $query->whereIn('id', function ($sub) use ($user) {
                 $sub->select('deal_user.deal_id')
                     ->from('deal_user')
                     ->join('users', 'users.id', '=', 'deal_user.user_id')
-                    ->where('users.branch_id', $user->effectiveBranchId())
+                    ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
+                    ->whereRaw(self::branchAttributionSql() . ' = ?', [(int) $user->effectiveBranchId()])
                     ->distinct();
             });
         }

@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\DB;
  * Derives per-branch agent-income totals for a period using the canonical period field.
  *
  * Canonical inclusion rule: deals.period = $period  (no date-range math).
- *   - Branch = agent's users.branch_id (not deals.branch_id)
+ *   - Branch = the branch stamped on the deal (deals.branch_id); legacy deals
+ *     with no stamp fall back to the agent's users.branch_id
+ *     (Deal::branchAttributionSql(), spec branch-archive-reassignment.md §5, AT-420)
  *   - Excludes declined (accepted_status = 'D')
  *   - No per-stage breakdown — returns aggregate for all non-declined deals
  *
@@ -32,9 +34,9 @@ class BranchRollupLegacyReader
             ->join('users', 'users.id', '=', 'deal_user.user_id')
             ->where('deals.period', $period)
             ->whereRaw("COALESCE(deals.accepted_status, '') != 'D'")
-            ->whereNotNull('users.branch_id')
+            ->whereRaw(\App\Models\Deal::branchAttributionSql() . ' IS NOT NULL')
             ->select(
-                'users.branch_id',
+                DB::raw(\App\Models\Deal::branchAttributionSql() . ' as branch_id'),
                 'deal_user.side',
                 'deal_user.agent_split_percent',
                 'deal_user.agent_cut_percent',

@@ -75,7 +75,7 @@
             <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
             <span>{{ $user->designation ?? 'No designation' }}</span>
             <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
-            <span>{{ $user->branch?->name ?? 'No branch' }}</span>
+            <span>{{ $user->branch?->display_name ?? 'No branch' }}</span>
         </div>
         @if($profilePercent < 100)
         <button type="button" @click="setTab('compliance')" class="flex items-center gap-2" style="background:none; border:none; cursor:pointer; padding:0;">
@@ -526,7 +526,7 @@
                         </div>
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Branch</div>
-                            <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->branch?->name ?? 'Not assigned' }}</div>
+                            <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->branch?->display_name ?? 'Not assigned' }}</div>
                         </div>
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Agency</div>

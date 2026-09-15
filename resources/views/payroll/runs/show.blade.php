@@ -130,7 +130,7 @@
                                         </div>
                                     </div>
                                 </td>
-                                <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $ps->employee?->user?->branch?->name ?? '—' }}</td>
+                                <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $ps->employee?->user?->branch?->display_name ?? '—' }}</td>
                                 <td class="px-4 py-3 text-right text-xs font-semibold font-mono" style="color: var(--text-primary);">R {{ number_format($ps->total_earnings, 2) }}</td>
                                 <td class="px-4 py-3 text-right text-xs font-mono" style="color: var(--text-secondary);">R {{ number_format($ps->paye_amount, 2) }}</td>
                                 <td class="px-4 py-3 text-right text-xs font-mono" style="color: var(--text-secondary);">R {{ number_format($ps->uif_employee_amount, 2) }}</td>

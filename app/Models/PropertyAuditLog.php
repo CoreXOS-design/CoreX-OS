@@ -44,7 +44,7 @@ class PropertyAuditLog extends Model
 
     public function property(): BelongsTo { return $this->belongsTo(Property::class); }
     public function user(): BelongsTo { return $this->belongsTo(User::class); }
-    public function branch(): BelongsTo { return $this->belongsTo(Branch::class); }
+    public function branch(): BelongsTo { return $this->belongsTo(Branch::class)->withTrashed(); }
 
     public function scopeForProperty($q, int $propertyId) { return $q->where('property_id', $propertyId); }
     public function scopeForCategory($q, string $category) { return $q->where('event_category', $category); }

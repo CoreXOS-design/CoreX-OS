@@ -259,6 +259,8 @@ branch set explicitly at write time.
 
 ## 9. Branch archive / delete flow
 
+> **Superseded 2026-09-15** by [.ai/specs/branch-archive-reassignment.md](branch-archive-reassignment.md) — archive wizard, dated agent moves, stamp-at-creation attribution, Archived branches + Restore. Kept below for history.
+
 Branches use `SoftDeletes` (fixed in Prompt A). The "Delete" button triggers this flow:
 
 1. Controller checks `Branch::users()->exists()`.

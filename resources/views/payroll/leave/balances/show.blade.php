@@ -38,7 +38,7 @@
                 <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
                     <h4 class="text-xs font-bold uppercase mb-2" style="color: var(--text-secondary); letter-spacing: 0.05em;">Employee</h4>
                     <p class="text-sm font-semibold" style="color: var(--text-primary);">{{ $employee->user->name }}</p>
-                    <p class="text-xs" style="color: var(--text-secondary);">{{ $employee->designation_snapshot }} | {{ $employee->user->branch->name ?? '—' }}</p>
+                    <p class="text-xs" style="color: var(--text-secondary);">{{ $employee->designation_snapshot }} | {{ $employee->user->branch->display_name ?? '—' }}</p>
                     <p class="text-xs mt-1" style="color: var(--text-secondary);">Employed: {{ $employee->employment_date?->format('d M Y') }}</p>
                     <p class="text-xs" style="color: var(--text-secondary);">Pattern: {{ $employee->working_days_per_week ?? 5 }}-day week</p>
                 </div>

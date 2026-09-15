@@ -524,7 +524,7 @@
                             <tbody>
                                 @foreach($tvCodes as $tc)
                                     <tr>
-                                        <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $tc->branch->name ?? 'Unknown' }}</td>
+                                        <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $tc->branch->display_name ?? 'Unknown' }}</td>
                                         <td class="px-4 py-3">
                                             <span class="font-mono text-lg font-black tracking-widest" style="color: var(--text-primary);">{{ $tc->code }}</span>
                                         </td>

@@ -5980,7 +5980,7 @@
                                 <div class="min-w-0">
                                     <div class="text-sm font-bold truncate" style="color:var(--text-primary);">{{ $cm->createdBy->name }}</div>
                                     @if($cm->createdBy->branch)
-                                    <div class="text-[0.6875rem]" style="color:var(--text-muted);">{{ $cm->createdBy->branch->name }}</div>
+                                    <div class="text-[0.6875rem]" style="color:var(--text-muted);">{{ $cm->createdBy->branch->display_name }}</div>
                                     @endif
                                 </div>
                             </div>

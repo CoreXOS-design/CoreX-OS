@@ -296,9 +296,17 @@ class AgencyController extends Controller
         $this->authorizeAgencyScope($agency);
         $branches = \App\Models\Branch::withoutGlobalScopes()
             ->where('agency_id', $agency->id)
+            ->whereNull('deleted_at')
             ->orderBy('name')
             ->get();
-        return view('admin.agencies.create-edit', compact('agency', 'branches'));
+        // Archive wizard + Archived branches panel (spec: branch-archive-reassignment.md §6–§7, AT-420)
+        $branchUsers      = \App\Models\Branch::attachedUsersGrouped($branches->pluck('id'));
+        $archivedBranches = \App\Models\Branch::withoutGlobalScopes()
+            ->where('agency_id', $agency->id)
+            ->whereNotNull('deleted_at')
+            ->orderByDesc('deleted_at')
+            ->get();
+        return view('admin.agencies.create-edit', compact('agency', 'branches', 'branchUsers', 'archivedBranches'));
     }
 
     public function update(Request $request, Agency $agency)
