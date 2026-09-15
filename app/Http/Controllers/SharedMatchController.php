@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Agency;
 use App\Models\BuyerClientPageLink;
-use App\Models\BuyerStateTransition;
 use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
@@ -536,39 +535,34 @@ class SharedMatchController extends Controller
      * Won is unambiguous — always deliberate (BuyerStateService::markWon(),
      * fired off a genuine property link). set_aside_at is always deliberate
      * too — only ever set by SetAsideCoreMatchesOnBuyerLost, which only
-     * fires off the explicit Buyer Pipeline "Lost" action.
+     * fires off the explicit Buyer Pipeline "Lost" action. buyer_state ===
+     * 'lost' kills it regardless of how the buyer got there.
      *
-     * buyer_state === 'lost' is DELIBERATELY treated as a WEAKER signal:
-     * it can also be reached by auto-recompute (buyer_cold_days /
-     * buyer_lost_days staleness — nobody clicked anything, the buyer just
-     * went quiet), and cc3 flagged, correctly, that "a link dies because
-     * nobody followed up" is a materially different, probably unintended
-     * behaviour from "links die on Won or Lost" (a buyer who bookmarked
-     * their link and comes back after two quiet months would otherwise
-     * hit a dead page for no visible reason). Pending Johan's ruling on
-     * that question, this only honours buyer_state='lost' when the LATEST
-     * transition into it was NOT auto_recompute — i.e. an agent actually
-     * did something (manual pipeline move, or any other explicit reason).
-     * An auto-recompute lapse alone does not kill the link today.
+     * That used to carve out auto-recompute-reasoned 'lost' transitions
+     * (buyer_cold_days/buyer_lost_days staleness — nobody clicked
+     * anything), because at the time ANY agency's buyer could silently
+     * drift to Lost with no configuration or consent at all, and Johan
+     * didn't want a link dying for that reason alone. Superseded by his
+     * own ruling: auto-lost is now an agency-configurable, OFF-by-default
+     * setting (buyer_auto_lost_enabled on agency_contact_settings) — cc3
+     * gates it BEFORE the write, in BuyerStateService::resolveState()
+     * itself, so an auto_recompute-reasoned transition to 'lost' can no
+     * longer exist at all unless that agency explicitly opted in (verified:
+     * tests/Feature/BuyerPipeline/AutoLostSettingsTest.php). The moment
+     * that's true, the reason string stops meaning "nobody decided this" —
+     * it means "this agency's own policy decided this" — so there is no
+     * silent case left to guard against, and distinguishing auto from
+     * manual here would just be wrong twice over: once for treating an
+     * agency's deliberate policy as an accident, and once for leaving a
+     * dead buyer's bookmarked link alive past the point they were ruled
+     * Lost by any means.
      */
     protected function isBuyerActive(ContactMatch $match): bool
     {
         $buyerState = $match->contact?->buyer_state;
 
-        if ($match->set_aside_at !== null || $buyerState === BuyerStateService::WON) {
-            return false;
-        }
-
-        if ($buyerState === 'lost') {
-            $latestLostReason = BuyerStateTransition::withoutGlobalScope(AgencyScope::class)
-                ->where('contact_id', $match->contact_id)
-                ->where('to_state', 'lost')
-                ->latest('occurred_at')
-                ->value('reason');
-
-            return $latestLostReason === 'auto_recompute';
-        }
-
-        return true;
+        return $match->set_aside_at === null
+            && $buyerState !== BuyerStateService::WON
+            && $buyerState !== 'lost';
     }
 }
