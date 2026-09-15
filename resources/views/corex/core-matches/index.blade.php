@@ -204,15 +204,19 @@
                             </span>
                             @endif
                             {{-- Notes — reachable in one click, never inline-dumped;
-                                 absent entirely when there are none. --}}
+                                 absent entirely when there are none. Opens in a
+                                 popup (Johan) rather than redirecting off the
+                                 board and losing the filters — read-only, fetched
+                                 on demand, never pre-loaded for every row. --}}
                             @if($contact->contact_notes_count > 0)
-                            <a href="{{ route('corex.contacts.show', $contact) }}?tab=notes"
-                               class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap no-underline inline-flex items-center gap-1"
+                            <button type="button" x-data
+                               @click="$dispatch('open-notes-quick-view', { url: '{{ route('corex.contacts.notes.quick-view', $contact) }}' })"
+                               class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap inline-flex items-center gap-1 border-0 cursor-pointer"
                                style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
                                title="Read the notes on this contact">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
                                 {{ $contact->contact_notes_count }} {{ Str::plural('note', $contact->contact_notes_count) }}
-                            </a>
+                            </button>
                             @endif
                         </div>
                         <div class="flex items-center gap-3 mt-0.5 flex-wrap">
@@ -268,7 +272,7 @@
                     @endif
 
                     <span class="text-xs flex-shrink-0 whitespace-nowrap" style="color:var(--text-muted);" title="Saved">
-                        {{ $match->created_at?->format('d M Y') ?? '—' }}
+                        {{ $match->created_at?->format('d M Y, H:i') ?? '—' }}
                     </span>
 
                     {{-- Assigned to — only shown when scope varies row to
@@ -286,13 +290,16 @@
                     {{-- Who received it first — only shown when it DIFFERS
                          from who it's assigned to now (a reassignment
                          happened). When they're the same person, showing
-                         both is the same fact twice. --}}
+                         both is the same fact twice. Time is visible, not
+                         hover-only: the first-to-receive rule is decided to
+                         the minute, and two agents can get the same portal
+                         lead minutes apart. --}}
                     @if($hasFirstReceivedColumn && $row['firstReceived'] && $hasAgentColumn
                         && $row['firstReceived']->received_by_user_id !== $match->agent_id)
                     <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
-                          style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 22%, transparent);"
-                          title="First received {{ optional($row['firstReceived']->received_at)->format('d M Y, H:i') }}">
+                          style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 22%, transparent);">
                         Reassigned — first to {{ $firstReceivedNames->get($row['firstReceived']->received_by_user_id, 'Unknown') }}
+                        ({{ optional($row['firstReceived']->received_at)->format('d M Y, H:i') }})
                     </span>
                     @endif
 
@@ -391,6 +398,32 @@
 
     <div>{{ $contacts->links() }}</div>
     @endif
+
+    {{-- Notes popup — Johan: "the notes should open in a popup not
+         redirect to the contact", so a manager can read them without
+         losing the board and its filters. Read-only (see
+         ContactNoteController::quickView()); one modal shell for the whole
+         page, content fetched on demand for whichever contact was
+         clicked — never pre-loaded for every row. --}}
+    <div x-data="{ loading: false, html: '' }"
+         @open-notes-quick-view.window="
+             loading = true; html = '';
+             $dispatch('open-modal', 'notes-quick-view');
+             fetch($event.detail.url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                 .then(r => r.text())
+                 .then(t => { html = t; loading = false; })
+                 .catch(() => { html = '<p class=&quot;text-sm&quot; style=&quot;color:var(--ds-crimson);&quot;>Could not load notes.</p>'; loading = false; })
+         ">
+        <x-modal name="notes-quick-view" max-width="lg">
+            <div class="p-6">
+                <div x-show="loading" class="text-sm" style="color:var(--text-muted);">Loading…</div>
+                <div x-show="!loading" x-html="html"></div>
+                <div class="mt-5 text-right">
+                    <button type="button" class="corex-btn-outline text-xs" @click="$dispatch('close-modal', 'notes-quick-view')">Close</button>
+                </div>
+            </div>
+        </x-modal>
+    </div>
 
 </div>
 @endsection

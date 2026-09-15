@@ -4185,6 +4185,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{contact}/communications/{communication}/mark-sent',     [\App\Http\Controllers\CoreX\ContactController::class, 'markCommunicationSent'])->name('communications.mark-sent');
 
         // Notes
+        Route::get('/{contact}/notes/quick-view', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'quickView'])->name('notes.quick-view');
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');
 

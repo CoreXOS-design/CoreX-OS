@@ -15,11 +15,13 @@
                 <div class="text-xs" style="color:var(--text-muted);">{{ $note->created_at->format('d M Y H:i') }} · {{ $note->created_at->diffForHumans() }}</div>
             </div>
         </div>
+        @unless($readOnly ?? false)
         <form method="POST" action="{{ route('corex.contacts.notes.destroy', [$note->contact_id, $note]) }}"
               onsubmit="return confirm('Delete this note?');">
             @csrf @method('DELETE')
             <button type="submit" class="text-xs font-semibold flex-shrink-0" style="color: var(--ds-crimson);">Delete</button>
         </form>
+        @endunless
     </div>
     @if($note->type)
         <span class="inline-block mt-2 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full"

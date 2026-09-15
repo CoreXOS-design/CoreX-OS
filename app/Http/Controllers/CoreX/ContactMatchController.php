@@ -214,6 +214,14 @@ class ContactMatchController extends Controller
             // manager who holds core_matches.all_view but not
             // branches.view_all, on any agency with branch-split on.
             $q->when($scope !== 'own', fn ($q2) => $q2->withoutGlobalScope(BranchScope::class))
+                // Buyer Pipeline "Lost" sets contact_matches.set_aside_at
+                // (App\Listeners\CoreMatches\SetAsideCoreMatchesOnBuyerLost)
+                // — the event/listener fire correctly and the column gets
+                // set, but nothing on THIS screen ever read it, so a lost
+                // buyer's matches kept rendering. Applied unconditionally,
+                // same as the hard agency wall: a set-aside match is never
+                // shown on this board, on any scope, under any filter.
+                ->when(\Schema::hasColumn('contact_matches', 'set_aside_at'), fn ($q2) => $q2->whereNull('set_aside_at'))
                 ->when($listingType !== '', fn ($q2) => $q2->where('listing_type', $listingType))
                 ->when($statusFilter !== '', fn ($q2) => $q2->where('status', $statusFilter))
                 ->when($savedFrom !== '', fn ($q2) => $q2->whereDate('created_at', '>=', $savedFrom))
@@ -358,23 +366,31 @@ class ContactMatchController extends Controller
         $hasWorkingWindowSetting = \Schema::hasColumn('agency_contact_settings', 'core_matches_working_window_days');
         $workingWindowDays = null;
         if ($hasWorkingWindowSetting) {
-            $workingWindowDays = \DB::table('agency_contact_settings')
-                ->where('agency_id', $user->effectiveAgencyId())
-                ->value('core_matches_working_window_days');
+            // AgencyContactSettings::coreMatchesWorkingWindowDays() is the
+            // resolved value (null-safe default + 1-90 clamp) — reading the
+            // raw column directly would skip both.
+            $workingWindowDays = \App\Models\AgencyContactSettings::forAgency($user->effectiveAgencyId())
+                ->coreMatchesWorkingWindowDays();
         }
 
-        // A REMAINING count, not a static label — the clock starts when the
-        // lead was first received (the fact Task 2 asked for), falling back
-        // to the match's own created_at when there's no portal lead behind
-        // it. Attached directly onto each match instance so the view's
-        // existing per-match loop can read it with no extra plumbing.
+        // A REMAINING count, not a static label. The clock is
+        // Contact::last_contacted_at — per AgencyContactSettings'
+        // coreMatchesWorkingWindowDays() docblock, this setting measures
+        // days without a note/message/live-link-share/"Last Contacted"
+        // press, NOT days since the lead was first received (a different
+        // clock entirely — that one only feeds the "first received" badge
+        // above). No fallback to created_at when never contacted: the
+        // header's own "Never contacted" badge already carries that signal,
+        // and there's no last-contact instant to count down from — showing
+        // a second badge for the same underlying fact would be exactly the
+        // "never the same fact twice" case.
         if ($hasWorkingWindowSetting && $workingWindowDays) {
             foreach ($allMatches as $match) {
-                $firstReceived = $firstReceivedByContact->get($match->contact_id);
-                $clockStart = $firstReceived?->received_at
-                    ? \Carbon\Carbon::parse($firstReceived->received_at)
-                    : $match->created_at;
-                $elapsedDays = (int) floor($clockStart->diffInDays(now()));
+                $lastContactedAt = $match->contact?->last_contacted_at;
+                if (! $lastContactedAt) {
+                    continue;
+                }
+                $elapsedDays = (int) floor($lastContactedAt->diffInDays(now()));
                 $match->workingWindowRemainingDays = $workingWindowDays - $elapsedDays;
             }
         }
