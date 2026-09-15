@@ -257,6 +257,59 @@ final class Wave2MultiPropertyStatusSyncTest extends TestCase
         $this->assertSame('sold', $propB->fresh()->status, 'both properties on the deal must sell together on grant');
     }
 
+    /**
+     * BUG (found live on QA1, 2026-09-15, deal #183 — Johan's own real walk):
+     * pending -> under offer (correct), granted -> sold (correct), then
+     * declined -> BOTH properties stayed sold; neither reverted. Root cause
+     * was two-fold, confirmed by reading before fixing: (1)
+     * RevertPropertyStatusOnDealDeclined required status EXACTLY
+     * 'under_offer' to even consider a property, so a property already
+     * advanced to 'sold' was skipped before the aggregate check ever ran;
+     * (2) MarkPropertySoldOnDealMilestone nulled pre_deal_offer_status on
+     * the sold transition ("sold is terminal — no revert target"), so even
+     * widening the status guard alone would have had nothing left to
+     * restore. Real timestamps on deal #183 proved it: zero property_audit_log
+     * rows for either property at decline time — the listener never touched
+     * them at all.
+     *
+     * This test drives every transition for real — POSTs to the real create
+     * endpoint, then two real Eloquent accepted_status updates (the exact
+     * mechanism quickUpdate()/persistDeal() themselves use) — nothing here
+     * hand-fires a domain event to skip past a step production doesn't skip.
+     */
+    public function test_johans_deal_183_scenario_pending_granted_declined_both_properties_revert(): void
+    {
+        $this->settings(['flag_property_under_offer_on_deal' => true, 'sold_milestone' => 'granted', 'revert_property_on_deal_declined' => true]);
+        $bm = $this->makeBranchManager();
+        $primary = $this->makeProperty('Deal 183 Regression — Property 1');
+        $secondary = $this->makeProperty('Deal 183 Regression — Property 2');
+        $steve = $this->makeOwnerContact('Steve');
+        $this->linkOwner($primary, $steve);
+        $this->linkOwner($secondary, $steve);
+
+        // PENDING — real POST to the real create endpoint.
+        $response = $this->actingAs($bm)->post(route('deals-dr2.store'), $this->createDealPayload($bm, $primary, [
+            ['property_id' => $primary->id, 'allocated_price' => 6_450_000, 'allocated_commission' => 150_000],
+            ['property_id' => $secondary->id, 'allocated_price' => 2_736_000, 'allocated_commission' => 125_000],
+        ]));
+        $response->assertSessionDoesntHaveErrors();
+        $deal = Deal::where('property_id', $primary->id)->latest('id')->first();
+        $this->assertNotNull($deal);
+        $this->assertSame('under_offer', $primary->fresh()->status, 'step 1 (pending): primary must flag under-offer');
+        $this->assertSame('under_offer', $secondary->fresh()->status, 'step 1 (pending): secondary must ALSO flag under-offer');
+
+        // GRANTED — a real Eloquent update, the same mechanism quickUpdate()/
+        // persistDeal() themselves use to change accepted_status.
+        $deal->update(['accepted_status' => 'G']);
+        $this->assertSame('sold', $primary->fresh()->status, 'step 2 (granted): primary must flag sold');
+        $this->assertSame('sold', $secondary->fresh()->status, 'step 2 (granted): secondary must ALSO flag sold');
+
+        // DECLINED — same real mechanism. This is exactly what failed live.
+        $deal->update(['accepted_status' => 'D']);
+        $this->assertSame('for_sale', $primary->fresh()->status, 'step 3 (declined): primary must revert to on-market — this is exactly what deal #183 failed to do');
+        $this->assertSame('for_sale', $secondary->fresh()->status, 'step 3 (declined): secondary must ALSO revert to on-market');
+    }
+
     // ── The mixed-status case Johan named explicitly ──────────────────────────
 
     /**

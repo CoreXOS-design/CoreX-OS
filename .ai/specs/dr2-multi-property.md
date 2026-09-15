@@ -243,10 +243,77 @@ a legitimate lower-level boundary, not the create-endpoint ordering bug —
 and their comments were corrected to say so plainly rather than repeat the
 now-known-false "mirrors production" claim.
 
-**Verified against a real, disposable QA1 deal** — real create screen, real
-two on-market properties (not deal #180/#181, not properties 15936/15937,
-which are Johan's own live test data): see the verification note at the end
-of this section, added once that check has actually been run.
+**Verified against a real, disposable QA1 deal** — deal #182, properties
+21038/21039 ("THROWAWAY CC6 DR2 Verify Property A/B", syndication disabled),
+real POST to the real create endpoint: both properties `for_sale` before,
+both `under_offer` after — confirmed not just in the database but in the
+actual rendered property pages fetched live (`Under Offer` present in both
+responses).
+
+### 4b. SECOND correction (2026-09-15) — the decline-after-sold revert never fired either
+
+Johan walked the same deal further, end to end, immediately after 4a
+landed: pending → both under offer (correct), granted → both sold
+(correct), then **declined → both stayed sold; neither reverted** (real
+deal #183, properties #15936/#15937). Not the same bug as 4a — by decline
+time both `deal_properties` rows already existed, so the event-ordering fix
+above was not in play here. A genuinely different defect in the same
+listener family.
+
+**Root cause, two-fold, confirmed on deal #183's real `property_audit_log`
+timestamps (zero rows for either property at the moment of decline — the
+listener never touched them at all), not assumed:**
+
+1. `RevertPropertyStatusOnDealDeclined` required a property's status to be
+   EXACTLY `under_offer` before considering it at all. By decline time both
+   properties were `sold` (correctly set by `MarkPropertySoldOnDealMilestone`
+   at grant) — so the guard skipped them before ever reaching the
+   `otherActiveDealsExistForProperty()` aggregate check below it. That
+   check itself was verified correct (a fresh, current-DB-state query,
+   properly excluding the declining deal's own id) — it was simply never
+   reached.
+2. `MarkPropertySoldOnDealMilestone` explicitly nulled `pre_deal_offer_status`
+   when marking a property sold, on the stated assumption "sold is
+   terminal — no revert target." Johan's real walk disproves that
+   assumption for his workflow: a GRANTED deal can still be DECLINED
+   afterward (a bond falling through, a buyer backing out post-grant), and
+   when that happens the property must come back on market. Even after
+   fixing (1) alone, there would have been nothing left to restore.
+
+**The fix**: `RevertPropertyStatusOnDealDeclined`'s status guard now accepts
+`under_offer` OR `sold`; `MarkPropertySoldOnDealMilestone` no longer nulls
+`pre_deal_offer_status` on the sold transition — it's preserved through
+under-offer→sold exactly as it already was through the earlier stages. The
+aggregate exclusivity check (`otherActiveDealsExistForProperty`) is
+UNCHANGED and still protects a property that's genuinely sold/committed via
+a DIFFERENT, still-active deal (proven safe by the same mechanism the
+existing `AutoDeclineSiblingDealsOnGrant` cascade already relies on — a
+sibling auto-declined as a side effect of another deal's grant still sees
+that other deal as active and correctly does not revert).
+
+**A related, NOT-yet-fixed gap, found while checking the same class,
+reported rather than silently folded in**: `accepted_status` can also move
+backward — e.g. Granted straight back to Pending — via `quickUpdate()` or
+`persistDeal()`'s edit path, with no restriction against it. `DealObserver`
+only fires `DealStageAdvanced` on FORWARD rank progression and `DealClosed`
+only on Declined/Registered — a G→P move fires NEITHER event, so a property
+already `sold`/`under_offer` would stay that way with no automatic
+correction at all, the same failure mode as this bug via a different,
+unguarded path. This is architecturally a different fix (no event fires at
+all, vs. an event firing but being guarded wrong) — adding one would mean
+introducing a new "stage reverted" trigger, a larger, un-requested change.
+Flagging for Johan's call, not building it here.
+
+**Test**: a new named regression test drives all three real transitions —
+POST to the real create endpoint (pending), then two real Eloquent
+`accepted_status` updates (granted, then declined) — the exact mechanism
+`quickUpdate()`/`persistDeal()` themselves use, no hand-fired events
+anywhere. Proven to fail against the pre-fix code with Johan's exact
+symptom (`-'for_sale' +'sold'`), then pass after restoring the fix.
+
+**Verified against a real, disposable QA1 deal, all three steps, page
+fetched at each** — see the verification note appended once that walk has
+actually been run.
 
 ## 5. Schema — `property_id` stays primary
 

@@ -9,10 +9,14 @@ use App\Services\Deal\DealPropertyStatusService;
 /**
  * DR2 Wave 2 (c) — the safety companion, ON by default. Deal declined / lapsed →
  * the property auto-reverts to the on-market status it held BEFORE the deal flagged
- * it under-offer (captured in properties.pre_deal_offer_status). Only reverts a
- * property that IS currently under-offer and that we have a prior status for — never
- * clobbers a manually-changed or already-sold listing. PropertyObserver audits the
- * revert + re-syndicates.
+ * it under-offer (captured in properties.pre_deal_offer_status). Reverts a property
+ * currently 'under_offer' OR 'sold' (2026-09-15 — a granted-then-sold deal can still
+ * be declined afterward, e.g. a bond falling through; 'sold' is not a harder-than-
+ * revertible state when THIS deal is what put it there), provided we have a prior
+ * status to restore and no other active deal still holds the property. Never
+ * clobbers a manually-changed listing, or a property genuinely sold/committed via a
+ * DIFFERENT still-active deal (the otherActiveDealsExistForProperty check below).
+ * PropertyObserver audits the revert + re-syndicates.
  */
 class RevertPropertyStatusOnDealDeclined
 {
@@ -48,9 +52,22 @@ class RevertPropertyStatusOnDealDeclined
 
             foreach ($properties as $property) {
                 try {
-                    // Only revert a listing this feature flagged under-offer, and only when we
-                    // have the exact prior status to restore.
-                    if ((string) $property->status !== 'under_offer') {
+                    // Bug found live on QA1, 2026-09-15 (Johan, deal #183):
+                    // walked pending -> under-offer (correct) -> granted ->
+                    // sold (correct) -> declined -> BOTH properties stayed
+                    // sold, neither reverted. This guard used to require
+                    // 'under_offer' exactly, so a property MarkPropertySoldOnDealMilestone
+                    // had already advanced to 'sold' was skipped before ever
+                    // reaching the otherActiveDealsExistForProperty check
+                    // below — proven on real property_audit_log timestamps:
+                    // zero audit rows for either property at decline time.
+                    // 'sold' is not a harder-than-revertible terminal state
+                    // here — it's exactly the state a granted-then-declined
+                    // deal leaves behind, and it must revert too, subject to
+                    // the SAME aggregate check as under-offer (a genuinely
+                    // sold-via-another-still-active-deal property is still
+                    // protected by that check below, unchanged).
+                    if (! in_array((string) $property->status, ['under_offer', 'sold'], true)) {
                         continue;
                     }
                     $prior = $property->pre_deal_offer_status;
