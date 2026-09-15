@@ -1105,18 +1105,40 @@ class RentalApplicationController extends Controller
 
         abort_unless($rentalApplication->status === 'approved', 422, 'Only an approved application can be linked to a property as a tenant.');
 
+        // 2026-09-16 REGRESSION, found by cc1's baseline check, not by me: the
+        // first version of this change made rental_amount/lease_start_date
+        // REQUIRED on this endpoint. This is the SAME endpoint the tenant-link
+        // flow has always used — RentalApplicationTenantPropertyLinkTest's five
+        // pre-existing callers post only property_id, never lease terms. With
+        // the fields required, those requests failed validation before the
+        // contact_property pivot was ever written, yet the controller still
+        // redirected — a silent failure on an existing, working flow: the
+        // caller saw "success" while nothing happened. Fixed by making all
+        // three lease-term fields OPTIONAL here — validated for shape when
+        // present, never required — and gating lease creation below on
+        // whether they were actually submitted (checked via $request->filled(),
+        // not $validated key-presence, which is not equivalent for an absent
+        // nullable field). The approval screen (view-readonly.blade.php) is
+        // the only real caller that sends lease terms today, and it always
+        // sends rental_amount + lease_start_date together, so in real use
+        // approval still creates the lease exactly as before — this only
+        // restores the OLD, terms-free shape as a still-valid, still-working
+        // path for every other caller. required_with below rejects a
+        // half-formed submission (one of the two present, not both) rather
+        // than silently creating a lease with a fabricated date or amount.
         $validated = $request->validate([
             'property_id' => ['required', 'integer'],
-            // .ai/specs/leases.md sec1.3 / conductor ruling 2026-09-15 — gap 1
-            // closed: this action used to link the contact_property pivot
-            // and stop, leaving no rent/dates anywhere. Now it also creates
-            // the Lease record in the same request. Property status is
-            // still deliberately untouched — see the docblock above.
-            'rental_amount' => ['required', 'numeric', 'min:0'],
+            'rental_amount' => ['nullable', 'numeric', 'min:0', 'required_with:lease_start_date'],
             'deposit_amount' => ['nullable', 'numeric', 'min:0'],
-            'lease_start_date' => ['required', 'date'],
+            'lease_start_date' => ['nullable', 'date', 'required_with:rental_amount'],
             'lease_end_date' => ['nullable', 'date', 'after:lease_start_date'],
         ]);
+
+        // The one true "did the agent actually give us lease terms" check —
+        // $request->filled() (present AND non-empty), not array_key_exists on
+        // $validated, since Laravel's validate() does not reliably include a
+        // key for a nullable field that was never submitted at all.
+        $leaseTermsProvided = $request->filled('rental_amount') && $request->filled('lease_start_date');
 
         $contact = $rentalApplication->contact;
         abort_unless($contact !== null, 422, 'This application has no contact to link.');
@@ -1190,9 +1212,13 @@ class RentalApplicationController extends Controller
         // conflict, not the common case), the lease is still created and
         // recorded, just left in 'draft' with a warning surfaced to the
         // agent, rather than losing the rent/deposit/dates they just typed.
+        //
+        // Gated on $leaseTermsProvided — a caller that never sends lease
+        // terms (every pre-existing caller, per the regression above) gets
+        // exactly the old behaviour: the tenant link only, no Lease at all.
         $lease = null;
         $leaseActivationWarning = null;
-        if (! \App\Models\Lease::withoutGlobalScopes()->where('rental_application_id', $rentalApplication->id)->exists()) {
+        if ($leaseTermsProvided && ! \App\Models\Lease::withoutGlobalScopes()->where('rental_application_id', $rentalApplication->id)->exists()) {
             $lease = \App\Models\Lease::create([
                 'agency_id' => $property->agency_id,
                 'branch_id' => $property->branch_id,

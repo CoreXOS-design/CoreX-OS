@@ -110,19 +110,57 @@ Johan's ruling: build the lease creation on approval, capturing rent, deposit an
 with one explicit carve-out — do NOT touch property status. That is Gap 2 above, and it stays
 Johan's call to make, pending.
 
-`linkTenantProperty()` now additionally validates `rental_amount` (required), `deposit_amount`
-(nullable), `lease_start_date` (required, pre-filled from today), `lease_end_date` (nullable, after
-start) in the same request, and — after the existing `contact_property` link succeeds — creates a
-`Lease` + `LeaseTenant` row (source `rental_application`, `rental_application_id` set) and activates it
-via `LeaseActivationService`. Idempotent: a resubmit or a race never creates a second `Lease` for the
-same application (`Lease::where('rental_application_id', ...)->exists()` guard). If activation fails
-(a genuine overlap — another lease already active on that property), the Lease is still created and
-the rent/deposit/dates the agent just typed are never lost, just left as `draft` with a warning
-surfaced on screen naming the conflict, rather than silently discarded.
+`linkTenantProperty()` now additionally accepts `rental_amount`, `deposit_amount`, `lease_start_date`,
+`lease_end_date` in the same request, and — when they're actually provided — creates a `Lease` +
+`LeaseTenant` row (source `rental_application`, `rental_application_id` set) after the existing
+`contact_property` link succeeds, and activates it via `LeaseActivationService`. Idempotent: a resubmit
+or a race never creates a second `Lease` for the same application
+(`Lease::where('rental_application_id', ...)->exists()` guard). If activation fails (a genuine overlap
+— another lease already active on that property), the Lease is still created and the rent/deposit/dates
+the agent just typed are never lost, just left as `draft` with a warning surfaced on screen naming the
+conflict, rather than silently discarded.
 
 The property-status code path (§0's "Deliberately does NOT touch `$property->status`" comment) is
 completely untouched by this change — the new lease-creation block sits entirely separate from it in
 the method, and the existing comment explaining why status stays untouched was left exactly as it was.
+
+### 1.3b REGRESSION, found by cc1's baseline check 2026-09-16, and the fix
+
+The first version of §1.3a made `rental_amount` and `lease_start_date` **required** on
+`linkTenantProperty()`. That is the same endpoint the tenant-link flow has always used — every
+pre-existing caller (`RentalApplicationTenantPropertyLinkTest`'s five tests, and by extension any real
+caller that only ever knew about `property_id`) posts only `property_id`. With the new fields required,
+those requests failed validation before the `contact_property` pivot was ever written — **and the
+controller still redirected**, so the caller saw "success" while nothing happened. A silent failure on
+an existing, working flow, caught only because cc1 baseline-checked the pre-existing suite against the
+branch rather than trusting the new tests alone.
+
+**Caller audit, done properly this time** (exhaustive grep across `*.php`/`*.blade.php`/`*.js` for the
+route name and controller method — see the fix commit for the exact command): exactly one production
+caller exists — the form in `resources/views/corex/rental-applications/view-readonly.blade.php`, the
+same one §1.3a's own build modified to always send lease terms. No other blade view, no JS/fetch call,
+no mobile API endpoint, no other controller references this route. Two test files reference it: the
+restored pre-existing suite, and this feature's own new one.
+
+**The fix:** `rental_amount`, `deposit_amount`, `lease_start_date` are all `nullable` again — validated
+for shape when present (`required_with` cross-validation so a half-formed submission, one of the two
+required-together fields without the other, is rejected rather than silently creating a broken lease),
+never required outright. Lease creation is gated on `$request->filled('rental_amount') &&
+$request->filled('lease_start_date')` — checked via `Request::filled()`, not `$validated` key
+presence, since Laravel's `validate()` does not reliably include a key for a `nullable` field that was
+never submitted at all. A caller that sends only `property_id` gets exactly the pre-existing behaviour:
+the tenant link, and nothing else. The one real caller (the approval screen) still always sends both
+fields together via required HTML attributes, so in real use approval still creates the lease — the
+whole point of §1.3a still holds; only every OTHER possible caller of this shared endpoint is protected
+from this class of failure now, not just the one this feature happened to touch.
+
+Verified by walking BOTH shapes for real against `corex_qa1_walkthrough` (never live QA1), checked at
+the database level rather than trusting the redirect status alone — the exact thing that hid the bug
+the first time: a with-terms POST and a without-terms POST, each confirmed via a direct query
+afterward (`contact_property` row exists either way; `leases` row exists only for the with-terms case).
+Automated: the restored pre-existing suite (5/5, unweakened, not a single assertion changed) plus four
+tests on this feature's own suite covering both shapes explicitly, including the exact "no lease terms
+→ tenant link works, no Lease created" case that was broken.
 
 ### 1.4 The Rental tab today — Johan's description is aspirational, not current state
 

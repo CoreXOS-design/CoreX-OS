@@ -75,7 +75,7 @@ final class LeaseFromApprovalTest extends TestCase
         self::assertSame(1, Lease::where('rental_application_id', $application->id)->count());
     }
 
-    public function test_missing_rental_amount_is_rejected(): void
+    public function test_missing_rental_amount_is_rejected_when_start_date_was_given(): void
     {
         [$user, $application, $property] = $this->makeApprovedApplication();
 
@@ -84,6 +84,33 @@ final class LeaseFromApprovalTest extends TestCase
             'lease_start_date' => '2026-01-01',
         ])->assertSessionHasErrors('rental_amount');
 
+        self::assertNull(Lease::where('rental_application_id', $application->id)->first());
+    }
+
+    /**
+     * 2026-09-16 REGRESSION, found by cc1's baseline check — the first
+     * version of this feature made rental_amount/lease_start_date required
+     * on this endpoint, silently breaking every pre-existing caller that
+     * only ever sent property_id (see
+     * RentalApplicationTenantPropertyLinkTest, the pre-existing suite this
+     * fix restores to passing unweakened). This is the explicit "without
+     * lease terms" shape the fix requires: the tenant link must still work,
+     * and no Lease may be created.
+     */
+    public function test_linking_without_any_lease_terms_links_the_tenant_and_creates_no_lease(): void
+    {
+        [$user, $application, $property] = $this->makeApprovedApplication();
+
+        $response = $this->actingAs($user)->post(
+            route('corex.rental-applications.link-tenant-property', $application),
+            ['property_id' => $property->id]
+        );
+
+        $response->assertRedirect();
+        self::assertTrue(
+            $application->contact->properties()->wherePivot('role', 'tenant')->where('properties.id', $property->id)->exists(),
+            'The tenant link itself must still work with no lease terms submitted.'
+        );
         self::assertNull(Lease::where('rental_application_id', $application->id)->first());
     }
 
