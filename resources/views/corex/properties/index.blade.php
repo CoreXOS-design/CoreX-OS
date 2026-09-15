@@ -226,6 +226,12 @@
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
     @endphp
+    {{-- AT-419 — these tiles (Total/On Market/Draft/Prospecting/Sold) describe
+         the Properties page's own status mix; on Imported Stock most of them
+         would always read zero (nothing there is On Market/Draft/Prospecting
+         by definition) and "Sold" is only one of several statuses shown, so
+         they're misleading rather than useful there. Andre, 2026-09-15. --}}
+    @unless($importedStock ?? false)
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3 flex-shrink-0" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
@@ -250,6 +256,7 @@
         </a>
         @endforeach
     </div>
+    @endunless
 
     {{-- Filters — directly under the stat tiles (AT-393). Header + tiles + filters are
          frozen: the page wrapper is a full-height flex column and ONLY the scroll
