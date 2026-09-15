@@ -115,38 +115,61 @@ class Property extends Model
     }
 
     /**
+     * AT-419 — the statuses that mean "this was P24 stock, it's now concluded/
+     * off the market" for the Imported Stock page specifically. Deliberately
+     * NARROWER than OFF_MARKET_STATUSES: excludes 'draft' and 'prospecting'/
+     * 'not_selling'. A withdrawn/expired/sold import can get picked up by the
+     * UNRELATED stale-stock/duplicate-resolution pipeline
+     * (TrackedPropertyMatchOrCreateService / PropertyDuplicateTakeService) and
+     * flipped to 'prospecting' (or 'draft') once it's stale and unworked — at
+     * that point it has left the "imported off-market P24 stock" bucket and
+     * belongs to the Prospecting / Drafts workflow instead, not here (Andre,
+     * 2026-09-15, found live on the restored HFC data: 3 drafts + 7
+     * prospecting rows had p24_imported_at set from their original P24
+     * import, but current status showed they'd since been reclassified).
+     * 'archived'/'unavailable' stay in — those are genuinely just "no longer
+     * marketed", not a different pipeline.
+     */
+    public const IMPORTED_STOCK_STATUSES = [
+        'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
+        'cancelled', 'let_out', 'archived', 'unavailable',
+    ];
+
+    /**
      * AT-419 — the Properties list = everything EXCEPT P24-imported stock that
-     * has gone off-market. Paired with scopeImportedOffMarket() below: together
-     * they partition every property between the two pages with no row on both
-     * or neither. Case-insensitive on purpose (LOWER(status)) — some P24-import
-     * statuses land capitalised (e.g. "Withdrawn") while OFF_MARKET_STATUSES is
-     * lowercase snake_case; a strict match would leave capitalised off-market
-     * imports stranded on the Properties page. Scoped to this pair of scopes
-     * only — isOnMarket()/scopeOnMarket() themselves are unchanged (wide blast
-     * radius across MIC matching, syndication stats, the deal register and
-     * more; out of scope for this build — reported to Johan separately).
+     * has gone off-market (per IMPORTED_STOCK_STATUSES above). Paired with
+     * scopeImportedOffMarket() below: together they partition every property
+     * between the two pages with no row on both or neither. Case-insensitive
+     * on purpose (LOWER(status)) — some P24-import statuses land capitalised
+     * (e.g. "Withdrawn") while these constants are lowercase snake_case; a
+     * strict match would leave capitalised off-market imports stranded on the
+     * Properties page. Scoped to this pair of scopes only — isOnMarket()/
+     * scopeOnMarket() themselves are unchanged (wide blast radius across MIC
+     * matching, syndication stats, the deal register and more; out of scope
+     * for this build — reported to Johan separately).
      */
     public function scopeExcludingImportedOffMarket($query)
     {
-        $placeholders = implode(',', array_fill(0, count(self::OFF_MARKET_STATUSES), '?'));
+        $placeholders = implode(',', array_fill(0, count(self::IMPORTED_STOCK_STATUSES), '?'));
 
         return $query->where(function ($q) use ($placeholders) {
             $q->whereNull('p24_imported_at')
-              ->orWhereRaw("LOWER(status) NOT IN ($placeholders)", self::OFF_MARKET_STATUSES);
+              ->orWhereRaw("LOWER(status) NOT IN ($placeholders)", self::IMPORTED_STOCK_STATUSES);
         });
     }
 
     /**
-     * AT-419 — the Imported Stock page: P24-imported properties that are off
-     * market (withdrawn, sold, expired, cancelled, …). See
-     * scopeExcludingImportedOffMarket() above for the casing note.
+     * AT-419 — the Imported Stock page: P24-imported properties whose status
+     * is one of IMPORTED_STOCK_STATUSES (withdrawn, sold, expired, cancelled,
+     * …). See scopeExcludingImportedOffMarket() above for the casing note and
+     * why this is narrower than OFF_MARKET_STATUSES.
      */
     public function scopeImportedOffMarket($query)
     {
-        $placeholders = implode(',', array_fill(0, count(self::OFF_MARKET_STATUSES), '?'));
+        $placeholders = implode(',', array_fill(0, count(self::IMPORTED_STOCK_STATUSES), '?'));
 
         return $query->whereNotNull('p24_imported_at')
-            ->whereRaw("LOWER(status) IN ($placeholders)", self::OFF_MARKET_STATUSES);
+            ->whereRaw("LOWER(status) IN ($placeholders)", self::IMPORTED_STOCK_STATUSES);
     }
 
     /**

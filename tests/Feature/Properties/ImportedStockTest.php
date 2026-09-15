@@ -96,6 +96,45 @@ final class ImportedStockTest extends TestCase
         $this->get(route('corex.properties.imported-stock'))->assertOk()->assertSee('ZZZ-Withdrawn-Capitalised');
     }
 
+    /**
+     * A withdrawn/expired P24 import that later gets picked up by the
+     * UNRELATED stale-stock/duplicate-resolution pipeline
+     * (TrackedPropertyMatchOrCreateService / PropertyDuplicateTakeService)
+     * flips to 'draft' or 'prospecting' — at that point it belongs to the
+     * Drafts/Prospecting workflow, not Imported Stock, even though
+     * p24_imported_at is still set. Found live on HFC's restored data
+     * (Andre, 2026-09-15): 3 drafts + 7 prospecting rows had p24_imported_at
+     * set from their original import.
+     */
+    public function test_imported_property_reclassified_to_draft_or_prospecting_goes_to_properties_not_imported_stock(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $this->property($agencyId, $admin, 'ZZZ-Reclassified-Draft', [
+            'status' => 'draft',
+            'p24_imported_at' => now(),
+        ]);
+        $this->property($agencyId, $admin, 'ZZZ-Reclassified-Prospecting', [
+            'status' => 'prospecting',
+            'p24_imported_at' => now(),
+        ]);
+        $this->property($agencyId, $admin, 'ZZZ-Reclassified-NotSelling', [
+            'status' => 'not_selling',
+            'p24_imported_at' => now(),
+        ]);
+
+        $index = $this->get(route('corex.properties.index'))->assertOk();
+        $index->assertSee('ZZZ-Reclassified-Draft');
+        $index->assertSee('ZZZ-Reclassified-Prospecting');
+        $index->assertSee('ZZZ-Reclassified-NotSelling');
+
+        $imported = $this->get(route('corex.properties.imported-stock'))->assertOk();
+        $imported->assertDontSee('ZZZ-Reclassified-Draft');
+        $imported->assertDontSee('ZZZ-Reclassified-Prospecting');
+        $imported->assertDontSee('ZZZ-Reclassified-NotSelling');
+    }
+
     public function test_imported_stock_page_shows_tag_and_imported_date(): void
     {
         [$agencyId, $admin] = $this->agencyWithAdmin();
