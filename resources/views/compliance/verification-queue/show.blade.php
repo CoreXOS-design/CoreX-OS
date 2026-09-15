@@ -76,7 +76,7 @@
                     </div>
                     <div class="flex justify-between">
                         <span style="font-size:0.75rem; color:var(--text-muted);">Branch</span>
-                        <span style="font-size:0.75rem; color:var(--text-primary);">{{ $document->user->branch->name ?? '-' }}</span>
+                        <span style="font-size:0.75rem; color:var(--text-primary);">{{ $document->user->branch->display_name ?? '-' }}</span>
                     </div>
                     <div class="flex justify-between">
                         <span style="font-size:0.75rem; color:var(--text-muted);">Designation</span>

@@ -5,7 +5,7 @@
         <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:var(--brand-default);">{{ strtoupper(substr($takeOn->user->name ?? '?', 0, 1)) }}</div>
         <div>
             <p class="text-sm font-semibold" style="color:var(--text-primary);">{{ $takeOn->user->name }}</p>
-            <p class="text-xs" style="color:var(--text-muted);">{{ $takeOn->user->email }} | {{ $takeOn->user->designation ?? '-' }} | {{ $takeOn->user->branch->name ?? '-' }}</p>
+            <p class="text-xs" style="color:var(--text-muted);">{{ $takeOn->user->email }} | {{ $takeOn->user->designation ?? '-' }} | {{ $takeOn->user->branch->display_name ?? '-' }}</p>
         </div>
     </div>
     <p class="text-xs" style="color:var(--text-muted);">Take-on type: <strong>{{ ucfirst(str_replace('_', ' ', $takeOn->take_on_type)) }}</strong> | Date: {{ $takeOn->take_on_date->format('d M Y') }}</p>

@@ -149,7 +149,7 @@
                                 <td class="px-4 py-3">
                                     <span class="ds-badge {{ $badgeVariant }}">{{ $labels[$tpl->deal_type] ?? $tpl->deal_type }}</span>
                                 </td>
-                                <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $tpl->branch?->name ?? 'All Branches' }}</td>
+                                <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $tpl->branch?->display_name ?? 'All Branches' }}</td>
                                 <td class="px-4 py-3 text-center font-mono" style="color: var(--text-secondary);">{{ number_format($tpl->steps_count) }}</td>
                                 <td class="px-4 py-3 text-center">
                                     @if($tpl->is_default)

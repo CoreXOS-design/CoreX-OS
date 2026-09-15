@@ -130,7 +130,7 @@
                                 </div>
                             </div>
                         </td>
-                        <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $emp->user->branch->name ?? '—' }}</td>
+                        <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $emp->user->branch->display_name ?? '—' }}</td>
                         <td class="px-4 py-3 text-right text-xs font-mono" style="color: var(--text-primary);">
                             @if($emp->basic_salary !== null)
                                 R {{ number_format($emp->basic_salary, 2) }}

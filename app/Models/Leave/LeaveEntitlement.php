@@ -44,7 +44,7 @@ class LeaveEntitlement extends Model
 
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(Branch::class);
+        return $this->belongsTo(Branch::class)->withTrashed();
     }
 
     public function payrollEmployee(): BelongsTo

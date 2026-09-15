@@ -179,7 +179,10 @@ public function index(Request $request)
 
         $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
             ->orderBy('name')->get();
-        $branches = Branch::orderBy('name')->get();
+        // Report filter + row name lookup: active branches first, then archived
+        // ones, so a deal loaded under a since-archived branch still shows its
+        // branch and can still be filtered on (AT-420).
+        $branches = Branch::listForReports();
 
         // Branch context for Branch Commission column
         $branchIdContext = (int) $request->input('branch_id');
@@ -234,7 +237,12 @@ public function index(Request $request)
 
         $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
             ->orderBy('name')->get();
-        $branches = Branch::orderBy('name')->get();
+        // Active branches, PLUS this deal's own branch even if it has since been
+        // archived — otherwise the select would silently re-stamp the deal onto
+        // another branch on save. Deals carry on as loaded (AT-420).
+        $branches = Branch::withTrashed()
+            ->where(fn ($q) => $q->whereNull('deleted_at')->orWhere('id', $deal->branch_id))
+            ->orderBy('name')->get();
 
         return view('admin.deals.form', [
             'mode' => 'edit',

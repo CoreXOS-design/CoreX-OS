@@ -214,7 +214,7 @@
                         @foreach($run->payslips as $ps)
                         <tr style="border-bottom:1px solid var(--border);">
                             <td class="px-3 py-2 text-xs font-semibold" style="color:var(--text-primary);">{{ $ps->employee_name_snapshot }}</td>
-                            <td class="px-3 py-2 text-xs" style="color:var(--text-muted);">{{ $ps->employee?->user?->branch?->name ?? '-' }}</td>
+                            <td class="px-3 py-2 text-xs" style="color:var(--text-muted);">{{ $ps->employee?->user?->branch?->display_name ?? '-' }}</td>
                             <td class="px-3 py-2 text-right text-xs" style="color:var(--text-primary);">R {{ number_format($ps->total_earnings, 2) }}</td>
                             <td class="px-3 py-2 text-right text-xs" style="color:var(--text-muted);">R {{ number_format($ps->paye_amount, 2) }}</td>
                             <td class="px-3 py-2 text-right text-xs" style="color:var(--text-muted);">R {{ number_format($ps->uif_employee_amount, 2) }}</td>

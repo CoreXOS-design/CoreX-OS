@@ -231,7 +231,7 @@ class DealV2 extends Model
 
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(Branch::class);
+        return $this->belongsTo(Branch::class)->withTrashed();
     }
 
     public function createdBy(): BelongsTo

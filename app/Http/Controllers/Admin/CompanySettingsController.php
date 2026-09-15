@@ -51,6 +51,9 @@ class CompanySettingsController extends Controller
         $agents = User::where('is_active', true)->where('is_assistant', false)->orderBy('name')->get(['id', 'name']);
 
         $branches = Branch::orderBy('name')->get();
+        // Archive wizard + Archived branches panel (spec: branch-archive-reassignment.md §6–§7, AT-420)
+        $branchUsers      = Branch::attachedUsersGrouped($branches->pluck('id'));
+        $archivedBranches = Branch::onlyTrashed()->orderByDesc('deleted_at')->get();
         $vatRate = (float) PerformanceSetting::get('vat_rate', 15);
         $listingsPerSale = (float) PerformanceSetting::get('listings_per_sale', 5);
 
@@ -60,7 +63,7 @@ class CompanySettingsController extends Controller
         $websiteActive = $agency?->hasActiveWebsite() ?? false;
 
         return view('admin.company-settings.index', compact(
-            'agencies', 'agency', 'agents', 'branches', 'vatRate', 'listingsPerSale', 'websiteActive'
+            'agencies', 'agency', 'agents', 'branches', 'branchUsers', 'archivedBranches', 'vatRate', 'listingsPerSale', 'websiteActive'
         ));
     }
 

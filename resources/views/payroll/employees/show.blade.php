@@ -50,7 +50,7 @@
                         <div>
                             <h3 class="text-sm font-bold" style="color:var(--text-primary);">{{ $employee->user->name }}</h3>
                             <p class="text-[11px]" style="color:var(--text-muted);">{{ $employee->designation_snapshot }}</p>
-                            <p class="text-[11px]" style="color:var(--text-muted);">{{ $employee->user->branch->name ?? '-' }}</p>
+                            <p class="text-[11px]" style="color:var(--text-muted);">{{ $employee->user->branch->display_name ?? '-' }}</p>
                         </div>
                     </div>
                     @if($employee->termination_date)

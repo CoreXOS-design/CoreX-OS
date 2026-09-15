@@ -47,7 +47,7 @@ class LeaveApplication extends Model
     // ── Relationships ──
 
     public function agency(): BelongsTo { return $this->belongsTo(Agency::class); }
-    public function branch(): BelongsTo { return $this->belongsTo(Branch::class); }
+    public function branch(): BelongsTo { return $this->belongsTo(Branch::class)->withTrashed(); }
     public function payrollEmployee(): BelongsTo { return $this->belongsTo(PayrollEmployee::class); }
     public function user(): BelongsTo { return $this->belongsTo(User::class); }
     public function leaveType(): BelongsTo { return $this->belongsTo(LeaveType::class); }
