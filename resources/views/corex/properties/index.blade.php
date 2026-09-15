@@ -5,6 +5,10 @@
 @php
     // '__ID__' placeholder — the panel URL is resolved per property in JS.
     $synPanelUrlTemplate = route('api.v1.properties.syndication-panel', ['property' => '__ID__']);
+    // AT-419 — every filter/search/clear link on this shared view must stay on
+    // whichever of the two pages the user is currently on, never bounce back
+    // to Properties from Imported Stock (or vice versa).
+    $indexRoute = ($importedStock ?? false) ? 'corex.properties.imported-stock' : 'corex.properties.index';
 @endphp
 <div class="w-full h-full flex flex-col corex-props-v2"
      x-data="{
@@ -295,7 +299,7 @@
          }"
          class="rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route('corex.properties.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
+        <form method="GET" action="{{ route($indexRoute) }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Search --}}
             <div class="relative flex-1 min-w-[180px] max-w-xs" data-tour="re-properties-search">
@@ -316,8 +320,8 @@
                 $pcIsAll    = empty($filterAgentIds);
                 $pcIsMine   = count($filterAgentIds) === 1 && (string) $filterAgentIds[0] === $pcuId;
                 $pcCarry    = request()->except(['agent_id', 'agent_ids', 'page']);
-                $pcMineUrl  = route('corex.properties.index', array_merge($pcCarry, ['agent_ids' => $pcuId]));
-                $pcAllUrl   = route('corex.properties.index', array_merge($pcCarry, ['agent_ids' => 'all']));
+                $pcMineUrl  = route($indexRoute, array_merge($pcCarry, ['agent_ids' => $pcuId]));
+                $pcAllUrl   = route($indexRoute, array_merge($pcCarry, ['agent_ids' => 'all']));
                 $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
@@ -384,7 +388,7 @@
             </button>
 
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route('corex.properties.index', ['clear' => 1]) }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
+            <a href="{{ route($indexRoute, ['clear' => 1]) }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
             @endif
 
             {{-- Agent picker (admin/bm only) — right-aligned modal, multi-select --}}
@@ -655,7 +659,7 @@
                     $chips[] = [
                         'label' => $agentChipLabel,
                         'key'   => 'agent_ids',
-                        'url'   => route('corex.properties.index', array_merge(collect($chipBase)->except(['agent_id', 'agent_ids'])->toArray(), ['agent_ids' => 'all'])),
+                        'url'   => route($indexRoute, array_merge(collect($chipBase)->except(['agent_id', 'agent_ids'])->toArray(), ['agent_ids' => 'all'])),
                     ];
                 }
             }
@@ -666,7 +670,7 @@
             @foreach($chips as $chip)
                 @php
                     if (isset($chip['url'])) { $chipHref = $chip['url']; }
-                    else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route('corex.properties.index', $params); }
+                    else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route($indexRoute, $params); }
                 @endphp
                 <a href="{{ $chipHref }}"
                    class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-300"
@@ -729,7 +733,7 @@
                 Create my first listing
             </a>
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route('corex.properties.index', ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
+            <a href="{{ route($indexRoute, ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
             @endif
         </div>
     </div>
