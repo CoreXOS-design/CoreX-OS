@@ -53,11 +53,17 @@ class CoreMatchReasonClassifier
     /** Reasons safe to show a buyer — criteria_widened is agent-only, always. */
     public const BUYER_VISIBLE_REASONS = [self::REASON_NEW, self::REASON_REDUCED, self::REASON_BACK_ON_MARKET];
 
-    private const NON_MATCHABLE_STATUSES = [
-        'sold', 'sold_by_3rd_party', 'transferred', 'rented', 'let_out',
-        'withdrawn', 'expired', 'cancelled',
-        'unavailable', 'archived', 'draft', 'pending',
-    ];
+    /**
+     * Fixed 2026-09-15 — this used to be its own private copy of
+     * MatchingService's exclusion list, missing 'prospecting'/'not_selling'
+     * the exact same way that copy was. Now points at the one canonical
+     * definition (Property::matchingExcludedStatusList()) instead of
+     * maintaining a third copy — the whole point of the fix ("define
+     * MATCHABLE once, in one place"). wentBackOnMarket() below reads
+     * "non-matchable -> matchable" from this same list, so a property
+     * un-sticking from under_offer/pending now also correctly reads as
+     * "back on market" for a buyer it wasn't available to before.
+     */
 
     public function __construct(protected CoreMatchShareHistoryService $history)
     {
@@ -156,9 +162,11 @@ class CoreMatchReasonClassifier
                 $old = strtolower(trim((string) ($row->old_values['status'] ?? '')));
                 $new = strtolower(trim((string) ($row->new_values['status'] ?? '')));
 
+                $excluded = Property::matchingExcludedStatusList();
+
                 return $old !== '' && $new !== ''
-                    && in_array($old, self::NON_MATCHABLE_STATUSES, true)
-                    && !in_array($new, self::NON_MATCHABLE_STATUSES, true);
+                    && in_array($old, $excluded, true)
+                    && !in_array($new, $excluded, true);
             });
     }
 }

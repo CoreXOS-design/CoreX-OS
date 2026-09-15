@@ -296,42 +296,37 @@ final class ContactMatchShareHistoryTest extends TestCase
         $this->get(route('shared.match', ['token' => $share->token]))->assertNotFound();
     }
 
-    public function test_a_dated_link_survives_an_auto_recompute_lost_transition(): void
+    /**
+     * A dated link used to survive an auto_recompute-reasoned 'lost'
+     * transition specifically, because at the time ANY agency's buyer
+     * could drift to Lost silently with no configuration. Superseded by
+     * Johan's ruling: auto-lost is now agency-configurable and OFF by
+     * default (buyer_auto_lost_enabled on agency_contact_settings), gated
+     * BEFORE the write in BuyerStateService::resolveState() itself (see
+     * cc3's tests/Feature/BuyerPipeline/AutoLostSettingsTest.php) — so an
+     * auto_recompute row can no longer exist unless that agency opted in,
+     * which makes it just as deliberate as a manual move. The reason
+     * string is no longer a meaningful signal here; both kill the link.
+     */
+    public function test_a_dated_link_dies_on_lost_regardless_of_the_transitions_reason(): void
     {
-        $match = $this->match();
-        $this->property();
-        $share = $match->mintShareLink($this->agent->id);
+        foreach (['auto_recompute', 'manual_override'] as $reason) {
+            $match = $this->match();
+            $this->property();
+            $share = $match->mintShareLink($this->agent->id);
 
-        $this->contact->update(['buyer_state' => 'lost']);
-        \App\Models\BuyerStateTransition::create([
-            'agency_id'  => $this->agency->id,
-            'contact_id' => $this->contact->id,
-            'from_state' => 'cold',
-            'to_state'   => 'lost',
-            'reason'     => 'auto_recompute',
-            'occurred_at' => now(),
-        ]);
+            $this->contact->update(['buyer_state' => 'lost']);
+            \App\Models\BuyerStateTransition::create([
+                'agency_id'   => $this->agency->id,
+                'contact_id'  => $this->contact->id,
+                'from_state'  => 'warm',
+                'to_state'    => 'lost',
+                'reason'      => $reason,
+                'occurred_at' => now(),
+            ]);
 
-        $this->get(route('shared.match', ['token' => $share->token]))->assertOk();
-    }
-
-    public function test_a_dated_link_dies_when_the_latest_lost_transition_was_explicit(): void
-    {
-        $match = $this->match();
-        $this->property();
-        $share = $match->mintShareLink($this->agent->id);
-
-        $this->contact->update(['buyer_state' => 'lost']);
-        \App\Models\BuyerStateTransition::create([
-            'agency_id'  => $this->agency->id,
-            'contact_id' => $this->contact->id,
-            'from_state' => 'warm',
-            'to_state'   => 'lost',
-            'reason'     => 'manual_override',
-            'occurred_at' => now(),
-        ]);
-
-        $this->get(route('shared.match', ['token' => $share->token]))->assertNotFound();
+            $this->get(route('shared.match', ['token' => $share->token]))->assertNotFound();
+        }
     }
 
     private function history(): CoreMatchShareHistoryService
