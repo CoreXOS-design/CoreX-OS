@@ -214,6 +214,16 @@ authorisation.**
 - **Outbound is neutralised on QA** (mail → log/localhost, WAHA blanked, PP/Firebase
   blanked) so a QA click can never reach a real person. Any new integration a lane adds
   must be inert on QA before Johan QAs a send path. See `/corex-qa1/NOTES-FOR-ANDRE.md`.
+- **One Jira ticket per build, never more — across QA1, QA2, Staging and live testing.**
+  A build (a lane's piece of work as it moves QA1 → Staging → live) gets exactly one
+  ticket that travels with it end to end; testing/QA notes, fixes and follow-ups found
+  during that build's testing are comments or checklist items on that SAME ticket, not
+  new tickets. Before creating a ticket, search Jira for an existing open ticket
+  covering the same item — if the item already has one, add to it instead of filing a
+  new one. If a duplicate is filed anyway, link it as **Duplicate** to the original and
+  consolidate onto the original rather than working both. This mirrors the existing
+  "LANE (single consolidated build ticket)" pattern (e.g. AT-392) — that pattern is now
+  the standard for every build, not a one-off.
 
 The lane "Definition of Done" deploy step (§8h) therefore has **two** deploy targets in
 sequence — QA1 for first QA, then the Staging host for final integration — not one.
