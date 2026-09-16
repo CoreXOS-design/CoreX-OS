@@ -80,6 +80,11 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         foreach ([1, 2, 3] as $ord) {
             Storage::disk('public')->assertExists("properties/{$property->id}/{$ord}.jpg");
         }
+
+        // Every writer of gallery_images_json must also file into
+        // gallery_categories_json, or the mobile app's room-by-room gallery
+        // (built from categories alone) shows 0 photos for a P24 import.
+        $this->assertCount(3, $property->gallery_categories_json['unsorted'] ?? []);
     }
 
     public function test_a_short_gallery_can_never_report_complete_and_logs_loudly(): void
