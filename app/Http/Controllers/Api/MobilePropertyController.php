@@ -1866,14 +1866,13 @@ class MobilePropertyController extends Controller
     /**
      * Comparison key for "is this the same stored image?" — the URL path with
      * any scheme/host stripped. Lets an absolute URL handed to the client match
-     * the host-relative value the gallery may actually hold.
+     * the host-relative value the gallery may actually hold. Delegates to
+     * Property::imageMatchKey() — the canonical definition — so a future fix
+     * to path-matching only has to happen once.
      */
     private function imageMatchKey(string $url): string
     {
-        $url  = trim($url);
-        $path = parse_url($url, PHP_URL_PATH);
-
-        return ltrim(is_string($path) && $path !== '' ? $path : $url, '/');
+        return Property::imageMatchKey($url);
     }
 
     private function fullPropertyResponse(Property $property): array
@@ -1985,48 +1984,27 @@ class MobilePropertyController extends Controller
      */
     private function buildGalleryCategories(Property $property): array
     {
-        $raw = $property->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+        // Read-side safety net for rows written before every writer filed its
+        // photos into gallery_categories_json: reconcile against the master
+        // list on a CLONE (files anything unfiled into unsorted, drops any
+        // stale filed entry that has left the master list — the exact
+        // Property::syncGalleryCategories() algorithm every persisted writer
+        // uses, so the mobile read side can never disagree with them). Cloned
+        // rather than run on $property itself so this never changes what
+        // galleryFingerprint() hashes for the response carrying this payload —
+        // a GET must never write, and must never shift the concurrency token.
+        $reconciled = clone $property;
+        $reconciled->syncGalleryCategories();
+
+        $raw = $reconciled->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
         $mapped = [];
-        $filed  = [];
-
-        $note = function (array $urls) use (&$filed): void {
-            foreach ($urls as $u) {
-                if (is_string($u) && $u !== '') {
-                    $filed[$this->imageMatchKey($u)] = true;
-                }
-            }
-        };
-
         foreach ($raw['categories'] ?? [] as $cat) {
             $mapped[$cat['name']] = $this->absoluteImageUrls($cat['images'] ?? []);
-            $note($cat['images'] ?? []);
-        }
-
-        $unsorted = $this->absoluteImageUrls($raw['unsorted'] ?? []);
-        $note($raw['unsorted'] ?? []);
-
-        // Read-side safety net for rows written before every web writer filed
-        // its photos (Property::syncGalleryCategories): a photo that is in the
-        // master list but under no room and not in unsorted is still a photo the
-        // agent uploaded — it must be visible, so it surfaces here as unsorted.
-        // Matched on path: the master list is host-relative, a room may hold the
-        // absolute URL this API handed out. A GET never writes; the backfill
-        // (properties:sync-gallery-categories) fixes the stored row.
-        foreach ($property->gallery_images_json ?? [] as $u) {
-            if (! is_string($u) || $u === '') {
-                continue;
-            }
-            $key = $this->imageMatchKey($u);
-            if (isset($filed[$key])) {
-                continue;
-            }
-            $filed[$key] = true;
-            $unsorted[]  = $this->absoluteImageUrl($u);
         }
 
         return [
             'categories' => (object) $mapped,
-            'unsorted'   => array_values(array_filter($unsorted)),
+            'unsorted'   => $this->absoluteImageUrls($raw['unsorted'] ?? []),
         ];
     }
 

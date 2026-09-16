@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\CoreX;
 
+use App\Jobs\DownloadPortalPropertyImages;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Property;
@@ -12,6 +13,7 @@ use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -220,6 +222,36 @@ final class GalleryCategorySyncTest extends TestCase
         $this->assertFalse($property->syncGalleryCategories());
     }
 
+    public function test_mobile_show_drops_a_stale_filed_url_that_left_the_master_list(): void
+    {
+        // 'gone.jpg' is filed under Kitchen but no longer in the master list —
+        // buildGalleryCategories() must reconcile like every other reader
+        // instead of echoing the stale stored row back to the app.
+        $property = $this->makeProperty([
+            'gallery_images_json'     => ['/storage/properties/9/a.jpg'],
+            'gallery_categories_json' => [
+                'categories' => [['name' => 'Kitchen', 'images' => ['/storage/properties/9/gone.jpg']]],
+                'unsorted'   => [],
+            ],
+        ]);
+
+        $res = $this->actingAs($this->user)
+            ->getJson("/api/v1/mobile/properties/{$property->id}")
+            ->assertOk();
+
+        $this->assertSame([], $res->json('property.gallery_categories.categories.Kitchen'));
+        $this->assertSame(
+            ['https://corex.test/storage/properties/9/a.jpg'],
+            $res->json('property.gallery_categories.unsorted')
+        );
+
+        // A GET never writes — the stale row is still stale in the database.
+        $this->assertSame(
+            ['/storage/properties/9/gone.jpg'],
+            $property->fresh()->gallery_categories_json['categories'][0]['images']
+        );
+    }
+
     public function test_sync_drops_a_filed_url_that_left_the_master_list(): void
     {
         $property = $this->makeProperty([
@@ -275,6 +307,23 @@ final class GalleryCategorySyncTest extends TestCase
         $this->artisan('properties:sync-gallery-categories')
             ->expectsOutputToContain('Changed 0 rows')
             ->assertSuccessful();
+    }
+
+    public function test_portal_pull_job_files_downloaded_photos_into_categories(): void
+    {
+        Http::fake(fn () => Http::response(Str::random(2500), 200, ['Content-Type' => 'image/jpeg']));
+
+        $property = $this->makeProperty(['gallery_images_json' => null, 'gallery_categories_json' => null]);
+
+        (new DownloadPortalPropertyImages($property->id, 90000, 2))->handle();
+
+        $property->refresh();
+        $this->assertCount(2, $property->gallery_images_json);
+
+        // Every writer of gallery_images_json must also file into
+        // gallery_categories_json, or the mobile app's room-by-room gallery
+        // (built from categories alone) shows 0 photos for a portal pull.
+        $this->assertCount(2, $property->gallery_categories_json['unsorted'] ?? []);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
