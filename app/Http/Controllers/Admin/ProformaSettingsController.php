@@ -32,7 +32,7 @@ class ProformaSettingsController extends Controller
         $user = $request->user();
 
         $requested = (int) $request->input('agency_id', 0);
-        if ($requested > 0 && $user?->isOwnerRole() && Agency::withoutGlobalScopes()->whereKey($requested)->exists()) {
+        if ($requested > 0 && $user?->isOwnerRole() && Agency::whereKey($requested)->exists()) {
             return $requested;
         }
 

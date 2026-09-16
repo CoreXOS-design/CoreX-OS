@@ -119,6 +119,25 @@ final class CompanySettingsProformaAgencyTest extends TestCase
         $this->assertDatabaseCount('agency_proforma_settings', 0);
     }
 
+    public function test_owner_save_to_an_archived_agency_falls_back_to_their_own(): void
+    {
+        $this->inland->delete(); // archived (soft delete)
+
+        $resp = $this->actingAs($this->globalOwner())->put(route('admin.proforma-settings.update'), [
+            'agency_id'      => $this->inland->id, // forged onto an archived agency
+            'number_prefix'  => 'INL-',
+            'number_padding' => 4,
+            'due_date_rule'  => 'end_of_month',
+            'due_days'       => 30,
+        ]);
+
+        $resp->assertSessionHasNoErrors();
+        // Falls back to the owner's own resolvable agency (the coastal one, first alphabetically)
+        // rather than writing settings for the archived agency.
+        $this->assertDatabaseHas('agency_proforma_settings', ['agency_id' => $this->coastal->id, 'number_prefix' => 'INL-']);
+        $this->assertDatabaseMissing('agency_proforma_settings', ['agency_id' => $this->inland->id]);
+    }
+
     public function test_agency_admin_cannot_redirect_a_save_to_another_agency(): void
     {
         $admin = $this->agencyAdmin($this->coastal);
