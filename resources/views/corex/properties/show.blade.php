@@ -45,6 +45,11 @@
          On phones the identity part hides — the tab panel keeps its own header
          strip there — and the row is just Back + the two controls. --}}
     @php
+        // AT-401 - "Back" returns to whichever Properties list (sales or Rentals) the agent came
+        // from; session('corex.lens.properties') is set by PropertyController::index() on the way in.
+        $backToRentals = (bool) session('corex.lens.properties', false);
+        $backRoute     = $backToRentals ? 'corex.rentals.properties.index' : 'corex.properties.index';
+        $backLabel     = $backToRentals ? 'Back to Rentals' : 'Back to Properties';
         // Identity strip + mobile header — both render this at 40-56px, so it was
         // the single worst offender per display-pixel: a raw multi-MB original
         // stretched into a 48px square on every property page.
@@ -75,12 +80,12 @@
     @endphp
     <div class="prop-identity-strip flex-shrink-0 rounded-md px-3 py-2 flex items-center gap-3 flex-wrap"
          style="background:var(--surface); border:1px solid var(--border);">
-        <a href="{{ route(session('corex.lens.properties', false) ? 'corex.rentals.properties.index' : 'corex.properties.index') }}"
+        <a href="{{ route($backRoute) }}"
            class="corex-btn-outline text-xs no-underline inline-flex items-center flex-shrink-0"
            style="padding-left:0.5rem; padding-right:0.5rem;"
-           title="Back to Properties" aria-label="Back to Properties">
+           title="{{ $backLabel }}" aria-label="{{ $backLabel }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-            <span class="sr-only">Back to Properties</span>
+            <span class="sr-only">{{ $backLabel }}</span>
         </a>
 
         <div class="hidden lg:flex items-center gap-3 min-w-0 flex-1">

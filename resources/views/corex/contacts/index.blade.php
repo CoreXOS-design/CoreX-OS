@@ -102,7 +102,17 @@
          }"
          class="rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
+        @php
+
+            // AT-403 - one view, two entry points (Contacts, Rentals -> Contacts): every self-referencing
+
+            // link stays on the entry point the user is on.
+
+            $contactsRoute = $isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index';
+
+        @endphp
+
+        <form method="GET" action="{{ route($contactsRoute) }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Street & Complex Search — AT-273. Lives at the far left of the filter
                  bar as just the property icon + a "?" help popover. Clicking the house
@@ -210,7 +220,11 @@
                 $vtIsMine  = (string) $filterAgentId === $cuId;
                 $vtIsAll   = $filterAgentId === '';
                 $vtIsBranch = $filterAgentId === 'branch';
-                $vtDScope  = $dataScope ?? \App\Services\PermissionService::getDataScope(auth()->user(), 'contacts');                $vtCarry   = request()->except(['agent_id', 'page']);                $vtMineUrl = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => $cuId]));                $vtAllUrl  = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => '']));                $vtBranchUrl = route('corex.rentals.contacts.index', array_merge($vtCarry, ['agent_id' => 'branch']));
+                $vtDScope  = $dataScope;
+                $vtCarry   = request()->except(['agent_id', 'page']);
+                $vtMineUrl = route($contactsRoute, array_merge($vtCarry, ['agent_id' => $cuId]));
+                $vtAllUrl  = route($contactsRoute, array_merge($vtCarry, ['agent_id' => '']));
+                $vtBranchUrl = $isRentalEntry ? route('corex.rentals.contacts.index', array_merge($vtCarry, ['agent_id' => 'branch'])) : null;
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
                 <a href="{{ $vtMineUrl }}" @click.prevent="pickAgent('{{ $cuId }}')"
@@ -355,7 +369,7 @@
 
             <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
             @if(request()->hasAny(['search','type']))
-            <a href="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
+            <a href="{{ route($contactsRoute, $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
                class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
             @endif
 
