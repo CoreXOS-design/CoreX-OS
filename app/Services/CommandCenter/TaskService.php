@@ -45,7 +45,7 @@ class TaskService
      */
     public function getOpenTasks(User $user, int $limit = 20): Collection
     {
-        return $this->visibleQuery($user)
+        return $this->boardQuery($user)
             ->open()
             ->with(['property', 'contact'])
             ->orderByRaw("CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END")
@@ -59,7 +59,7 @@ class TaskService
      */
     public function getOverdueTasks(User $user, int $limit = 10): Collection
     {
-        return $this->visibleQuery($user)
+        return $this->boardQuery($user)
             ->overdue()
             ->with(['property', 'contact'])
             ->orderBy('due_date')
@@ -116,16 +116,17 @@ class TaskService
      */
     public function getSummary(User $user): array
     {
-        return $this->summarise($this->visibleQuery($user));
+        return $this->summarise($this->boardQuery($user));
     }
 
     /**
-     * Header counts for the Task board — same shape as getSummary() but over
-     * boardQuery(), so "N open / N overdue" describes the cards actually shown.
+     * Header counts for the Task board — kept as its own name for the board's
+     * call site, but identical to getSummary() so the board, dashboard widget,
+     * and mobile API never disagree on "N open / N overdue".
      */
     public function getBoardSummary(User $user): array
     {
-        return $this->summarise($this->boardQuery($user));
+        return $this->getSummary($user);
     }
 
     private function summarise($base): array

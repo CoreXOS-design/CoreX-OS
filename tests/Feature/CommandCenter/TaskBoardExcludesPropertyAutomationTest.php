@@ -72,8 +72,10 @@ final class TaskBoardExcludesPropertyAutomationTest extends TestCase
         $this->assertSame(3, $board['open']);
         $this->assertSame(3, $board['overdue']);
 
-        // The shared summary (Today / dashboard / mobile) is untouched by this change.
-        $this->assertSame(5, $service->getSummary($this->agent)['open']);
+        // The dashboard/mobile summary must agree with the board — it also
+        // excludes property housekeeping, so no screen ever shows an agent an
+        // inflated count the board itself doesn't back up (AT-419 follow-up).
+        $this->assertSame(3, $service->getSummary($this->agent)['open']);
     }
 
     public function test_task_board_page_renders_without_the_housekeeping_rows(): void
