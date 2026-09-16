@@ -109,6 +109,12 @@ class SignatureTemplate extends Model
     const STATUS_APPROVAL_PENDING  = 'approval_pending';
     const STATUS_APPROVAL_DECLINED = 'approval_declined';
 
+    /**
+     * Compliance approval gate — the ceremony is stopped inside the agency waiting on an officer.
+     * Every list that enumerates "in flight" work reads this, so the two states are declared once.
+     */
+    const HELD_STATUSES = [self::STATUS_APPROVAL_PENDING, self::STATUS_APPROVAL_DECLINED];
+
     // AT-373 (recipient wet-ink amend → edit-re-enters-the-loop). Generic over the approval chain.
     // amendment_chain_review — a wet-ink edit authored at a party's turn is walking the approval
     //   chain (A1..Am) for approval; each node places its initial before the sequential recipient

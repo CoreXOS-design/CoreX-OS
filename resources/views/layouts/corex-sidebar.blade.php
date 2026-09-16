@@ -1412,14 +1412,15 @@
                 <a href="{{ route('docuperfect.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.create') ? 'active' : '' }}">Create Document</a>
                 <a href="{{ route('docuperfect.esign.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.create') ? 'active' : '' }}">E-Sign Document</a>
                 <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') !== 'authorisation' ? 'active' : '' }}">My E-Sign Documents</a>
-                {{-- Compliance approval gate (spec §8.2) — the officer queue, only for appointed e-sign officers --}}
+                {{-- Compliance approval gate (spec §8.2) — the officer queue, only for appointed e-sign officers.
+                     ONE count set per page: computed here, reused by the Compliance panel below. --}}
+                @php $approvalCounts ??= app(\App\Services\Compliance\ApprovalQueueCounts::class)->forUser(auth()->user()); @endphp
                 @permission('esign_approvals.view')
-                @if(app(\App\Services\Compliance\OfficerRegistry::class)->isOfficer(auth()->user(), \App\Models\Compliance\OfficerAppointment::MODULE_ESIGN))
-                @php $esignApprovalBadge = app(\App\Services\Docuperfect\EsignApprovalService::class)->pendingCountFor(auth()->user()); @endphp
+                @if($approvalCounts['esign_officer'])
                 <a href="{{ route('docuperfect.approvals.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.approvals.*') ? 'active' : '' }}">
                     Approvals
-                    @if($esignApprovalBadge > 0)
-                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($esignApprovalBadge) }}</span>
+                    @if($approvalCounts['esign'] > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($approvalCounts['esign']) }}</span>
                     @endif
                 </a>
                 @endif
@@ -1494,7 +1495,7 @@
                 {{-- Compliance approval gate (spec §8.2) — one query set per page, computed fresh per
                      viewer (same reasoning as the Verification Queue / Compliance Reporting badges
                      below: the cache store is the DB and the count varies by viewer's scope). --}}
-                @php $approvalCounts = app(\App\Services\Compliance\ApprovalQueueCounts::class)->forUser(auth()->user()); @endphp
+                @php $approvalCounts ??= app(\App\Services\Compliance\ApprovalQueueCounts::class)->forUser(auth()->user()); @endphp
                 @permission('approvals.view')
                 <a href="{{ route('corex.approvals.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.approvals.*') ? 'active' : '' }}">
                     Approvals
@@ -1564,10 +1565,10 @@
                      so two users in the same agency could read each other's cached scope.
                      Computing fresh removes that collision as a side effect. --}}
                 @php
-                    // Compliance approval gate §9.3 — same own / branch / all rule as the list and the page.
-                    $wbPendingCount = \App\Models\Compliance\WhistleblowComplaint::where('status', 'pending_approval')
-                        ->visibleTo(auth()->user())
-                        ->count();
+                    // Compliance approval gate §9.3 — same own / branch / all rule as the list and the page,
+                    // read from the one count set computed above rather than counted a second time.
+                    $approvalCounts ??= app(\App\Services\Compliance\ApprovalQueueCounts::class)->forUser(auth()->user());
+                    $wbPendingCount = $approvalCounts['whistleblow_visible'];
                 @endphp
                 <a href="{{ route('compliance.whistleblow.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.whistleblow.*') ? 'active' : '' }}">
                     Compliance Reporting

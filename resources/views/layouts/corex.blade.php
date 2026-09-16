@@ -164,7 +164,10 @@
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
         @include('components.reminder-toast')
+        {{-- Only someone who can ever have an approval waiting polls for one (one indexed exists() per page). --}}
+        @if(auth()->check() && app(\App\Services\Compliance\ApprovalQueueCounts::class)->mayHaveWork(auth()->user()))
         @include('components.approvals-toast')
+        @endif
 
         {{-- AT-220 — global session armour + persistent connection indicator on
              every long-lived authenticated screen (spec: .ai/specs/session-armour.md). --}}

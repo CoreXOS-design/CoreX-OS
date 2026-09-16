@@ -107,7 +107,15 @@ class OfficerAppointmentsController extends Controller
             'esign_approval_route'      => ['nullable', Rule::in([OfficerRegistry::ESIGN_ROUTE_FULL_STATUS, OfficerRegistry::ESIGN_ROUTE_RO_CO])],
         ]);
 
-        // Officers first, so a route switch in the same post can see the CO it needs.
+        $route = $request->has('esign_route_present') ? (string) ($validated['esign_approval_route'] ?? '') : '';
+
+        // Order matters, both ways. Switching the route OFF goes first so the same post may also end
+        // the CO (the end-CO guard only bites while the route is on); switching it ON goes last so
+        // it can see the CO the same post appointed.
+        if ($route === OfficerRegistry::ESIGN_ROUTE_FULL_STATUS) {
+            $this->registry->setEsignRoute($agencyId, $route);
+        }
+
         foreach ([OfficerAppointment::MODULE_ESIGN => 'esign', OfficerAppointment::MODULE_WHISTLEBLOW => 'whistleblow'] as $module => $prefix) {
             if ($request->has("{$prefix}_co_present")) {
                 $coId = (int) ($validated["{$prefix}_co_user_id"] ?? 0);
@@ -122,8 +130,8 @@ class OfficerAppointmentsController extends Controller
             }
         }
 
-        if ($request->has('esign_route_present') && ! empty($validated['esign_approval_route'])) {
-            $this->registry->setEsignRoute($agencyId, $validated['esign_approval_route']);
+        if ($route === OfficerRegistry::ESIGN_ROUTE_RO_CO) {
+            $this->registry->setEsignRoute($agencyId, $route);
         }
 
         if ($request->has('whistleblow_submit_policy_present')) {

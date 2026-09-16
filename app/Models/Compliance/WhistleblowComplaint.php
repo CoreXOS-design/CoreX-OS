@@ -62,16 +62,23 @@ class WhistleblowComplaint extends Model
      */
     public function scopeVisibleTo($query, User $user)
     {
-        if ($user->isOwnerRole()) {
+        // Spec §9.3 — the owner, or an explicit "View All Agency Complaints" grant, wins outright.
+        // The grant is still defined, still in Role Manager, and still what an agency ticks to let
+        // a branch manager read every branch's reports; it must keep meaning that.
+        if ($user->isOwnerRole() || \App\Services\PermissionService::userHasExplicitPermission($user, 'compliance.whistleblow.view_all_agency')) {
             return $query;
         }
 
         $scope = \App\Services\PermissionService::getDataScope($user, 'compliance.whistleblow') ?? 'own';
 
+        // The "view as branch" override is the SESSION's, i.e. the browsing user's — never another
+        // officer's, when a listener evaluates them inside the filer's request.
+        $branchId = \App\Models\Docuperfect\EsignApproval::branchOf($user);
+
         return match ($scope) {
             'all'    => $query,
-            'branch' => $user->effectiveBranchId()
-                ? $query->where($this->getTable() . '.branch_id', $user->effectiveBranchId())
+            'branch' => $branchId
+                ? $query->where($this->getTable() . '.branch_id', $branchId)
                 : $query->whereIn($this->getTable() . '.reported_by_user_id', $user->dataIdentityIds()),
             default  => $query->whereIn($this->getTable() . '.reported_by_user_id', $user->dataIdentityIds()),
         };

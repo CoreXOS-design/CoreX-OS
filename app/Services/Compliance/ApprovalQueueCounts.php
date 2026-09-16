@@ -24,7 +24,13 @@ class ApprovalQueueCounts
         private EsignApprovalService $esign,
     ) {}
 
-    /** @return array{fica: array{ro:int, co:int}, esign:int, whistleblow:int, total:int} */
+    /**
+     * @return array{fica: array{ro:int, co:int}, esign:int, esign_officer:bool, whistleblow:int,
+     *               whistleblow_visible:int, total:int}
+     *
+     * `esign_officer` and `whistleblow_visible` exist so the sidebar can draw the Documents › Approvals
+     * link and the Compliance Reporting badge from THIS array instead of re-running the same queries.
+     */
     public function forUser(User $user): array
     {
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
@@ -39,22 +45,56 @@ class ApprovalQueueCounts
             }
         }
 
-        $esign = $agencyId > 0 ? $this->esign->pendingCountFor($user) : 0;
+        // One officer lookup, one count — pendingCountFor() would do the lookup again.
+        $esignOfficer = $agencyId > 0 && $this->registry->isOfficer($user, OfficerAppointment::MODULE_ESIGN, $agencyId);
+        $esign        = $esignOfficer ? $this->esign->queueQuery($user)->count() : 0;
 
-        $whistleblow = 0;
-        if ($agencyId > 0 && $this->whistleblowMayDecide($user, $agencyId)) {
-            $whistleblow = WhistleblowComplaint::query()
+        // The Compliance Reporting badge shows everyone who may VIEW what is waiting; the decider
+        // count is the same query narrowed by who may decide — so count once, use twice.
+        $whistleblowVisible = 0;
+        if ($agencyId > 0 && $user->hasPermission('compliance.whistleblow.view')) {
+            $whistleblowVisible = WhistleblowComplaint::query()
                 ->where('status', 'pending_approval')
                 ->visibleTo($user)
                 ->count();
         }
+        $whistleblow = $whistleblowVisible > 0 && $this->whistleblowMayDecide($user, $agencyId) ? $whistleblowVisible : 0;
 
         return [
-            'fica'        => $fica,
-            'esign'       => $esign,
-            'whistleblow' => $whistleblow,
-            'total'       => $fica['ro'] + $fica['co'] + $esign + $whistleblow,
+            'fica'                => $fica,
+            'esign'               => $esign,
+            'esign_officer'       => $esignOfficer,
+            'whistleblow'         => $whistleblow,
+            'whistleblow_visible' => $whistleblowVisible,
+            'total'               => $fica['ro'] + $fica['co'] + $esign + $whistleblow,
         ];
+    }
+
+    /**
+     * Cheap pre-check for the polling toast: can this user ever have something waiting? One indexed
+     * existence query on officer_appointments, the FICA officer flag, and the legacy
+     * compliance-reporting fallback roles. Ordinary agents never poll.
+     */
+    public function mayHaveWork(User $user): bool
+    {
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        if ($agencyId <= 0) {
+            return false;
+        }
+
+        if (OfficerAppointment::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where('user_id', $user->id)
+            ->whereNull('ended_on')
+            ->exists()) {
+            return true;
+        }
+
+        if ($user->isComplianceOfficer($agencyId)) {
+            return true;
+        }
+
+        return in_array($user->role ?? 'agent', ['admin', 'branch_manager', 'super_admin'], true);
     }
 
     /** Mirrors WhistleblowComplaintService's officer rule (CO always; ROs when allowed; legacy roles when no CO). */

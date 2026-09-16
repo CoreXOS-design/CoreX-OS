@@ -82,9 +82,34 @@ class EsignApprovalService
             ],
         );
 
-        event(new ComplianceApprovalRequested($approval, $template, $template->created_by));
+        $this->raiseAfterCommit(new ComplianceApprovalRequested($approval, $template, $template->created_by));
 
         return $approval;
+    }
+
+    /**
+     * Officers are told only once the hold / decision is durable. Inside a transaction the event
+     * waits for the commit (a rollback then tells nobody); outside one it fires immediately.
+     */
+    private function raiseAfterCommit(object $event): void
+    {
+        DB::afterCommit(static fn () => event($event));
+    }
+
+    /** A decision is only valid while the document itself is still in the state the officer saw. */
+    private function assertDocumentStillHeld(SignatureTemplate $template, string $expected): void
+    {
+        if ($template->status === $expected) {
+            return;
+        }
+
+        $message = match ($template->status) {
+            SignatureTemplate::STATUS_CANCELLED => 'The sender cancelled this document, so there is nothing left to decide.',
+            SignatureTemplate::STATUS_APPROVAL_DECLINED => 'This document has already been declined.',
+            default => 'This document is no longer waiting for approval — it has moved on since this page was opened.',
+        };
+
+        throw ValidationException::withMessages(['approval' => $message]);
     }
 
     // ── Decisions ──
@@ -104,6 +129,10 @@ class EsignApprovalService
             }
             throw ValidationException::withMessages(['approval' => 'This document is not waiting for approval.']);
         }
+
+        // The ledger row AND the document must both still be waiting — a stale form on a document
+        // the sender has since cancelled must never approve (or resurrect) it.
+        $this->assertDocumentStillHeld($template, SignatureTemplate::STATUS_APPROVAL_PENDING);
 
         // Outside the transaction on purpose: a refused attempt writes its audit row and that row
         // must survive the refusal (inside the transaction it would roll back with it).
@@ -130,10 +159,43 @@ class EsignApprovalService
 
             $this->signatureService()->releaseAfterComplianceApproval($template);
 
-            event(new ComplianceApprovalDecided($approval, $template, $officer->id));
+            $this->raiseAfterCommit(new ComplianceApprovalDecided($approval, $template, $officer->id));
 
             return $approval->fresh();
         });
+    }
+
+    /**
+     * The sender cancelled a held or declined document: close every open ledger row so no officer
+     * can act on it again, and put that on the record. Safe to call for any document — a document
+     * with no open row is a no-op. Runs inside the caller's (cancel) transaction.
+     */
+    public function withdraw(SignatureTemplate $template, User $by, string $reason = ''): int
+    {
+        $open = EsignApproval::withoutGlobalScopes()
+            ->where('signature_template_id', $template->id)
+            ->whereIn('status', EsignApproval::OPEN_STATUSES)
+            ->get();
+
+        if ($open->isEmpty()) {
+            return 0;
+        }
+
+        foreach ($open as $row) {
+            $row->update(['status' => EsignApproval::STATUS_WITHDRAWN]);
+        }
+
+        SignatureAuditLog::log(
+            $template,
+            'compliance_approval_withdrawn',
+            SignatureAuditLog::ACTOR_USER,
+            $by->name,
+            $by->email,
+            $by->id,
+            metadata: ['approval_ids' => $open->pluck('id')->all(), 'reason' => $reason],
+        );
+
+        return $open->count();
     }
 
     public function decline(SignatureTemplate $template, User $officer, string $reason): EsignApproval
@@ -148,6 +210,8 @@ class EsignApprovalService
         if (! $approval) {
             throw ValidationException::withMessages(['approval' => 'This document is not waiting for approval.']);
         }
+
+        $this->assertDocumentStillHeld($template, SignatureTemplate::STATUS_APPROVAL_PENDING);
 
         // Outside the transaction — see approve().
         $this->assertOfficerMayDecide($template, $approval, $officer, allowSelfIfCo: true);
@@ -172,7 +236,7 @@ class EsignApprovalService
                 metadata: ['approval_id' => $approval->id, 'reason' => $reason],
             );
 
-            event(new ComplianceApprovalDecided($approval, $template, $officer->id));
+            $this->raiseAfterCommit(new ComplianceApprovalDecided($approval, $template, $officer->id));
 
             return $approval->fresh();
         });
@@ -195,7 +259,13 @@ class EsignApprovalService
             if (! $this->registry->isCo($co, OfficerAppointment::MODULE_ESIGN, $agencyId)) {
                 throw new HttpException(403, 'Only the e-sign Compliance Officer can override a decline.');
             }
-            $this->assertInScope($co, $this->latestFor($template));
+            $declined = $this->latestFor($template);
+            $this->assertInScope($co, $declined);
+
+            // The decline is history the moment the override lands.
+            if ($declined && $declined->status === EsignApproval::STATUS_DECLINED) {
+                $declined->update(['status' => EsignApproval::STATUS_SUPERSEDED]);
+            }
 
             $approval = EsignApproval::create([
                 'agency_id'             => $agencyId,
@@ -222,7 +292,7 @@ class EsignApprovalService
 
             $this->signatureService()->releaseAfterComplianceApproval($template);
 
-            event(new ComplianceApprovalDecided($approval, $template, $co->id));
+            $this->raiseAfterCommit(new ComplianceApprovalDecided($approval, $template, $co->id));
 
             return $approval;
         });
@@ -239,6 +309,12 @@ class EsignApprovalService
             if ((int) $template->created_by !== (int) $sender->id) {
                 throw new HttpException(403, 'Only the person who sent this document can ask for approval again.');
             }
+
+            // The decline stays on the record but is no longer the document's state.
+            EsignApproval::withoutGlobalScopes()
+                ->where('signature_template_id', $template->id)
+                ->where('status', EsignApproval::STATUS_DECLINED)
+                ->update(['status' => EsignApproval::STATUS_SUPERSEDED]);
 
             $approval = $this->hold($template, 'agent');
 
@@ -267,15 +343,45 @@ class EsignApprovalService
         return PermissionService::getDataScope($user, self::SCOPE_MODULE);
     }
 
-    /** Documents waiting on (or declined for) officers, inside the viewer's scope. */
+    /**
+     * Documents waiting on (or declined for) officers, inside the viewer's scope.
+     *
+     * A ledger row is only listed while the DOCUMENT is still in the matching state: a declined
+     * row whose sender has since resubmitted (document back to approval_pending — a new pending
+     * row exists) or cancelled is history, not work. Without this the Declined tab kept showing
+     * superseded declines with an "Override & send" button that could only ever be refused.
+     */
     public function queueQuery(User $user, array $statuses = [EsignApproval::STATUS_PENDING])
     {
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
 
+        $liveTemplateStatuses = array_values(array_filter(array_map(
+            static fn (string $status): ?string => match ($status) {
+                EsignApproval::STATUS_PENDING  => SignatureTemplate::STATUS_APPROVAL_PENDING,
+                EsignApproval::STATUS_DECLINED => SignatureTemplate::STATUS_APPROVAL_DECLINED,
+                default                        => null,
+            },
+            $statuses,
+        )));
+
         return EsignApproval::query()
             ->withoutGlobalScopes()
+            ->whereNull('esign_approvals.deleted_at')
             ->where('agency_id', $agencyId)
             ->whereIn('status', $statuses)
+            // Only the newest ledger row of a document is its current state: decline → ask again →
+            // decline again leaves two declined rows, and the queue must show the document once.
+            ->whereNotExists(function ($newer) {
+                $newer->select(DB::raw(1))
+                    ->from('esign_approvals as newer')
+                    ->whereColumn('newer.signature_template_id', 'esign_approvals.signature_template_id')
+                    ->whereColumn('newer.id', '>', 'esign_approvals.id')
+                    ->whereNull('newer.deleted_at');
+            })
+            ->when($liveTemplateStatuses !== [], fn ($q) => $q->whereHas(
+                'signatureTemplate',
+                fn ($t) => $t->withoutGlobalScopes()->whereIn('status', $liveTemplateStatuses),
+            ))
             ->visibleTo($user, $this->scopeFor($user))
             ->with(['signatureTemplate.document.template', 'signatureTemplate.requests', 'requester'])
             ->orderBy('created_at');

@@ -74,9 +74,12 @@ final class CandidateAuthoriserRouteTwoPoolTest extends TestCase
 
     public function test_route_two_with_no_full_status_officer_fails_with_a_plain_message(): void
     {
-        $coNotFull = $this->user('CO Admin', 'admin', 'Office Admin', $this->b1);
-        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $coNotFull->id, $coNotFull->id);
+        $co = $this->user('CO Admin', 'admin', 'Principal Property Practitioner', $this->b1);
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $co->id, $co->id);
         $this->registry->setEsignRoute($this->agency->id, OfficerRegistry::ESIGN_ROUTE_RO_CO);
+        // The registry refuses to switch on / leave the agency without a full-status officer, so the
+        // only way here is a designation that changed AFTER the fact — the service still answers.
+        $co->update(['designation' => 'Office Admin']);
         $this->user('Full Same', 'agent', 'Property Practitioner', $this->b1); // would qualify on route 1
 
         $this->expectException(\RuntimeException::class);

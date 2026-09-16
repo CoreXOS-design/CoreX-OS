@@ -39,19 +39,91 @@ final class OfficerAppointmentsTest extends TestCase
         $this->admin  = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'super_admin']);
         $this->a      = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'name' => 'Anelisa Mthembu']);
         $this->b      = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'branch_manager', 'name' => 'Ben Botha']);
+        // Agency-wide, full-status — the only kind of person who may be the e-sign CO.
+        $this->c      = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'name' => 'Carla Coetzee', 'designation' => 'Principal Property Practitioner']);
+        $this->d      = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'name' => 'Dawie Nel', 'designation' => 'Property Practitioner']);
         $this->registry = app(OfficerRegistry::class);
+    }
+
+    private User $c;
+    private User $d;
+
+    public function test_esign_co_must_see_the_whole_agency(): void
+    {
+        foreach ([$this->a, $this->b] as $narrow) {
+            try {
+                $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $narrow->id, $this->admin->id);
+                $this->fail("{$narrow->role} sees only own / branch documents and cannot be the e-sign CO");
+            } catch (ValidationException $e) {
+                $this->assertStringContainsString('must see the whole agency', $e->errors()['co_user_id'][0]);
+            }
+        }
+        $this->assertNull($this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_ESIGN));
+
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->c->id, $this->admin->id);
+        $this->assertSame($this->c->id, $this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_ESIGN)->user_id);
+    }
+
+    public function test_whistleblow_co_must_see_every_report(): void
+    {
+        // Own- and branch-scoped people would never see the reports they must decide. (With seeded
+        // grants a branch manager holding "View All Agency Complaints" qualifies; the test posture
+        // has no grants, so the explicit widening — which never fails open — does not apply here.)
+        foreach ([$this->a, $this->b] as $narrow) {
+            try {
+                $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, $narrow->id, $this->admin->id);
+                $this->fail("{$narrow->role} cannot be the compliance-reporting CO");
+            } catch (ValidationException $e) {
+                $this->assertStringContainsString('would not see every compliance report', $e->errors()['co_user_id'][0]);
+            }
+        }
+
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, $this->c->id, $this->admin->id);
+        $this->assertSame($this->c->id, $this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW)->user_id);
+    }
+
+    public function test_route_two_needs_a_full_status_officer_and_keeps_one(): void
+    {
+        $officeAdmin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'name' => 'Odette Office', 'designation' => 'Office Admin']);
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $officeAdmin->id, $this->admin->id);
+
+        try {
+            $this->registry->setEsignRoute($this->agency->id, OfficerRegistry::ESIGN_ROUTE_RO_CO);
+            $this->fail('no full-status officer → a candidate could never be authorised');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsString('full-status', $e->errors()['esign_approval_route'][0]);
+        }
+
+        // A full-status RO makes the route switchable…
+        $fullRo = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'branch_manager', 'name' => 'Fikile Full', 'designation' => 'Property Practitioner']);
+        $this->registry->saveRos($this->agency->id, OfficerAppointment::MODULE_ESIGN, [$fullRo->id], $this->admin->id);
+        $this->registry->setEsignRoute($this->agency->id, OfficerRegistry::ESIGN_ROUTE_RO_CO);
+
+        // …and, while on, cannot be unticked if they were the last one.
+        try {
+            $this->registry->saveRos($this->agency->id, OfficerAppointment::MODULE_ESIGN, [], $this->admin->id);
+            $this->fail('the last full-status officer cannot be removed while the route is on');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('ro_user_ids', $e->errors());
+        }
+        $this->assertEquals([$fullRo->id], $this->registry->activeRos($this->agency->id, OfficerAppointment::MODULE_ESIGN)->pluck('user_id')->all());
+
+        // Replacing the CO with a full-status one, then unticking the RO, is fine.
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->c->id, $this->admin->id);
+        $this->registry->saveRos($this->agency->id, OfficerAppointment::MODULE_ESIGN, [], $this->admin->id);
+        $this->assertTrue($this->registry->esignRouteIsRoCo($this->agency->id));
     }
 
     public function test_one_co_per_module_and_reappointing_the_same_person_is_a_no_op(): void
     {
-        $first = $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->a->id, $this->admin->id);
-        $same  = $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->a->id, $this->admin->id);
+        $first = $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->c->id, $this->admin->id);
+        $same  = $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->c->id, $this->admin->id);
         $this->assertSame($first->id, $same->id);
 
-        $second = $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->b->id, $this->admin->id);
+        $second = $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->d->id, $this->admin->id);
 
         $this->assertNotNull($first->fresh()->ended_on, 'the previous CO is ended, never deleted');
-        $this->assertSame($this->b->id, $this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_ESIGN)->user_id);
+        $this->assertSame($this->d->id, $this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_ESIGN)->user_id);
         $this->assertSame(2, OfficerAppointment::withoutGlobalScopes()->where('module', 'esign')->co()->count());
         // The other module is untouched.
         $this->assertNull($this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW));
@@ -60,8 +132,8 @@ final class OfficerAppointmentsTest extends TestCase
 
     public function test_ro_list_is_a_diff_set_that_never_deletes_and_drops_the_co(): void
     {
-        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, $this->b->id, $this->admin->id);
-        $this->registry->saveRos($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, [$this->a->id, $this->b->id, ' ', 0], $this->admin->id);
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, $this->c->id, $this->admin->id);
+        $this->registry->saveRos($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, [$this->a->id, $this->c->id, ' ', 0], $this->admin->id);
 
         $ros = $this->registry->activeRos($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW)->pluck('user_id');
         $this->assertEquals([$this->a->id], $ros->all(), 'the CO is silently dropped from the RO list; junk ids ignored');
@@ -69,7 +141,7 @@ final class OfficerAppointmentsTest extends TestCase
         $this->registry->saveRos($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, [], $this->admin->id);
         $this->assertCount(0, $this->registry->activeRos($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW));
         $this->assertSame(1, OfficerAppointment::withoutGlobalScopes()->where('module', 'whistleblow')->ro()->count(), 'ended, not deleted');
-        $this->assertTrue($this->registry->isCo($this->b, OfficerAppointment::MODULE_WHISTLEBLOW, $this->agency->id));
+        $this->assertTrue($this->registry->isCo($this->c, OfficerAppointment::MODULE_WHISTLEBLOW, $this->agency->id));
         $this->assertFalse($this->registry->isRo($this->a, OfficerAppointment::MODULE_WHISTLEBLOW, $this->agency->id));
     }
 
@@ -83,7 +155,7 @@ final class OfficerAppointmentsTest extends TestCase
         }
         $this->assertSame('full_status', $this->registry->esignRoute($this->agency->id));
 
-        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->b->id, $this->admin->id);
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->c->id, $this->admin->id);
         $this->registry->setEsignRoute($this->agency->id, OfficerRegistry::ESIGN_ROUTE_RO_CO);
         $this->assertTrue($this->registry->esignRouteIsRoCo($this->agency->id));
 
@@ -96,7 +168,7 @@ final class OfficerAppointmentsTest extends TestCase
         $this->assertNotNull($this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_ESIGN));
 
         // Replacing is always allowed; switching the route off first then ending is allowed.
-        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->a->id, $this->admin->id);
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->d->id, $this->admin->id);
         $this->registry->setEsignRoute($this->agency->id, OfficerRegistry::ESIGN_ROUTE_FULL_STATUS);
         $this->registry->endCo($this->agency->id, OfficerAppointment::MODULE_ESIGN);
         $this->assertNull($this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_ESIGN));
@@ -126,6 +198,7 @@ final class OfficerAppointmentsTest extends TestCase
 
     public function test_settings_hub_and_queue_pages_render_for_an_officer(): void
     {
+        $this->admin->update(['designation' => 'Principal Property Practitioner']); // a full-status officer is required to switch on
         $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->admin->id, $this->admin->id);
         $this->registry->setEsignRoute($this->agency->id, OfficerRegistry::ESIGN_ROUTE_RO_CO);
 

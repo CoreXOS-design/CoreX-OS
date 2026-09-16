@@ -3445,8 +3445,14 @@ class ESignWizardController extends Controller
             // ($candidateService and $isCandidateFlow defined before web template rendering block)
 
             if ($isCandidateFlow) {
-                // Verify at least one authoriser exists (throws if none)
-                $candidateService->getEligibleAuthorisers($user);
+                // Verify at least one authoriser exists. On the RO / CO route the pool is the
+                // full-status e-sign officers (spec §6.5) and "nobody" is a plain sentence on the
+                // wizard, never a 500.
+                try {
+                    $candidateService->getEligibleAuthorisers($user);
+                } catch (\RuntimeException $e) {
+                    return back()->withErrors(['error' => $e->getMessage()])->withInput();
+                }
 
                 // Insert authorisation step as signing_order 2 (right after agent, before external parties)
                 $parties[] = [
@@ -8405,6 +8411,10 @@ class ESignWizardController extends Controller
             ->get();
 
         DB::transaction(function () use ($signatureTemplate, $user, $request, $reason) {
+            // Compliance approval gate — a held or declined document leaves the officers' queue the
+            // moment it is cancelled, so no stale Approve / Decline can act on it afterwards.
+            app(\App\Services\Docuperfect\EsignApprovalService::class)->withdraw($signatureTemplate, $user, $reason);
+
             // Cancel all pending/waiting signature requests
             $signatureTemplate->requests()
                 ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])

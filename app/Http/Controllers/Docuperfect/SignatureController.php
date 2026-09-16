@@ -1392,8 +1392,34 @@ class SignatureController extends Controller
             return redirect()->route('docuperfect.esign.signingComplete', ['flow' => $wizardFlowId]);
         }
 
+        // Compliance approval gate — the agent's signature held the document; there is no "now
+        // send" step for them, an officer has it.
+        if ($template->fresh()->status === SignatureTemplate::STATUS_APPROVAL_PENDING) {
+            return $this->redirectHeldForCompliance($template, 'You have signed all your markers. ');
+        }
+
         return redirect()->route('docuperfect.signatures.sendConfirmation', $document)
             ->with('success', "You have signed all your markers. Now send to {$nextPartyLabel}.");
+    }
+
+    /**
+     * Compliance approval gate — one honest sentence wherever a send would otherwise be reported as
+     * done. Lands on My E-Sign Documents, where the hold (and later the decision) is shown.
+     */
+    private function redirectHeldForCompliance(SignatureTemplate $template, string $prefix = '')
+    {
+        $next = $template->requests()
+            ->where('status', SignatureRequest::STATUS_WAITING)
+            ->whereNotIn('party_role', ['agent', 'supervisor', 'supervisor_final'])
+            ->orderBy('signing_order')
+            ->value('signer_name');
+
+        $message = $template->status === SignatureTemplate::STATUS_APPROVAL_DECLINED
+            ? 'A Reporting Officer declined to release this document. See the reason on My E-Sign Documents, then ask for approval again or cancel it.'
+            : 'Held for compliance approval — a Reporting Officer has to approve it before it goes to '
+                . ($next ?: 'the next party') . '. You will be told when it is decided.';
+
+        return redirect()->route('docuperfect.esign.myDocuments')->with('status', $prefix . $message);
     }
 
     /**
@@ -1929,6 +1955,12 @@ class SignatureController extends Controller
         $this->authorizeDocument($user, $document);
 
         $template = SignatureTemplate::where('document_id', $document->id)->firstOrFail();
+
+        // Compliance approval gate — nothing to confirm-send while an officer holds it.
+        if (in_array($template->status, SignatureTemplate::HELD_STATUSES, true)) {
+            return $this->redirectHeldForCompliance($template);
+        }
+
         $parties = $template->parties_json ?? [];
         $signingOrder = $template->signing_order_json ?? [];
 
@@ -2109,10 +2141,23 @@ class SignatureController extends Controller
             ]);
         }
 
+        // Compliance approval gate — a document already held or declined is not "sent" again from
+        // here; the sender is pointed at the page that shows the hold and its outcome.
+        if (in_array($template->status, SignatureTemplate::HELD_STATUSES, true)) {
+            return $this->redirectHeldForCompliance($template);
+        }
+
         try {
             $dispatched = $this->signatureService->sendForSigning($template, $user);
         } catch (\LogicException $e) {
             return redirect()->back()->withErrors(['error' => $e->getMessage()]);
+        }
+
+        // Compliance approval gate — on the RO / CO route a pre-signed document is HELD by
+        // sendForSigning() (it returns null, exactly like the in-app-agent case). The sender must
+        // be told it is waiting on an officer, never that it was sent.
+        if ($template->fresh()->status === SignatureTemplate::STATUS_APPROVAL_PENDING) {
+            return $this->redirectHeldForCompliance($template);
         }
 
         // AT-395 fix (2026-09-07) — this used to flash success unconditionally
@@ -2185,7 +2230,12 @@ class SignatureController extends Controller
             $failed = $fresh->completion_send_status === 'failed';
             $error = $fresh->completion_send_error;
         } else {
-            $this->signatureService->resendInvitationEmail($signatureRequest);
+            try {
+                $this->signatureService->resendInvitationEmail($signatureRequest);
+            } catch (\LogicException $e) {
+                // Compliance approval gate — the document is held; the refusal is a sentence.
+                return redirect()->back()->with('error', $e->getMessage());
+            }
             $kind = 'signing invitation';
             $fresh = $signatureRequest->fresh();
             $failed = $fresh->invite_send_status === 'failed';

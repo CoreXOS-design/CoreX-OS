@@ -5315,7 +5315,11 @@ class SignatureService
                     SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL => $groups['pending_approval']->push($doc),
                     // Candidate flow: awaiting authorisation goes to pending_approval (shared queue)
                     SignatureTemplate::STATUS_AWAITING_SUPERVISOR,
-                    SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL => $groups['pending_approval']->push($doc),
+                    SignatureTemplate::STATUS_AWAITING_SUPERVISOR_FINAL,
+                    // Compliance approval gate — held / declined documents are awaiting an
+                    // officer's decision, never "draft".
+                    SignatureTemplate::STATUS_APPROVAL_PENDING,
+                    SignatureTemplate::STATUS_APPROVAL_DECLINED => $groups['pending_approval']->push($doc),
                     SignatureTemplate::STATUS_REJECTED => $groups['rejected']->push($doc),
                     SignatureTemplate::STATUS_SIGNING,
                     SignatureTemplate::STATUS_AWAITING_TENANT,
@@ -5539,6 +5543,17 @@ class SignatureService
      */
     public function resendInvitationEmail(SignatureRequest $request): void
     {
+        // Compliance approval gate — nothing reaches an outside party while the document is held
+        // or declined, by any path. Resend is the one send that skips advanceToNextParty(), so it
+        // guards itself.
+        $template = $request->template;
+        if ($template && in_array($template->status, SignatureTemplate::HELD_STATUSES, true)) {
+            throw new \LogicException(
+                'This document is waiting for compliance approval — nothing can be sent to '
+                . ($request->signer_name ?: 'the recipient') . ' until a Reporting Officer approves it.'
+            );
+        }
+
         $this->sendSigningRequestEmail($request);
     }
 

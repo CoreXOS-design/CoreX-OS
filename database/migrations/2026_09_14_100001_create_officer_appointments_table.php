@@ -14,10 +14,11 @@ use Illuminate\Support\Facades\Schema;
  * compliance reporting). Mirrors the shape of fica_officer_appointments (which stays untouched):
  * an appointment row per person per role, ended by date, never deleted.
  *
- * Backfill: the legacy whistleblow_approver_user_ids JSON list becomes appointments — first id →
- * CO, the rest → RO — and whistleblow_ro_can_submit is switched on when there was more than one,
- * so everyone who could send onward yesterday still can today. The JSON column is left in place
- * for retention; nothing reads it for a decision any more.
+ * Backfill: the legacy whistleblow_approver_user_ids JSON list becomes appointments — the first
+ * listed admin (else super_admin, else branch manager) → CO, everyone else → RO — and
+ * whistleblow_ro_can_submit is switched on whenever more than the CO was listed (or no CO could be
+ * chosen), so everyone who could send onward yesterday still can today. The JSON column is left in
+ * place for retention; nothing reads it for a decision any more.
  */
 return new class extends Migration
 {
@@ -90,10 +91,25 @@ return new class extends Migration
                 ->whereIn('id', $ids)
                 ->where('agency_id', $agency->id)
                 ->whereNull('deleted_at')
-                ->get(['id', 'name', 'email', 'branch_id'])
+                ->get(['id', 'name', 'email', 'branch_id', 'role'])
                 ->keyBy('id');
 
-            $first = true;
+            // The CO must be able to decide AND see every report: the first listed approver whose
+            // role is agency-wide (admin / super_admin) takes it; failing that the first branch
+            // manager (they hold "View All Agency Complaints" by default). If nobody qualifies no CO
+            // is appointed, the legacy role fallback stays in force, and everyone listed becomes an
+            // RO — so nobody who could decide yesterday loses that on upgrade.
+            $coId = null;
+            foreach (['admin', 'super_admin', 'branch_manager'] as $role) {
+                foreach ($ids as $userId) {
+                    $u = $users->get($userId);
+                    if ($u && ($u->role ?? '') === $role) {
+                        $coId = (int) $u->id;
+                        break 2;
+                    }
+                }
+            }
+
             foreach ($ids as $userId) {
                 $u = $users->get($userId);
                 if (! $u) {
@@ -104,7 +120,7 @@ return new class extends Migration
                     'branch_id'    => $u->branch_id,
                     'user_id'      => $u->id,
                     'module'       => 'whistleblow',
-                    'role'         => $first ? 'co' : 'ro',
+                    'role'         => (int) $u->id === $coId ? 'co' : 'ro',
                     'full_name'    => $u->name,
                     'email'        => $u->email,
                     'appointed_on' => $today,
@@ -113,10 +129,11 @@ return new class extends Migration
                     'created_at'   => now(),
                     'updated_at'   => now(),
                 ]);
-                $first = false;
             }
 
-            if (count($ids) > 1) {
+            // Everyone listed could send onward yesterday; ROs keep that right whenever the list had
+            // more than the CO in it, or no CO could be chosen at all.
+            if (count($ids) > 1 || $coId === null) {
                 DB::table('agencies')->where('id', $agency->id)->update(['whistleblow_ro_can_submit' => true]);
             }
         }

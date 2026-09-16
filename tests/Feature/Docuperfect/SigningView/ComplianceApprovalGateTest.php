@@ -330,6 +330,112 @@ final class ComplianceApprovalGateTest extends TestCase
         $this->assertSame(2, EsignApproval::withoutGlobalScopes()->where('signature_template_id', $tpl->id)->count(), 'a new ledger row, the decline kept');
     }
 
+    public function test_declined_queue_drops_a_decline_once_the_sender_has_asked_again(): void
+    {
+        $this->routeTwo();
+        [$tpl, $agent] = $this->ceremony();
+        $this->signatures->handlePartyCompletion($tpl, 'agent', $agent);
+        $this->gate->decline($tpl->fresh(), $this->ro, 'Fix the date.');
+
+        $declined = fn () => $this->gate->queueQuery($this->co, [EsignApproval::STATUS_DECLINED])->pluck('signature_template_id')->all();
+        $pending  = fn () => $this->gate->queueQuery($this->co)->pluck('signature_template_id')->all();
+
+        $this->assertSame([$tpl->id], $declined(), 'a live decline is in the Declined queue');
+        $this->assertSame([], $pending());
+
+        $this->gate->resubmit($tpl->fresh(), $this->sender);
+
+        // The decline row is kept for the record, but the document is pending again — it must not
+        // sit in the Declined tab with an "Override & send" button that can only be refused.
+        $this->assertSame([], $declined(), 'the superseded decline leaves the Declined queue');
+        $this->assertSame([$tpl->id], $pending(), 'the document is back in the Waiting queue exactly once');
+        $this->assertSame(1, $this->gate->pendingCountFor($this->co));
+
+        // Declined a second time: the first decline is history (superseded), one declined document, listed once.
+        $this->gate->decline($tpl->fresh(), $this->ro, 'Still wrong.');
+        $this->assertSame(1, EsignApproval::withoutGlobalScopes()->where('signature_template_id', $tpl->id)->where('status', EsignApproval::STATUS_DECLINED)->count());
+        $this->assertSame(1, EsignApproval::withoutGlobalScopes()->where('signature_template_id', $tpl->id)->where('status', EsignApproval::STATUS_SUPERSEDED)->count());
+        $this->assertSame([$tpl->id], $declined(), 'the document appears once in the Declined queue, not once per decline');
+        $this->assertSame([], $pending());
+
+        // The CO's override closes the decline too.
+        $this->gate->override($tpl->fresh(), $this->co, 'Releasing.');
+        $this->assertSame(0, EsignApproval::withoutGlobalScopes()->where('signature_template_id', $tpl->id)->whereIn('status', EsignApproval::OPEN_STATUSES)->count(), 'nothing open after an override');
+    }
+
+    // ── Cancelled while held: nothing left to decide ──
+
+    public function test_cancelling_a_held_document_closes_the_ledger_and_refuses_stale_decisions(): void
+    {
+        $this->routeTwo();
+        [$tpl, $agent, $seller] = $this->ceremony();
+        $this->signatures->handlePartyCompletion($tpl, 'agent', $agent);
+        $this->assertSame(1, $this->gate->pendingCountFor($this->ro));
+
+        // The sender cancels (the controller's cancel path calls exactly this inside its transaction).
+        $withdrawn = $this->gate->withdraw($tpl->fresh(), $this->sender, 'Client walked away.');
+        $tpl->update(['status' => SignatureTemplate::STATUS_CANCELLED]);
+
+        $this->assertSame(1, $withdrawn);
+        $this->assertSame(EsignApproval::STATUS_WITHDRAWN, EsignApproval::withoutGlobalScopes()->where('signature_template_id', $tpl->id)->value('status'));
+        $this->assertDatabaseHas('signature_audit_log', ['signature_template_id' => $tpl->id, 'action' => 'compliance_approval_withdrawn']);
+        $this->assertSame(0, $this->gate->pendingCountFor($this->ro), 'gone from the queue and the badge');
+
+        // A stale Approve / Decline from a form opened before the cancel is refused in plain words.
+        foreach (['approve', 'decline'] as $stale) {
+            try {
+                $stale === 'approve'
+                    ? $this->gate->approve($tpl->fresh(), $this->ro)
+                    : $this->gate->decline($tpl->fresh(), $this->ro, 'Too late.');
+                $this->fail("a stale {$stale} must not act on a cancelled document");
+            } catch (ValidationException $e) {
+                $this->assertStringContainsString('not waiting for approval', $e->errors()['approval'][0]);
+            }
+        }
+        $this->assertSame(SignatureTemplate::STATUS_CANCELLED, $tpl->fresh()->status, 'the cancelled document was not resurrected');
+        $this->assertSame(SignatureRequest::STATUS_WAITING, $seller->fresh()->status, 'and nobody was invited');
+    }
+
+    public function test_a_decision_needs_the_document_itself_to_still_be_held(): void
+    {
+        $this->routeTwo();
+        [$tpl, $agent, $seller] = $this->ceremony();
+        $this->signatures->handlePartyCompletion($tpl, 'agent', $agent);
+
+        // The ledger row is still pending but the document moved on without going through the gate
+        // (any path that changes status behind the officers' backs) — the officer is told, nothing fires.
+        $tpl->update(['status' => SignatureTemplate::STATUS_CANCELLED]);
+
+        try {
+            $this->gate->approve($tpl->fresh(), $this->co);
+            $this->fail('approve must check the document, not only the ledger row');
+        } catch (ValidationException $e) {
+            $this->assertStringContainsString('cancelled', $e->errors()['approval'][0]);
+        }
+        $this->assertSame(EsignApproval::STATUS_PENDING, EsignApproval::withoutGlobalScopes()->where('signature_template_id', $tpl->id)->value('status'), 'row untouched');
+        $this->assertSame(SignatureRequest::STATUS_WAITING, $seller->fresh()->status);
+        $this->assertDatabaseMissing('signature_audit_log', ['signature_template_id' => $tpl->id, 'action' => 'compliance_approved']);
+    }
+
+    // ── No path round the gate ──
+
+    public function test_resend_cannot_deliver_the_signing_link_while_held(): void
+    {
+        $this->routeTwo();
+        [$tpl, $agent, $seller] = $this->ceremony();
+        $this->signatures->handlePartyCompletion($tpl, 'agent', $agent);
+
+        try {
+            $this->signatures->resendInvitationEmail($seller->fresh());
+            $this->fail('resend is a send; it must respect the hold');
+        } catch (\LogicException $e) {
+            $this->assertStringContainsString('waiting for compliance approval', $e->getMessage());
+        }
+        $this->assertSame(SignatureRequest::STATUS_WAITING, $seller->fresh()->status);
+        $this->assertNull($seller->fresh()->sent_at);
+        Mail::assertNothingSent();
+    }
+
     // ── Queue scope (ruling 5) ──
 
     public function test_queue_and_badge_follow_own_branch_all(): void

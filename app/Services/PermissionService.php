@@ -411,6 +411,16 @@ class PermissionService
      * A role with 0 permissions = 0 access (no silent fallback).
      * New roles are seeded with agent defaults on creation.
      */
+    /**
+     * An EXPLICIT, seeded grant only — never the unseeded allow-all posture userHasPermission() may
+     * fall back to. For the few places where a permission WIDENS what someone sees (an "all agency"
+     * override): a widening that fails open is a data-visibility grant nobody made.
+     */
+    public static function userHasExplicitPermission(User $user, string $permissionKey): bool
+    {
+        return static::grantsExist() && static::userHasPermission($user, $permissionKey);
+    }
+
     public static function userHasPermission(User $user, string $permissionKey): bool
     {
         // Owner's REAL role always bypasses — even when using View As

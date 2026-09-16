@@ -36,7 +36,7 @@ class ApprovalsController extends Controller
             $summary = $this->counts->forUser($user);
 
             if ($summary['esign'] > 0) {
-                foreach ($this->esign->queueQuery($user)->where('esign_approvals.created_at', '>=', $since)->get() as $a) {
+                foreach ($this->esign->queueQuery($user)->where('esign_approvals.created_at', '>=', $since)->limit(20)->get() as $a) {
                     $items[] = [
                         'id'         => 'esign-' . $a->id,
                         'kind'       => 'document',
@@ -54,7 +54,7 @@ class ApprovalsController extends Controller
                 if ($summary['fica']['ro'] > 0) $statuses[] = 'agent_approved';
                 if ($summary['fica']['co'] > 0) $statuses[] = 'referred_to_co';
                 $rows = FicaSubmission::whereIn('status', $statuses)->visibleTo($user)
-                    ->where('updated_at', '>=', $since)->with('contact')->get();
+                    ->where('updated_at', '>=', $since)->with('contact')->latest('updated_at')->limit(20)->get();
                 foreach ($rows as $s) {
                     $tab = $s->status === 'referred_to_co' ? 'co_queue' : 'ro_queue';
                     $items[] = [
@@ -71,7 +71,7 @@ class ApprovalsController extends Controller
 
             if ($summary['whistleblow'] > 0) {
                 $rows = WhistleblowComplaint::where('status', 'pending_approval')->visibleTo($user)
-                    ->where('created_at', '>=', $since)->with('reporter')->get();
+                    ->where('created_at', '>=', $since)->with('reporter')->latest('created_at')->limit(20)->get();
                 foreach ($rows as $c) {
                     $items[] = [
                         'id'         => 'wb-' . $c->id,

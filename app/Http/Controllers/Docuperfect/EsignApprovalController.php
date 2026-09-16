@@ -61,7 +61,7 @@ class EsignApprovalController extends Controller
     {
         $note = trim((string) $request->input('note', ''));
 
-        return $this->act(fn () => $this->approvals->approve($approval->signatureTemplate, Auth::user(), $note ?: null),
+        return $this->act($approval, fn ($template) => $this->approvals->approve($template, Auth::user(), $note ?: null),
             'Approved — the document has been sent to the first party.');
     }
 
@@ -69,7 +69,7 @@ class EsignApprovalController extends Controller
     {
         $request->validate(['reason' => 'required|string|min:3|max:2000']);
 
-        return $this->act(fn () => $this->approvals->decline($approval->signatureTemplate, Auth::user(), (string) $request->input('reason')),
+        return $this->act($approval, fn ($template) => $this->approvals->decline($template, Auth::user(), (string) $request->input('reason')),
             'Declined — the sender has been told why.');
     }
 
@@ -77,21 +77,27 @@ class EsignApprovalController extends Controller
     {
         $request->validate(['reason' => 'required|string|min:3|max:2000']);
 
-        return $this->act(fn () => $this->approvals->override($approval->signatureTemplate, Auth::user(), (string) $request->input('reason')),
+        return $this->act($approval, fn ($template) => $this->approvals->override($template, Auth::user(), (string) $request->input('reason')),
             'Override recorded — the document has been sent to the first party.');
     }
 
     /** The sender asks again after a decline. */
     public function resubmit(EsignApproval $approval)
     {
-        return $this->act(fn () => $this->approvals->resubmit($approval->signatureTemplate, Auth::user()),
+        return $this->act($approval, fn ($template) => $this->approvals->resubmit($template, Auth::user()),
             'Sent for approval again — the officers have been told.');
     }
 
-    private function act(\Closure $action, string $successMessage)
+    private function act(EsignApproval $approval, \Closure $action, string $successMessage)
     {
+        // A ledger row can outlive its (soft-deleted) document; that is a sentence, not a 500.
+        $template = $approval->signatureTemplate;
+        if (! $template) {
+            return back()->with('error', 'That document no longer exists, so there is nothing to decide.');
+        }
+
         try {
-            $action();
+            $action($template);
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors())->withInput();
         } catch (HttpException $e) {

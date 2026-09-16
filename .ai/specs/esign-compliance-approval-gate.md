@@ -1,6 +1,6 @@
 # E-sign Compliance Approval Gate + Officer Notifications — Spec
 
-**Status:** Approved for build (all business decisions ruled 2026-09-14)
+**Status:** Built on branch; amended 2026-09-16 after the Chrome walkthrough and the eight-angle code review (§15 lists every amendment; the sections below already carry them)
 **Raised by:** Elize (HFC compliance)
 **Rulings by:** Andre Roets, 2026-09-14 (recorded in the "Compliance Approval Gate" briefing, rev 4)
 **Author:** Claude (senior engineer) from the code-verified briefing
@@ -120,9 +120,12 @@ FICA's own table is **not** migrated — FICA is untouched.
 
 ### 5.3 Backfill — whistleblow approvers → appointments (same migration as 5.1)
 
-For each agency with a non-empty `whistleblow_approver_user_ids`: first id → `co`, remaining ids → `ro`, and
-`whistleblow_ro_can_submit = true` when there was more than one (preserves today's behaviour: everyone who
-could send still can). The JSON column is left in place (retention) but is **no longer read** by any gate.
+For each agency with a non-empty `whistleblow_approver_user_ids`: the first listed **admin** (else
+super_admin, else branch manager) → `co` — the CO must be able to decide and see every report (§6.6) — and
+everyone else listed → `ro`. If nobody qualifies, no CO is appointed and the legacy role fallback (§9.1) stays
+in force. `whistleblow_ro_can_submit = true` whenever more than the CO was listed, or no CO could be chosen
+(preserves today's behaviour: everyone who could send still can). The JSON column is left in place
+(retention) but is **no longer read** by any gate.
 
 ### 5.4 `signature_templates.status` enum → 28 values
 
@@ -134,11 +137,20 @@ Additive `ALTER TABLE … MODIFY` following `2026_08_06_000001_*` verbatim: + `'
 
 ```
 id, agency_id, signature_template_id (FK), document_id (FK docuperfect_documents), requested_by_user_id,
-status VARCHAR(16) ('pending' | 'approved' | 'declined'), decided_by_user_id null, decided_at null,
-decision_note TEXT null, is_override BOOL default false, timestamps, softDeletes
+status VARCHAR(16) ('pending' | 'approved' | 'declined' | 'withdrawn' | 'superseded'),
+decided_by_user_id null, decided_at null, decision_note TEXT null, is_override BOOL default false,
+timestamps, softDeletes
 idx (agency_id, status); idx (signature_template_id, status)
 ```
 Model `App\Models\Docuperfect\EsignApproval` — `BelongsToAgency`, `SoftDeletes`.
+
+**Lifecycle is written, never inferred.** Only `pending` and `declined` rows are open (`OPEN_STATUSES`).
+`withdrawn` = the sender cancelled the document while it was held or declined
+(`EsignApprovalService::withdraw()`, called inside the cancel transaction, audit
+`compliance_approval_withdrawn`). `superseded` = a decline replaced by the sender asking again or by a CO
+override. Queues read the newest row per document and additionally require the document's own status to
+match (`approval_pending` for Waiting, `approval_declined` for Declined) as defence in depth, so a document is
+listed once and only while there is something to decide.
 
 ### 5.6 `notification_event_types` (seeder rows — `NotificationEventTypeSeeder`, syncable)
 
@@ -189,6 +201,17 @@ gated by the supervisor step instead — §6.5). `sendForSigning()`'s status gua
   row) or **Cancel** (existing cancel path).
 - **CO override:** a CO may approve a `approval_declined` document; reason required; ledger `is_override=true`;
   audit `compliance_override_approved`. "CO overrides all" is exactly this plus the CO's self-approval exemption.
+- **A decision checks the document, not only the ledger row.** `approve()` / `decline()` refuse with a plain
+  sentence unless the document is still `approval_pending`; `override()` unless it is `approval_declined`.
+  A stale form can never approve, decline or resurrect a document the sender has since cancelled.
+- **No path round the gate.** `SignatureService::resendInvitationEmail()` refuses while the document is in
+  `SignatureTemplate::HELD_STATUSES`; the resend controller shows the sentence. Held documents count as
+  in flight everywhere (rental dashboard "Needs Your Approval" group, Command Centre in-flight counts).
+- **The sender is never told "sent" when it was held.** `SignatureController` (send, send-confirmation, the
+  in-app sign redirect) lands on My E-Sign Documents with "Held for compliance approval — a Reporting Officer
+  has to approve it before it goes to …".
+- Events (`ComplianceApprovalRequested` / `Decided`) are raised via `DB::afterCommit()` — a rollback tells
+  nobody, and delivery never runs under row locks.
 - Nothing expires (ruling 8). Documents already past the gate on the day the route switches on are untouched
   (ruling 9) — the gate only fires on the two dispatch points above.
 
@@ -198,7 +221,11 @@ New permission key `esign_approvals.view` (type access, module `esign_approvals`
 copies `CommandTask::scopeVisibleTo()`: `all` → untouched; `branch` → `signature_templates.branch_id` (via
 the creator's branch stamped on the approval row as `branch_id`) equals the officer's effective branch;
 `own` → `requested_by_user_id` is the officer. Consequence (stated in the briefing, accepted): an RO who is an
-ordinary agent sees only their own documents; ROs are in practice branch managers or admins.
+ordinary agent sees only their own documents; ROs are in practice branch managers or admins. The **CO**, by
+contrast, must be agency-wide (§6.6) — otherwise a document could be held with nobody able to reach it.
+The branch a scope check measures is the officer's OWN branch (`EsignApproval::branchOf()`): the session's
+"view as branch" override applies only to the person browsing, never to another officer evaluated inside the
+sender's request by a listener.
 
 ### 6.5 Candidate documents on route 2 (ruling 10)
 `CandidatePractitionerService::getEligibleAuthorisers()` and `canAuthoriseFor()` consult the candidate's
@@ -209,10 +236,22 @@ is byte-for-byte today's pool. The existing "no eligible authoriser" `RuntimeExc
 user-facing message at the wizard: "No full-status Reporting Officer is appointed for e-sign — appoint one
 under Company Settings › Compliance officers, or switch the approval route."
 
-### 6.6 Documents already gated, and the two "nobody home" guards (ruling 4)
-- `saveEsignRoute('ro_co')` is refused with a plain message when the agency has no active e-sign CO.
+### 6.6 The "nobody home" guards (ruling 4) — prevent, never let an agency strand itself
+All in `OfficerRegistry`, all plain sentences naming the fix:
+- `setEsignRoute('ro_co')` is refused when the agency has no active e-sign CO.
 - `endCo('esign')` is refused while `esign_approval_route === 'ro_co'`. Appointing a **new** CO is always
   allowed (auto-ends the previous).
+- **A CO must be able to reach everything they are the officer for** (`assertCanServeAsCo()`, checked at
+  appointment and again when the e-sign route switches on): the e-sign CO needs agency-wide (`all`) scope on
+  `esign_approvals`; the compliance-reporting CO needs `compliance.whistleblow.approve` **and** agency-wide
+  sight (owner, an explicit `view_all_agency` grant, or `all` scope). Compliance-reporting ROs must hold the
+  approve permission, or the appointment would mean nothing.
+- **Route 2 always keeps a full-status officer** (ruling 10): switching on, appointing a CO, or saving the RO
+  list is refused if no full-status practitioner (`CandidatePractitionerService::isFullStatus()`) would
+  remain among the e-sign officers. The wizard's candidate send catches the "no authoriser" case and shows
+  the sentence instead of a 500.
+- **Wizard save order** (`onboardingSave()`): the route is switched OFF first and ON last, so one post can
+  both turn the route off and end the CO.
 
 ---
 
@@ -269,7 +308,11 @@ All through `NotificationDispatcher::send()` with the event keys in §5.6. Paylo
   approvals in scope.
 - **Compliance Reporting** badge stays, now computed by the shared scope rule (§9.3).
 All counts from one service `App\Services\Compliance\ApprovalQueueCounts::forUser(User): array`
-`['fica'=>['ro'=>n,'co'=>n], 'esign'=>n, 'whistleblow'=>n, 'total'=>n]`.
+`['fica'=>['ro'=>n,'co'=>n], 'esign'=>n, 'esign_officer'=>bool, 'whistleblow'=>n, 'whistleblow_visible'=>n,
+'total'=>n]`. **Computed once per page**: the sidebar calls it once (`??=`) and draws the Documents ›
+Approvals link/badge, the Compliance total and the Compliance Reporting badge from the same array — never a
+second count. The toast (§8.5) is only included for users `mayHaveWork()` says can ever have an approval
+waiting (one indexed exists on `officer_appointments`, the FICA officer flag, or a legacy fallback role).
 
 ### 8.3 Approvals hub — `/corex/approvals`
 `App\Http\Controllers\Compliance\ApprovalsHubController@index` → `corex/approvals/index.blade.php`. Three
@@ -288,7 +331,7 @@ Copy of `reminder-toast.blade.php`. Polls `GET /api/v1/approvals/pending` (named
 `api.v1.approvals.pending`, in the Admin › API catalog) every 60s + on focus. Returns the viewer's actionable
 items created in the last 24 hours across the three groups (`{items:[{id,kind,title,body,url,created_at}]}`).
 Dismissal is client-side (`localStorage` of dismissed ids); no server "seen" state — honest polling, nothing
-promised as instant.
+promised as instant. Each group is capped at 20 newest items per poll.
 
 ---
 
@@ -308,8 +351,10 @@ super_admin) so no existing agency breaks; the settings section shows a warning 
 - `reject()` → same event, `whistleblow.rejected`, reason included.
 
 ### 9.3 Visibility (ruling 5)
-`WhistleblowComplaint::scopeVisibleTo(User)`: owner or `compliance.whistleblow.view_all_agency` → all
-(explicit grant wins); else `PermissionService::getDataScope($user,'compliance.whistleblow') ?? 'own'`:
+`WhistleblowComplaint::scopeVisibleTo(User)`: owner or an **explicit, seeded**
+`compliance.whistleblow.view_all_agency` grant → all (`PermissionService::userHasExplicitPermission()` — a
+widening must never fail open under the unseeded allow-all posture); else
+`PermissionService::getDataScope($user,'compliance.whistleblow') ?? 'own'`:
 `branch` → `branch_id = effectiveBranchId()`, `own` → `reported_by_user_id`. Applied to `index()`, `show()`
 (404 outside scope) and the sidebar badge. `BranchSplitIsolationTest`'s whitelist is untouched (no global
 `BranchScope` is added).
@@ -340,6 +385,15 @@ Deploy: `php artisan corex:sync-permissions` (config-driven, idempotent).
 | Sender approves own document (not CO) | **Prevent** — blocked + audited. |
 | Approve twice / stale form | **Absorb** — idempotent: already-released document returns "already approved", no second release. |
 | Route switched on with documents mid-flight | **Absorb** — untouched (ruling 9). |
+| Sender cancels while held / declined | **Absorb** — ledger rows `withdrawn`, audited; a stale Approve / Decline afterwards is refused ("The sender cancelled this document…"). |
+| Decision on a document whose status moved on | **Prevent** — refused unless the document itself is still `approval_pending` (`approval_declined` for override). |
+| Resend / re-send link while held | **Prevent** — refused with a sentence; no send path skips the gate. |
+| Pre-signed document held on send | **Absorb** — sender told "Held for compliance approval…", never "sent". |
+| CO who cannot see the whole agency / cannot decide reports | **Prevent** — refused at appointment and at route switch-on, naming the fix. |
+| Officer change leaving no full-status e-sign officer on route 2 | **Prevent** — refused; a candidate could never be authorised. |
+| Wizard turns route off and ends the CO in one post | **Absorb** — route switched off first, then the CO ended. |
+| Ledger row whose document was soft-deleted | **Absorb** — "That document no longer exists" on the queue page, never a 500. |
+| Notification raised inside a transaction that rolls back | **Absorb** — events fire after commit; nobody is told about a hold that never persisted. |
 | Candidate on route 2, no full-status RO | **Prevent** — wizard message at send (§6.5). |
 | User id posted from another agency | **Prevent** — agency-scoped `exists` rule. |
 | Notification gateway throws | **Absorb** — logged, never blocks the hold/decision (FICA precedent). |
@@ -367,6 +421,15 @@ Deploy: `php artisan corex:sync-permissions` (config-driven, idempotent).
     when the agency allows; `show()` 404s outside scope; badge uses the same rule.
 11. FICA sidebar badge equals the FICA screen's own two queue counts for the same user.
 12. `/api/v1/approvals/pending` is named, listed in Admin › API, returns only the viewer's items.
+13. Cancelling a held document empties it from every queue, badge and toast; a stale Approve / Decline is
+    refused and the document stays cancelled with nobody invited.
+14. Resend cannot deliver a signing link while held; the sender never sees "sent" for a held document.
+15. An agent-scoped user cannot be appointed e-sign CO; a user without the approve permission cannot be a
+    compliance-reporting CO or RO; the route cannot switch on, and the officer set cannot change, if no
+    full-status officer would remain.
+16. A decline that was resubmitted or overridden is not in the Declined tab; a second decline lists the
+    document once.
+17. An explicit "View All Agency Complaints" grant shows a branch manager every branch's reports.
 
 ---
 
@@ -375,11 +438,15 @@ Deploy: `php artisan corex:sync-permissions` (config-driven, idempotent).
 - `tests/Feature/Docuperfect/SigningView/ComplianceApprovalGateTest.php` — route 1 passthrough; route 2 hold
   (no invitation sent, status, ledger, audit, notification recipients); approve releases (invitation sent
   once); decline (reason required, status, sender notified); self-approval blocked / CO exempt; CO override;
-  resubmit; scope own/branch/all; idempotent double-approve; candidate doc not double-held.
+  resubmit; scope own/branch/all; idempotent double-approve; candidate doc not double-held; Declined tab
+  drops resubmitted / overridden declines and lists a twice-declined document once; cancel-while-held closes
+  the ledger and refuses stale decisions; a decision needs the document itself still held; resend refused
+  while held.
 - `tests/Feature/Docuperfect/Candidate/CandidateAuthoriserRouteTwoPoolTest.php` — route 2 pool = full-status
   officers only; route 1 unchanged.
 - `tests/Feature/Compliance/OfficerAppointmentsTest.php` — one-CO invariant; RO diff-set; route guard; end-CO
-  guard; agency-scoped user ids; backfill of legacy approvers.
+  guard; agency-scoped user ids; backfill of legacy approvers; e-sign CO must see the whole agency;
+  compliance-reporting CO must see every report; route 2 needs and keeps a full-status officer.
 - `tests/Feature/Compliance/WhistleblowScopeAndNotificationTest.php` — scope own/branch/all on index + show;
   submit notifies CO; changes-requested notifies filer; RO decide gated by toggle; legacy fallback.
 
@@ -410,7 +477,12 @@ Deploy: `php artisan corex:sync-permissions` (config-driven, idempotent).
 **Modify**
 - `app/Models/Docuperfect/SignatureTemplate.php` (constants), `app/Models/Agency.php` (fillable/casts),
   `app/Models/Compliance/WhistleblowComplaint.php` (scopeVisibleTo)
-- `app/Services/Docuperfect/SignatureService.php` (gate at the two dispatch points; `releaseAfterComplianceApproval`)
+- `app/Services/Docuperfect/SignatureService.php` (gate at the two dispatch points; `releaseAfterComplianceApproval`;
+  resend guard; rental grouping)
+- `app/Http/Controllers/Docuperfect/SignatureController.php` (held → "Held for compliance approval" on send,
+  send-confirmation and the in-app sign redirect; resend refusal)
+- `app/Services/PermissionService.php` (`userHasExplicitPermission()` — strict, never fail-open)
+- `app/Services/CommandCenter/CommandCentreService.php` (held statuses count as in flight)
 - `app/Services/CandidatePractitionerService.php` (route-2 pool)
 - `app/Services/Compliance/WhistleblowComplaintService.php` (officer rule, events)
 - `app/Http/Controllers/Compliance/WhistleblowController.php` (scope on index/show, canApprove)
@@ -431,3 +503,50 @@ Deploy: `php artisan corex:sync-permissions` (config-driven, idempotent).
   `ESignWizardController.php:3602`.
 - The `FicaReferredToCoNotification` `deep_link` key (bell renders `#`) — `app/Notifications/FicaReferredToCoNotification.php:45`.
 - `FicaController` / `CommandCentreService` count duplication — left as is; the badge reuses the query shape.
+
+---
+
+## 15. Audit amendments (2026-09-16 — Chrome walkthrough + eight-angle code review, all fixed on branch)
+
+Each item below is a rule the build now enforces; where it tightens a section above, this section wins.
+
+1. **Ledger lifecycle is written, not inferred (§5.5 / §6.3).** `esign_approvals.status` gains `withdrawn`
+   (the sender cancelled while held or declined — `EsignApprovalService::withdraw()`, called inside the
+   cancel transaction, audit `compliance_approval_withdrawn`) and `superseded` (a decline replaced by a
+   resubmit or a CO override). Only `pending` / `declined` rows are open. Queues read the newest row per
+   document and still require the document's own status to match, as defence in depth.
+2. **A decision checks the document, not only the row.** `approve()` / `decline()` refuse (plain sentence)
+   unless the document is still `approval_pending`; `override()` unless `approval_declined`. A stale form
+   can never approve, decline or resurrect a cancelled document.
+3. **No path round the gate.** `SignatureService::resendInvitationEmail()` refuses while the document is
+   held or declined (`SignatureTemplate::HELD_STATUSES`); the resend controller shows the sentence.
+4. **The sender is never told "sent" when it was held.** `SignatureController` (send, send-confirmation and
+   the in-app sign redirect) lands on My E-Sign Documents with "Held for compliance approval — a Reporting
+   Officer has to approve it before it goes to …".
+5. **A Compliance Officer must be able to reach everything they are the officer for (ruling 4, §6.6).**
+   `OfficerRegistry::assertCanServeAsCo()`: e-sign CO needs agency-wide (`all`) scope on
+   `esign_approvals`; compliance-reporting CO needs `compliance.whistleblow.approve` and agency-wide sight
+   (owner, an explicit `view_all_agency` grant, or `all` scope). Compliance-reporting ROs must hold the
+   approve permission. Checked at appointment and again when the e-sign route switches on.
+6. **Route 2 always keeps a full-status officer (ruling 10).** Switching on, appointing a CO, or saving the
+   RO list is refused if no full-status practitioner would remain among the e-sign officers. The wizard's
+   candidate send catches the "no authoriser" case and shows the sentence instead of a 500.
+7. **Wizard save order.** `onboardingSave()` switches the route OFF first and ON last, so one post can both
+   turn the route off and end the CO.
+8. **Compliance-report visibility (§9.3).** An explicit `compliance.whistleblow.view_all_agency` grant
+   widens to all again (spec text was right, the build had dropped it). The widening uses
+   `PermissionService::userHasExplicitPermission()` — a seeded grant only, never the unseeded allow-all.
+9. **Held documents are in-flight everywhere.** Rental dashboard groups them under "Needs Your Approval";
+   Command Centre in-flight counts include `HELD_STATUSES`.
+10. **One count set per page.** The sidebar computes `ApprovalQueueCounts::forUser()` once and reads the
+    Documents › Approvals link/badge and the Compliance Reporting badge from it; the toast is only included
+    for users `mayHaveWork()` says can ever have an approval waiting; the toast feed caps each group at 20.
+11. **Events fire after commit.** Hold / approve / decline / override raise their domain events via
+    `DB::afterCommit()`, so a rollback tells nobody and delivery never runs under row locks.
+12. **Scope checks measure the officer's own branch.** `EsignApproval::branchOf()` — the session's
+    "view as branch" override applies only to the person browsing, never to another officer evaluated inside
+    the sender's request (both e-sign approvals and compliance reports).
+13. **Ledger row without a document** (soft-deleted template) is a sentence on the queue page, not a 500.
+14. **Backfill (§5.3).** The CO is the first listed admin (else super_admin, else branch manager); if none
+    qualifies no CO is appointed and the legacy role fallback stays. Everyone listed becomes an RO, and
+    ROs may send onward whenever more than the CO was listed or no CO could be chosen.

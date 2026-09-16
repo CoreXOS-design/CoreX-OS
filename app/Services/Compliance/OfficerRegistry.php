@@ -7,6 +7,8 @@ namespace App\Services\Compliance;
 use App\Models\Agency;
 use App\Models\Compliance\OfficerAppointment;
 use App\Models\User;
+use App\Services\Docuperfect\EsignApprovalService;
+use App\Services\PermissionService;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -141,6 +143,13 @@ class OfficerRegistry
             throw ValidationException::withMessages(['co_user_id' => 'That person is not a member of this agency.']);
         }
 
+        $this->assertCanServeAsCo($user, $module, $agencyId);
+        if ($module === OfficerAppointment::MODULE_ESIGN && $this->esignRouteIsRoCo($agencyId)) {
+            $future = $this->activeRos($agencyId, $module)->pluck('user_id')->map(fn ($id) => (int) $id)
+                ->reject(fn ($id) => $id === $userId)->push($userId)->all();
+            $this->assertFullStatusOfficerRemains($agencyId, $future, 'co_user_id');
+        }
+
         // An RO promoted to CO stops being an RO (one role per person per module).
         OfficerAppointment::withoutGlobalScopes()
             ->where('agency_id', $agencyId)->forModule($module)->ro()->active()
@@ -192,6 +201,14 @@ class OfficerRegistry
             $newIds = array_values(array_filter($newIds, fn ($id) => $id !== (int) $co->user_id));
         }
 
+        if ($module === OfficerAppointment::MODULE_WHISTLEBLOW) {
+            $this->assertWhistleblowRosMayDecide($agencyId, $newIds);
+        }
+        if ($module === OfficerAppointment::MODULE_ESIGN && $this->esignRouteIsRoCo($agencyId)) {
+            $future = $co && $co->user_id ? array_merge([(int) $co->user_id], $newIds) : $newIds;
+            $this->assertFullStatusOfficerRemains($agencyId, $future, 'ro_user_ids');
+        }
+
         $current = OfficerAppointment::withoutGlobalScopes()
             ->where('agency_id', $agencyId)->forModule($module)->ro()->active()->get();
 
@@ -234,13 +251,107 @@ class OfficerRegistry
             throw ValidationException::withMessages(['esign_approval_route' => 'Choose one of the two approval routes.']);
         }
 
-        if ($route === self::ESIGN_ROUTE_RO_CO && ! $this->currentCo($agencyId, OfficerAppointment::MODULE_ESIGN)) {
-            throw ValidationException::withMessages([
-                'esign_approval_route' => 'Appoint an e-sign Compliance Officer before switching to the Reporting Officer route — the route cannot run without one.',
-            ]);
+        if ($route === self::ESIGN_ROUTE_RO_CO) {
+            $co = $this->currentCo($agencyId, OfficerAppointment::MODULE_ESIGN);
+            if (! $co) {
+                throw ValidationException::withMessages([
+                    'esign_approval_route' => 'Appoint an e-sign Compliance Officer before switching to the Reporting Officer route — the route cannot run without one.',
+                ]);
+            }
+
+            // The CO appointed before this rule existed must still be able to reach every document.
+            $coUser = $co->user_id ? User::withoutGlobalScopes()->find($co->user_id) : null;
+            if ($coUser) {
+                $this->assertCanServeAsCo($coUser, OfficerAppointment::MODULE_ESIGN, $agencyId, 'esign_approval_route');
+            }
+
+            // A candidate's document can only be authorised by a FULL-STATUS officer on this route
+            // (ruling 10) — switching on with none would strand every candidate.
+            $officerIds = $this->officers($agencyId, OfficerAppointment::MODULE_ESIGN)->pluck('id')->map(fn ($id) => (int) $id)->all();
+            $this->assertFullStatusOfficerRemains($agencyId, $officerIds, 'esign_approval_route');
         }
 
         Agency::withoutGlobalScopes()->whereKey($agencyId)->update(['esign_approval_route' => $route]);
+    }
+
+    // ── Guards (prevent, never let an agency strand itself — ruling 4 / BUILD_STANDARD §2) ──
+
+    /**
+     * A Compliance Officer must be able to REACH everything they are the officer for: every held
+     * document (e-sign) or every report (compliance reporting) in the agency, and, for reports, be
+     * allowed to decide them at all. Otherwise a document or report can be held with nobody able to
+     * act on it — the queue, the badge, the toast and the notification all read the same scope.
+     */
+    public function assertCanServeAsCo(User $user, string $module, int $agencyId, string $field = 'co_user_id'): void
+    {
+        $name = $user->name ?: 'That person';
+
+        if ($module === OfficerAppointment::MODULE_ESIGN) {
+            if (! $user->isOwnerRole() && PermissionService::getDataScope($user, EsignApprovalService::SCOPE_MODULE) !== 'all') {
+                throw ValidationException::withMessages([$field =>
+                    "{$name} does not see every e-sign document in the agency, so a held document from another branch or agent would never reach them. "
+                    . 'The e-sign Compliance Officer must see the whole agency — appoint an administrator, or give their role agency-wide access to Documents › Approvals.',
+                ]);
+            }
+
+            return;
+        }
+
+        if (! $user->hasPermission('compliance.whistleblow.approve')) {
+            throw ValidationException::withMessages([$field =>
+                "{$name}'s role cannot approve or reject compliance reports. Give the role the \"Approve / Reject Complaints\" permission first, or appoint someone whose role already has it.",
+            ]);
+        }
+
+        $seesAll = $user->isOwnerRole()
+            || PermissionService::userHasExplicitPermission($user, 'compliance.whistleblow.view_all_agency')
+            || PermissionService::getDataScope($user, 'compliance.whistleblow') === 'all';
+        if (! $seesAll) {
+            throw ValidationException::withMessages([$field =>
+                "{$name} would not see every compliance report in the agency, so a report filed elsewhere would sit with nobody to decide it. "
+                . 'Appoint an administrator, or tick "View All Agency Complaints" for their role.',
+            ]);
+        }
+    }
+
+    /** Every compliance-reporting RO must be allowed to decide, or the RO appointment means nothing. */
+    private function assertWhistleblowRosMayDecide(int $agencyId, array $userIds): void
+    {
+        if ($userIds === []) {
+            return;
+        }
+
+        $cannot = User::withoutGlobalScopes()->whereIn('id', $userIds)->where('agency_id', $agencyId)->get()
+            ->reject(fn (User $u) => $u->hasPermission('compliance.whistleblow.approve'))
+            ->pluck('name');
+
+        if ($cannot->isNotEmpty()) {
+            throw ValidationException::withMessages(['ro_user_ids' =>
+                'These people cannot decide compliance reports until their role has the "Approve / Reject Complaints" permission: '
+                . $cannot->implode(', ') . '.',
+            ]);
+        }
+    }
+
+    /**
+     * On the RO / CO route the candidate authoriser pool is the FULL-STATUS e-sign officers
+     * (ruling 10). Any change to the officer set that would leave none is refused.
+     */
+    private function assertFullStatusOfficerRemains(int $agencyId, array $officerUserIds, string $field): void
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $officerUserIds))));
+        if ($ids !== []) {
+            $candidateService = app(\App\Services\CandidatePractitionerService::class);
+            $officers = User::withoutGlobalScopes()->whereIn('id', $ids)->where('agency_id', $agencyId)->get();
+            if ($officers->contains(fn (User $u) => $candidateService->isFullStatus($u))) {
+                return;
+            }
+        }
+
+        throw ValidationException::withMessages([$field =>
+            'No full-status Property Practitioner would be left among the e-sign officers, so a candidate\'s document could never be authorised. '
+            . 'Keep at least one Reporting Officer (or the Compliance Officer) who is a full-status practitioner.',
+        ]);
     }
 
     public function setWhistleblowRosMaySubmit(int $agencyId, bool $allowed): void

@@ -1225,7 +1225,7 @@ class CommandCentreService
         try {
             $pending = DB::table('signature_templates')
                 ->where('created_by', $userId)
-                ->whereIn('status', ['signing', 'awaiting_seller', 'awaiting_lessor', 'awaiting_lessee', 'awaiting_tenant', 'awaiting_landlord'])
+                ->whereIn('status', array_merge(['signing', 'awaiting_seller', 'awaiting_lessor', 'awaiting_lessee', 'awaiting_tenant', 'awaiting_landlord'], \App\Models\Docuperfect\SignatureTemplate::HELD_STATUSES))
                 ->whereNull('deleted_at')
                 ->orderByDesc('created_at')
                 ->limit(5)
@@ -1472,7 +1472,7 @@ class CommandCentreService
         try {
             $awaitingOthers = DB::table('signature_templates')
                 ->where('created_by', $userId)
-                ->whereIn('status', ['signing', 'awaiting_seller', 'awaiting_lessor', 'awaiting_lessee', 'awaiting_tenant', 'awaiting_landlord'])
+                ->whereIn('status', array_merge(['signing', 'awaiting_seller', 'awaiting_lessor', 'awaiting_lessee', 'awaiting_tenant', 'awaiting_landlord'], \App\Models\Docuperfect\SignatureTemplate::HELD_STATUSES))
                 ->whereNull('deleted_at')
                 ->count();
         } catch (\Throwable $e) { $awaitingOthers = 0; }
