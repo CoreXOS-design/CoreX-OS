@@ -76,6 +76,12 @@ class PropertyController extends Controller
         // used for the listing_type lock above — that always derives from the
         // route name itself, never from session state.
         session(['corex.lens.properties' => $isRentalEntry]);
+        // Prod-audit 2026-09-16 (M14) — the third lens. A property opened FROM
+        // Imported Stock returns there (Back link + sidebar highlight), not to
+        // Properties, where the row is by construction not listed. Kept as a
+        // separate boolean so every existing reader of corex.lens.properties
+        // (rentals) is untouched.
+        session(['corex.lens.properties_imported' => $importedStock]);
 
         // ── Filter persistence ────────────────────────────────────────────
         // The whole active filter set (agents, status, search, every advanced

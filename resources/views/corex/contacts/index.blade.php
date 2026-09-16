@@ -333,7 +333,7 @@
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1h5M12 12a4 4 0 100-8 4 4 0 000 8z"/></svg>
                             </span>
                             All agents
-                            <template x-if="!{{ $filterAgentId ? $filterAgentId : 0 }}">
+                            <template x-if="!@json($filterAgentId ?: 0)">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
                             </template>
                         </button>
@@ -341,8 +341,8 @@
                         <template x-for="agent in filtered" :key="agent.id">
                             <button type="button" @click="pickAgent(agent.id)"
                                class="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300 text-left"
-                               :style="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? 'background:var(--surface-2);' : '')"
-                               onmouseover="this.style.background='var(--surface-2)'" :onmouseout="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? `this.style.background='var(--surface-2)'` : `this.style.background=''`)">
+                               :style="(@json($filterAgentId ?: 0) === agent.id ? 'background:var(--surface-2);' : '')"
+                               onmouseover="this.style.background='var(--surface-2)'" :onmouseout="(@json($filterAgentId ?: 0) === agent.id ? `this.style.background='var(--surface-2)'` : `this.style.background=''`)">
                                 <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0"
                                       style="background:var(--brand-default,#0b2a4a);color:#fff;"
                                       x-text="agent.name.charAt(0).toUpperCase()">
@@ -351,7 +351,7 @@
                                     <div class="font-semibold truncate" style="color:var(--text-primary);" x-text="agent.name"></div>
                                     <div class="truncate" style="color:var(--text-muted);" x-text="agent.email"></div>
                                 </div>
-                                <template x-if="{{ $filterAgentId ? $filterAgentId : 0 }} === agent.id">
+                                <template x-if="@json($filterAgentId ?: 0) === agent.id">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                                         <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
                                     </svg>

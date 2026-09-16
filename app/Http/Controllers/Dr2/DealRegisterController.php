@@ -760,6 +760,14 @@ class DealRegisterController extends Controller
                 continue;
             }
 
+            // Prod-promotion audit 2026-09-16, A4: "Our Share %" only means
+            // something for an EXTERNAL side. An internal side keeps 100% of
+            // its split, always — a stray value here (the form no longer
+            // renders the field for an internal side, but a stale tab or a
+            // crafted POST still can) must never be persisted, because it is
+            // exactly what produced the deal-#169 settlement defect.
+            $data[$side . '_our_share_percent'] = 100;
+
             if (count($agents) === 0) {
                 return back()->withErrors("{$side} side requires at least one agent.")->withInput();
             }
@@ -787,6 +795,28 @@ class DealRegisterController extends Controller
 
         // §2.2 — resolve the picked property link (manual pick = exact confidence).
         $propertyId = !empty($data['property_id']) ? (int) $data['property_id'] : null;
+
+        // AT-398 multi-property — once a deal carries 2+ linked properties the
+        // edit form is a different animal (prod-promotion audit 2026-09-16,
+        // findings A2, A3, A7):
+        //  - the PRIMARY may not be swapped here. Deal::booted()'s updated hook
+        //    would create the new primary's pivot row with a NULL allocation
+        //    (collapsing the deal total on the next re-sum, A2) and it runs no
+        //    same-owner gate at all (A3). Add/Remove property is the path that
+        //    prices the row and runs the gate — refuse with that pointer.
+        //  - the posted Selling Price / Commission are ignored: the deal totals
+        //    are the SUM of every property's own allocation (spec §8e), so the
+        //    form's read-only echo of that sum — possibly stale by the time it
+        //    is submitted — is never written; recalculateTotals() re-derives
+        //    them after the save instead (A7).
+        $multiProperty = ! $isNew && $deal->exists
+            && DealProperty::where('deal_id', $deal->id)->whereNull('deleted_at')->count() >= 2;
+
+        if ($multiProperty && $propertyId !== (int) $deal->property_id) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'property_id' => 'This deal has more than one property, so its primary property cannot be changed here — use Add / Remove property in the Properties on this deal list instead.',
+            ]);
+        }
 
         // AT-398 — Johan: "there cannot be a deal without an owner." Whenever a
         // property IS being linked (this field is nullable — a name-only deal
@@ -821,8 +851,10 @@ class DealRegisterController extends Controller
             'period'           => $data['period'],
             'deal_date'        => $data['deal_date'],
             'deal_type'        => $data['deal_type'] ?? null,
-            'property_value'   => $data['property_value'],
-            'total_commission' => $data['total_commission'],
+            // Multi-property: the totals are derived (sum of the rows), never
+            // taken from the form — see the $multiProperty block above.
+            'property_value'   => $multiProperty ? $deal->property_value : $data['property_value'],
+            'total_commission' => $multiProperty ? $deal->total_commission : $data['total_commission'],
 
             'listing_split_percent' => $listingSplit,
             'selling_split_percent' => $sellingSplit,
@@ -868,6 +900,13 @@ class DealRegisterController extends Controller
         }
 
         $deal->save();
+
+        // Multi-property (A7): re-derive the totals from the rows now, so the
+        // money-line rebuild further down runs on the true sum. No-op-safe:
+        // recalculateTotals() only ever writes Σ allocated_* of the live rows.
+        if ($multiProperty) {
+            app(\App\Services\Deal\DealPropertyPricingService::class)->recalculateTotals($deal);
+        }
 
         $sellerIds = $this->parseIdCsv($data['seller_contact_ids'] ?? null);
         $buyerIds  = $this->parseIdCsv($data['buyer_contact_ids'] ?? null);
@@ -1613,13 +1652,21 @@ class DealRegisterController extends Controller
         // AskUserQuestion): the existing price is never redistributed, and the
         // deal total is always the sum of every property's own price — never a
         // separately-typed total that could disagree with the parts.
+        // The candidate is posted as `add_property_id`, NOT `property_id`: the
+        // deal's own primary-property field on the same page is `property_id`,
+        // and Laravel's old() is global to the redirect, so a failed add used to
+        // repaint the deal's "Linked to property #…" with the REJECTED
+        // candidate's id (.ai/audits/2026-09-13-dr2-property-id-old-collision.md).
+        // The 2026-09-16 promotion audit (H1) then found the picker had lost its
+        // form binding entirely, so no id was posted at all and every add
+        // failed validation. Distinct name + explicit binding fixes both.
         $isFirst = $deal->properties()->count() === 0;
         $data = $request->validate([
-            'property_id' => ['required', 'integer', 'exists:properties,id'],
+            'add_property_id' => ['required', 'integer', 'exists:properties,id'],
             'allocated_price' => [$isFirst ? 'nullable' : 'required', 'numeric', 'min:0'],
             'allocated_commission' => [$isFirst ? 'nullable' : 'required', 'numeric', 'min:0'],
         ]);
-        $property = Property::findOrFail($data['property_id']);
+        $property = Property::findOrFail($data['add_property_id']);
 
         try {
             app(\App\Services\Deal\DealPropertyOwnerGate::class)->assertCanAddToDeal($deal, $property);

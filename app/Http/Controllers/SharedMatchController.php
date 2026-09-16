@@ -452,6 +452,7 @@ class SharedMatchController extends Controller
     public function recordView(string $token, int $property): JsonResponse
     {
         $match = $this->resolveMatch($token);
+        $this->guardPublicWrite($match, $property);
 
         $match->incrementPropertyView($property);
 
@@ -469,6 +470,7 @@ class SharedMatchController extends Controller
         ]);
 
         $match = $this->resolveMatch($token);
+        $this->guardPublicWrite($match, $property);
 
         // Public shared-match link — no Auth::user(), so stamp agency_id from
         // the match (Contact pillar); ContactMatchFeedback.agency_id is NOT NULL
@@ -486,6 +488,72 @@ class SharedMatchController extends Controller
         $match->update(['last_engaged_at' => now()]);
 
         return response()->json(['ok' => true, 'reaction' => $data['reaction']]);
+    }
+
+    /**
+     * Prod-promotion audit 2026-09-16, M9 — the two public MUTATING
+     * endpoints (recordView / feedback) used to resolve any token, including
+     * a Won/Lost buyer's, and write a view count / feedback row for ANY
+     * {property} integer. Two guards, applied identically to both, before
+     * anything is written:
+     *
+     *  1. The buyer must still be active — the exact isBuyerActive() rule
+     *     show() applies before rendering the page. A dead link must not
+     *     mutate a closed buyer's engagement data. 404, matching the status
+     *     the expired page itself returns.
+     *  2. {property} must be a property this share can actually put in
+     *     front of the buyer: a property snapshotted into a CONFIRMED
+     *     share of this match (contact_match_share_properties), OR a live,
+     *     non-hidden listing of the match's own agency — the same
+     *     agency_id boundary MatchingService::propertiesForMatch() hard-
+     *     filters on. The live leg is needed because the page renders the
+     *     live match set (plus the buyer's own criteria overrides), not the
+     *     snapshot, and every one of those properties is agency stock; the
+     *     snapshot leg keeps a reaction valid on a property the buyer was
+     *     sent even if it has since been withdrawn. Anything else — another
+     *     agency's property, a property the agent hid, a made-up id — is 404.
+     */
+    protected function guardPublicWrite(ContactMatch $match, int $propertyId): void
+    {
+        if (! $this->isBuyerActive($match)) {
+            abort(404);
+        }
+
+        if (in_array($propertyId, array_map('intval', $match->hidden_property_ids ?? []), true)) {
+            abort(404);
+        }
+
+        // Two plain top-level queries, never a whereHas with a scope bypass
+        // nested inside it — see ContactMatchController's $matchConstraints
+        // note on why a bypass inside a relation closure is not trusted.
+        $confirmedShareIds = ContactMatchShare::withoutGlobalScope(AgencyScope::class)
+            ->where('contact_match_id', $match->id)
+            ->whereNotNull('confirmed_at')
+            ->pluck('id');
+
+        $inConfirmedShare = $confirmedShareIds->isNotEmpty()
+            && \App\Models\ContactMatchShareProperty::withoutGlobalScope(AgencyScope::class)
+                ->where('contact_match_id', $match->id)
+                ->whereIn('contact_match_share_id', $confirmedShareIds)
+                ->where('property_id', $propertyId)
+                ->exists();
+
+        if ($inConfirmedShare) {
+            return;
+        }
+
+        // Property carries BranchScope as well as AgencyScope; both lifted
+        // (the match's own agency_id is the boundary here), SoftDeletes
+        // deliberately NOT — a trashed listing is not stock.
+        $isAgencyStock = Property::withoutGlobalScope(AgencyScope::class)
+            ->withoutGlobalScope(\App\Models\Scopes\BranchScope::class)
+            ->whereKey($propertyId)
+            ->where('agency_id', $match->agency_id)
+            ->exists();
+
+        if (! $isAgencyStock) {
+            abort(404);
+        }
     }
 
     /**

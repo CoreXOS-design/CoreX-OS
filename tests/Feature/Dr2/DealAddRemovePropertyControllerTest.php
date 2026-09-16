@@ -114,7 +114,7 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $deal = $this->makeDeal($propA);
 
         $response = $this->actingAs($this->bm)
-            ->post(route('deals-dr2.properties.add', $deal), ['property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
+            ->post(route('deals-dr2.properties.add', $deal), ['add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
 
         $response->assertRedirect();
         $response->assertSessionDoesntHaveErrors();
@@ -136,7 +136,7 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $deal = $this->makeDeal($propA); // 1,000,000 / 57,500
 
         $this->actingAs($this->bm)->post(route('deals-dr2.properties.add', $deal), [
-            'property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750,
+            'add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750,
         ]);
         $this->assertSame('1500000.00', $deal->fresh()->property_value);
 
@@ -158,7 +158,7 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $deal = $this->makeDeal($propA); // 1,000,000 / 57,500
 
         $this->actingAs($this->bm)->post(route('deals-dr2.properties.add', $deal), [
-            'property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750,
+            'add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750,
         ]);
 
         $this->actingAs($this->bm)
@@ -192,7 +192,7 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $deal = $this->makeDeal($propA);
 
         $this->actingAs($this->bm)->post(route('deals-dr2.properties.add', $deal), [
-            'property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750,
+            'add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750,
         ]);
         $this->actingAs($this->bm)->delete(route('deals-dr2.properties.remove', [$deal, $propB]));
         $this->assertSame('1000000.00', $deal->fresh()->property_value);
@@ -216,7 +216,7 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $deal = $this->makeDeal($propA);
 
         $response = $this->actingAs($this->bm)
-            ->post(route('deals-dr2.properties.add', $deal), ['property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
+            ->post(route('deals-dr2.properties.add', $deal), ['add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
 
         $response->assertSessionHasErrors('property_id');
         $message = session('errors')->get('property_id')[0];
@@ -233,7 +233,7 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $deal = $this->makeDeal($propA);
 
         $response = $this->actingAs($this->bm)
-            ->post(route('deals-dr2.properties.add', $deal), ['property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
+            ->post(route('deals-dr2.properties.add', $deal), ['add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
 
         $response->assertSessionHasErrors('property_id');
         $this->assertDatabaseMissing('deal_properties', ['deal_id' => $deal->id, 'property_id' => $propB->id]);
@@ -249,7 +249,7 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $deal = $this->makeDeal($propA);
 
         $this->actingAs($this->bm)
-            ->post(route('deals-dr2.properties.add', $deal), ['property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750])
+            ->post(route('deals-dr2.properties.add', $deal), ['add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750])
             ->assertSessionDoesntHaveErrors();
 
         $this->assertTrue(
@@ -266,7 +266,7 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $this->linkOwner($propA, $steve);
         $this->linkOwner($propB, $steve);
         $deal = $this->makeDeal($propA);
-        $this->actingAs($this->bm)->post(route('deals-dr2.properties.add', $deal), ['property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
+        $this->actingAs($this->bm)->post(route('deals-dr2.properties.add', $deal), ['add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
 
         $response = $this->actingAs($this->bm)
             ->delete(route('deals-dr2.properties.remove', [$deal, $propA]));
@@ -283,7 +283,7 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $this->linkOwner($propA, $steve);
         $this->linkOwner($propB, $steve);
         $deal = $this->makeDeal($propA);
-        $this->actingAs($this->bm)->post(route('deals-dr2.properties.add', $deal), ['property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
+        $this->actingAs($this->bm)->post(route('deals-dr2.properties.add', $deal), ['add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
 
         $response = $this->actingAs($this->bm)
             ->delete(route('deals-dr2.properties.remove', [$deal, $propB]));
@@ -310,7 +310,30 @@ final class DealAddRemovePropertyControllerTest extends TestCase
         $deal = $this->makeDeal($propA);
 
         $this->actingAs($agent)
-            ->post(route('deals-dr2.properties.add', $deal), ['property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750])
+            ->post(route('deals-dr2.properties.add', $deal), ['add_property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750])
             ->assertForbidden();
+    }
+
+    /**
+     * Prod-promotion audit 2026-09-16, H1 + the 2026-09-13 old('property_id')
+     * collision audit: the add form's candidate is posted as `add_property_id`,
+     * deliberately NOT `property_id` (the deal's own primary field on the same
+     * page). Documents the rename: the old name is no longer read at all.
+     */
+    public function test_posting_the_old_property_id_field_name_is_rejected_as_missing(): void
+    {
+        $propA = $this->makeProperty('8 Rename A Rd');
+        $propB = $this->makeProperty('8 Rename B Rd');
+        $steve = $this->makeContact('Steve');
+        $this->linkOwner($propA, $steve);
+        $this->linkOwner($propB, $steve);
+        $deal = $this->makeDeal($propA);
+
+        $response = $this->actingAs($this->bm)
+            ->post(route('deals-dr2.properties.add', $deal), ['property_id' => $propB->id, 'allocated_price' => 500000, 'allocated_commission' => 28750]);
+
+        $response->assertSessionHasErrors('add_property_id');
+        $this->assertDatabaseMissing('deal_properties', ['deal_id' => $deal->id, 'property_id' => $propB->id]);
+        $this->assertSame('1000000.00', $deal->fresh()->property_value, 'a rejected add must leave the deal total untouched');
     }
 }

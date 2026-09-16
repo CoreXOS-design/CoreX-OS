@@ -58,8 +58,37 @@ class Deal extends Model
             // there), not silently kept as a demoted second property.
             if ($deal->wasChanged('property_id')) {
                 self::syncPrimaryPropertyPivot($deal, (int) $deal->getOriginal('property_id'));
+            } elseif ($deal->wasChanged(['property_value', 'total_commission'])) {
+                // Prod-promotion audit 2026-09-16, M1/A7(a): a price-only edit on
+                // a single-property deal (property_id unchanged) used to leave the
+                // mirrored allocation stale, so the next recalculateTotals() —
+                // any later add/remove/restore — force-wrote the OLD figure back
+                // over the agent's correction. Mirror on every totals change too,
+                // under the same "at most one linked property" rule.
+                self::mirrorTotalsOntoSoleProperty($deal);
             }
         });
+    }
+
+    /**
+     * While the deal has AT MOST one linked property, deals.property_value /
+     * total_commission are the entered truth and the sole row's allocation
+     * is a mirror of them — see DealPropertyPricingService's docblock. Never
+     * runs on a 2+-property deal (there the direction of truth is reversed:
+     * the rows are entered, the deal totals are their sum). Quiet writes on
+     * the pivot only — this never touches the deal row, so it cannot
+     * re-enter the hook that called it.
+     */
+    private static function mirrorTotalsOntoSoleProperty(Deal $deal): void
+    {
+        if (DealProperty::where('deal_id', $deal->id)->whereNull('deleted_at')->count() > 1) {
+            return;
+        }
+
+        DealProperty::where('deal_id', $deal->id)->whereNull('deleted_at')->update([
+            'allocated_price' => $deal->property_value,
+            'allocated_commission' => $deal->total_commission,
+        ]);
     }
 
     /**

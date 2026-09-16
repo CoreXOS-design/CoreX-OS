@@ -2,6 +2,8 @@
 
 namespace App\Mail;
 
+use Illuminate\Contracts\Queue\ShouldQueue;
+
 use App\Models\RentalApplication;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -17,8 +19,12 @@ use Illuminate\Queue\SerializesModels;
  * a separate, new file, kept isolated from the agent-side lane's own
  * mailer to avoid touching shared ground.
  */
-class RentalApplicationReturnedMail extends Mailable
+class RentalApplicationReturnedMail extends Mailable implements ShouldQueue
 {
+    // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
+    // sent inside the page request; the live mail worker group drains this queue.
+    public $queue = 'mail';
+
     use Queueable, SerializesModels;
 
     public string $agentName;

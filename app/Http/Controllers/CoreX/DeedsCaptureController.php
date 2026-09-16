@@ -102,7 +102,7 @@ final class DeedsCaptureController extends Controller
             ->whereNotExists(function ($q) {
                 $q->select(DB::raw(1))
                     ->from('tracked_property_owners as tpo')
-                    ->join('contact_property as cp', fn ($j) => $j->on('cp.contact_id', '=', 'tpo.contact_id')->where('cp.role', 'seller'))
+                    ->join('contact_property as cp', fn ($j) => $j->on('cp.contact_id', '=', 'tpo.contact_id')->where('cp.role', 'seller')->whereNull('cp.deleted_at'))
                     ->join('prospecting_listings as pl', fn ($j) => $j->on('pl.matched_property_id', '=', 'cp.property_id')->whereNotNull('pl.pitched_at')->whereNull('pl.deleted_at'))
                     ->whereColumn('tpo.tracked_property_id', 'tracked_properties.id')
                     ->whereNotNull('tpo.contact_id');
@@ -189,7 +189,8 @@ final class DeedsCaptureController extends Controller
                 $q->select(DB::raw(1))
                     ->from('contact_property')
                     ->whereColumn('contact_property.contact_id', 'contacts.id')
-                    ->where('contact_property.role', 'seller');
+                    ->where('contact_property.role', 'seller')
+                    ->whereNull('contact_property.deleted_at');
             })
             ->pluck('id_number')
             ->unique();

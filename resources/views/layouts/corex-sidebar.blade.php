@@ -831,7 +831,7 @@
 
                 @permission('access_properties')
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
-                <a href="{{ route('corex.properties.index') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.properties.*') && ! request()->routeIs('corex.properties.imported-stock') && ! session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
+                <a href="{{ route('corex.properties.index') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.properties.*') && ! request()->routeIs('corex.properties.imported-stock') && ! session('corex.lens.properties', false) && ! session('corex.lens.properties_imported', false)) ? 'active' : '' }}">Properties</a>
                 @endif
                 {{-- Phase 3g — Map module. Same permission as Properties; agency-scoped. --}}
                 @if(\Illuminate\Support\Facades\Route::has('corex.map.index'))
@@ -844,7 +844,7 @@
                      access_properties above. --}}
                 @permission('access_imported_stock')
                 @if(\Illuminate\Support\Facades\Route::has('corex.properties.imported-stock'))
-                <a href="{{ route('corex.properties.imported-stock') }}" class="corex-nav-subitem {{ request()->routeIs('corex.properties.imported-stock') ? 'active' : '' }}">Imported Stock</a>
+                <a href="{{ route('corex.properties.imported-stock') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.properties.imported-stock') || (request()->routeIs('corex.properties.*') && session('corex.lens.properties_imported', false))) ? 'active' : '' }}">Imported Stock</a>
                 @endif
                 @endpermission
 

@@ -127,6 +127,16 @@ class ContactMatch extends Model
             if (empty($match->status)) {
                 $match->status = self::STATUS_ACTIVE;
             }
+            // Prod-promotion audit 2026-09-16, H2 — the OWNING agent defaults
+            // to whoever created the match. Every creation path (board
+            // store, buyer pipeline, lead cascade, mobile, rental review,
+            // client portal) stamps created_by_user_id and none stamped
+            // agent_id, so every post-deploy match was ownerless: invisible
+            // to the agent_id-scoped board and blank on "Assigned to".
+            // Defaulted here, once, so no creation site can forget again.
+            if ($match->agent_id === null && $match->created_by_user_id !== null) {
+                $match->agent_id = $match->created_by_user_id;
+            }
             $match->syncSuburbsFromP24Ids();
             self::enforceRentalApprovedAmountCap($match);
         });

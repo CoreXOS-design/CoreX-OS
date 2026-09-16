@@ -1,7 +1,7 @@
 # Branch Archive & Agent Reassignment — Build Spec
 
 > Spec file: `.ai/specs/branch-archive-reassignment.md`
-> Status: **Draft — awaiting Johan's sign-off**
+> Status: **Built and promoted — QA2 → Staging (9b3e787c3) → Prod, 2026-09-16**
 > Author: Andre (business ruling) + Claude (solution design), 2026-09-15
 > Supersedes: `.ai/specs/branch-isolation-spec.md` §9 (Branch archive / delete flow)
 > Related: `.ai/specs/branch-isolation-spec.md` (§4, §5, §11, §13), `.ai/specs/admin-multi-branch-manager.md`, AT-366 (agent branch-move history)

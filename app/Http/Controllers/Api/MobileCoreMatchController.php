@@ -25,7 +25,9 @@ class MobileCoreMatchController extends Controller
 
         $matches = ContactMatch::with(['contact.type', 'feedback'])
             ->whereHas('contact')
-            ->where('created_by_user_id', $user->id)
+            // Prod-audit 2026-09-16 — a reassigned buyer follows the assignee
+            // (agent_id), matching the web board's own scoping.
+            ->where('agent_id', $user->id)
             ->orderByRaw("FIELD(status,'active','paused','fulfilled','expired')")
             ->latest()
             ->get();
@@ -241,7 +243,7 @@ class MobileCoreMatchController extends Controller
     // ── helpers ─────────────────────────────────────────────────
     private function authorizeMatch(User $user, ContactMatch $match): void
     {
-        abort_unless($match->created_by_user_id === $user->id, 403, 'Not your match.');
+        abort_unless(($match->agent_id ?? $match->created_by_user_id) === $user->id, 403, 'Not your match.');
     }
 
     private function shapeMatch(ContactMatch $m, bool $full = false): array

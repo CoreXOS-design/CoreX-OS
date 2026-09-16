@@ -1081,6 +1081,54 @@ class SigningController extends Controller
      * own clear wording — "your authority has changed," not a generic
      * "no longer available" that reads like a broken page.
      */
+    /**
+     * Prod-promotion audit 2026-09-16 (HIGH) — the recipient identity gate
+     * that show() enforces (ID/passport verified, then e-sign consent
+     * captured, both held only in THIS browser's session) was checked on the
+     * page render and on capture()/uploadWetInk()/flattenedPageImage(), but
+     * NOT on the token-only mutation endpoints the signing page drives by
+     * fetch(): chooseMethod, saveFields, saveWebFields, completeWeb,
+     * complete, decline. Those trusted the link alone, so anyone holding a
+     * forwarded URL could complete (or decline) a signer's turn without ever
+     * typing the ID number. One helper — the SAME predicate, in the SAME
+     * order as show() (verified first, then consent) — called by each of
+     * those actions right after the token lookup and before any write. A
+     * request with neither an ID nor a passport on file is untouched: the
+     * gate never applied to it and still does not.
+     *
+     * Always a 403 JSON body, never a redirect: every caller is a fetch()
+     * from sign.blade.php, and a 302 there would be followed silently into
+     * the gateway's HTML and surface client-side as an unexplained failure.
+     * `redirect` names the page the recipient must complete first; the
+     * client only auto-follows it on ok:true, so it is informational here.
+     */
+    private function identityGateResponse(SignatureRequest $signingRequest, string $token): ?\Illuminate\Http\JsonResponse
+    {
+        if (empty($signingRequest->signer_id_number) && empty($signingRequest->signer_passport_number)) {
+            return null;
+        }
+
+        if (!session("signing_verified_{$token}")) {
+            return response()->json([
+                'ok'       => false,
+                'error'    => 'identity_verification_required',
+                'message'  => 'Please verify your identity before continuing.',
+                'redirect' => route('signatures.external.gateway', ['token' => $token]),
+            ], 403);
+        }
+
+        if (!session("esign_consent_{$signingRequest->id}")) {
+            return response()->json([
+                'ok'       => false,
+                'error'    => 'identity_verification_required',
+                'message'  => 'Please accept the e-signature consent declaration before continuing.',
+                'redirect' => route('signatures.external.showConsent', ['token' => $token]),
+            ], 403);
+        }
+
+        return null;
+    }
+
     private function unavailableReason(SignatureRequest $signingRequest): string
     {
         if ($signingRequest->authorityRevoked()) {
@@ -1195,6 +1243,10 @@ class SigningController extends Controller
 
         if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        if ($gate = $this->identityGateResponse($signingRequest, $token)) {
+            return $gate;
         }
 
         $request->validate([
@@ -1379,6 +1431,10 @@ class SigningController extends Controller
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
         }
 
+        if ($gate = $this->identityGateResponse($signingRequest, $token)) {
+            return $gate;
+        }
+
         $document = $signingRequest->template->document;
         if (!$document) {
             return response()->json(['ok' => false, 'error' => 'Document not found.'], 404);
@@ -1458,6 +1514,10 @@ class SigningController extends Controller
 
         if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        if ($gate = $this->identityGateResponse($signingRequest, $token)) {
+            return $gate;
         }
 
         $document = $signingRequest->template->document;
@@ -1731,6 +1791,10 @@ class SigningController extends Controller
 
         if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        if ($gate = $this->identityGateResponse($signingRequest, $token)) {
+            return $gate;
         }
 
         // Sequential signing gate — reject if not this signer's turn
@@ -2401,6 +2465,10 @@ class SigningController extends Controller
 
         if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        if ($gate = $this->identityGateResponse($signingRequest, $token)) {
+            return $gate;
         }
 
         // Sequential signing gate — reject if not this signer's turn
@@ -3673,6 +3741,10 @@ CSS;
 
         if ($signingRequest->isSigningBlocked()) {
             return response()->json(['ok' => false, 'error' => 'Signing link has expired.'], 410);
+        }
+
+        if ($gate = $this->identityGateResponse($signingRequest, $token)) {
+            return $gate;
         }
 
         $request->validate([

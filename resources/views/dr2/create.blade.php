@@ -171,15 +171,25 @@
             {{-- (Enhancement 1) Property — rich searchable picker matching the PDF splitter --}}
             <div class="field-full" id="dr2-prop">
                 <label class="ds-label block mb-1">Property</label>
+                {{-- AT-398 — on a deal that already carries 2+ properties the PRIMARY may
+                     not be swapped from this picker (the server refuses it too — see
+                     DealRegisterController::persistDeal()): the swap would land an
+                     unpriced pivot row and skip the same-owner gate. Add / Remove
+                     property below is the path. Elements stay in the DOM (the page JS
+                     binds to them by id); they are just inert. Audit 2026-09-16, A2/A3. --}}
+                @php $dr2PrimaryLocked = ($mode ?? 'create') === 'edit' && $deal->exists && $deal->properties->count() > 1; @endphp
                 <input type="hidden" name="property_id" id="dr2_property_id" value="{{ old('property_id', $deal->property_id) }}">
                 <div style="position:relative;">
                     <input type="text" id="dr2_property_search" class="w-full" autocomplete="off"
                            placeholder="Search a property by address, reference, complex…"
-                           value="{{ old('property_address', ($deal->property ? $deal->property->buildDisplayAddress() : $deal->property_address)) }}">
+                           value="{{ old('property_address', ($deal->property ? $deal->property->buildDisplayAddress() : $deal->property_address)) }}" {{ $dr2PrimaryLocked ? 'disabled' : '' }}>
                     <div id="dr2_property_results" style="position:absolute;z-index:40;left:0;right:0;top:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px var(--shadow, rgba(0,0,0,.08));max-height:16rem;overflow:auto;display:none;"></div>
                 </div>
                 <input type="hidden" name="property_address" id="dr2_property_address" value="{{ old('property_address', $deal->property_address) }}">
-                <div id="dr2_property_linked" class="text-xs mt-1" style="{{ old('property_id', $deal->property_id) ? '' : 'display:none;' }}color:#047857;">✓ Linked to property <span id="dr2_property_linked_id">#{{ old('property_id', $deal->property_id) }}</span> <button type="button" id="dr2_property_unlink" class="underline ml-1" style="color:var(--text-muted)">unlink</button></div>
+                <div id="dr2_property_linked" class="text-xs mt-1" style="{{ old('property_id', $deal->property_id) ? '' : 'display:none;' }}color:#047857;">✓ Linked to property <span id="dr2_property_linked_id">#{{ old('property_id', $deal->property_id) }}</span> <button type="button" id="dr2_property_unlink" class="underline ml-1" style="color:var(--text-muted);{{ $dr2PrimaryLocked ? 'display:none;' : '' }}" {{ $dr2PrimaryLocked ? 'disabled' : '' }}>unlink</button></div>
+                @if($dr2PrimaryLocked)
+                <div class="text-xs mt-1" style="color:var(--text-muted);">This deal has more than one property, so its primary property is locked here — use Add / Remove property in the Properties on this deal list to change which properties are on it.</div>
+                @endif
                 <div class="flex items-center justify-between mt-1">
                     <div class="text-xs" style="color:var(--text-faint)">No CoreX match? Type the address — the deal still saves.</div>
                     {{-- Wave 2 resale guard — the search shows on-market listings by default so a
@@ -215,6 +225,9 @@
                 @error('property_id')
                     <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2">{{ $message }}</div>
                 @enderror
+                @error('add_property_id')
+                    <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2">{{ $message }}</div>
+                @enderror
                 @error('allocated_price')
                     <div class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800 mb-2">{{ $message }}</div>
                 @enderror
@@ -246,7 +259,15 @@
                      entered in Financials below, which is where the "Add to
                      deal" confirmation actually lives now. --}}
                 <label class="text-xs font-semibold block mb-1" style="color:var(--text-secondary);">Add another property</label>
-                <select id="dr2mp_picker" class="input-base w-full text-xs">
+                {{-- Bound to the standalone add form (declared outside the main
+                     <form>, see "AT-398 standalone forms" below) via the HTML5
+                     form= attribute — the picker itself sits inside the main
+                     form's DOM. Named add_property_id, NOT property_id: the
+                     deal's own primary field is property_id and old() is global
+                     to the redirect, so a failed add used to repaint the
+                     primary with the rejected candidate's id
+                     (.ai/audits/2026-09-13-dr2-property-id-old-collision.md). --}}
+                <select id="dr2mp_picker" name="add_property_id" form="dr2mp_add_form_real" class="input-base w-full text-xs">
                     <option value="">Loading…</option>
                 </select>
                 <div id="dr2mp_picker_empty" class="text-xs mt-1" style="color:var(--text-faint);display:none;">No other properties share this deal's exact owner set — nothing eligible to add.</div>
@@ -598,12 +619,18 @@
                     </div>
 
                     <label class="inline-flex items-center gap-2">
-                        <input type="checkbox" name="listing_external" id="listing_external" {{ old('listing_external', $deal->listing_external) ? 'checked' : '' }}>
+                        <input type="checkbox" name="listing_external" id="listing_external" {{ old('listing_external', $deal->listing_external) ? 'checked' : '' }}
+                               onchange="document.getElementById('listing_our_share_wrap').style.display = this.checked ? '' : 'none';">
                         <span>External agency handled this side</span>
                     </label>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
+                        {{-- "Our Share %" only means something for an EXTERNAL side (what % of
+                             that side's money comes back to us). Shown only when the side is
+                             external — same rule as the V2 form (deals-v2/create-form.blade.php)
+                             and the server, which forces 100 on an internal side regardless.
+                             Prod-promotion audit 2026-09-16, A4. Field name/id unchanged. --}}
+                        <div id="listing_our_share_wrap" style="{{ old('listing_external', $deal->listing_external) ? '' : 'display:none;' }}">
                             <label class="ds-label block mb-1">Our Share %</label>
                             <input type="number" step="0.01" name="listing_our_share_percent" class="w-full" value="{{ old('listing_our_share_percent', $deal->listing_our_share_percent) }}" placeholder="Our Share %">
                         </div>
@@ -660,12 +687,14 @@
                     </div>
 
                     <label class="inline-flex items-center gap-2">
-                        <input type="checkbox" name="selling_external" id="selling_external" {{ old('selling_external', $deal->selling_external) ? 'checked' : '' }}>
+                        <input type="checkbox" name="selling_external" id="selling_external" {{ old('selling_external', $deal->selling_external) ? 'checked' : '' }}
+                               onchange="document.getElementById('selling_our_share_wrap').style.display = this.checked ? '' : 'none';">
                         <span>External agency handled this side</span>
                     </label>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
+                        {{-- External-only, same rule as the listing side above (A4). --}}
+                        <div id="selling_our_share_wrap" style="{{ old('selling_external', $deal->selling_external) ? '' : 'display:none;' }}">
                             <label class="ds-label block mb-1">Our Share %</label>
                             <input type="number" step="0.01" name="selling_our_share_percent" class="w-full" value="{{ old('selling_our_share_percent', $deal->selling_our_share_percent) }}" placeholder="Our Share %">
                         </div>
@@ -1633,7 +1662,10 @@
             const f = fieldsFor(side);
             if (!f.search) { return; }
             const close = () => { f.results.style.display = 'none'; f.results.innerHTML = ''; };
-            const tick  = () => { if (f.chk && !f.chk.checked) { f.chk.checked = true; } };
+            // Setting .checked programmatically fires no change event, so also
+            // dispatch one — the checkbox's own onchange reveals "Our Share %"
+            // (external-only field, A4) and must track this auto-tick too.
+            const tick  = () => { if (f.chk && !f.chk.checked) { f.chk.checked = true; f.chk.dispatchEvent(new Event('change')); } };
 
             // A free-typed name still persists (legacy behaviour) + marks the side external;
             // a picked provider additionally sets the ids that make it an emailable party.

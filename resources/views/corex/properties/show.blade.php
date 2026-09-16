@@ -47,9 +47,12 @@
     @php
         // AT-401 - "Back" returns to whichever Properties list (sales or Rentals) the agent came
         // from; session('corex.lens.properties') is set by PropertyController::index() on the way in.
-        $backToRentals = (bool) session('corex.lens.properties', false);
-        $backRoute     = $backToRentals ? 'corex.rentals.properties.index' : 'corex.properties.index';
-        $backLabel     = $backToRentals ? 'Back to Rentals' : 'Back to Properties';
+        $backToRentals  = (bool) session('corex.lens.properties', false);
+        // Prod-audit 2026-09-16 (M14) — third lens: opened from Imported Stock, return there.
+        $backToImported = (bool) session('corex.lens.properties_imported', false)
+            && \Illuminate\Support\Facades\Route::has('corex.properties.imported-stock');
+        $backRoute     = $backToImported ? 'corex.properties.imported-stock' : ($backToRentals ? 'corex.rentals.properties.index' : 'corex.properties.index');
+        $backLabel     = $backToImported ? 'Back to Imported Stock' : ($backToRentals ? 'Back to Rentals' : 'Back to Properties');
         // Identity strip + mobile header — both render this at 40-56px, so it was
         // the single worst offender per display-pixel: a raw multi-MB original
         // stretched into a 48px square on every property page.

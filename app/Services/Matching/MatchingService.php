@@ -173,10 +173,12 @@ class MatchingService
         $scope = (string) \App\Models\PerformanceSetting::get('matches_visibility_scope', self::SCOPE_AGENCY);
 
         return match ($scope) {
-            self::SCOPE_AGENT  => ['agent_id' => $match->created_by_user_id],
+            // Prod-audit 2026-09-16 — stock visibility follows the ASSIGNED agent
+            // (agent_id, set on create and moved by reassignTo()), not the creator.
+            self::SCOPE_AGENT  => ['agent_id' => $match->agent_id ?? $match->created_by_user_id],
             self::SCOPE_BRANCH => [
                 'agent_id'  => null,
-                'branch_id' => $match->createdBy?->branch_id,
+                'branch_id' => $match->agent?->branch_id ?? $match->createdBy?->branch_id,
             ],
             default            => ['agent_id' => null], // agency
         };
@@ -313,7 +315,7 @@ class MatchingService
                 $query->where('agent_id', $overrides['agent_id']);
             }
         } else {
-            $query->where('agent_id', $match->created_by_user_id);
+            $query->where('agent_id', $match->agent_id ?? $match->created_by_user_id);
         }
         if (!empty($overrides['branch_id'])) {
             $query->where('branch_id', $overrides['branch_id']);

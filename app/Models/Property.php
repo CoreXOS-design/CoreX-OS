@@ -58,6 +58,11 @@ class Property extends Model
         'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
         'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
         'prospecting', 'not_selling',
+        // Prod-audit 2026-09-16 — the P24 importer writes 'rented'
+        // (P24ListingsCsvParser); it is the let-side twin of 'sold' and the
+        // AT-419 spec lists it as off-market. Without it, rented imports sat
+        // on the Properties list counted as Available.
+        'rented',
     ];
 
     /**

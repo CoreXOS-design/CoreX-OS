@@ -2185,6 +2185,26 @@ class SignatureController extends Controller
             $failed = $fresh->completion_send_status === 'failed';
             $error = $fresh->completion_send_error;
         } else {
+            // Prod-promotion audit 2026-09-16 (MEDIUM) — the invitation resend
+            // never asked whether the link it was about to email still works.
+            // On an expired / lapsed / cancelled / authority-revoked / declined
+            // request it mailed a dead link (show() 410s it on arrival) AND
+            // re-stamped sent_at + invite_send_status='sent', so the party view
+            // then read as a fresh, healthy send. Refuse BEFORE any send or
+            // stamp, on the same predicate every signing action gates on. The
+            // completed branch above is untouched — that re-sends the signed
+            // PDF, not a link.
+            if ($signatureRequest->isSigningBlocked() || $signatureRequest->status === SignatureRequest::STATUS_DECLINED) {
+                $why = match (true) {
+                    $signatureRequest->status === SignatureRequest::STATUS_DECLINED => "{$signatureRequest->signer_name} declined this document",
+                    $signatureRequest->authorityRevoked()                           => "{$signatureRequest->signer_name}'s authority to sign has changed",
+                    optional($signatureRequest->template)->status === SignatureTemplate::STATUS_CANCELLED => 'the signing was cancelled',
+                    default                                                          => 'the signing link has expired',
+                };
+
+                return redirect()->back()->with('error', "Cannot resend to {$signatureRequest->signer_name} — {$why}. The link would no longer open; send the document for signature again to issue a new one.");
+            }
+
             $this->signatureService->resendInvitationEmail($signatureRequest);
             $kind = 'signing invitation';
             $fresh = $signatureRequest->fresh();

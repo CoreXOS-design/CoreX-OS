@@ -2,6 +2,8 @@
 
 namespace App\Mail;
 
+use Illuminate\Contracts\Queue\ShouldQueue;
+
 use App\Models\RentalApplication;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -18,8 +20,12 @@ use Illuminate\Queue\SerializesModels;
  * ones, since the only real difference between them is the headline and
  * whether a reason/amount is shown.
  */
-class RentalApplicationDecisionMail extends Mailable
+class RentalApplicationDecisionMail extends Mailable implements ShouldQueue
 {
+    // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
+    // sent inside the page request; the live mail worker group drains this queue.
+    public $queue = 'mail';
+
     use Queueable, SerializesModels;
 
     public string $agentName;

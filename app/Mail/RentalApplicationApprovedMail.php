@@ -2,6 +2,8 @@
 
 namespace App\Mail;
 
+use Illuminate\Contracts\Queue\ShouldQueue;
+
 use App\Models\RentalApplication;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -31,8 +33,12 @@ use Illuminate\Support\Collection;
  * clicking Send, and the email must say what's true when it leaves, not
  * what was true when someone clicked Approve.
  */
-class RentalApplicationApprovedMail extends Mailable
+class RentalApplicationApprovedMail extends Mailable implements ShouldQueue
 {
+    // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
+    // sent inside the page request; the live mail worker group drains this queue.
+    public $queue = 'mail';
+
     use Queueable, SerializesModels;
 
     public string $applicantName;

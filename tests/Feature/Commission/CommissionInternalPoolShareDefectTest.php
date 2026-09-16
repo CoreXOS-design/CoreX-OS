@@ -10,6 +10,7 @@ use App\Models\DealV2\DealV2;
 use App\Models\User;
 use App\Services\DealMoneyLineRebuilder;
 use App\Services\Finance\CommissionCalculator;
+use App\Services\Finance\CommissionPoolCalculator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -125,34 +126,89 @@ final class CommissionInternalPoolShareDefectTest extends TestCase
         $this->assertSame(0.0, $v2->listingPool());
     }
 
-    public function test_external_payable_calculation_is_completely_unchanged_by_this_fix(): void
+    /**
+     * Prod-promotion audit 2026-09-16, finding A1. After the internal-pool fix
+     * the rebuilder still derived an "external payable" from our_share_percent
+     * on an INTERNAL side, so a defect-shaped deal carried the full pool AND a
+     * phantom payable — the settlement checksum (pool + payable ex VAT) could
+     * never equal the ex-VAT total and "mark Paid" was refused. One rule now,
+     * in CommissionPoolCalculator::externalPayable(): only an external side
+     * owes anything out; an internal side's payable is 0.
+     */
+    public function test_external_payable_is_zero_on_an_internal_side_and_the_full_side_on_an_external_side(): void
     {
-        // Not part of the defect — DealMoneyLineRebuilder's externalPayable figure is a
-        // separate concept (what we owe OUT to an external agency) that must be untouched,
-        // in both its branches, exactly as it behaved before this fix.
+        // External side: the full side amount (inc VAT) is owed out — our_share_percent
+        // does not reduce it, byte-for-byte the pre-existing behaviour of this branch.
         $externalDeal = $this->makeV1Deal([
             'total_commission' => 115_000,
             'listing_external' => 1, 'listing_split_percent' => 100, 'listing_our_share_percent' => 60,
             'selling_external' => 0, 'selling_split_percent' => 0,
         ]);
         $pools = DealMoneyLineRebuilder::computeDealPools($externalDeal);
-        // Original behaviour: when the side IS external, externalPayable is the full side
-        // amount — our_share_percent does not reduce it in this branch, unchanged.
         $this->assertEqualsWithDelta(115_000.0, $pools['listingExternalPayable'], 0.01);
         $this->assertEqualsWithDelta(0.0, $pools['listingPool'], 0.01);
+        $this->assertEqualsWithDelta(0.0, $pools['sellingExternalPayable'], 0.01);
 
+        // Internal side with a stray our_share of 60: the pool is the full ex-VAT
+        // side (100,000) and the payable is 0 — NOT 115,000 × (1 − 0.6) = 46,000.
         $internalDeal = $this->makeV1Deal([
             'total_commission' => 115_000,
             'listing_external' => 0, 'listing_split_percent' => 100, 'listing_our_share_percent' => 60,
             'selling_external' => 0, 'selling_split_percent' => 0,
         ]);
         $pools2 = DealMoneyLineRebuilder::computeDealPools($internalDeal);
-        // Original behaviour: when the side is NOT external, externalPayable = side * (1 - our/100),
-        // unchanged by this fix — 115,000 * (1 - 0.6) = 46,000.
-        $this->assertEqualsWithDelta(46_000.0, $pools2['listingExternalPayable'], 0.01);
-        // But the internal POOL itself is the actual defect — it must now ignore
-        // our_share_percent entirely and keep the full ex-VAT side amount.
+        $this->assertEqualsWithDelta(0.0, $pools2['listingExternalPayable'], 0.01, 'an internal side never owes anything out');
+        $this->assertEqualsWithDelta(0.0, $pools2['externalPayableTotal'], 0.01);
         $this->assertEqualsWithDelta(100_000.0, $pools2['listingPool'], 0.01);
+
+        // The static itself, both branches.
+        $this->assertSame(0.0, CommissionPoolCalculator::externalPayable(57_500.0, false));
+        $this->assertSame(57_500.0, CommissionPoolCalculator::externalPayable(57_500.0, true));
+    }
+
+    /**
+     * A1, the live shape: deal #169 (listing external, selling internal with our_share
+     * wrongly 50) and its no-external twin (both sides internal, both our_share 50).
+     * The settlement checksum — internal pools + external payable ex VAT — must equal
+     * the ex-VAT total on both, and the REBUILT money lines must carry the full pool.
+     */
+    public function test_rebuilt_money_lines_carry_the_full_pool_and_no_phantom_payable_on_an_internal_side_with_our_share_50(): void
+    {
+        // (a) deal #169 shape — 58,650 inc = 51,000 ex; 50/50 split.
+        $deal169 = $this->makeDeal169Shape();
+        $agent = $this->agent();
+        $deal169->agents()->attach($agent->id, ['side' => 'selling', 'agent_split_percent' => 100, 'agent_cut_percent' => 50]);
+
+        $pools = DealMoneyLineRebuilder::computeDealPools($deal169);
+        $this->assertEqualsWithDelta(0.0, $pools['listingPool'], 0.01);
+        $this->assertEqualsWithDelta(25_500.0, $pools['sellingPool'], 0.01);
+        $this->assertEqualsWithDelta(29_325.0, $pools['listingExternalPayable'], 0.01, 'external listing side: 58,650 × 50% inc VAT owed out');
+        $this->assertEqualsWithDelta(0.0, $pools['sellingExternalPayable'], 0.01, 'internal selling side with our_share 50: NO phantom payable (was 14,662.50)');
+
+        $externalExVat = $pools['externalPayableTotal'] / (1 + $pools['vatRate']);
+        $this->assertEqualsWithDelta(
+            $pools['totalCommissionExVat'],
+            $pools['listingPool'] + $pools['sellingPool'] + $externalExVat,
+            0.01,
+            'settlement checksum: pools + external payable (ex VAT) must equal the ex-VAT total (was 63,750 vs 51,000)'
+        );
+
+        DealMoneyLineRebuilder::rebuildDealId((int) $deal169->id);
+        $line = DB::table('deal_money_lines')->where('deal_id', $deal169->id)->where('side', 'selling')->first();
+        $this->assertNotNull($line);
+        $this->assertEqualsWithDelta(25_500.0, (float) $line->side_pool_ex_vat, 0.01, 'rebuilt money line carries the full selling pool');
+        $this->assertEqualsWithDelta(25_500.0, (float) $line->pool_share_ex_vat, 0.01);
+
+        // (b) both sides internal, both our_share 50 — pools 25,500 / 25,500, payable 0, checksum balances.
+        $bothInternal = $this->makeV1Deal([
+            'listing_external' => 0, 'listing_split_percent' => 50, 'listing_our_share_percent' => 50,
+            'selling_external' => 0, 'selling_split_percent' => 50, 'selling_our_share_percent' => 50,
+        ]);
+        $p = DealMoneyLineRebuilder::computeDealPools($bothInternal);
+        $this->assertEqualsWithDelta(25_500.0, $p['listingPool'], 0.01);
+        $this->assertEqualsWithDelta(25_500.0, $p['sellingPool'], 0.01);
+        $this->assertEqualsWithDelta(0.0, $p['externalPayableTotal'], 0.01, 'no external side → nothing owed out (was a phantom 29,325)');
+        $this->assertEqualsWithDelta(51_000.0, $p['listingPool'] + $p['sellingPool'], 0.01, 'checksum: 51,000 = 51,000');
     }
 
     public function test_vat_exclusive_and_inclusive_fields_agree_across_v1_and_dealv2(): void

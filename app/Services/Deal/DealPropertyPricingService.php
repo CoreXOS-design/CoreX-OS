@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Deal;
 
+use App\Jobs\RebuildDealMoneyLinesJob;
 use App\Models\Deal;
 use App\Models\DealProperty;
+use App\Services\DealV2\DealSyncService;
 
 /**
  * AT-398 split-pricing entry — Johan's ruling, verbatim (via AskUserQuestion,
@@ -61,5 +63,19 @@ class DealPropertyPricingService
             'property_value' => $priceSum,
             'total_commission' => $commissionSum,
         ])->saveQuietly();
+
+        // Prod-promotion audit 2026-09-16, A10: saveQuietly() also suppresses
+        // DealObserver::saved(), which is the ONLY place the DR2 twin
+        // (deals_v2) is mirrored and the derived money lines are rebuilt. So
+        // after every edit-time add/remove/restore/price change the twin kept
+        // the OLD commission — and a later loud save on the V2 side
+        // (settlement "mark Paid", V2 edit) wrote that stale total straight
+        // back over this re-sum. Do exactly what the observer would have done,
+        // explicitly. Both calls are loop-safe by construction: the money-line
+        // rebuild only writes deal_money_lines (never the deal row), and
+        // DealSyncService carries its own re-entrancy guard and writes the
+        // twin quietly — neither path can re-enter Deal::booted().
+        RebuildDealMoneyLinesJob::dispatch((int) $deal->id);
+        app(DealSyncService::class)->syncFromV1($deal);
     }
 }

@@ -718,6 +718,9 @@ class ContactController extends Controller
             ->join('properties as p', 'p.id', '=', 'cp.property_id')
             ->where('cp.contact_id', $contact->id)
             ->whereNull('p.deleted_at')
+            // Prod-audit 2026-09-16 — the link itself is soft-deleted now; an unlinked
+            // property must not keep feeding seller-perspective viewing feedback.
+            ->whereNull('cp.deleted_at')
             ->pluck('cp.property_id');
 
         if ($ownedPropertyIds->isNotEmpty()) {

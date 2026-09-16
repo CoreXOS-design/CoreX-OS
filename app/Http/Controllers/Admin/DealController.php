@@ -502,6 +502,14 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
                 continue;
             }
 
+            // Prod-promotion audit 2026-09-16, A4: "Our Share %" only means
+            // something for an EXTERNAL side. An internal side keeps 100% of
+            // its split, always — a stray value here (the form no longer
+            // renders the field for an internal side, but a stale tab or a
+            // crafted POST still can) must never be persisted, because it is
+            // exactly what produced the deal-#169 settlement defect.
+            $data[$side.'_our_share_percent'] = 100;
+
             if (count($agents) === 0) {
                 return back()->withErrors("{$side} side requires at least one agent.")->withInput();
             }

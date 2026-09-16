@@ -1,6 +1,6 @@
 # AT-419 — Imported Stock page (P24 importer split by status)
 
-> Status: Draft — awaiting Johan's sign-off before build starts.
+> Status: Built and promoted — QA2 → Staging (9b3e787c3) → Prod, 2026-09-16. Rented-status amendment applied in the prod-audit fix branch (Property::OFF_MARKET_STATUSES now includes rented).
 
 > **Amendment, 2026-09-15 (Andre):** "off-market" for this page is narrower than
 > `Property::OFF_MARKET_STATUSES`. A withdrawn/expired/sold P24 import that later gets

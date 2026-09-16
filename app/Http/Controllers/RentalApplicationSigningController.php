@@ -990,6 +990,36 @@ class RentalApplicationSigningController extends Controller
         return redirect()->route('rental-applications.public.show', $token)->with('error', $message);
     }
 
+    /**
+     * Prod-audit 2026-09-16 — the document upload/replace/remove actions were
+     * the ONLY applicant-facing actions that skipped both gates. Same order as
+     * show()/pdf()/viewDocument(): a fresh session (or a forwarded copy of the
+     * link) proves the return gate first, and an abandoned identity gate must be
+     * finished before anything is attached to, replaced on, or removed from the
+     * applicant's contact record. Nothing is written before either. Returns the
+     * gate response to send, or null when the caller may proceed.
+     */
+    private function documentMutationGate(RentalApplication $application, string $token, Request $request)
+    {
+        if (! $this->returnGatePassed($application, $request)) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'Please verify this link before changing documents.'], 403);
+            }
+
+            return $this->renderReturnGate($application);
+        }
+
+        if ($this->identityGateAwaiting($application)) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'Please complete identity verification before changing documents.'], 403);
+            }
+
+            return redirect()->route('rental-applications.public.identity-gate', $token);
+        }
+
+        return null;
+    }
+
     public function uploadDocuments(Request $request, string $token)
     {
         $application = $this->findByToken($token);
@@ -1013,6 +1043,10 @@ class RentalApplicationSigningController extends Controller
             }
 
             return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        if ($gated = $this->documentMutationGate($application, $token, $request)) {
+            return $gated;
         }
 
         $request->validate([
@@ -1283,6 +1317,10 @@ class RentalApplicationSigningController extends Controller
             return $closed;
         }
 
+        if ($gated = $this->documentMutationGate($application, $token, $request)) {
+            return $gated;
+        }
+
         $doc = $this->scopedDocument($application, $document);
 
         if ($locked = $this->assertDocumentsNotLocked($application, $token)) {
@@ -1323,6 +1361,10 @@ class RentalApplicationSigningController extends Controller
 
         if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
             return $closed;
+        }
+
+        if ($gated = $this->documentMutationGate($application, $token, $request)) {
+            return $gated;
         }
 
         $oldDoc = $this->scopedDocument($application, $document);

@@ -185,6 +185,28 @@ class AgencyContactSettings extends Model
         return self::withoutGlobalScopes()->firstOrCreate(['agency_id' => $agencyId], $defaults);
     }
 
+    /**
+     * Prod-promotion audit 2026-09-16, M9 — the READ-ONLY twin of
+     * forAgency(). Same lookup, same resolved values, but NEVER inserts:
+     * forAgency()'s firstOrCreate is a write, and on a public,
+     * unauthenticated path (the buyer's shared-match page, via
+     * CoreMatchReasonClassifier) a GET must not be able to create an
+     * agency's settings row. When no row exists this returns an unsaved
+     * instance, and every accessor on this model already null-coalesces
+     * to the SAME code defaults forAgency() would have persisted, so a
+     * reader gets identical answers either way. Use forAgency() only from
+     * a path that is allowed to write (settings pages, authenticated
+     * screens); use this from anything a stranger can trigger.
+     */
+    public static function forAgencyReadOnly(int $agencyId): self
+    {
+        $existing = $agencyId > 0
+            ? self::withoutGlobalScopes()->where('agency_id', $agencyId)->first()
+            : null;
+
+        return $existing ?? (new self())->forceFill(['agency_id' => $agencyId]);
+    }
+
     /** Buyer/Rental Pipeline kanban: resolved column card limit (null-safe, clamped 10–500). */
     public function buyerKanbanColumnLimit(): int
     {
@@ -339,8 +361,11 @@ class AgencyContactSettings extends Model
      */
     public static function minCountableFor(int $agencyId): array
     {
+        // Read-only (audit M9): ContactMatch::isCountable() runs on the
+        // PUBLIC shared-match page; a stranger's GET must never insert the
+        // agency's settings row. The accessor falls back to the same default.
         return self::$minCountableCache[$agencyId]
-            ??= self::forAgency($agencyId)->minCountableCriteria();
+            ??= self::forAgencyReadOnly($agencyId)->minCountableCriteria();
     }
 
     /**

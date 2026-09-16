@@ -177,7 +177,7 @@ final class DealMultiPropertyBladeTest extends TestCase
         // to session), then load the edit page — the SAME test-client session picks
         // up that one-time flash exactly as a real browser would on the redirect.
         $this->actingAs($this->bm)->post(route('deals-dr2.properties.add', $deal), [
-            'property_id' => $propB->id, 'allocated_price' => 100, 'allocated_commission' => 10,
+            'add_property_id' => $propB->id, 'allocated_price' => 100, 'allocated_commission' => 10,
         ]);
         $response = $this->get(route('deals-dr2.edit', $deal));
 
