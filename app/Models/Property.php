@@ -201,14 +201,22 @@ class Property extends Model
      * 'archived'/'unavailable' stay in — those are genuinely just "no longer
      * marketed", not a different pipeline.
      */
-    public const IMPORTED_STOCK_STATUSES = [
-        'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
-        'cancelled', 'let_out', 'archived', 'unavailable',
-    ];
+    /**
+     * Derived from OFF_MARKET_STATUSES rather than re-listed, so a future
+     * addition there (e.g. sold_by_3rd_party) can never silently leave
+     * imported stock unpartitioned between the two pages — the exact defect
+     * class matchingExcludedStatusList() above already guards against.
+     */
+    public static function importedStockStatuses(): array
+    {
+        return array_values(array_diff(self::OFF_MARKET_STATUSES, [
+            'draft', self::STATUS_PROSPECTING, self::STATUS_NOT_SELLING,
+        ]));
+    }
 
     /**
      * AT-419 — the Properties list = everything EXCEPT P24-imported stock that
-     * has gone off-market (per IMPORTED_STOCK_STATUSES above). Paired with
+     * has gone off-market (per importedStockStatuses() above). Paired with
      * scopeImportedOffMarket() below: together they partition every property
      * between the two pages with no row on both or neither. Case-insensitive
      * on purpose (LOWER(status)) — some P24-import statuses land capitalised
@@ -221,26 +229,28 @@ class Property extends Model
      */
     public function scopeExcludingImportedOffMarket($query)
     {
-        $placeholders = implode(',', array_fill(0, count(self::IMPORTED_STOCK_STATUSES), '?'));
+        $statuses = self::importedStockStatuses();
+        $placeholders = implode(',', array_fill(0, count($statuses), '?'));
 
-        return $query->where(function ($q) use ($placeholders) {
+        return $query->where(function ($q) use ($placeholders, $statuses) {
             $q->whereNull('p24_imported_at')
-              ->orWhereRaw("LOWER(status) NOT IN ($placeholders)", self::IMPORTED_STOCK_STATUSES);
+              ->orWhereRaw("LOWER(status) NOT IN ($placeholders)", $statuses);
         });
     }
 
     /**
      * AT-419 — the Imported Stock page: P24-imported properties whose status
-     * is one of IMPORTED_STOCK_STATUSES (withdrawn, sold, expired, cancelled,
+     * is one of importedStockStatuses() (withdrawn, sold, expired, cancelled,
      * …). See scopeExcludingImportedOffMarket() above for the casing note and
      * why this is narrower than OFF_MARKET_STATUSES.
      */
     public function scopeImportedOffMarket($query)
     {
-        $placeholders = implode(',', array_fill(0, count(self::IMPORTED_STOCK_STATUSES), '?'));
+        $statuses = self::importedStockStatuses();
+        $placeholders = implode(',', array_fill(0, count($statuses), '?'));
 
         return $query->whereNotNull('p24_imported_at')
-            ->whereRaw("LOWER(status) IN ($placeholders)", self::IMPORTED_STOCK_STATUSES);
+            ->whereRaw("LOWER(status) IN ($placeholders)", $statuses);
     }
 
     /**
@@ -2647,7 +2657,8 @@ class Property extends Model
      * any scheme/host stripped. The master list (gallery_images_json) holds
      * host-relative `/storage/...` values while a category may hold the
      * absolute URL the mobile app was handed, so the two must be compared on
-     * path, never on the raw string. Mirrors MobilePropertyController::imageMatchKey().
+     * path, never on the raw string. The canonical definition —
+     * MobilePropertyController::imageMatchKey() delegates here.
      */
     public static function imageMatchKey(string $url): string
     {
