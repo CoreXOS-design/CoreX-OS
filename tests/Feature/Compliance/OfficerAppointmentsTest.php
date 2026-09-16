@@ -48,44 +48,43 @@ final class OfficerAppointmentsTest extends TestCase
     private User $c;
     private User $d;
 
-    public function test_esign_co_must_see_the_whole_agency(): void
+    public function test_esign_co_must_be_a_full_status_practitioner_whatever_their_role(): void
     {
-        foreach ([$this->a, $this->b] as $narrow) {
+        // No designation → not full status → refused, admin or not.
+        foreach ([$this->a, $this->b, $this->admin] as $notFull) {
             try {
-                $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $narrow->id, $this->admin->id);
-                $this->fail("{$narrow->role} sees only own / branch documents and cannot be the e-sign CO");
+                $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $notFull->id, $this->admin->id);
+                $this->fail("{$notFull->role} without a full-status designation cannot be the e-sign CO");
             } catch (ValidationException $e) {
-                $this->assertStringContainsString('must see the whole agency', $e->errors()['co_user_id'][0]);
+                $this->assertStringContainsString('not a full-status property practitioner', $e->errors()['co_user_id'][0]);
             }
         }
         $this->assertNull($this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_ESIGN));
 
-        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->c->id, $this->admin->id);
-        $this->assertSame($this->c->id, $this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_ESIGN)->user_id);
+        // The appointment is the authority: a full-status AGENT may be the CO.
+        $this->a->update(['designation' => 'Property Practitioner']);
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->a->id, $this->admin->id);
+        $this->assertSame($this->a->id, $this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_ESIGN)->user_id);
+        $this->assertSame('all', app(\App\Services\Docuperfect\EsignApprovalService::class)->scopeFor($this->a->fresh()), 'an appointed CO reaches every held document, whatever their role');
     }
 
-    public function test_whistleblow_co_must_see_every_report(): void
+    public function test_whistleblow_co_can_be_anyone_and_the_appointment_grants_the_right_to_decide(): void
     {
-        // Own- and branch-scoped people would never see the reports they must decide. (With seeded
-        // grants a branch manager holding "View All Agency Complaints" qualifies; the test posture
-        // has no grants, so the explicit widening — which never fails open — does not apply here.)
-        foreach ([$this->a, $this->b] as $narrow) {
-            try {
-                $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, $narrow->id, $this->admin->id);
-                $this->fail("{$narrow->role} cannot be the compliance-reporting CO");
-            } catch (ValidationException $e) {
-                $this->assertStringContainsString('would not see every compliance report', $e->errors()['co_user_id'][0]);
-            }
-        }
+        $counts = app(\App\Services\Compliance\ApprovalQueueCounts::class);
+        $this->assertFalse($counts->whistleblowMayDecide($this->a, $this->agency->id), 'an agent decides nothing before appointment');
 
-        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, $this->c->id, $this->admin->id);
-        $this->assertSame($this->c->id, $this->registry->currentCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW)->user_id);
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, $this->a->id, $this->admin->id);
+
+        $this->assertTrue($counts->whistleblowMayDecide($this->a, $this->agency->id), 'appointed → decides, role notwithstanding');
+        $this->assertFalse($counts->whistleblowMayDecide($this->b, $this->agency->id), 'a CO exists, so the legacy branch-manager fallback is off');
     }
 
     public function test_route_two_needs_a_full_status_officer_and_keeps_one(): void
     {
-        $officeAdmin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin', 'name' => 'Odette Office', 'designation' => 'Office Admin']);
-        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $officeAdmin->id, $this->admin->id);
+        // A CO must be full status to be appointed at all; the only way to reach "no full-status officer"
+        // is a designation that changed afterwards (someone lapsed to candidate, or a data correction).
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->c->id, $this->admin->id);
+        $this->c->update(['designation' => 'Office Admin']);
 
         try {
             $this->registry->setEsignRoute($this->agency->id, OfficerRegistry::ESIGN_ROUTE_RO_CO);
@@ -109,7 +108,7 @@ final class OfficerAppointmentsTest extends TestCase
         $this->assertEquals([$fullRo->id], $this->registry->activeRos($this->agency->id, OfficerAppointment::MODULE_ESIGN)->pluck('user_id')->all());
 
         // Replacing the CO with a full-status one, then unticking the RO, is fine.
-        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->c->id, $this->admin->id);
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $this->d->id, $this->admin->id);
         $this->registry->saveRos($this->agency->id, OfficerAppointment::MODULE_ESIGN, [], $this->admin->id);
         $this->assertTrue($this->registry->esignRouteIsRoCo($this->agency->id));
     }

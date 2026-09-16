@@ -121,11 +121,10 @@ FICA's own table is **not** migrated — FICA is untouched.
 ### 5.3 Backfill — whistleblow approvers → appointments (same migration as 5.1)
 
 For each agency with a non-empty `whistleblow_approver_user_ids`: the first listed **admin** (else
-super_admin, else branch manager) → `co` — the CO must be able to decide and see every report (§6.6) — and
-everyone else listed → `ro`. If nobody qualifies, no CO is appointed and the legacy role fallback (§9.1) stays
-in force. `whistleblow_ro_can_submit = true` whenever more than the CO was listed, or no CO could be chosen
-(preserves today's behaviour: everyone who could send still can). The JSON column is left in place
-(retention) but is **no longer read** by any gate.
+super_admin, else branch manager, else the first listed member) → `co`, everyone else listed → `ro`, and
+`whistleblow_ro_can_submit = true` whenever more than the CO was listed (preserves today's behaviour:
+everyone who could send still can). The appointment itself grants the right to see and decide (§6.6). The
+JSON column is left in place (retention) but is **no longer read** by any gate.
 
 ### 5.4 `signature_templates.status` enum → 28 values
 
@@ -222,7 +221,8 @@ copies `CommandTask::scopeVisibleTo()`: `all` → untouched; `branch` → `signa
 the creator's branch stamped on the approval row as `branch_id`) equals the officer's effective branch;
 `own` → `requested_by_user_id` is the officer. Consequence (stated in the briefing, accepted): an RO who is an
 ordinary agent sees only their own documents; ROs are in practice branch managers or admins. The **CO**, by
-contrast, must be agency-wide (§6.6) — otherwise a document could be held with nobody able to reach it.
+contrast, always sees the whole agency because they are the CO (§6.6) — otherwise a document could be held
+with nobody able to reach it.
 The branch a scope check measures is the officer's OWN branch (`EsignApproval::branchOf()`): the session's
 "view as branch" override applies only to the person browsing, never to another officer evaluated inside the
 sender's request by a listener.
@@ -241,11 +241,15 @@ All in `OfficerRegistry`, all plain sentences naming the fix:
 - `setEsignRoute('ro_co')` is refused when the agency has no active e-sign CO.
 - `endCo('esign')` is refused while `esign_approval_route === 'ro_co'`. Appointing a **new** CO is always
   allowed (auto-ends the previous).
-- **A CO must be able to reach everything they are the officer for** (`assertCanServeAsCo()`, checked at
-  appointment and again when the e-sign route switches on): the e-sign CO needs agency-wide (`all`) scope on
-  `esign_approvals`; the compliance-reporting CO needs `compliance.whistleblow.approve` **and** agency-wide
-  sight (owner, an explicit `view_all_agency` grant, or `all` scope). Compliance-reporting ROs must hold the
-  approve permission, or the appointment would mean nothing.
+- **The appointment is the authority, never the role (Andre, 2026-09-16).** An appointed Compliance Officer
+  sees and decides everything in their module agency-wide whatever their role or data scope: the e-sign
+  CO's queue scope is `all` (`EsignApprovalService::scopeFor()`), and the compliance-reporting CO sees every
+  report and may decide it (`whistleblowMayDecide()`, `WhistleblowComplaint::scopeVisibleTo()`), with the
+  decision routes gated on the view permission and the officer rule deciding. ROs of both modules decide
+  inside their role's own / branch / all scope. Nothing about being an officer is locked behind admin. The only thing the e-sign CO
+  must BE is a **full-status property practitioner** (`assertCanServeAsCo()`) — they stand where the
+  full-status practitioner stood and co-sign candidates' documents. The compliance-reporting CO can be anyone
+  in the agency. Reporting Officers keep their role's own / branch / all scope (§6.4).
 - **Route 2 always keeps a full-status officer** (ruling 10): switching on, appointing a CO, or saving the RO
   list is refused if no full-status practitioner (`CandidatePractitionerService::isFullStatus()`) would
   remain among the e-sign officers. The wizard's candidate send catches the "no authoriser" case and shows
@@ -351,9 +355,10 @@ super_admin) so no existing agency breaks; the settings section shows a warning 
 - `reject()` → same event, `whistleblow.rejected`, reason included.
 
 ### 9.3 Visibility (ruling 5)
-`WhistleblowComplaint::scopeVisibleTo(User)`: owner or an **explicit, seeded**
-`compliance.whistleblow.view_all_agency` grant → all (`PermissionService::userHasExplicitPermission()` — a
-widening must never fail open under the unseeded allow-all posture); else
+`WhistleblowComplaint::scopeVisibleTo(User)`: owner, an **explicit, seeded**
+`compliance.whistleblow.view_all_agency` grant (`PermissionService::userHasExplicitPermission()` — a
+widening must never fail open under the unseeded allow-all posture), or the appointed compliance-reporting
+CO → all; else
 `PermissionService::getDataScope($user,'compliance.whistleblow') ?? 'own'`:
 `branch` → `branch_id = effectiveBranchId()`, `own` → `reported_by_user_id`. Applied to `index()`, `show()`
 (404 outside scope) and the sidebar badge. `BranchSplitIsolationTest`'s whitelist is untouched (no global
@@ -389,7 +394,8 @@ Deploy: `php artisan corex:sync-permissions` (config-driven, idempotent).
 | Decision on a document whose status moved on | **Prevent** — refused unless the document itself is still `approval_pending` (`approval_declined` for override). |
 | Resend / re-send link while held | **Prevent** — refused with a sentence; no send path skips the gate. |
 | Pre-signed document held on send | **Absorb** — sender told "Held for compliance approval…", never "sent". |
-| CO who cannot see the whole agency / cannot decide reports | **Prevent** — refused at appointment and at route switch-on, naming the fix. |
+| E-sign CO who is not a full-status practitioner | **Prevent** — refused at appointment, naming the fix (any role qualifies once the designation is right). |
+| CO / decider whose role's scope would hide what they must decide | **Absorb** — the appointment widens their sight to the whole agency for that module. |
 | Officer change leaving no full-status e-sign officer on route 2 | **Prevent** — refused; a candidate could never be authorised. |
 | Wizard turns route off and ends the CO in one post | **Absorb** — route switched off first, then the CO ended. |
 | Ledger row whose document was soft-deleted | **Absorb** — "That document no longer exists" on the queue page, never a 500. |
@@ -424,9 +430,10 @@ Deploy: `php artisan corex:sync-permissions` (config-driven, idempotent).
 13. Cancelling a held document empties it from every queue, badge and toast; a stale Approve / Decline is
     refused and the document stays cancelled with nobody invited.
 14. Resend cannot deliver a signing link while held; the sender never sees "sent" for a held document.
-15. An agent-scoped user cannot be appointed e-sign CO; a user without the approve permission cannot be a
-    compliance-reporting CO or RO; the route cannot switch on, and the officer set cannot change, if no
-    full-status officer would remain.
+15. A full-status agent (any role) can be appointed e-sign CO and then sees, is notified of, and can decide
+    every held document in the agency; a non-practitioner cannot be e-sign CO; an appointed
+    compliance-reporting CO of any role sees and decides every report; the route cannot switch on, and the
+    officer set cannot change, if no full-status officer would remain.
 16. A decline that was resubmitted or overridden is not in the Declined tab; a second decline lists the
     document once.
 17. An explicit "View All Agency Complaints" grant shows a branch manager every branch's reports.
@@ -523,11 +530,12 @@ Each item below is a rule the build now enforces; where it tightens a section ab
 4. **The sender is never told "sent" when it was held.** `SignatureController` (send, send-confirmation and
    the in-app sign redirect) lands on My E-Sign Documents with "Held for compliance approval — a Reporting
    Officer has to approve it before it goes to …".
-5. **A Compliance Officer must be able to reach everything they are the officer for (ruling 4, §6.6).**
-   `OfficerRegistry::assertCanServeAsCo()`: e-sign CO needs agency-wide (`all`) scope on
-   `esign_approvals`; compliance-reporting CO needs `compliance.whistleblow.approve` and agency-wide sight
-   (owner, an explicit `view_all_agency` grant, or `all` scope). Compliance-reporting ROs must hold the
-   approve permission. Checked at appointment and again when the e-sign route switches on.
+5. **The appointment is the authority (Andre's ruling, same day, replacing an earlier admin-only guard).**
+   An appointed CO sees and decides everything in their module agency-wide whatever their role: e-sign
+   `scopeFor()` returns `all` for the CO; the compliance-reporting CO sees every report and the decision
+   routes are gated on the view permission with the officer rule deciding; ROs keep role scope. The
+   e-sign CO must be a full-status practitioner (`assertCanServeAsCo()`); the compliance-reporting CO can be
+   anyone. Nothing is locked behind admin.
 6. **Route 2 always keeps a full-status officer (ruling 10).** Switching on, appointing a CO, or saving the
    RO list is refused if no full-status practitioner would remain among the e-sign officers. The wizard's
    candidate send catches the "no authoriser" case and shows the sentence instead of a 500.
@@ -547,6 +555,6 @@ Each item below is a rule the build now enforces; where it tightens a section ab
     "view as branch" override applies only to the person browsing, never to another officer evaluated inside
     the sender's request (both e-sign approvals and compliance reports).
 13. **Ledger row without a document** (soft-deleted template) is a sentence on the queue page, not a 500.
-14. **Backfill (§5.3).** The CO is the first listed admin (else super_admin, else branch manager); if none
-    qualifies no CO is appointed and the legacy role fallback stays. Everyone listed becomes an RO, and
-    ROs may send onward whenever more than the CO was listed or no CO could be chosen.
+14. **Backfill (§5.3).** The CO is the first listed admin (else super_admin, else branch manager, else the
+    first listed member). Everyone else listed becomes an RO, and ROs may send onward whenever more than the
+    CO was listed.

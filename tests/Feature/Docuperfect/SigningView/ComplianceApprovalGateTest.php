@@ -417,6 +417,24 @@ final class ComplianceApprovalGateTest extends TestCase
         $this->assertDatabaseMissing('signature_audit_log', ['signature_template_id' => $tpl->id, 'action' => 'compliance_approved']);
     }
 
+    // ── The appointment is the authority (Andre, 2026-09-16) ──
+
+    public function test_a_full_status_agent_appointed_co_reaches_every_held_document(): void
+    {
+        $this->routeTwo();
+        $agentCo = $this->user('Agent CO', 'agent', 'Property Practitioner', $this->otherBranch);
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_ESIGN, $agentCo->id, $this->co->id);
+
+        [$tpl, $agent] = $this->ceremony(); // Margate, sent by someone else
+        $this->signatures->handlePartyCompletion($tpl, 'agent', $agent);
+
+        $this->assertSame(1, $this->gate->pendingCountFor($agentCo), 'agent-role CO sees a held document from another branch');
+        Notification::assertSentTo($agentCo, SignatureActivityNotification::class);
+
+        $approval = $this->gate->approve($tpl->fresh(), $agentCo, 'Fine.');
+        $this->assertSame(EsignApproval::STATUS_APPROVED, $approval->status);
+    }
+
     // ── No path round the gate ──
 
     public function test_resend_cannot_deliver_the_signing_link_while_held(): void

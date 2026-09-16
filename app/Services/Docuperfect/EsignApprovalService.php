@@ -340,6 +340,14 @@ class EsignApprovalService
             return 'all';
         }
 
+        // The appointment is the authority (Andre, 2026-09-16): the e-sign Compliance Officer reaches
+        // every held document in the agency whatever their role — "the CO overrides all" (ruling 6)
+        // is meaningless otherwise. Reporting Officers keep their role's own / branch / all scope (§6.4).
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        if ($agencyId > 0 && $this->registry->isCo($user, OfficerAppointment::MODULE_ESIGN, $agencyId)) {
+            return 'all';
+        }
+
         return PermissionService::getDataScope($user, self::SCOPE_MODULE);
     }
 

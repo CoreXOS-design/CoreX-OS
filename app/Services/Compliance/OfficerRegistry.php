@@ -7,8 +7,6 @@ namespace App\Services\Compliance;
 use App\Models\Agency;
 use App\Models\Compliance\OfficerAppointment;
 use App\Models\User;
-use App\Services\Docuperfect\EsignApprovalService;
-use App\Services\PermissionService;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 
@@ -201,9 +199,6 @@ class OfficerRegistry
             $newIds = array_values(array_filter($newIds, fn ($id) => $id !== (int) $co->user_id));
         }
 
-        if ($module === OfficerAppointment::MODULE_WHISTLEBLOW) {
-            $this->assertWhistleblowRosMayDecide($agencyId, $newIds);
-        }
         if ($module === OfficerAppointment::MODULE_ESIGN && $this->esignRouteIsRoCo($agencyId)) {
             $future = $co && $co->user_id ? array_merge([(int) $co->user_id], $newIds) : $newIds;
             $this->assertFullStatusOfficerRemains($agencyId, $future, 'ro_user_ids');
@@ -259,12 +254,6 @@ class OfficerRegistry
                 ]);
             }
 
-            // The CO appointed before this rule existed must still be able to reach every document.
-            $coUser = $co->user_id ? User::withoutGlobalScopes()->find($co->user_id) : null;
-            if ($coUser) {
-                $this->assertCanServeAsCo($coUser, OfficerAppointment::MODULE_ESIGN, $agencyId, 'esign_approval_route');
-            }
-
             // A candidate's document can only be authorised by a FULL-STATUS officer on this route
             // (ruling 10) — switching on with none would strand every candidate.
             $officerIds = $this->officers($agencyId, OfficerAppointment::MODULE_ESIGN)->pluck('id')->map(fn ($id) => (int) $id)->all();
@@ -277,58 +266,25 @@ class OfficerRegistry
     // ── Guards (prevent, never let an agency strand itself — ruling 4 / BUILD_STANDARD §2) ──
 
     /**
-     * A Compliance Officer must be able to REACH everything they are the officer for: every held
-     * document (e-sign) or every report (compliance reporting) in the agency, and, for reports, be
-     * allowed to decide them at all. Otherwise a document or report can be held with nobody able to
-     * act on it — the queue, the badge, the toast and the notification all read the same scope.
+     * The APPOINTMENT is the authority, never the role (Andre, 2026-09-16). An appointed Compliance
+     * Officer sees and decides everything in their module agency-wide whatever their role or data
+     * scope — see EsignApprovalService::scopeFor(), ApprovalQueueCounts::whistleblowMayDecide() and
+     * WhistleblowComplaint::scopeVisibleTo(). The only thing a CO must BE is a full-status property
+     * practitioner (e-sign: they stand where the full-status practitioner stood, ruling 6, and may
+     * co-sign a candidate's document, ruling 10).
      */
     public function assertCanServeAsCo(User $user, string $module, int $agencyId, string $field = 'co_user_id'): void
     {
-        $name = $user->name ?: 'That person';
-
-        if ($module === OfficerAppointment::MODULE_ESIGN) {
-            if (! $user->isOwnerRole() && PermissionService::getDataScope($user, EsignApprovalService::SCOPE_MODULE) !== 'all') {
-                throw ValidationException::withMessages([$field =>
-                    "{$name} does not see every e-sign document in the agency, so a held document from another branch or agent would never reach them. "
-                    . 'The e-sign Compliance Officer must see the whole agency — appoint an administrator, or give their role agency-wide access to Documents › Approvals.',
-                ]);
-            }
-
+        if ($module !== OfficerAppointment::MODULE_ESIGN) {
             return;
         }
 
-        if (! $user->hasPermission('compliance.whistleblow.approve')) {
+        if (! app(\App\Services\CandidatePractitionerService::class)->isFullStatus($user)) {
+            $name = $user->name ?: 'That person';
             throw ValidationException::withMessages([$field =>
-                "{$name}'s role cannot approve or reject compliance reports. Give the role the \"Approve / Reject Complaints\" permission first, or appoint someone whose role already has it.",
-            ]);
-        }
-
-        $seesAll = $user->isOwnerRole()
-            || PermissionService::userHasExplicitPermission($user, 'compliance.whistleblow.view_all_agency')
-            || PermissionService::getDataScope($user, 'compliance.whistleblow') === 'all';
-        if (! $seesAll) {
-            throw ValidationException::withMessages([$field =>
-                "{$name} would not see every compliance report in the agency, so a report filed elsewhere would sit with nobody to decide it. "
-                . 'Appoint an administrator, or tick "View All Agency Complaints" for their role.',
-            ]);
-        }
-    }
-
-    /** Every compliance-reporting RO must be allowed to decide, or the RO appointment means nothing. */
-    private function assertWhistleblowRosMayDecide(int $agencyId, array $userIds): void
-    {
-        if ($userIds === []) {
-            return;
-        }
-
-        $cannot = User::withoutGlobalScopes()->whereIn('id', $userIds)->where('agency_id', $agencyId)->get()
-            ->reject(fn (User $u) => $u->hasPermission('compliance.whistleblow.approve'))
-            ->pluck('name');
-
-        if ($cannot->isNotEmpty()) {
-            throw ValidationException::withMessages(['ro_user_ids' =>
-                'These people cannot decide compliance reports until their role has the "Approve / Reject Complaints" permission: '
-                . $cannot->implode(', ') . '.',
+                "{$name} is not a full-status property practitioner (their designation is \"" . ($user->designation ?: 'not set') . "\"). "
+                . 'The e-sign Compliance Officer stands in for a full-status practitioner on every send and co-signs candidates\' documents, so they must be one. '
+                . 'Any role qualifies — set their designation to Property Practitioner or Principal Property Practitioner, or appoint someone who is.',
             ]);
         }
     }

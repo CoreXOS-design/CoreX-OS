@@ -69,6 +69,14 @@ class WhistleblowComplaint extends Model
             return $query;
         }
 
+        // The appointment is the authority (Andre, 2026-09-16): the appointed Compliance Officer sees
+        // every report in the agency whatever their role's data scope. Reporting Officers (and the
+        // legacy no-CO fallback roles) keep their role's own / branch / all scope, as e-sign ROs do.
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        if ($agencyId > 0 && app(\App\Services\Compliance\OfficerRegistry::class)->isCo($user, OfficerAppointment::MODULE_WHISTLEBLOW, $agencyId)) {
+            return $query;
+        }
+
         $scope = \App\Services\PermissionService::getDataScope($user, 'compliance.whistleblow') ?? 'own';
 
         // The "view as branch" override is the SESSION's, i.e. the browsing user's — never another

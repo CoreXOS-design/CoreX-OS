@@ -88,6 +88,17 @@ final class WhistleblowScopeAndNotificationTest extends TestCase
         $this->assertSame(collect([$mine->id, $branch->id, $other->id])->sort()->values()->all(), $ids($this->admin), 'admin: all');
     }
 
+    public function test_an_appointed_agent_co_sees_and_decides_every_report(): void
+    {
+        $other = $this->complaint($this->ro); // Scottburgh, not the agent's own
+        $this->registry->appointCo($this->agency->id, OfficerAppointment::MODULE_WHISTLEBLOW, $this->agent->id, $this->admin->id);
+
+        $this->actingAs($this->agent);
+        $this->assertContains($other->id, WhistleblowComplaint::query()->visibleTo($this->agent)->pluck('id')->all(), 'the appointment widens sight to the whole agency');
+        $this->assertTrue(app(\App\Services\Compliance\ApprovalQueueCounts::class)->whistleblowMayDecide($this->agent, $this->agency->id));
+        $this->get(route('compliance.whistleblow.show', $other))->assertOk();
+    }
+
     public function test_officer_rule_co_always_ro_only_when_allowed_legacy_roles_only_without_a_co(): void
     {
         $counts = app(ApprovalQueueCounts::class);

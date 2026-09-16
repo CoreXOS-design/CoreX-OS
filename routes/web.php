@@ -2452,9 +2452,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/new', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'create'])->name('create')->middleware('permission:compliance.whistleblow.create');
         Route::get('/lawyer-review-pack', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'lawyerReviewPack'])->name('lawyer-pack')->middleware('permission:compliance.whistleblow.configure');
         Route::get('/{complaint}', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'show'])->name('show')->middleware('permission:compliance.whistleblow.view');
-        Route::post('/{complaint}/approve', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'approve'])->name('approve')->middleware('permission:compliance.whistleblow.approve');
-        Route::post('/{complaint}/reject', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'reject'])->name('reject')->middleware('permission:compliance.whistleblow.approve');
-        Route::post('/{complaint}/request-changes', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'requestChanges'])->name('request-changes')->middleware('permission:compliance.whistleblow.approve');
+        Route::post('/{complaint}/approve', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'approve'])->name('approve')->middleware('permission:compliance.whistleblow.view');
+        Route::post('/{complaint}/reject', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'reject'])->name('reject')->middleware('permission:compliance.whistleblow.view');
+        Route::post('/{complaint}/request-changes', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'requestChanges'])->name('request-changes')->middleware('permission:compliance.whistleblow.view');
     });
 
     // ── Approvals hub — three separately counted groups (compliance approval gate, spec §8.3) ──

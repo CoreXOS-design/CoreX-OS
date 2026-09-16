@@ -97,12 +97,15 @@ class ApprovalQueueCounts
         return in_array($user->role ?? 'agent', ['admin', 'branch_manager', 'super_admin'], true);
     }
 
-    /** Mirrors WhistleblowComplaintService's officer rule (CO always; ROs when allowed; legacy roles when no CO). */
+    /**
+     * The ONE rule for "who may decide a compliance report" (spec §9.1), shared by the controller, the
+     * service, the listener, the badge and the hub: the appointed CO always; appointed ROs when the
+     * agency lets them send onward; the legacy admin / BM / super_admin roles (holding the approve
+     * permission) only while no CO is appointed. The appointment is the authority — an appointed
+     * officer decides whatever their role's permissions say (Andre, 2026-09-16).
+     */
     public function whistleblowMayDecide(User $user, int $agencyId): bool
     {
-        if (! $user->hasPermission('compliance.whistleblow.approve')) {
-            return false;
-        }
         if ($this->registry->isCo($user, OfficerAppointment::MODULE_WHISTLEBLOW, $agencyId)) {
             return true;
         }
@@ -110,7 +113,8 @@ class ApprovalQueueCounts
             return $this->registry->whistleblowRosMaySubmit($agencyId);
         }
         if ($this->registry->currentCo($agencyId, OfficerAppointment::MODULE_WHISTLEBLOW) === null) {
-            return in_array($user->role ?? 'agent', ['admin', 'branch_manager', 'super_admin'], true);
+            return $user->hasPermission('compliance.whistleblow.approve')
+                && in_array($user->role ?? 'agent', ['admin', 'branch_manager', 'super_admin'], true);
         }
 
         return false;

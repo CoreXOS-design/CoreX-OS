@@ -94,16 +94,15 @@ return new class extends Migration
                 ->get(['id', 'name', 'email', 'branch_id', 'role'])
                 ->keyBy('id');
 
-            // The CO must be able to decide AND see every report: the first listed approver whose
-            // role is agency-wide (admin / super_admin) takes it; failing that the first branch
-            // manager (they hold "View All Agency Complaints" by default). If nobody qualifies no CO
-            // is appointed, the legacy role fallback stays in force, and everyone listed becomes an
-            // RO — so nobody who could decide yesterday loses that on upgrade.
+            // The appointment is the authority (an appointed CO decides and sees every report
+            // whatever their role), so the first listed approver who is still a member becomes the
+            // CO — an admin or branch manager first when one is listed, only because that is who the
+            // legacy list was for. Everyone else listed becomes an RO.
             $coId = null;
-            foreach (['admin', 'super_admin', 'branch_manager'] as $role) {
+            foreach (['admin', 'super_admin', 'branch_manager', null] as $role) {
                 foreach ($ids as $userId) {
                     $u = $users->get($userId);
-                    if ($u && ($u->role ?? '') === $role) {
+                    if ($u && ($role === null || ($u->role ?? '') === $role)) {
                         $coId = (int) $u->id;
                         break 2;
                     }
