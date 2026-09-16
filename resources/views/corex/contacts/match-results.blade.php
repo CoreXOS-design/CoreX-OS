@@ -65,15 +65,6 @@
                     <span class="text-xs" style="color: var(--text-muted);" title="Saved">
                         Saved {{ $match->created_at?->format('d M Y') ?? '-' }}
                     </span>
-                    @if(auth()->user()->hasPermission('access_core_matches'))
-                    {{-- AT-240 - edit this wishlist/criteria; opens the existing edit flow. --}}
-                    <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
-                       class="ds-badge no-underline inline-flex items-center gap-1"
-                       style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);"
-                       title="Edit this wishlist / match criteria">
-                        Edit criteria
-                    </a>
-                    @endif
                 </div>
             </div>
 

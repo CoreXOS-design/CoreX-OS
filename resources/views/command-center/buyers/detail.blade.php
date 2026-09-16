@@ -11,6 +11,11 @@
     // also reachable from Contacts, not only the Pipeline boards.
     $primaryWishlistForLens = $buyer->matches->firstWhere('is_primary', true) ?? $buyer->matches->first();
     $isRentalContact = ($primaryWishlistForLens->listing_type ?? null) === 'rental';
+    // AT-401 - the Back link honours whichever board (sales or Rentals) the agent entered
+    // through; session('corex.lens.pipeline') is set by BuyerPipelineController::index().
+    $backToRentals = (bool) session('corex.lens.pipeline', false);
+    $backRoute     = $backToRentals ? 'corex.rentals.pipeline.index' : 'command-center.buyers.pipeline';
+    $backBoard     = $backToRentals ? 'Rental Pipeline' : 'Buyer Pipeline';
 
     // SINGLE SOURCE for the viewing-picker. Build the property rows ONCE with
     // a shape-safe accessor (data_get works for arrays AND objects, so a
@@ -59,7 +64,7 @@
     {{-- ════════════════════════════════════════════════════════════════════
          BUYER HEADER — same shape as the contact page header
          (corex.contacts._header): a surface card, NOT a full-bleed
-         corex-page-banner. The old layout put "Back to {{ $backBoard }}" on
+         corex-page-banner. The old layout put the Back link on
          its own line ABOVE a banner that negative-margins itself to the top
          of <main>, which left a hollow band between the two.
 
@@ -82,9 +87,7 @@
         {{-- Identity row — Back + name + badges LEFT, actions RIGHT. --}}
         <div class="px-5 py-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
             <div class="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
-                {{-- AT-401 - honours whichever board (sales or Rentals) the agent entered through. --}}
-                @php $backBoard = session('corex.lens.pipeline', false) ? 'Rental Pipeline' : 'Buyer Pipeline'; @endphp
-                <a href="{{ route(session('corex.lens.pipeline', false) ? 'corex.rentals.pipeline.index' : 'command-center.buyers.pipeline') }}"
+                <a href="{{ route($backRoute) }}"
                    class="corex-btn-outline text-xs no-underline inline-flex items-center flex-shrink-0"
                    style="padding-left:0.5rem; padding-right:0.5rem;"
                    title="Back to {{ $backBoard }}" aria-label="Back to {{ $backBoard }}">

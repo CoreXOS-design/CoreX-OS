@@ -5,11 +5,10 @@
 @php
     // '__ID__' placeholder — the panel URL is resolved per property in JS.
     $synPanelUrlTemplate = route('api.v1.properties.syndication-panel', ['property' => '__ID__']);
-    // AT-419 — every filter/search/clear link on this shared view must stay on
-    // whichever of the two pages the user is currently on, never bounce back
-    // to Properties from Imported Stock (or vice versa).
-    // AT-401 - the Rentals -> Properties entry point is a third name for this same view.
-    $indexRoute = $indexRouteName ?? (($importedStock ?? false) ? 'corex.properties.imported-stock' : 'corex.properties.index');
+    // AT-419 / AT-401 - one view, three entry points (Properties, Rentals -> Properties,
+    // Imported Stock). Every filter / search / clear link stays on the entry point the user is
+    // on; the controller passes that route's own name.
+    $indexRoute = $indexRouteName ?? 'corex.properties.index';
 @endphp
 <div class="w-full h-full flex flex-col corex-props-v2"
      x-data="{

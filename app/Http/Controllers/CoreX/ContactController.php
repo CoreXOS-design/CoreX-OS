@@ -142,17 +142,27 @@ class ContactController extends Controller
         // responsible agent. The no-pick default-narrowing paths are left on the
         // original created_by basis (and ContactScope's own-row enforcement) so
         // the everyday contacts page is unchanged.
-        $hasAgentFilter = $canPickAgent && $filterAgentId !== '' && $filterAgentId !== 'all' && $filterAgentId !== 'branch';
+        $hasAgentFilter = $canPickAgent && $filterAgentId !== '' && $filterAgentId !== 'all';
 
         if ($hasAgentFilter) {
             // An ACTIVE agent filter (the "My Contacts" default, a picked agent, or
-            // "Unassigned") is honoured until the user removes it — search or no search. A
+            // "Unassigned", or the Rentals lens's "Branch" pill) is honoured until the user removes it — search or no search. A
             // typed search NARROWS WITHIN the filtered set; it never silently widens past it
             // (2026-09-13 ruling, reversing the second cut of AT-394 which let a search
             // discard the agent pick). To search the whole agency the user clicks "All
             // Contacts" — that removes the filter, and the widening branch below applies.
             if ($filterAgentId === 'unassigned') {
                 $query->whereNull('agent_id');
+            } elseif ($filterAgentId === 'branch') {
+                // cc4 walk, finding B, 2026-09-13 - the explicit Branch pill (Rentals -> Contacts):
+                // the viewer's own branch, for both 'branch'- and 'all'-scoped users. Checked before
+                // the numeric cast on purpose - (int) 'branch' is 0 and would match nothing.
+                $branchId = $user->effectiveBranchId();
+                if ($branchId) {
+                    $query->whereHas('createdBy', fn($q) => $q->where('branch_id', $branchId));
+                } else {
+                    $query->whereRaw('1 = 0');
+                }
             } else {
                 $query->where('agent_id', (int) $filterAgentId);
             }
@@ -167,17 +177,7 @@ class ContactController extends Controller
             // warning pattern (ContactDuplicateService).
             $query->withoutGlobalScope(\App\Models\Scopes\ContactScope::class);
         } elseif ($canPickAgent) {
-            if ($filterAgentId === 'branch') {
-                // cc4 walk, finding B, 2026-09-13 - explicit Branch pill (Rentals -> Contacts), for both
-                // 'branch'- and 'all'-scoped users. Excluded from $hasAgentFilter above on purpose:
-                // (int) 'branch' casts to 0 and would silently match agent_id = 0 (nothing).
-                $branchId = $user->effectiveBranchId();
-                if ($branchId) {
-                    $query->whereHas('createdBy', fn($q) => $q->where('branch_id', $branchId));
-                } else {
-                    $query->whereRaw('1 = 0');
-                }
-            } elseif ($dataScope === 'branch' && $user->branch_id) {
+            if ($dataScope === 'branch' && $user->branch_id) {
                 $query->whereHas('createdBy', fn($q) => $q->where('branch_id', $user->branch_id));
             }
             // 'all' scope with no filter = show all contacts

@@ -85,12 +85,8 @@ class PropertyController extends Controller
         // redirected to the canonical URL so links, chips and pagination all
         // carry the state. This replaces the previous behaviour that silently
         // reset to "my listings" on any nav that dropped ?agent_id=.
-        // AT-419 — a distinct session key for Imported Stock so its filters
-        // (e.g. a picked agent) never bleed into/from the Properties page;
-        // they're two different lists a user may want filtered differently.
-        // One list, three entry points (Properties, Rentals -> Properties, Imported Stock): every
-        // self-referencing route() call stays on the entry point the user is on (AT-401 / AT-419).
-        $ROUTE_NAME  = $indexRouteName;
+        // One list, three entry points (Properties, Rentals -> Properties, Imported Stock) and
+        // three saved-filter sets, so a pick on one list never bleeds into another (AT-401 / AT-419).
         $SESSION_KEY = $importedStock
             ? 'corex.properties.imported_stock.filters'
             : ($isRentalEntry ? 'corex.rentals.properties.filters' : 'corex.properties.filters');
@@ -103,7 +99,7 @@ class PropertyController extends Controller
         // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
         if ($request->boolean('clear')) {
             $request->session()->forget($SESSION_KEY);
-            return redirect()->route($ROUTE_NAME);
+            return redirect()->route($indexRouteName);
         }
 
         // Did this request carry any filter signal? (incl. the legacy single
@@ -116,7 +112,7 @@ class PropertyController extends Controller
         if (! $hasFilterParam) {
             $saved = (array) $request->session()->get($SESSION_KEY, []);
             if (! empty($saved)) {
-                return redirect()->route($ROUTE_NAME, $saved);
+                return redirect()->route($indexRouteName, $saved);
             }
         }
 

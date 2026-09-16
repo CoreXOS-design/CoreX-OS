@@ -21,7 +21,6 @@
     // this flag is what's missing on the one view where the rows themselves vary.
     $showsMixedTypes = !($isRentalEntry ?? false) && empty($leadType ?? null);
 @endphp
-<div class="w-full space-y-5">
 {{-- Kanban view fills the content area (md:h-full / md:min-h-0 — same mechanism as the
      Task board and Today page) so the four state columns are always viewport-tall and
      scroll inside themselves, with Won / Success pinned beneath them. Below md the
