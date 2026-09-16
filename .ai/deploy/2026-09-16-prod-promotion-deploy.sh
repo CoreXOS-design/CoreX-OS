@@ -60,8 +60,15 @@ ls -ld "$DV_ROOT/corex-data-volume"
 
 step "2. Database dump (before anything changes)"
 DUMP=/root/${DB_NAME}-pre-promotion-$(date +%F-%H%M).sql.gz
-mysqldump --single-transaction --quick --routines --triggers -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" | gzip > "$DUMP"
-[ -s "$DUMP" ] || die "dump is empty: $DUMP"
+DB_HOST=$(grep -E '^DB_HOST=' .env | cut -d= -f2- | tr -d '"'"'" || true); DB_HOST=${DB_HOST:-127.0.0.1}
+DB_PORT=$(grep -E '^DB_PORT=' .env | cut -d= -f2- | tr -d '"'"'" || true); DB_PORT=${DB_PORT:-3306}
+# The app user is granted for the TCP host in .env (nexus@127.0.0.1), not the socket
+# (nexus@localhost) — connect the way the app does. Fall back to the root socket.
+if ! mysqldump --single-transaction --quick --routines --triggers -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" 2>/dev/null | gzip > "$DUMP" || [ ! -s "$DUMP" ]; then
+  echo "app-user dump failed — retrying over the root socket"
+  mysqldump --single-transaction --quick --routines --triggers "$DB_NAME" | gzip > "$DUMP"
+fi
+[ -s "$DUMP" ] && [ "$(stat -c %s "$DUMP")" -gt 10240 ] || die "dump is empty or too small: $DUMP"
 echo "dump: $DUMP ($(du -h "$DUMP" | cut -f1))"
 
 step "3. Code + migrations (back to back — do not interrupt)"
