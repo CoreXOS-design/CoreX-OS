@@ -627,6 +627,17 @@ Phase I — Cleanup:
 - DailyActivityController write path: `DB::table('daily_activity_entries')->updateOrInsert()`
 - New work creates ActivityDefinition Eloquent model + extends existing schema
 - Existing manual capture flow stays unchanged — we ADD an auto-credit path
+- **Layout (2026-09-14, "Checklist + counters" — Andre picked option 2 of 5 on the design canvas):**
+  both `/agent/daily` (`agent/daily-v2.blade.php`) and `/agent/daily/summary`
+  (`agent/daily-summary/index.blade.php`) use a frozen header with two panes that scroll
+  inside themselves at lg+ (the page never scrolls; `corex-brand-scroll`). LEFT = the
+  `scoring_mode = once` definitions as a tick list (daily: checkbox rows + the auto
+  Acquired / Pending lists underneath; summary: days-done bar out of the days in range).
+  RIGHT = the counted definitions (daily: table with a −/+ stepper around the SAME
+  `values[id]` number input, Save pinned; summary: the By Activity table with the totals
+  in its header). Every posted field, route, permission and figure is unchanged; the
+  summary controller now also passes `scoring_mode` per item so the view can split.
+  Canvas with all five drafts: https://claude.ai/code/artifact/bc1c4cae-d69e-435e-9186-e6a510bdbd9f
 
 ### Andre's contact_matches V2 (Staging branch, 1d061c8)
 - 767 lines of new matching engine on Staging

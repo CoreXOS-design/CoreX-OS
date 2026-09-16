@@ -12,33 +12,161 @@
     // portals" instead of leaving P24/PP/the website advertising the old listing.
     $synOpenOnLoad = !$isNew && session('open_syndication');
 @endphp
-<div class="w-full space-y-4 corex-props-v2"
+    <style>
+        /* 2026-09-13 restyle — identity strip + fixed-height page. The page is a
+           full-height flex column: the strip and any banners stay put, the sidebar
+           fits the screen, and ONLY the tab panel scrolls (same pattern as the
+           contacts page, AT-393). */
+        .corex-props-v2 .prop-identity-strip .prop-action-btn { width: auto; white-space: nowrap; }
+        .corex-props-v2 .prop-tab-panel { overflow-y: auto; overflow-x: clip; }
+        .corex-props-v2 .prop-cov-dot-btn {
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+            width: 2rem; border-radius: 6px; cursor: pointer;
+            background: var(--surface-2); border: 1px solid var(--border);
+        }
+        .corex-props-v2 .prop-cov-dot-btn:hover { background: color-mix(in srgb, var(--text-primary) 6%, var(--surface-2)); }
+        .corex-props-v2 .prop-cov-dot {
+            width: 9px; height: 9px; border-radius: 50%;
+            box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent);
+        }
+    </style>
+<div class="w-full h-full flex flex-col space-y-4 corex-props-v2"
      x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:switch-tab.window="activeTab = $event.detail"
      x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')">
 
-    {{-- Top bar: back + flash --}}
-    {{-- AT-401 — honours whichever Properties list (sales or Rentals) the
-         agent most recently entered through (session('corex.lens.properties'),
-         set by PropertyController::index() on the way in), so "Back" from a
-         property opened via Rentals → Properties returns there, not to the
-         sales list. --}}
-    <div class="flex items-center gap-4 flex-wrap">
+    {{-- Identity strip (2026-09-13 restyle, option 2) — Back, the property's identity
+         (photo, type/status pills, address, title, price) and the two page-level
+         controls (Compliance Status, Save Changes) on ONE line. Replaces both the old
+         "Back + flash" row, which sat empty most of the time, and the sidebar's
+         identity card, so the sidebar underneath is short enough to fit the screen.
+         On phones the identity part hides — the tab panel keeps its own header
+         strip there — and the row is just Back + the two controls. --}}
+    @php
+        // Identity strip + mobile header — both render this at 40-56px, so it was
+        // the single worst offender per display-pixel: a raw multi-MB original
+        // stretched into a 48px square on every property page.
+        $thumb = $property->thumbFor($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
+        $listingTypeLabel = match(strtolower((string) ($property->listing_type ?? 'sale'))) {
+            'rental' => 'For Rent',
+            default  => 'For Sale',
+        };
+        $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+        $brandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
+        // AT-266 — one canonical display address (Property::buildDisplayAddress),
+        // not an inline re-implementation. $sbAddr is the address string; it
+        // falls back to title/'Unknown Property' internally, so $hasRealAddr
+        // tells the two-line layout whether there is a real address to show
+        // above the title.
+        $sbAddr = $property->buildDisplayAddress();
+        $hasRealAddr = $sbAddr !== '' && $sbAddr !== ($property->title ?? '') && $sbAddr !== 'Unknown Property';
+
+        $isMarketable = false;
+        if (!$isNew) {
+            $isMarketable = ($readinessReport->snapshotAt !== null) || $readinessReport->ready;
+            $cmpLive    = $readinessReport->snapshotAt !== null;
+            $cmpReady   = $readinessReport->ready && !$cmpLive;
+            $cmpLabel   = $cmpLive ? 'LIVE' : ($cmpReady ? 'READY' : 'BLOCKED');
+            $cmpPillBg  = $cmpLive ? '#10b981' : ($cmpReady ? 'rgba(0,212,170,.18)' : 'rgba(245,158,11,.18)');
+            $cmpPillFg  = $cmpLive ? '#ffffff' : ($cmpReady ? '#047857' : '#b45309');
+        }
+    @endphp
+    <div class="prop-identity-strip flex-shrink-0 rounded-md px-3 py-2 flex items-center gap-3 flex-wrap"
+         style="background:var(--surface); border:1px solid var(--border);">
         <a href="{{ route(session('corex.lens.properties', false) ? 'corex.rentals.properties.index' : 'corex.properties.index') }}"
-           class="inline-flex items-center gap-1.5 text-sm no-underline flex-shrink-0"
-           style="color:var(--text-secondary);">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-            Back
+           class="corex-btn-outline text-xs no-underline inline-flex items-center flex-shrink-0"
+           style="padding-left:0.5rem; padding-right:0.5rem;"
+           title="Back to Properties" aria-label="Back to Properties">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+            <span class="sr-only">Back to Properties</span>
         </a>
+
+        <div class="hidden lg:flex items-center gap-3 min-w-0 flex-1">
+            @if($thumb)
+                <img src="{{ $thumb }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">
+            @else
+                <div class="w-10 h-10 rounded flex items-center justify-center flex-shrink-0" style="background:var(--surface-2);">
+                    <svg class="w-5 h-5" style="color:var(--text-muted);opacity:.4;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg>
+                </div>
+            @endif
+            <div class="min-w-0 flex-1">
+                <div class="flex items-baseline gap-x-2 min-w-0">
+                    @if($hasRealAddr)
+                        <span class="text-sm font-bold leading-snug truncate" style="color:var(--text-primary);" title="{{ $sbAddr }}">{{ $sbAddr }}</span>
+                        @if($property->title)
+                        <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</span>
+                        @endif
+                    @else
+                        <span class="text-sm font-bold leading-snug truncate" style="color:var(--text-primary);" title="{{ $property->title }}">{{ $property->title ?: 'New Property' }}</span>
+                    @endif
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap mt-0.5">
+                    <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
+                    <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
+                    @if(!empty($property->status_label))
+                        <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
+                    @endif
+                    @if($property->isPublished())
+                        <span class="ds-badge ds-badge-success">Published</span>
+                    @endif
+
+                    {{-- AT-238 — WHERE THE PAPER LIVES.
+                         The physical file reference, read straight through from the filing
+                         register. The property stores no copy of it: the register owns the
+                         fact, so a re-numbered file cannot leave a stale reference behind
+                         here. An agent standing on the property record can now see which
+                         file to pull without going and looking it up.
+
+                         Several are normal — an OA and an EA are separate documents — so all
+                         of them are shown. A property with no filing shows NOTHING: an empty
+                         chip is clutter, and absence is already the answer. --}}
+                    @if(!$isNew && $property->filings->isNotEmpty())
+                        @foreach($property->filings as $filing)
+                            <span class="ds-badge ds-badge-info"
+                                  title="Physically filed as {{ $filing->full_reference }} ({{ $filing->document_type }}){{ $filing->expiry_date ? ' — mandate expires ' . $filing->expiry_date->format('d M Y') : '' }}. Read live from the Filing Register.">
+                                {{ $filing->document_type }} · {{ $filing->full_reference }}
+                            </span>
+                        @endforeach
+                    @endif
+                    @if(!$isNew)
+                        <span class="text-sm font-bold ml-1" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</span>
+                    @endif
+                </div>
+            </div>
+        </div>
+        <div class="flex-1 lg:hidden"></div>
+
+        @if(!$isNew)
+        <div class="flex items-center gap-2 flex-shrink-0 ml-auto">
+            <button type="button" @click="complianceModalOpen = true"
+                    class="prop-action-btn prop-action-btn-neutral"
+                    title="View compliance gates and go-live status">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"/></svg>
+                Compliance Status
+                <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
+            </button>
+
+            <button type="submit" form="prop-update-form" data-prop-save
+                    class="prop-action-btn prop-action-btn-success">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                <span class="prop-save-label">Save Changes</span>
+            </button>
+        </div>
+        @endif
+    </div>
+
+    {{-- Flash + validation messages — only take up space when there is one to show. --}}
+    @if(session('success') || session('error') || $errors->any())
+    <div class="flex-shrink-0 space-y-2">
         @if(session('success'))
-        <div class="flex-1 rounded-md border px-4 py-2 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border-color:color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color:var(--ds-green, #059669);">
+        <div class="rounded-md border px-4 py-2 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border-color:color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color:var(--ds-green, #059669);">
             {{ session('success') }}
         </div>
         @endif
         @if(session('error'))
-        <div class="flex-1 rounded-md border px-4 py-2 text-sm font-medium" style="background:color-mix(in srgb, #dc2626 10%, transparent); border-color:color-mix(in srgb, #dc2626 30%, transparent); color:#dc2626;">
+        <div class="rounded-md border px-4 py-2 text-sm font-medium" style="background:color-mix(in srgb, #dc2626 10%, transparent); border-color:color-mix(in srgb, #dc2626 30%, transparent); color:#dc2626;">
             {{ session('error') }}
         </div>
         @endif
@@ -46,7 +174,7 @@
         {{-- List EVERY error, not just the first. A save bounces back here; if
              we only show one, the agent can't tell why "nothing saved" (e.g. a
              location + a beds/baths problem at once). --}}
-        <div class="flex-1 rounded-md border px-4 py-2 text-sm" style="background:color-mix(in srgb, #dc2626 10%, transparent); border-color:color-mix(in srgb, #dc2626 30%, transparent); color:#dc2626;">
+        <div class="rounded-md border px-4 py-2 text-sm" style="background:color-mix(in srgb, #dc2626 10%, transparent); border-color:color-mix(in srgb, #dc2626 30%, transparent); color:#dc2626;">
             <p class="font-semibold mb-1">Couldn't save — please fix:</p>
             <ul class="list-disc list-inside space-y-0.5">
                 @foreach($errors->all() as $error)
@@ -56,6 +184,7 @@
         </div>
         @endif
     </div>
+    @endif
 
     {{-- AT-267 — view-only lock when the current user may not edit this listing (e.g. an assistant
          looking at a colleague's listing their agent can see). Banner + enforcer disable every edit
@@ -141,15 +270,13 @@
 
     {{-- Readiness bar removed --}}
 
-    {{-- Two-column layout on large screens --}}
-    <div class="flex gap-5 items-start" style="min-height:0;">
+    {{-- Two-column layout on large screens — fills the rest of the page height;
+         the sidebar fits (and scrolls itself only if it must), the tab panel scrolls. --}}
+    <div class="flex gap-5 items-stretch flex-1" style="min-height:0;">
 
         {{-- LEFT: sticky property summary panel --}}
         @php
-        // Sidebar identity strip + mobile header — both render this at 48-56px,
-        // so it was the single worst offender per display-pixel: a raw multi-MB
-        // original stretched into a 48px square on every property page.
-        $thumb = $property->thumbFor($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
+        // $thumb is computed once in the identity strip above (also used by the mobile header).
         $statusColors = [
             'active'    => 'var(--ds-green)',
             'draft'     => 'var(--text-muted)',
@@ -190,7 +317,7 @@
         {{-- Collapsed rail --}}
         <aside x-show="sbCollapsed" x-cloak
                class="hidden lg:flex flex-col items-center gap-2 flex-shrink-0 py-2"
-               style="width:40px; position:sticky; top:0;">
+               style="width:40px;">
             <button type="button" @click="sbCollapsed = false"
                     title="Expand sidebar"
                     class="w-8 h-8 rounded-md flex items-center justify-center transition-colors"
@@ -202,105 +329,14 @@
 
         {{-- Expanded sidebar --}}
         <aside x-show="!sbCollapsed"
-               class="hidden lg:flex flex-col gap-3 flex-shrink-0" style="width:280px; position:sticky; top:0;">
-
-            {{-- Identity strip (compact) --}}
-            <div class="relative rounded-md p-3 flex items-center gap-3" style="background:var(--surface); border:1px solid var(--border);">
-                @if($thumb)
-                    <img src="{{ $thumb }}" alt="" class="w-12 h-12 rounded object-cover flex-shrink-0">
-                @else
-                    <div class="w-12 h-12 rounded flex items-center justify-center flex-shrink-0" style="background:var(--surface-2);">
-                        <svg class="w-5 h-5" style="color:var(--text-muted);opacity:.4;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg>
-                    </div>
-                @endif
-                <div class="min-w-0 flex-1">
-                    @php
-                        $listingTypeLabel = match(strtolower((string) ($property->listing_type ?? 'sale'))) {
-                            'rental' => 'For Rent',
-                            default  => 'For Sale',
-                        };
-                        $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
-                        $brandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
-                    @endphp
-                    <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
-                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
-                        @if(!empty($property->status_label))
-                            <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
-                        @endif
-                        @if($property->isPublished())
-                            <span class="ds-badge ds-badge-success">Published</span>
-                        @endif
-
-                        {{-- AT-238 — WHERE THE PAPER LIVES.
-                             The physical file reference, read straight through from the filing
-                             register. The property stores no copy of it: the register owns the
-                             fact, so a re-numbered file cannot leave a stale reference behind
-                             here. An agent standing on the property record can now see which
-                             file to pull without going and looking it up.
-
-                             Several are normal — an OA and an EA are separate documents — so all
-                             of them are shown. A property with no filing shows NOTHING: an empty
-                             chip is clutter, and absence is already the answer. --}}
-                        @if(!$isNew && $property->filings->isNotEmpty())
-                            @foreach($property->filings as $filing)
-                                <span class="ds-badge ds-badge-info"
-                                      title="Physically filed as {{ $filing->full_reference }} ({{ $filing->document_type }}){{ $filing->expiry_date ? ' — mandate expires ' . $filing->expiry_date->format('d M Y') : '' }}. Read live from the Filing Register.">
-                                    {{ $filing->document_type }} · {{ $filing->full_reference }}
-                                </span>
-                            @endforeach
-                        @endif
-                    </div>
-                    @php
-                        // AT-266 — one canonical display address (Property::buildDisplayAddress),
-                        // not an inline re-implementation. $sbAddr is the address string; it
-                        // falls back to title/'Unknown Property' internally, so $hasRealAddr
-                        // tells the two-line layout whether there is a real address to show
-                        // above the title.
-                        $sbAddr = $property->buildDisplayAddress();
-                        $hasRealAddr = $sbAddr !== '' && $sbAddr !== ($property->title ?? '') && $sbAddr !== 'Unknown Property';
-                    @endphp
-                    @if($hasRealAddr)
-                        {{-- Address primary, heading small underneath --}}
-                        <div class="text-sm font-bold mt-1 leading-snug" style="color:var(--text-primary); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;" title="{{ $sbAddr }}">{{ $sbAddr }}</div>
-                        @if($property->title)
-                        <div class="text-[11px] mt-0.5 truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</div>
-                        @endif
-                    @else
-                        <div class="text-sm font-bold mt-1 truncate" style="color:var(--text-primary);" title="{{ $property->title }}">{{ $property->title ?: 'New Property' }}</div>
-                    @endif
-                </div>
-            </div>
+               class="hidden lg:flex flex-col gap-3 flex-shrink-0 corex-brand-scroll" style="width:280px; min-height:0; overflow-y:auto;">
 
             {{-- Action stack --}}
             @if(!$isNew)
             <div class="rounded-md p-3 space-y-2" style="background:var(--surface); border:1px solid var(--border);">
                 <p class="text-[0.6875rem] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Actions</p>
 
-                <button type="submit" form="prop-update-form" data-prop-save
-                        class="prop-action-btn prop-action-btn-success">
-                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-                    <span class="prop-save-label">Save Changes</span>
-                </button>
-
-                @php
-                    $isMarketable = ($readinessReport->snapshotAt !== null) || $readinessReport->ready;
-                    $cmpLive    = $readinessReport->snapshotAt !== null;
-                    $cmpReady   = $readinessReport->ready && !$cmpLive;
-                    $cmpLabel   = $cmpLive ? 'LIVE' : ($cmpReady ? 'READY' : 'BLOCKED');
-                    $cmpPillBg  = $cmpLive ? '#10b981' : ($cmpReady ? 'rgba(0,212,170,.18)' : 'rgba(245,158,11,.18)');
-                    $cmpPillFg  = $cmpLive ? '#ffffff' : ($cmpReady ? '#047857' : '#b45309');
-                @endphp
-
-                <button type="button" @click="complianceModalOpen = true"
-                        class="prop-action-btn prop-action-btn-neutral justify-between"
-                        title="View compliance gates and go-live status">
-                    <span class="flex items-center gap-1.5">
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"/></svg>
-                        Compliance Status
-                    </span>
-                    <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
-                </button>
+                {{-- Save Changes + Compliance Status live in the identity strip at the top of the page. --}}
 
                 <button type="button"
                         @unless($canEdit ?? true) data-edit-only @endunless
@@ -404,37 +440,55 @@
                     x-init="loadCoverage()"
                     class="space-y-2">
 
-                    {{-- Coverage badge (loaded async; placeholder shown until coverage resolves) --}}
-                    <div class="rounded-md px-2.5 py-2 text-[11px] leading-snug"
-                         x-show="coverage"
-                         x-cloak
-                         :style="badgeStyle">
-                        <div class="font-semibold uppercase tracking-wider text-[9px] mb-0.5" x-text="badgeHeading"></div>
-                        <div x-text="coverage?.recommendation"></div>
-                    </div>
-                    <div class="rounded-md px-2.5 py-2 text-[11px]" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);"
-                         x-show="!coverage && !coverageError" x-cloak>
-                        Checking comp coverage…
-                    </div>
-                    <div class="rounded-md px-2.5 py-2 text-[11px]" style="background:color-mix(in srgb, #dc2626 10%, transparent); border:1px solid color-mix(in srgb, #dc2626 30%, transparent); color:#dc2626;"
-                         x-show="coverageError" x-cloak
-                         x-text="coverageError"></div>
+                    {{-- Generate button + comp-coverage status dot. The coverage sentence
+                         (loaded async) used to sit above the button as a full card; it now
+                         lives behind the dot — green / amber / red for strong / moderate /
+                         no data, grey while checking — and opens on click. Same copy, same
+                         source (coverage.recommendation), just not taking sidebar height. --}}
+                    <div class="relative" @click.outside="covOpen = false" @keydown.escape.window="covOpen = false">
+                        <div class="flex items-stretch gap-1">
+                            <button type="button"
+                                    @click="onClickGenerate()"
+                                    class="prop-action-btn prop-action-btn-brand flex-1"
+                                    :disabled="generating"
+                                    :class="generating ? 'opacity-60 cursor-wait' : ''"
+                                    title="Generate a market-analytics presentation pack for this property">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="!generating">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/>
+                                </svg>
+                                <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="generating" x-cloak>
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/>
+                                </svg>
+                                <span x-text="generating ? 'Generating…' : 'Generate Presentation'"></span>
+                            </button>
+                            <button type="button"
+                                    @click="covOpen = !covOpen"
+                                    class="prop-cov-dot-btn"
+                                    :style="'color:' + covDotColor"
+                                    :title="badgeHeading + ' — click for details'"
+                                    :aria-expanded="covOpen ? 'true' : 'false'"
+                                    aria-label="Comparable-data coverage">
+                                <span class="prop-cov-dot" :class="!coverage && !coverageError ? 'animate-pulse' : ''" style="background:currentColor;"></span>
+                            </button>
+                        </div>
 
-                    {{-- Generate button --}}
-                    <button type="button"
-                            @click="onClickGenerate()"
-                            class="prop-action-btn prop-action-btn-brand w-full"
-                            :disabled="generating"
-                            :class="generating ? 'opacity-60 cursor-wait' : ''"
-                            title="Generate a market-analytics presentation pack for this property">
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="!generating">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"/>
-                        </svg>
-                        <svg class="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" x-show="generating" x-cloak>
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/>
-                        </svg>
-                        <span x-text="generating ? 'Generating…' : 'Generate Presentation'"></span>
-                    </button>
+                        <div x-show="covOpen" x-cloak x-transition.opacity.duration.120ms
+                             class="absolute left-0 right-0 z-30 mt-1 rounded-md px-3 py-2.5 text-[11px] leading-snug shadow-lg"
+                             style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <div class="font-semibold uppercase tracking-wider text-[9px] mb-1" :style="'color:' + covDotColor" x-text="badgeHeading"></div>
+                            <div x-show="coverage" x-text="coverage?.recommendation"></div>
+                            <div x-show="!coverage && !coverageError" style="color:var(--text-muted);">Checking comp coverage…</div>
+                            <div x-show="coverageError" style="color:#dc2626;" x-text="coverageError"></div>
+                            @if(!empty($_genMissing))
+                                <div class="mt-2 pt-2" style="border-top:1px solid var(--border);">
+                                    This property is missing <strong>{{ \App\Support\Presentations\SubjectFieldCompleteness::joinNames($_genMissing) }}</strong>.
+                                    <button type="button" class="underline font-semibold" style="color:var(--brand-icon); background:none; border:0; padding:0; cursor:pointer;"
+                                            @click="covOpen = false; $dispatch('corex:switch-tab', 'info')">Set {{ count($_genMissing) === 1 ? 'it' : 'them' }} on the Info tab</button>
+                                    for a full report.
+                                </div>
+                            @endif
+                        </div>
+                    </div>
 
                     {{-- Asking-price modal (shown when property has no listed price) --}}
                     <template x-teleport="body">
@@ -579,6 +633,7 @@
                         return {
                             coverage: null,
                             coverageError: null,
+                            covOpen: false,     // coverage-detail popover beside Generate
                             modalOpen: false,
                             modalError: null,
                             askingPrice: null,
@@ -604,6 +659,12 @@
                                 };
                                 const p = palettes[state] ?? palettes.none;
                                 return `background:${p.bg}; border:1px solid ${p.border}; color:${p.fg};`;
+                            },
+                            get covDotColor() {
+                                if (this.coverageError) return '#dc2626';
+                                if (!this.coverage) return 'var(--text-muted)';
+                                const colors = { rich: 'var(--ds-green)', moderate: 'var(--ds-amber)', thin: 'var(--ds-amber)', none: '#dc2626' };
+                                return colors[this.coverage.state] ?? '#dc2626';
                             },
                             get badgeHeading() {
                                 const labels = { rich: 'Strong data', moderate: 'Moderate data', thin: 'Thin data', none: 'No data' };
@@ -993,8 +1054,20 @@
                     ->listingsMarketingProperty($property, (int) $property->agency_id);
             @endphp
             @if($prospectMatches->count() > 0)
-            <div class="rounded-md p-3 space-y-2" style="background:var(--surface); border:1px solid var(--border);">
-                <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Also Marketed By ({{ $prospectMatches->count() }})</p>
+            {{-- 2026-09-14: collapsed by default (same pattern as Readiness above) — a
+                 property with several competing listings was stretching the sidebar into
+                 its own scrollbar. The count stays visible on the closed header. --}}
+            <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ alsoMarketedOpen: false }">
+                <button type="button" @click="alsoMarketedOpen = !alsoMarketedOpen"
+                        class="w-full flex items-center justify-between"
+                        style="background:transparent; border:0; cursor:pointer; padding:0;">
+                    <p class="text-[0.6875rem] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Also Marketed By</p>
+                    <span class="flex items-center gap-2">
+                        <span class="text-sm font-extrabold" style="color:var(--text-primary);">{{ $prospectMatches->count() }}</span>
+                        <svg class="w-3.5 h-3.5 transition-transform" :class="alsoMarketedOpen ? 'rotate-180' : ''" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/></svg>
+                    </span>
+                </button>
+                <div x-show="alsoMarketedOpen" x-cloak x-collapse class="space-y-2 mt-3">
                 @foreach($prospectMatches as $pm)
                 <div class="rounded p-2" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div class="flex items-center gap-2 flex-wrap">
@@ -1015,6 +1088,7 @@
                     @endif
                 </div>
                 @endforeach
+                </div>
             </div>
             @endif
             @endif
@@ -1022,7 +1096,8 @@
         </aside>
 
         {{-- RIGHT: tabs --}}
-        <div class="flex-1 min-w-0" style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:clip;">
+        <div class="flex-1 min-w-0 prop-tab-panel corex-brand-scroll" data-scroll-region
+             style="background:var(--surface); border:1px solid var(--border); border-radius:6px;">
 
         {{-- PROSPECTING banner (Johan, 2026-08-20/21, .ai/specs/2026-08-20-
              property-status-prospecting.md) — deliberately the FIRST thing in
@@ -1206,19 +1281,9 @@
         </template>
     @endif
 
-    {{-- Tab bar (shared) --}}
-        {{-- AT-402 — Rental tab visibility. An EXISTING property's listing_type is
-             fixed for the life of this page load (the <select> only renders when
-             $isNew || listing_type_pending — see the Listing Type field below;
-             otherwise it's a disabled display + hidden input), so a static PHP
-             @continue is enough there. But for a BRAND NEW property (or a
-             type-change draft), listing_type is live-editable before the first
-             save, and the existing "Rental Details" section already reacts to
-             that live change (its own x-data further down) — the Rental tab
-             button must do the same, or an agent who picks "Rental" while
-             creating a listing loses everywhere to enter rental info until
-             after they save once. Mirrors that section's exact pattern. --}}
-        <div class="flex overflow-x-auto" style="border-bottom:1px solid var(--border);"
+    {{-- Tab bar (shared) — sticky at the top of the scrolling tab panel --}}
+        <div class="flex overflow-x-auto sticky top-0 z-10" style="border-bottom:1px solid var(--border); background:var(--surface);"
+             {{-- AT-402 - the Rental tab follows a live listing_type change on a brand-new property. --}}
              x-data="{ isRentalListing: document.querySelector('[name=listing_type]')?.value === 'rental' }"
              x-init="document.querySelector('[name=listing_type]')?.addEventListener('change', e => {
                  isRentalListing = e.target.value === 'rental';
@@ -6131,7 +6196,7 @@
                                 <div class="min-w-0">
                                     <div class="text-sm font-bold truncate" style="color:var(--text-primary);">{{ $cm->createdBy->name }}</div>
                                     @if($cm->createdBy->branch)
-                                    <div class="text-[0.6875rem]" style="color:var(--text-muted);">{{ $cm->createdBy->branch->name }}</div>
+                                    <div class="text-[0.6875rem]" style="color:var(--text-muted);">{{ $cm->createdBy->branch->display_name }}</div>
                                     @endif
                                 </div>
                             </div>

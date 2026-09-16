@@ -9,8 +9,8 @@
     increment so the contact's WA/email counters still update) rather than
     parametrizing that partial further — this button targets
     $contact->clientPageUrl() (buyer-level), not a single wishlist's
-    sharedUrl(), and sits in the page banner's on-brand button styling
-    (corex-btn-*), not the card's --match-action-bar-* custom properties.
+    sharedUrl(), and sits in the buyer header card's neutral outline button
+    styling (corex-btn-outline), not the card's --match-action-bar-* custom properties.
 
     Required: $buyer  App\Models\Contact
 --}}
@@ -84,7 +84,7 @@
 
     @include('partials.whatsapp-send-confirm-modal')
 
-    <button type="button" @click="shareOpen = !shareOpen" class="corex-btn-outline corex-btn-on-brand inline-flex items-center gap-1.5">
+    <button type="button" @click="shareOpen = !shareOpen" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z"/></svg>
         Share
     </button>

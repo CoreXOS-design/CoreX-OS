@@ -2,8 +2,8 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+<div class="w-full h-full flex flex-col">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="comp-comm-archive-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Communication Archive</h1>
@@ -18,14 +18,16 @@
     </div>
 
     @if($contact)
-    <div class="rounded-md px-4 py-2 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
+    <div class="rounded-md px-4 py-2 mt-3 flex-shrink-0 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
         Filtered to contact: <strong>{{ $contact->first_name }} {{ $contact->last_name }}</strong>
         <a href="{{ route('compliance.comm-archive.index') }}" class="ml-2" style="color: var(--brand-icon);">Clear</a>
     </div>
     @endif
 
-    {{-- Filters --}}
-    <div class="rounded-md p-4" data-tour="comp-comm-archive-filters" style="background: var(--surface); border: 1px solid var(--border);">
+    {{-- Filters — directly under the header (AT-393). Header + filters are frozen: the
+         page wrapper is a full-height flex column and ONLY the scroll region below
+         (archive table + pagination) scrolls. --}}
+    <div class="rounded-md p-4 mt-3 flex-shrink-0" data-tour="comp-comm-archive-filters" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" class="flex flex-wrap items-end gap-3">
             @if($contact)<input type="hidden" name="contact" value="{{ $contact->id }}">@endif
             <div class="flex-1 min-w-[200px]">
@@ -58,8 +60,12 @@
             @if($search || $channel || $direction)
             <a href="{{ route('compliance.comm-archive.index', $contact ? ['contact' => $contact->id] : []) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Clear</a>
             @endif
+            <span class="ml-auto text-xs self-center" style="color:var(--text-muted);">{{ number_format($communications->total()) }} message{{ $communications->total() === 1 ? '' : 's' }}</span>
         </form>
     </div>
+
+    {{-- Scroll region — everything from here down scrolls; header + filters stay put. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
 
     {{-- List --}}
     <div class="rounded-md overflow-hidden" data-tour="comp-comm-archive-list" style="background: var(--surface); border: 1px solid var(--border);">
@@ -103,7 +109,7 @@
                         </td>
                     </tr>
                     @empty
-                    <tr><td colspan="6" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No communications archived yet.</td></tr>
+                    <tr><td colspan="6" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">{{ ($search || $channel || $direction || $contact) ? 'No communications match these filters.' : 'No communications archived yet.' }}</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -112,5 +118,6 @@
         <div class="px-4 py-3" style="border-top: 1px solid var(--border);">{{ $communications->links() }}</div>
         @endif
     </div>
+    </div>{{-- /scroll region --}}
 </div>
 @endsection

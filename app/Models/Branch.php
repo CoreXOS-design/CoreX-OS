@@ -50,6 +50,96 @@ class Branch extends Model
         'website_order'   => 'integer',
     ];
 
+    // ── Archive / restore (spec: branch-archive-reassignment.md, AT-420) ──
+
+    /**
+     * The name to show on any record that references this branch. An archived
+     * branch keeps its name everywhere it is referenced, suffixed so nobody
+     * mistakes it for a live one. Never blank.
+     */
+    public function getDisplayNameAttribute(): string
+    {
+        return $this->trashed() ? "{$this->name} (archived)" : (string) $this->name;
+    }
+
+    /**
+     * Active branches only — the ONLY list ever offered as a target for new
+     * work (new deal, agent reassignment, managed-branch picker, TV code…).
+     * Identical to the default soft-delete behaviour, but named so a caller
+     * states its intent and a reviewer can tell a target list from a report
+     * filter at a glance.
+     */
+    public function scopeSelectable($query)
+    {
+        return $query->whereNull($this->getQualifiedDeletedAtColumn());
+    }
+
+    /**
+     * Branches for a REPORT filter or a name lookup on historical records:
+     * active first (by name), then archived (by name). Archived rows carry
+     * display_name "… (archived)" so a filter can group them and a register
+     * row never renders a blank branch.
+     */
+    public static function listForReports()
+    {
+        return static::withTrashed()
+            ->orderByRaw('CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END')
+            ->orderBy('name')
+            ->get();
+    }
+
+    /**
+     * Ids of every user still attached to this branch: home branch
+     * (users.branch_id) plus the legacy 1:1 branch_assignments pivot. Both
+     * must be empty before the branch can be archived without a move.
+     *
+     * @return int[]
+     */
+    public function attachedUserIds(): array
+    {
+        $home   = User::where('branch_id', $this->id)->pluck('id')->all();
+        $legacy = \DB::table('branch_assignments')->where('branch_id', $this->id)->pluck('user_id')->all();
+
+        return array_values(array_unique(array_map('intval', array_merge($home, $legacy))));
+    }
+
+    /**
+     * Users attached to each of the given branches, keyed by branch id —
+     * the rows the archive wizard lists. Includes inactive users and
+     * assistants: anyone whose home is this branch must be moved.
+     *
+     * @param  iterable<int>  $branchIds
+     * @return \Illuminate\Support\Collection<int, \Illuminate\Support\Collection<int, User>>
+     */
+    public static function attachedUsersGrouped(iterable $branchIds)
+    {
+        $ids = collect($branchIds)->map(fn ($id) => (int) $id)->unique()->values();
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        $legacy = \DB::table('branch_assignments')
+            ->whereIn('branch_id', $ids)
+            ->pluck('branch_id', 'user_id');            // user_id => branch_id
+
+        $users = User::query()
+            ->where(function ($q) use ($ids, $legacy) {
+                $q->whereIn('branch_id', $ids);
+                if ($legacy->isNotEmpty()) {
+                    $q->orWhereIn('id', $legacy->keys());
+                }
+            })
+            ->orderBy('name')
+            ->get(['id', 'name', 'role', 'branch_id', 'is_active', 'is_assistant']);
+
+        return $users->groupBy(function (User $u) use ($ids, $legacy) {
+            // Home branch wins; a legacy-pivot-only user groups under its pivot branch.
+            return $ids->contains((int) $u->branch_id)
+                ? (int) $u->branch_id
+                : (int) ($legacy[$u->id] ?? 0);
+        });
+    }
+
     /**
      * Returns contact detail value — branch value if set,
      * otherwise falls back to Agency value.

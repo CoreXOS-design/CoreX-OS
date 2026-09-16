@@ -463,9 +463,15 @@
             </form>
 
             {{-- ── Proforma Invoice — Banking & Numbering (Accounting pillar) ── --}}
-            @php $proformaSettings = \App\Models\Proforma\AgencyProformaSettings::forAgency((int) auth()->user()->effectiveAgencyId()); @endphp
+            {{-- The agency being SHOWN ($agency — the controller already applied the owner
+                 rules), never the login's effective agency: an owner who has not switched
+                 into an agency has none, and `(int) null` is the agency_id = 0 sentinel
+                 BelongsToAgency refuses (Rule 17). Same for an owner managing another agency. --}}
+            @php $proformaSettings = \App\Models\Proforma\AgencyProformaSettings::forAgency((int) $agency->id); @endphp
             <form method="POST" action="{{ route('admin.proforma-settings.update') }}" class="rounded-md p-4 space-y-4 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
                 @csrf @method('PUT')
+                <input type="hidden" name="agency_id" value="{{ $agency->id }}">
+                <input type="hidden" name="from_company_settings" value="{{ $agency->id }}">
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Proforma Invoice — Banking &amp; Numbering</div>
                 <p class="text-xs" style="color:var(--text-muted);">Banking details print on every proforma invoice (a bordered block; hidden if left empty). Numbering + due-date govern the accounting sequence.</p>
 
@@ -647,12 +653,15 @@
                                 {{ $branch->name }} <span style="color: var(--text-muted);">({{ $branch->code }})</span>
                             </div>
 
-                            <form method="POST" action="{{ route('admin.branches.delete', $branch) }}"
-                                  onsubmit="return confirm('Delete this branch? This cannot be undone.');">
-                                @csrf
-                                <input type="hidden" name="from_company_settings" value="{{ $agency->id }}">
-                                <button class="text-xs font-semibold" style="color: var(--ds-crimson);">Delete</button>
-                            </form>
+                            {{-- Archive wizard (AT-420): moves everyone on the branch, keeps all history --}}
+                            <button type="button" class="text-xs font-semibold" style="color: var(--ds-crimson);"
+                                    x-data @click="$dispatch('open-modal', 'archive-branch-{{ $branch->id }}')">Archive</button>
+                            @include('admin.branches._archive-wizard', [
+                                'branch'   => $branch,
+                                'attached' => $branchUsers->get($branch->id, collect()),
+                                'targets'  => $branches,
+                                'context'  => ['from_company_settings' => $agency->id],
+                            ])
                         </div>
                     @empty
                         <div class="rounded-md py-8 px-6 text-center text-sm" style="color: var(--text-muted);">
@@ -661,6 +670,11 @@
                     @endforelse
                 </div>
             </div>
+
+            @include('admin.branches._archived-panel', [
+                'archivedBranches' => $archivedBranches,
+                'context'          => ['from_company_settings' => $agency->id],
+            ])
 
             {{-- Branch Contact Details --}}
             <div class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">

@@ -3696,6 +3696,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // is covered by DEFAULT: it fails closed until someone deliberately adds it to the
     // middleware's ASSISTANT_MAY allow list. Reads and the allow-listed edits pass straight
     // through — an assistant is supposed to work the agent's listings, just not create them.
+    // AT-419 — Imported Stock, gated by its OWN permission key (independent of
+    // access_properties) rather than the main group's. Registered as a separate
+    // group ahead of the main one below so this literal path is matched before
+    // that group's '/{property}' wildcard show route ever gets a look at it.
+    Route::prefix('properties')->middleware(['permission:access_imported_stock', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
+        Route::get('/imported-stock', [\App\Http\Controllers\CoreX\PropertyController::class, 'importedStock'])->name('imported-stock');
+    });
+
     Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');

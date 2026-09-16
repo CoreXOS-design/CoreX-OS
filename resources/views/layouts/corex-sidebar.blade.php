@@ -792,7 +792,7 @@
                             ->count(),
                     ) : 0;
                 @endphp
-                <a href="{{ route('market-intelligence.work') }}" class="corex-nav-subitem {{ request()->routeIs('market-intelligence.*') || request()->routeIs('prospecting.*') ? 'active' : '' }}">
+                <a href="{{ route('market-intelligence.work') }}" class="corex-nav-subitem {{ (request()->routeIs('market-intelligence.*') && !request()->routeIs('market-intelligence.stale-review*')) || request()->routeIs('prospecting.*') ? 'active' : '' }}">
                     <span>Market intelligence</span>
                     @if($miCount > 0)
                     <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
@@ -831,17 +831,20 @@
 
                 @permission('access_properties')
                 @if(config('features.properties') && \Illuminate\Support\Facades\Route::has('corex.properties.index'))
-                {{-- AT-401 — corex.properties.* also covers a property's show/edit/wizard
-                     screens, reached identically from the Rentals entry point (no
-                     rentals-prefixed variant exists for those). session('corex.lens.properties')
-                     remembers which list the user most recently entered through
-                     (set by PropertyController::index()) so this item doesn't light up
-                     for a property opened from the Rentals list. --}}
-                <a href="{{ route('corex.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.properties.*') && !session('corex.lens.properties', false) ? 'active' : '' }}">Properties</a>
+                <a href="{{ route('corex.properties.index') }}" class="corex-nav-subitem {{ (request()->routeIs('corex.properties.*') && ! request()->routeIs('corex.properties.imported-stock') && ! session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
                 @endif
                 {{-- Phase 3g — Map module. Same permission as Properties; agency-scoped. --}}
                 @if(\Illuminate\Support\Facades\Route::has('corex.map.index'))
                 <a href="{{ route('corex.map.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.map.*') ? 'active' : '' }}">Map</a>
+                @endif
+                @endpermission
+
+                {{-- AT-419 — off-market P24-imported stock, split out from Properties.
+                     Own permission key so visibility can be toggled independently of
+                     access_properties above. --}}
+                @permission('access_imported_stock')
+                @if(\Illuminate\Support\Facades\Route::has('corex.properties.imported-stock'))
+                <a href="{{ route('corex.properties.imported-stock') }}" class="corex-nav-subitem {{ request()->routeIs('corex.properties.imported-stock') ? 'active' : '' }}">Imported Stock</a>
                 @endif
                 @endpermission
 

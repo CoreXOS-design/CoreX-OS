@@ -2,10 +2,23 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div x-data="commandCentre()" x-init="startAutoRefresh()" data-tour="cc-today-board" class="w-full space-y-6">
+{{-- Today board — DAY TIMELINE layout (2026-09-13, Johan picked option 3 of 5).
+     Spec: .ai/specs/spec-command-center.md → "Today page — Day timeline layout".
+
+     The page never scrolls on desktop: the board fills the content area (root is
+     h-full / min-h-0 at lg+) and every region scrolls INSIDE itself —
+       • LEFT  (7/12): today's appointments on an hour-by-hour grid with a live
+                       "now" line; all-day items as chips above; tomorrow below.
+       • RIGHT (5/12): every other card as a compact <x-tile> queue, most urgent
+                       first, in a rail that scrolls on its own.
+       • BOTTOM strip: the number cards (website, compliance, snapshot) as plain
+                       figures so they never compete with the queues for height.
+     Below lg the three regions stack and the page scrolls normally (mobile). --}}
+<div x-data="commandCentre()" x-init="startAutoRefresh()" data-tour="cc-today-board"
+     class="w-full flex flex-col lg:h-full lg:min-h-0">
     {{-- Page header — flat neutral bar (AT-336). Type scale matches /worksheet:
          16px bold title + 12px muted subtitle, actions in the right cluster at 12px. --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cc-today-header">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0" data-tour="cc-today-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0" data-tour="cc-today-greeting">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Welcome back, {{ explode(' ', $user->name)[0] }}</h1>
@@ -44,7 +57,7 @@
 
     {{-- Empty state --}}
     <template x-if="cards.length === 0">
-        <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md py-12 px-6 text-center mt-5" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                  style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">
                 <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
@@ -56,89 +69,298 @@
         </div>
     </template>
 
-    {{-- ═══════════ GROUPED SECTIONS ═══════════ --}}
-    <template x-for="group in groups" :key="group.key">
-        <section x-show="group.cards.length > 0">
-            {{-- Section label --}}
-            <div class="flex items-center gap-2 mb-4">
-                <span class="w-2 h-2 rounded-full" :style="'background:' + group.colour"></span>
-                <h2 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-secondary);" x-text="group.label"></h2>
-                <span class="text-xs tabular-nums" style="color: var(--text-muted);" x-text="'· ' + group.cards.length"></span>
-                <div class="flex-1 h-px" style="background: var(--border);"></div>
-            </div>
+    {{-- ═══════════ DAY BOARD ═══════════ --}}
+    <div x-show="cards.length > 0" class="flex-1 min-h-0 flex flex-col gap-3 pt-4 lg:pt-5">
+        <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
 
-            {{-- Card grid: capped at 4 cols, responsive --}}
-            <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {{-- AT-164 Gate 3 — unified <x-tile> shell (shared with the Calendar Deck).
-                     Replaces the bespoke inline card markup; same data, richer contract
-                     (independent scroll, RAG accent, per-row new-tab, collapse). --}}
-                <template x-for="card in group.cards" :key="card.card_id">
-                    <div class="h-full">
-                        <x-tile :var="'card'" />
+            {{-- ── LEFT: TODAY TIMELINE ── --}}
+            <section class="lg:col-span-7 flex flex-col min-h-0 rounded-md overflow-hidden h-[28rem] lg:h-auto"
+                     data-tour="cc-today-timeline"
+                     style="background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--brand-icon); box-shadow: 0 4px 12px rgba(0,0,0,0.30);">
+                {{-- Header — same anatomy as the full tile header --}}
+                <div class="flex items-center justify-between gap-3 px-4 pt-3.5 pb-2.5 flex-shrink-0">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                             style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">
+                            <svg class="w-[1.125rem] h-[1.125rem]" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>
+                        </div>
+                        <div class="min-w-0">
+                            <h2 class="text-sm font-semibold leading-tight" style="color: var(--text-primary);">Today</h2>
+                            <p class="text-[0.6875rem] truncate" style="color: var(--text-muted);" x-text="scheduleSubline"></p>
+                        </div>
+                    </div>
+                    <template x-if="scheduleCard && scheduleCard.view_all_url">
+                        <a :href="scheduleCard.view_all_url" class="corex-btn-outline text-xs inline-flex items-center gap-1.5 flex-shrink-0 no-underline">
+                            <span>Open calendar</span>
+                            <span aria-hidden="true">&rarr;</span>
+                        </a>
+                    </template>
+                </div>
+
+                {{-- All-day items — chips, never blocks on the grid --}}
+                <div x-show="todayAllDay.length > 0" class="flex flex-wrap items-center gap-1.5 px-4 pb-2 flex-shrink-0">
+                    <span class="text-[0.625rem] font-semibold uppercase tracking-wider mr-1" style="color: var(--text-faint, var(--text-muted));">All day</span>
+                    <template x-for="item in todayAllDay" :key="'ad' + item.id">
+                        <a :href="dayUrl(item)" class="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium no-underline max-w-full"
+                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
+                            <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="'background:' + item.colour"></span>
+                            <span class="truncate" x-text="item.title"></span>
+                        </a>
+                    </template>
+                </div>
+
+                {{-- Hour grid — the ONLY scrolling region of the timeline card --}}
+                <div x-ref="grid" class="flex-1 min-h-0 overflow-y-auto corex-tile-scroll relative mx-4 mb-2 pt-2.5 pb-1">
+                    <div class="relative" :style="'height: max(calc(100% - 0.875rem), ' + (dayBounds.hours * 52) + 'px);'">
+                        {{-- Hour rows --}}
+                        <template x-for="(h, i) in hourLabels" :key="'h' + h">
+                            <div class="absolute left-0 right-0 flex items-start gap-3" :style="'top:' + (i / dayBounds.hours * 100) + '%; height:' + (100 / dayBounds.hours) + '%;'">
+                                <span class="w-10 flex-shrink-0 text-[0.6875rem] font-mono tabular-nums -mt-[7px]" style="color: var(--text-faint, var(--text-muted));" x-text="h"></span>
+                                <span class="flex-1 h-px" style="background: var(--border);"></span>
+                            </div>
+                        </template>
+
+                        {{-- Appointment blocks (lane-packed so overlaps sit side by side) --}}
+                        <template x-for="b in blocks" :key="'b' + b.id">
+                            <a :href="dayUrl(b)"
+                               class="absolute rounded-md px-2.5 py-1.5 flex flex-col gap-0.5 overflow-hidden no-underline transition-colors"
+                               :style="'top:' + b.top + '%; height:' + b.height + '%; left: calc(3.25rem + ' + b.left + '% - ' + (b.left / 100 * 3.25) + 'rem); width: calc(' + b.width + '% - ' + (b.width / 100 * 3.25) + 'rem - 4px); border: 1px solid var(--border); border-left: 3px solid ' + b.colour + '; background: color-mix(in srgb, ' + b.colour + ' 10%, var(--surface-2));'"
+                               :title="b.title">
+                                <span class="text-xs font-semibold truncate" style="color: var(--text-primary);" x-text="b.title"></span>
+                                <span class="text-[0.6875rem] truncate" style="color: var(--text-muted);">
+                                    <span class="font-mono tabular-nums" x-text="b.range"></span><span x-show="b.category" x-text="' · ' + b.category"></span>
+                                </span>
+                            </a>
+                        </template>
+
+                        {{-- Nothing scheduled — the grid stays so the day still has shape --}}
+                        <div x-show="blocks.length === 0" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <span class="text-xs rounded-md px-3 py-1.5" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">Nothing scheduled today</span>
+                        </div>
+
+                        {{-- Now line --}}
+                        <template x-if="nowPct !== null">
+                            <div class="absolute left-0 right-0 flex items-center pointer-events-none" :style="'top:' + nowPct + '%;'">
+                                <span class="w-10 flex-shrink-0 text-[0.6875rem] font-mono font-semibold tabular-nums -mt-px" style="color: var(--brand-icon);" x-text="nowLabel"></span>
+                                <span class="w-2 h-2 rounded-full flex-shrink-0 -ml-1" style="background: var(--brand-icon);"></span>
+                                <span class="flex-1 h-px" style="background: var(--brand-icon);"></span>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- Tomorrow — the card already carries tomorrow's first appointments; keep them visible --}}
+                <div x-show="tomorrowItems.length > 0" class="flex-shrink-0 px-4 pt-2 pb-3" style="border-top: 1px solid var(--border);">
+                    <div class="flex items-center gap-2 mb-1.5">
+                        <span class="text-[0.625rem] font-semibold uppercase tracking-wider" style="color: var(--text-faint, var(--text-muted));">Tomorrow</span>
+                        <span class="text-[0.625rem] tabular-nums" style="color: var(--text-muted);" x-text="'· ' + tomorrowItems.length"></span>
+                    </div>
+                    <div class="flex flex-wrap gap-x-4 gap-y-1">
+                        <template x-for="item in tomorrowItems" :key="'tm' + item.id">
+                            <a :href="dayUrl(item)" class="inline-flex items-center gap-2 text-xs no-underline min-w-0" style="color: var(--text-secondary);">
+                                <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" :style="'background:' + item.colour"></span>
+                                <span class="font-mono tabular-nums" style="color: var(--text-muted);" x-text="item.all_day ? 'All day' : item.time"></span>
+                                <span class="truncate" x-text="item.title"></span>
+                            </a>
+                        </template>
+                    </div>
+                </div>
+            </section>
+
+            {{-- ── RIGHT: QUEUES RAIL ── every non-schedule card, most urgent first --}}
+            <aside class="lg:col-span-5 flex flex-col gap-3 min-h-0 lg:overflow-y-auto corex-tile-scroll lg:pr-1" data-tour="cc-today-rail">
+                <template x-for="card in railCards" :key="card.card_id">
+                    <div class="flex-shrink-0">
+                        {{-- AT-164 Gate 3 — unified <x-tile> shell (shared with the Calendar Deck),
+                             compact variant: one-line header so the CONTENT LIST gets the height. --}}
+                        <x-tile :var="'card'" :compact="true" />
                     </div>
                 </template>
-            </div>
-        </section>
-    </template>
+                <div x-show="railCards.length === 0" class="rounded-md py-8 px-4 text-center flex-shrink-0" style="background: var(--surface); border: 1px solid var(--border);">
+                    <svg class="w-5 h-5 mx-auto mb-1.5" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                    <p class="text-sm font-medium" style="color: var(--text-primary);">Nothing waiting on you</p>
+                    <p class="text-xs mt-0.5" style="color: var(--text-muted);">Your queues are clear.</p>
+                </div>
+            </aside>
+        </div>
 
-    {{-- Hover tooltip (compact mode) --}}
-    <template x-if="hoveredCard && viewMode === 'compact'">
-        <div class="fixed z-50 pointer-events-none" :style="tooltipPos()" x-cloak>
-            <template x-for="card in cards.filter(c => c.card_id === hoveredCard)" :key="card.card_id">
-                <div class="rounded-md p-3 text-xs max-w-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
-                    <div class="font-semibold mb-1.5" x-text="card.title"></div>
-                    <template x-for="(item, idx) in card.items.slice(0, 3)" :key="idx">
-                        <div class="py-0.5 truncate" style="color:var(--text-secondary);" x-text="tooltipItemText(card, item)"></div>
+        {{-- ── BOTTOM: NUMBERS STRIP ── the snapshot cards as plain figures --}}
+        <div x-show="stripCards.length > 0" data-tour="cc-today-strip"
+             class="flex-shrink-0 rounded-md px-4 py-2.5 flex flex-wrap items-center gap-x-7 gap-y-2"
+             style="background: var(--surface); border: 1px solid var(--border);">
+            <template x-for="card in stripCards" :key="'s' + card.card_id">
+                <div class="flex flex-wrap items-center gap-x-5 gap-y-1 min-w-0">
+                    <a :href="card.view_all_url || '#'" class="text-[0.625rem] font-semibold uppercase tracking-wider whitespace-nowrap no-underline"
+                       style="color: var(--text-faint, var(--text-muted));" x-text="card.title"></a>
+                    <template x-for="(s, i) in stripStats(card)" :key="'ss' + card.card_id + i">
+                        <span class="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                            <span class="text-sm font-bold tabular-nums" :style="'color:' + (s.critical ? 'var(--ds-crimson)' : 'var(--text-primary)')" x-text="s.value"></span>
+                            <span class="text-[0.6875rem]" style="color: var(--text-muted);" x-text="s.label"></span>
+                        </span>
                     </template>
-                    <template x-if="card.items.length > 3"><div class="pt-0.5" style="color:var(--text-muted);" x-text="'+ ' + (card.items.length - 3) + ' more'"></div></template>
                 </div>
             </template>
         </div>
-    </template>
+    </div>
 </div>
 
 <script>
 function commandCentre() {
+    const URGENCY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+    // Cards that are FIGURES, not queues — they live in the bottom strip unless
+    // one of them turns critical (an expired FFC is a queue item, not a stat).
+    const STRIP_IDS = ['website_performance', 'my_compliance', 'agency_health', 'branch_lost_value', 'branch_compliance'];
+    const toMin = (hhmm) => { const [h, m] = String(hhmm || '00:00').split(':').map(Number); return (h * 60) + (m || 0); };
+    const pad = (n) => String(n).padStart(2, '0');
+
     return {
         cards: @json($cards),
-        viewMode: 'detailed',
         refreshing: false,
         lastRefresh: 'Just now',
-        hoveredCard: null,
         _refreshTimer: null,
-        _mouseX: 0, _mouseY: 0,
+        _clockTimer: null,
+        // Server clock at render (app timezone) + client elapsed → the now line never
+        // trusts a mis-set laptop clock for the DAY, only for the elapsed seconds.
+        _serverNowMin: {{ (int) now()->format('G') * 60 + (int) now()->format('i') }},
+        _loadedAt: Date.now(),
+        _tick: 0,
 
         init() {
-            document.addEventListener('mousemove', (e) => { this._mouseX = e.clientX; this._mouseY = e.clientY; });
+            this.$nextTick(() => this.scrollToNow());
         },
 
-        setView(mode) {
-            this.viewMode = mode;
-            localStorage.setItem('cc_view', mode);
+        // ── Schedule ──────────────────────────────────────────────────────
+        get scheduleCard() { return this.cards.find(c => c.card_id === 'today_appointments') || null; },
+        get scheduleItems() { return (this.scheduleCard && Array.isArray(this.scheduleCard.items)) ? this.scheduleCard.items : []; },
+        get todayTimed()   { return this.scheduleItems.filter(i => i.date_label === 'Today' && !i.all_day); },
+        get todayAllDay()  { return this.scheduleItems.filter(i => i.date_label === 'Today' && i.all_day); },
+        get tomorrowItems(){ return this.scheduleItems.filter(i => i.date_label === 'Tomorrow'); },
+
+        /* Working-day window 08:00–18:00, widened to hold any appointment outside it. */
+        get dayBounds() {
+            let start = 8 * 60, end = 18 * 60;
+            for (const i of this.todayTimed) {
+                const s = toMin(i.time);
+                let e = i.end_time ? toMin(i.end_time) : s + 60;
+                if (e <= s) e = s + 60;                 // end before start / crosses midnight → one hour
+                start = Math.min(start, Math.floor(s / 60) * 60);
+                end   = Math.max(end, Math.min(24 * 60, Math.ceil(e / 60) * 60));
+            }
+            return { start, end, hours: Math.max(1, (end - start) / 60) };
+        },
+        get hourLabels() {
+            const out = [];
+            for (let m = this.dayBounds.start; m < this.dayBounds.end; m += 60) out.push(pad(m / 60) + ':00');
+            return out;
+        },
+        /* Blocks in % of the grid; overlapping appointments are packed into lanes. */
+        get blocks() {
+            const { start, end } = this.dayBounds;
+            const total = end - start;
+            const items = this.todayTimed.map(i => {
+                const s = toMin(i.time);
+                let e = i.end_time ? toMin(i.end_time) : s + 60;
+                if (e <= s) e = s + 60;
+                return { ...i, s, e: Math.min(e, end) };
+            }).sort((a, b) => a.s - b.s || a.e - b.e);
+
+            // Lane packing PER OVERLAP GROUP: an appointment that overlaps nothing
+            // takes the full width; only the ones that clash share it.
+            let lanes = [];                            // lanes[k] = end minute of the last block in lane k
+            let group = [];                            // indexes of the current overlap group
+            let groupEnd = -1;
+            const laneOf = [], lanesOf = [];
+            const closeGroup = () => { group.forEach(i => { lanesOf[i] = Math.max(1, lanes.length); }); lanes = []; group = []; };
+            items.forEach((it, idx) => {
+                if (group.length && it.s >= groupEnd) closeGroup();
+                let k = lanes.findIndex(lastEnd => lastEnd <= it.s);
+                if (k === -1) { k = lanes.length; lanes.push(0); }
+                lanes[k] = it.e; laneOf[idx] = k;
+                group.push(idx); groupEnd = Math.max(groupEnd, it.e);
+            });
+            closeGroup();
+            return items.map((it, idx) => ({
+                ...it,
+                top:    ((it.s - start) / total) * 100,
+                height: (Math.max(30, it.e - it.s) / total) * 100,
+                left:   (laneOf[idx] / lanesOf[idx]) * 100,
+                width:  (1 / lanesOf[idx]) * 100,
+                range:  it.time + (it.end_time ? ' – ' + it.end_time : ''),
+                colour: it.colour || 'var(--brand-icon)',
+            }));
+        },
+        get nowMin() {
+            void this._tick;                           // re-evaluate every clock tick
+            return this._serverNowMin + Math.floor((Date.now() - this._loadedAt) / 60000);
+        },
+        get nowPct() {
+            const { start, end } = this.dayBounds;
+            const n = this.nowMin;
+            if (n < start || n > end) return null;
+            return ((n - start) / (end - start)) * 100;
+        },
+        get nowLabel() { const n = this.nowMin; return pad(Math.floor(n / 60) % 24) + ':' + pad(n % 60); },
+        get scheduleSubline() {
+            const n = this.todayTimed.length + this.todayAllDay.length;
+            const next = this.todayTimed.find(i => toMin(i.time) > this.nowMin);
+            const head = n === 0 ? 'No appointments today' : (n + (n === 1 ? ' appointment' : ' appointments') + ' today');
+            return next ? head + ' · next at ' + next.time : head;
+        },
+        dayUrl(item) {
+            const base = (this.scheduleCard && this.scheduleCard.view_all_url) ? this.scheduleCard.view_all_url : '{{ route('command-center.calendar') }}';
+            return base + (base.includes('?') ? '&' : '?') + 'view=day&date=' + encodeURIComponent(item.date || '');
+        },
+        scrollToNow() {
+            const el = this.$refs.grid;
+            if (!el || this.nowPct === null) return;
+            const inner = el.firstElementChild;
+            const px = (this.nowPct / 100) * (inner ? inner.offsetHeight : el.scrollHeight);
+            el.scrollTop = Math.max(0, px - el.clientHeight * 0.3);
         },
 
-        // Group cards by urgency for the three-tier layout
-        get groups() {
-            const by = (urgencies) => this.cards.filter(c => urgencies.includes(c.urgency));
-            const css = getComputedStyle(document.documentElement);
-            const tok = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
-            return [
-                { key: 'now',   label: 'Action Required', colour: tok('--ds-crimson', '#c41e3a'), cards: by(['critical','high']) },
-                { key: 'today', label: 'Today',           colour: tok('--brand-icon', '#0ea5e9'), cards: by(['medium']) },
-                { key: 'fyi',   label: 'Snapshot',        colour: tok('--text-muted', '#9ca3af'), cards: by(['low']) },
-            ];
+        // ── Rail + strip ──────────────────────────────────────────────────
+        get stripCards() {
+            return this.cards.filter(c => STRIP_IDS.includes(c.card_id) && c.urgency !== 'critical' && this.stripStats(c).length > 0);
+        },
+        get railCards() {
+            const strip = new Set(this.stripCards.map(c => c.card_id));
+            const hasItems = (c) => Array.isArray(c.items) && c.items.length > 0;
+            return this.cards
+                .filter(c => c.card_id !== 'today_appointments' && !strip.has(c.card_id))
+                // Andre, 2026-09-13: Recent Activity is not shown on Today; Strategic
+                // Insights only when it actually has something to say. Page-level only —
+                // the mobile API and the Calendar deck keep receiving both cards.
+                .filter(c => c.card_id !== 'recent_activity')
+                .filter(c => c.card_id !== 'strategic_insights' || hasItems(c))
+                .slice()
+                .sort((a, b) => (URGENCY_RANK[a.urgency] ?? 9) - (URGENCY_RANK[b.urgency] ?? 9));
+        },
+        /* Plain figures for a strip card. Shapes mirror the tile's bespoke bodies. */
+        stripStats(card) {
+            const items = Array.isArray(card.items) ? card.items : [];
+            if (card.card_id === 'agency_health') {
+                const i = items[0] || {};
+                return [
+                    { label: 'agents',   value: i.agents },
+                    { label: 'listings', value: i.listings },
+                    { label: 'buyers',   value: i.active_buyers },
+                    { label: 'lost 30d', value: i.lost_value_30d },
+                ].filter(s => s.value !== undefined && s.value !== null);
+            }
+            if (card.card_id === 'branch_lost_value') {
+                const i = items[0] || {};
+                return i.value_display ? [{ label: 'lost value 30d', value: i.value_display }] : [];
+            }
+            return items
+                .filter(i => i.label !== undefined && i.value !== undefined && i.url === undefined)
+                .slice(0, 4)
+                .map(i => ({ label: i.label, value: i.value, critical: !!i.critical }));
         },
 
-        cardStyle(card) {
-            return 'background:var(--surface-2);border:1px solid var(--border);border-top:3px solid ' + this.urgencyColour(card.urgency) + ';';
-        },
-
-        urgencyLabel(u) {
-            return { critical: 'Now', high: 'Now', medium: 'Today', low: 'FYI' }[u] || 'FYI';
-        },
-
+        // ── Refresh ───────────────────────────────────────────────────────
         startAutoRefresh() {
             this._refreshTimer = setInterval(() => this.refresh(), 60000);
+            this._clockTimer   = setInterval(() => { this._tick++; }, 30000);
         },
 
         async refresh() {
@@ -165,81 +387,6 @@ function commandCentre() {
                 await fetch(item.respond_url, { method: 'POST', body: fd, credentials: 'same-origin' });
                 this.refresh();
             } catch (e) { console.warn('Respond failed:', e); }
-        },
-
-        urgencyColour(u) {
-            const css = getComputedStyle(document.documentElement);
-            const tok = (name, fallback) => (css.getPropertyValue(name).trim() || fallback);
-            const map = {
-                critical: tok('--ds-crimson', '#c41e3a'),
-                high:     tok('--ds-amber',   '#f59e0b'),
-                medium:   tok('--brand-icon', '#0ea5e9'),
-                low:      tok('--text-muted', '#9ca3af'),
-            };
-            return map[u] || map.low;
-        },
-
-        tooltipPos() {
-            const x = Math.min(this._mouseX + 12, window.innerWidth - 280);
-            const y = Math.min(this._mouseY + 12, window.innerHeight - 150);
-            return 'left:' + x + 'px;top:' + y + 'px;';
-        },
-
-        compactPreview(card) {
-            if (!card.items || card.items.length === 0) return card.count > 0 ? card.count + ' items' : 'None';
-            const first = card.items[0];
-            if (card.card_id === 'today_appointments') return first.time + ' ' + first.title;
-            if (card.card_id === 'active_buyer_pipeline') return card.items.map(i => i.value + ' ' + i.label.split(' ')[0].toLowerCase()).join(', ');
-            if (card.card_id === 'esign_activity') return card.items.map(i => i.value + ' ' + i.label.toLowerCase()).join(' | ');
-            if (card.card_id === 'prospecting_activity') return card.items.map(i => i.value + ' ' + i.label.toLowerCase()).join(' | ');
-            if (card.card_id === 'website_performance') return card.items.slice(0, 3).map(i => i.value + ' ' + i.label.toLowerCase()).join(' | ');
-            if (card.card_id === 'listings_pending_marketing') return first.label + ': ' + (first.value || '');
-            if (card.card_id === 'agency_health') return (first.agents ?? '') + ' agents, ' + (first.listings ?? '') + ' listings';
-            if (card.card_id === 'branch_lost_value') return first.value_display || '';
-            if (card.card_id === 'strategic_insights') return first.text ? first.text.slice(0, 50) + '...' : '';
-            if (first.title) return first.title;
-            if (first.name) return first.name;
-            if (first.contact) return first.contact;
-            if (first.message) return first.message;
-            if (first.label) return first.label + ': ' + (first.value ?? '');
-            if (first.text) return first.text.slice(0, 50);
-            return card.count + ' items';
-        },
-
-        tooltipItemText(card, item) {
-            if (item.title) return item.title + (item.status ? ' — ' + item.status : '');
-            if (item.name) return item.name + (item.reason ? ' — ' + item.reason : item.issue ? ' — ' + item.issue : '');
-            if (item.contact) return item.contact + (item.status ? ' — ' + item.status : '');
-            if (item.message) return item.message;
-            if (item.label) return item.label + (item.value !== undefined ? ': ' + item.value : '');
-            if (item.text) return item.text.slice(0, 60);
-            if (item.dates) return item.dates + (item.name ? ' — ' + item.name : '');
-            return JSON.stringify(item).slice(0, 60);
-        },
-
-        detailedItemText(card, item) { return this.tooltipItemText(card, item); },
-
-        cardIcon(icon) {
-            const i = {
-                'calendar': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"/></svg>',
-                'mail': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/></svg>',
-                'alert-triangle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/></svg>',
-                'users': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z"/></svg>',
-                'activity': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg>',
-                'home': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg>',
-                'shield': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z"/></svg>',
-                'shield-check': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z"/></svg>',
-                'clock': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>',
-                'eye': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/></svg>',
-                'building': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>',
-                'clipboard-check': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.35 3.836c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m8.9-4.414c.376.023.75.05 1.124.08 1.131.094 1.976 1.057 1.976 2.192V16.5A2.25 2.25 0 0 1 18 18.75h-2.25m-7.5-10.5H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V18.75m-7.5-10.5h6.375c.621 0 1.125.504 1.125 1.125v9.375m-8.25-3 1.5 1.5 3-3.75"/></svg>',
-                'trending-down': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6 9 12.75l4.286-4.286a11.948 11.948 0 0 1 4.306 6.43l.776 2.898M18.75 19.5l3-3m0 0-3-3m3 3H15"/></svg>',
-                'bar-chart': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z"/></svg>',
-                'alert-circle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>',
-                'lightbulb': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 0 0 1.5-.189m-1.5.189a6.01 6.01 0 0 1-1.5-.189m3.75 7.478a12.06 12.06 0 0 1-4.5 0m3.75 2.383a14.406 14.406 0 0 1-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 1 0-7.517 0c.85.493 1.509 1.333 1.509 2.316V18"/></svg>',
-                'file-signature': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg>',
-            };
-            return i[icon] || i['clock'];
         },
     };
 }

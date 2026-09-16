@@ -409,7 +409,7 @@ class User extends Authenticatable
 
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(Branch::class);
+        return $this->belongsTo(Branch::class)->withTrashed();
     }
 
     public function documents(): HasMany
@@ -564,6 +564,13 @@ class User extends Authenticatable
      */
     private function branchOverrideStillAuthorized(int $branchId): bool
     {
+        // An archived branch is never a valid place to be "viewing as" — the
+        // override dies with the branch and the user falls back to their home
+        // branch (spec: branch-archive-reassignment.md §7.3, AT-420).
+        if (Branch::withTrashed()->whereKey($branchId)->whereNotNull('deleted_at')->exists()) {
+            return false;
+        }
+
         if ($this->hasPermission('branches.view_all')) {
             return true;
         }
@@ -591,10 +598,15 @@ class User extends Authenticatable
     /** The branch flagged as the login default, if any. Pivot-direct (scope-safe). */
     public function defaultManagedBranchId(): ?int
     {
+        // The archive wizard removes managed-branch rows for the archived
+        // branch, but this join is the structural guard: a default can never
+        // resolve to an archived branch (spec: branch-archive-reassignment.md §7.3).
         $id = \DB::table('user_managed_branches')
-            ->where('user_id', $this->id)
-            ->where('is_default', true)
-            ->value('branch_id');
+            ->join('branches', 'branches.id', '=', 'user_managed_branches.branch_id')
+            ->whereNull('branches.deleted_at')
+            ->where('user_managed_branches.user_id', $this->id)
+            ->where('user_managed_branches.is_default', true)
+            ->value('user_managed_branches.branch_id');
 
         return $id ? (int) $id : null;
     }

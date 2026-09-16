@@ -79,7 +79,7 @@
                     @php $bal = $balances[$emp->id] ?? []; @endphp
                     <tr>
                         <td class="px-4 py-3 font-semibold" style="color: var(--text-primary);">{{ $emp->user->name ?? 'Unknown' }}</td>
-                        <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $emp->user->branch->name ?? '—' }}</td>
+                        <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $emp->user->branch->display_name ?? '—' }}</td>
                         <td class="px-4 py-3 text-center text-xs">
                             @if(isset($bal['annual']))
                                 <span class="font-semibold" style="color: var(--text-primary);">{{ number_format((float)$bal['annual']['available_days'], 1) }}</span>

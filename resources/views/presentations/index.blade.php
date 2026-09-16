@@ -3,10 +3,10 @@
 
 @section('corex-content')
 
-<div class="w-full space-y-5">
+<div class="w-full h-full flex flex-col">
 
     {{-- Page header (AT-336 — flat neutral bar) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="pres-list-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Presentations</h1>
@@ -40,9 +40,11 @@
         </div>
     </div>
 
-    {{-- Filter bar --}}
+    {{-- Filter bar — directly under the header (AT-393). Header + filters are frozen: the
+         page wrapper is a full-height flex column and ONLY the scroll region below
+         (presentations table + pagination) scrolls. --}}
     <form method="GET" action="{{ route('presentations.index') }}"
-          class="rounded-md p-4 transition-all duration-300"
+          class="rounded-md p-4 mt-3 flex-shrink-0 transition-all duration-300"
           style="background: var(--surface); border: 1px solid var(--border);">
 
         {{-- Preserve active sort when filtering --}}
@@ -107,6 +109,9 @@
             @endif
         </div>
     </form>
+
+    {{-- Scroll region — everything from here down scrolls; header + filters stay put. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
 
     {{-- Presentations table --}}
     @if($presentations->isEmpty())
@@ -207,6 +212,7 @@
             </div>
         </div>
     @endif
+    </div>{{-- /scroll region --}}
 </div>
 
 @endsection

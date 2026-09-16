@@ -2,8 +2,8 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+<div class="w-full h-full flex flex-col">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Archive Mailboxes</h1>
@@ -15,6 +15,51 @@
             </div>
         </div>
     </div>
+
+    {{-- AT-395 §7.2 — search, filters. Sort is column-header driven below.
+         AT-393 — sits directly under the header; header + filters are frozen (the page
+         wrapper is a full-height flex column) and ONLY the scroll region below scrolls. --}}
+    <form method="GET" class="rounded-md px-4 py-3 mt-3 flex-shrink-0 flex flex-wrap items-end gap-3" style="background: var(--surface); border:1px solid var(--border);">
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Email or user name"
+                   class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+        </div>
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
+            <select name="status" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                <option value="">All</option>
+                <option value="active" @selected(($filters['status'] ?? null) === 'active')>Active</option>
+                <option value="inactive" @selected(($filters['status'] ?? null) === 'inactive')>Inactive</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outgoing mail</label>
+            <select name="outgoing" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                <option value="">All</option>
+                <option value="yes" @selected(($filters['outgoing'] ?? null) === 'yes')>Enabled</option>
+                <option value="no" @selected(($filters['outgoing'] ?? null) === 'no')>Not enabled</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Send health</label>
+            <select name="send_health" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
+                <option value="">All</option>
+                <option value="healthy" @selected(($filters['send_health'] ?? null) === 'healthy')>Healthy</option>
+                <option value="failing" @selected(($filters['send_health'] ?? null) === 'failing')>Failing</option>
+                <option value="pending" @selected(($filters['send_health'] ?? null) === 'pending')>Pending</option>
+                <option value="inactive" @selected(($filters['send_health'] ?? null) === 'inactive')>Inactive</option>
+            </select>
+        </div>
+        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+        @if(array_filter($filters ?? []))
+            <a href="{{ route('compliance.comm-mailboxes.index') }}" class="text-xs" style="color: var(--text-muted);">Clear</a>
+        @endif
+    </form>
+
+    {{-- Scroll region — host login-budget banners, flash, test result, table and
+         pagination all scroll here; header + filters stay put. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
 
     {{-- 2026-09-09 (Johan, auth-lock safeguard) — "Johan must be able to see
          it before he clicks anything." One row per host that has ever used
@@ -62,45 +107,6 @@
             <div><strong>Sent-folder write:</strong> <span style="color: {{ $tc['imap_append']['ok'] ? 'var(--ds-green)' : 'var(--ds-crimson)' }};">{{ $tc['imap_append']['ok'] ? 'Pass' : 'Fail' }}</span> — {{ $tc['imap_append']['message'] }}</div>
         </div>
     @endif
-
-    {{-- AT-395 §7.2 — search, filters. Sort is column-header driven below. --}}
-    <form method="GET" class="rounded-md px-4 py-3 flex flex-wrap items-end gap-3" style="background: var(--surface); border:1px solid var(--border);">
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Email or user name"
-                   class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
-        </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
-                <option value="active" @selected(($filters['status'] ?? null) === 'active')>Active</option>
-                <option value="inactive" @selected(($filters['status'] ?? null) === 'inactive')>Inactive</option>
-            </select>
-        </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Outgoing mail</label>
-            <select name="outgoing" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
-                <option value="yes" @selected(($filters['outgoing'] ?? null) === 'yes')>Enabled</option>
-                <option value="no" @selected(($filters['outgoing'] ?? null) === 'no')>Not enabled</option>
-            </select>
-        </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Send health</label>
-            <select name="send_health" class="rounded-md px-3 py-1.5 text-sm" style="background: var(--surface-2); border:1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
-                <option value="healthy" @selected(($filters['send_health'] ?? null) === 'healthy')>Healthy</option>
-                <option value="failing" @selected(($filters['send_health'] ?? null) === 'failing')>Failing</option>
-                <option value="pending" @selected(($filters['send_health'] ?? null) === 'pending')>Pending</option>
-                <option value="inactive" @selected(($filters['send_health'] ?? null) === 'inactive')>Inactive</option>
-            </select>
-        </div>
-        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(array_filter($filters ?? []))
-            <a href="{{ route('compliance.comm-mailboxes.index') }}" class="text-xs" style="color: var(--text-muted);">Clear</a>
-        @endif
-    </form>
 
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
@@ -252,5 +258,6 @@
             </div>
         @endif
     </div>
+    </div>{{-- /scroll region --}}
 </div>
 @endsection

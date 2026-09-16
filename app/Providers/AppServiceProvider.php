@@ -683,6 +683,10 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Agent\AgentFfcStatusChanged::class      => \App\Listeners\Agent\LogAgentEvent::class,
             \App\Events\Agent\AgentCommissionPlanChanged::class => \App\Listeners\Agent\LogAgentEvent::class,
             \App\Events\Agent\AgentBranchAssigned::class        => \App\Listeners\Agent\LogAgentEvent::class,
+            // Branch archive / restore (spec: branch-archive-reassignment.md §8, AT-420).
+            // Branch is an Agent-pillar structure, so its facts log through the Agent logger.
+            \App\Events\Branch\BranchArchived::class            => \App\Listeners\Agent\LogAgentEvent::class,
+            \App\Events\Branch\BranchRestored::class            => \App\Listeners\Agent\LogAgentEvent::class,
             // Mandate pillar
             \App\Events\Mandate\MandateSigned::class    => \App\Listeners\Mandate\LogMandateEvent::class,
             \App\Events\Mandate\MandateExpired::class   => \App\Listeners\Mandate\LogMandateEvent::class,

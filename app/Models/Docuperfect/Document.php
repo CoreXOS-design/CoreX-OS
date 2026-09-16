@@ -57,7 +57,7 @@ class Document extends Model
 
     public function branch()
     {
-        return $this->belongsTo(Branch::class, 'branch_id');
+        return $this->belongsTo(Branch::class, 'branch_id')->withTrashed();
     }
 
     public function template()

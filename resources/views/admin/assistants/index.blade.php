@@ -72,7 +72,7 @@
                         <div class="text-xs" style="color:var(--text-muted);">{{ $assistant?->email }}</div>
                     </td>
                     <td class="px-4 py-3">{{ $assignment->assignedAgent?->name ?? '—' }}</td>
-                    <td class="px-4 py-3">{{ $assignment->branch?->name ?? '—' }}</td>
+                    <td class="px-4 py-3">{{ $assignment->branch?->display_name ?? '—' }}</td>
                     <td class="px-4 py-3">
                         @if($assignment->trashed() || $assignment->status === \App\Models\AssistantAssignment::STATUS_REVOKED)
                             <span class="px-2 py-0.5 rounded-md text-xs font-semibold"

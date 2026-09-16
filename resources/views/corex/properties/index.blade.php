@@ -5,8 +5,13 @@
 @php
     // '__ID__' placeholder — the panel URL is resolved per property in JS.
     $synPanelUrlTemplate = route('api.v1.properties.syndication-panel', ['property' => '__ID__']);
+    // AT-419 — every filter/search/clear link on this shared view must stay on
+    // whichever of the two pages the user is currently on, never bounce back
+    // to Properties from Imported Stock (or vice versa).
+    // AT-401 - the Rentals -> Properties entry point is a third name for this same view.
+    $indexRoute = $indexRouteName ?? (($importedStock ?? false) ? 'corex.properties.imported-stock' : 'corex.properties.index');
 @endphp
-<div class="w-full space-y-5 corex-props-v2"
+<div class="w-full h-full flex flex-col corex-props-v2"
      x-data="{
         view: localStorage.getItem('prop_view') || 'grid',
 
@@ -58,15 +63,25 @@
          break it out of <main>'s padding so the bottom border spans the full width
          and it sits flush at the top. No card fill, no rounded corners, no shadow,
          no brand block — neutral chrome only. --}}
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5"
+    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0"
          style="border-bottom: 1px solid var(--border);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-properties-intro">
+                @if($importedStock ?? false)
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Imported Stock</h1>
+                <p class="text-xs" style="color:var(--text-muted);">Off-market P24-imported listings (withdrawn, sold, expired, etc.) — active imported stock stays on Properties.</p>
+                @else
                 <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Properties</h1>
                 <p class="text-xs" style="color:var(--text-muted);">Manage listings and publish to website.</p>
+                @endif
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                {{-- AT-419 — Imported Stock holds no-longer-marketed stock; the
+                     creation shortcuts below (Import Sold, Classic form, Drafts,
+                     New Property) are for adding/continuing NEW listings and have
+                     no place here. --}}
+                @unless($importedStock ?? false)
                 @if(auth()->user() && auth()->user()->isOwnerRole())
                 <a href="{{ route('corex.properties.import-sold') }}"
                    class="corex-btn-outline text-xs"
@@ -160,6 +175,7 @@
                     </svg>
                     New Property
                 </a>
+                @endunless
                 @permission('access_settings')
                 <a href="{{ url('/corex/settings?s=feature-properties') }}"
                    title="Properties Settings"
@@ -229,7 +245,13 @@
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'page')->toArray();
     @endphp
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 xl:gap-4" data-tour="re-properties-kpis">
+    {{-- AT-419 — these tiles (Total/On Market/Draft/Prospecting/Sold) describe
+         the Properties page's own status mix; on Imported Stock most of them
+         would always read zero (nothing there is On Market/Draft/Prospecting
+         by definition) and "Sold" is only one of several statuses shown, so
+         they're misleading rather than useful there. Andre, 2026-09-15. --}}
+    @unless($importedStock ?? false)
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3 flex-shrink-0" data-tour="re-properties-kpis">
         @foreach($kpiTiles as $kpi)
         @php
             $isActive = ($kpi['filter'] === '' && $currentStatus === '') || $kpi['filter'] === $currentStatus;
@@ -239,35 +261,25 @@
                 : $baseUrl . '?' . http_build_query(array_merge($preserveParams, ['status' => $kpi['filter']]));
         @endphp
         <a href="{{ $tileUrl }}"
-           class="pstat-v2 px-5 py-4 flex items-center justify-between gap-3 no-underline cursor-pointer"
+           class="pstat-v2 px-3.5 py-2 flex items-center justify-between gap-3 no-underline cursor-pointer"
            style="{{ $isActive ? 'border-color:color-mix(in srgb, var(--brand-icon,#6366f1) 40%, transparent);background:color-mix(in srgb, var(--brand-icon,#6366f1) 10%, var(--surface));' : '' }}">
             <div class="min-w-0">
-                <div class="text-[1.625rem] font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format((int) $kpi['value']) }}</div>
-                <div class="text-[0.6875rem] font-medium mt-1.5 uppercase tracking-wider" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
+                <div class="text-lg font-bold leading-none tabular-nums" style="color:var(--text-primary);">{{ number_format((int) $kpi['value']) }}</div>
+                <div class="text-[0.6875rem] font-medium mt-0.5 uppercase tracking-wider" style="color:var(--text-muted);">{{ $kpi['label'] }}</div>
             </div>
-            <span class="pstat-v2__tub {{ $isLive ? 'pstat-v2__tub--live' : '' }} inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <span class="pstat-v2__tub {{ $isLive ? 'pstat-v2__tub--live' : '' }} inline-flex items-center justify-center w-7 h-7 rounded-md flex-shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
                     {!! $kpiIcons[$kpi['label']] ?? '' !!}
                 </svg>
             </span>
         </a>
         @endforeach
     </div>
+    @endunless
 
-    {{-- Flash --}}
-    @if(session('success'))
-    <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
-         style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
-                border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
-                color: var(--text-primary);">
-        <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
-        </svg>
-        <div class="flex-1">{{ session('success') }}</div>
-    </div>
-    @endif
-
-    {{-- Filters --}}
+    {{-- Filters — directly under the stat tiles (AT-393). Header + tiles + filters are
+         frozen: the page wrapper is a full-height flex column and ONLY the scroll
+         region below (flash, cards/list, pagination) scrolls. --}}
     @php
         $dataScope = \App\Services\PermissionService::getDataScope(auth()->user(), 'properties');
         // Determine if any "advanced" filters are active so the panel auto-expands
@@ -311,9 +323,9 @@
             setSingle(id) { this.selected = (id === '' || id == null) ? [] : [parseInt(id)]; this.apply(); },
             selectAll() { this.selected = []; this.apply(); }
          }"
-         class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
+         class="rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
 
-        <form method="GET" action="{{ route($indexRouteName ?? 'corex.properties.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
+        <form method="GET" action="{{ route($indexRoute) }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
             {{-- Search --}}
             <div class="relative flex-1 min-w-[180px] max-w-xs" data-tour="re-properties-search">
@@ -334,8 +346,8 @@
                 $pcIsAll    = empty($filterAgentIds);
                 $pcIsMine   = count($filterAgentIds) === 1 && (string) $filterAgentIds[0] === $pcuId;
                 $pcCarry    = request()->except(['agent_id', 'agent_ids', 'page']);
-                $pcMineUrl  = route($indexRouteName ?? 'corex.properties.index', array_merge($pcCarry, ['agent_ids' => $pcuId]));
-                $pcAllUrl   = route($indexRouteName ?? 'corex.properties.index', array_merge($pcCarry, ['agent_ids' => 'all']));
+                $pcMineUrl  = route($indexRoute, array_merge($pcCarry, ['agent_ids' => $pcuId]));
+                $pcAllUrl   = route($indexRoute, array_merge($pcCarry, ['agent_ids' => 'all']));
                 $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
             @endphp
             <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
@@ -421,7 +433,7 @@
             </button>
 
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route($indexRouteName ?? 'corex.properties.index', ['clear' => 1]) }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
+            <a href="{{ route($indexRoute, ['clear' => 1]) }}" class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear all</a>
             @endif
 
             {{-- Agent picker (admin/bm only) — right-aligned modal, multi-select --}}
@@ -692,7 +704,7 @@
                     $chips[] = [
                         'label' => $agentChipLabel,
                         'key'   => 'agent_ids',
-                        'url'   => route($indexRouteName ?? 'corex.properties.index', array_merge(collect($chipBase)->except(['agent_id', 'agent_ids'])->toArray(), ['agent_ids' => 'all'])),
+                        'url'   => route($indexRoute, array_merge(collect($chipBase)->except(['agent_id', 'agent_ids'])->toArray(), ['agent_ids' => 'all'])),
                     ];
                 }
             }
@@ -703,7 +715,7 @@
             @foreach($chips as $chip)
                 @php
                     if (isset($chip['url'])) { $chipHref = $chip['url']; }
-                    else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route($indexRouteName ?? 'corex.properties.index', $params); }
+                    else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route($indexRoute, $params); }
                 @endphp
                 <a href="{{ $chipHref }}"
                    class="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all duration-300"
@@ -721,6 +733,22 @@
         @endif
 
     </div>
+
+    {{-- Scroll region — everything from here down scrolls; header, tiles and filters stay put. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
+
+    {{-- Flash --}}
+    @if(session('success'))
+    <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
+         style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent);
+                border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent);
+                color: var(--text-primary);">
+        <svg class="w-5 h-5 flex-shrink-0" style="color: var(--ds-green, #059669);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
+        </svg>
+        <div class="flex-1">{{ session('success') }}</div>
+    </div>
+    @endif
 
     {{-- Cards grid --}}
     @if($properties->isEmpty())
@@ -750,7 +778,7 @@
                 Create my first listing
             </a>
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <a href="{{ route($indexRouteName ?? 'corex.properties.index', ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
+            <a href="{{ route($indexRoute, ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
             @endif
         </div>
     </div>
@@ -844,6 +872,9 @@
                     @if($property->mandate_type)
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
                     @endif
+                    @if($importedStock ?? false)
+                    <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Imported from Property24">Imported</span>
+                    @endif
                 </div>
 
                 {{-- Photo count (bottom-right glass) --}}
@@ -895,6 +926,10 @@
                     @if($property->baths)<span>{{ $property->baths }} Bath</span>@endif
                     @if($property->garages)<span>{{ $property->garages }} Gar</span>@endif
                     @if($property->size_m2)<span>{{ number_format($property->size_m2) }} m²</span>@endif
+                    @if(($importedStock ?? false) && $property->p24_imported_at)
+                    <span style="color:var(--border);">|</span>
+                    <span title="When this listing was brought into CoreX by the P24 importer">Imported {{ $property->p24_imported_at->format('j M Y') }}</span>
+                    @endif
                 </div>
 
                 {{-- Portal references — P24 and Private Property side by side, each
@@ -977,6 +1012,12 @@
                     ['key' => 'marketing_status',  'label' => 'Marketing', 'align' => 'text-center', 'hide' => 'hidden md:table-cell'],
                     ['key' => 'status',            'label' => 'Status',    'align' => 'text-center', 'hide' => ''],
                 ];
+                // AT-419 — Imported Stock's one extra column, appended at the end
+                // (after the splice below, so its fixed index-6 insert point for
+                // website stats is unaffected).
+                if ($importedStock ?? false) {
+                    $sortCols[] = ['key' => 'p24_imported_at', 'label' => 'Imported Date', 'align' => 'text-left', 'hide' => 'hidden md:table-cell'];
+                }
                 // AT-383 — website engagement, only for an agency whose site actually
                 // reports it. Spec: .ai/specs/website-listing-stats.md §5.2
                 if ($hasWebsiteStats ?? false) {
@@ -1118,6 +1159,11 @@
                             <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowStatusPillStyle }}">{{ $rowStatusLabel }}</span>
                         </div>
                     </td>
+                    @if($importedStock ?? false)
+                    <td class="px-4 py-2.5 text-xs hidden md:table-cell" style="color:var(--text-secondary);">
+                        {{ $property->p24_imported_at?->format('j M Y') ?? '—' }}
+                    </td>
+                    @endif
                     <td class="px-4 py-2.5 text-right">
                         <div class="flex items-center justify-end gap-1">
                             @include('corex.properties.partials.syndication-button', ['property' => $property, 'variant' => 'row'])
@@ -1151,6 +1197,7 @@
     </div>
     @endif
     @endif
+    </div>{{-- /scroll region --}}
 
     {{-- Syndication — one modal, driven by every card/row trigger --}}
     @include('corex.properties.partials.syndication-modal')

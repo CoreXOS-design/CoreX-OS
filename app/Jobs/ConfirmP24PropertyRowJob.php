@@ -103,6 +103,17 @@ class ConfirmP24PropertyRowJob implements ShouldQueue
                 $attrs['agent_id']  = $row->resolved_agent_id;
                 $attrs['agency_id'] = $run->agency_id;
 
+                // AT-419 — the "Imported Date" shown on the Imported Stock page,
+                // and the flag that routes off-market imported stock there
+                // instead of the Properties page. Stamped once, on the FIRST
+                // confirm only — a later re-import/refresh of the same listing
+                // must not keep pushing this date forward (same "only set when
+                // we don't already have one" rule this file already applies to
+                // mandate_type/branch_id above).
+                if (empty($existing?->p24_imported_at)) {
+                    $attrs['p24_imported_at'] = now();
+                }
+
                 // The P24 CSV carries no mandate/exclusivity field at all — P24
                 // only ever exports what's live on their platform, never the
                 // agency's private mandate terms with the seller (audit

@@ -101,7 +101,7 @@
                         <td class="px-4 py-3 text-[color:var(--text-secondary)]">{{ $doc->owner->name ?? '—' }}</td>
                         @endif
                         @if($user->hasPermission('manage_system'))
-                        <td class="px-4 py-3 text-[color:var(--text-secondary)]">{{ $doc->branch->name ?? '—' }}</td>
+                        <td class="px-4 py-3 text-[color:var(--text-secondary)]">{{ $doc->branch->display_name ?? '—' }}</td>
                         @endif
                         <td class="px-4 py-3 text-right space-x-2">
                             @if(($filter ?? 'active') === 'archived')

@@ -2,11 +2,11 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5" data-tour-root="contacts"
+<div class="w-full h-full flex flex-col" data-tour-root="contacts"
      x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name') || $errors->any()) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}', idKind: '{{ old('id_type', 'sa_id') }}' }">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $isRentalEntry ? 'Rental Contacts' : 'Contacts' }}</h1>
@@ -76,6 +76,295 @@
             </div>
         </div>
     </div>
+
+    {{-- Filters — directly under the header (AT-393). Header + filters are frozen:
+         the page wrapper is a full-height flex column and ONLY the scroll region
+         below (flash messages, add/import forms, the contacts list) scrolls. --}}
+    <div x-data="{
+            agentPicker: false,
+            agentSearch: '',
+            agents: {{ Illuminate\Support\Js::from($agentList) }},
+            get filtered() {
+                if (!this.agentSearch) return this.agents;
+                const q = this.agentSearch.toLowerCase();
+                return this.agents.filter(a => a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q));
+            },
+            // Submit the live filter form with the chosen agent_id so the typed
+            // search term (and the type filter) is preserved — never navigate off
+            // a stale, server-rendered link. id '' = All agents.
+            pickAgent(id) {
+                const f = this.$refs.filterForm;
+                let h = f.querySelector('input[name=agent_id]');
+                if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'agent_id'; f.appendChild(h); }
+                h.value = (id == null) ? '' : id;
+                f.submit();
+            }
+         }"
+         class="rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
+
+        <form method="GET" action="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
+
+            {{-- Street & Complex Search — AT-273. Lives at the far left of the filter
+                 bar as just the property icon + a "?" help popover. Clicking the house
+                 reveals an inline input; because the address report is a DIFFERENT
+                 route than this filter form, it navigates via JS (scGo) rather than a
+                 nested form. Searches ONLY Address + Linked Properties. --}}
+            <div x-data="{ scOpen: false, scHelp: false,
+                           scGo(v) {
+                               v = (v || '').trim();
+                               if (!v) { this.$refs.scInput && this.$refs.scInput.focus(); return; }
+                               {{-- No agent_id: the property search ALWAYS runs at the
+                                    agency's full contact-visibility scope, never the
+                                    list's "My Contacts" narrowing (AT-273). --}}
+                               let u = '{{ route('corex.contacts.street-complex-search') }}?q=' + encodeURIComponent(v);
+                               window.location.href = u;
+                           } }"
+                 class="flex items-center gap-1">
+
+                {{-- Property icon — click to open the street/complex search. --}}
+                <button type="button"
+                        @click="scOpen = !scOpen; scOpen && $nextTick(() => $refs.scInput && $refs.scInput.focus())"
+                        class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0 transition-all duration-300"
+                        :style="scOpen ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);'"
+                        :aria-expanded="scOpen"
+                        data-tour="contact-street-search"
+                        title="Street &amp; Complex Search — click to search by street or complex name">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+                    </svg>
+                </button>
+
+                {{-- "?" help — sits right beside the house icon. --}}
+                <div class="relative flex-shrink-0">
+                    <button type="button" @click="scHelp = !scHelp" @click.outside="scHelp = false"
+                            class="inline-flex items-center justify-center w-6 h-6 transition-all duration-300"
+                            style="color:var(--text-muted);background:transparent;border:none;"
+                            :style="scHelp ? 'color:var(--brand-icon,#0ea5e9);' : ''"
+                            title="How does this work?">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+                        </svg>
+                    </button>
+
+                    <div x-show="scHelp" x-cloak x-transition
+                         @keydown.escape.window="scHelp = false"
+                         class="absolute left-0 top-full mt-2 z-50 w-80 rounded-md p-3.5 text-xs font-normal normal-case"
+                         style="background:var(--surface);border:1px solid var(--border);box-shadow:0 12px 32px rgba(0,0,0,0.28);color:var(--text-secondary);line-height:1.5;">
+                        <div class="text-sm font-bold mb-1.5" style="color:var(--text-primary);">Street &amp; Complex Search</div>
+                        <p>Type a <strong style="color:var(--text-primary);">street name</strong> or <strong style="color:var(--text-primary);">complex / estate name</strong> and CoreX finds every contact whose <strong style="color:var(--text-primary);">Address</strong> or <strong style="color:var(--text-primary);">Linked Properties</strong> match. Names, phone numbers and emails are <em>not</em> searched here.</p>
+                        <p class="mt-2">The results open on their own page — each contact tagged with <em>Last Contacted</em>, <em>Last Modified</em> and its linked-property status — sortable (by unit number, complex, street…) and downloadable as a PDF.</p>
+                    </div>
+                </div>
+
+                {{-- Inline street/complex input — revealed when the house is clicked.
+                     Enter or the arrow navigates to the report (JS, not a form submit). --}}
+                <div x-show="scOpen" x-cloak x-transition class="relative">
+                    <input type="text" x-ref="scInput"
+                           @keydown.enter.prevent="scGo($refs.scInput.value)"
+                           placeholder="Street or complex name…"
+                           class="w-48 md:w-56 pl-3 pr-9 py-2 text-sm rounded-md"
+                           style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+                    <button type="button" @click="scGo($refs.scInput.value)"
+                            class="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-7 h-7 rounded-md"
+                            style="background:var(--brand-icon,#0ea5e9);color:#fff;" title="Search street / complex">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            {{-- Search --}}
+            <div class="relative flex-1 min-w-[180px] max-w-xs">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value="{{ request('search') }}"
+                       data-tour="contact-search"
+                       placeholder="Search name, phone, email…"
+                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
+                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+            </div>
+
+            {{-- Preserve the current agent filter across search/type submits —
+                 INCLUDING '' (= All agents). If this only rendered for a selected
+                 agent, clicking Search while on "All" would submit no agent_id and
+                 the controller would fall back to its My-contacts default. Always
+                 render it (when the user can pick agents), matching the properties page. --}}
+            @if($canPickAgent)
+            <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
+            @endif
+
+            {{-- Type filter --}}
+            <select name="type" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">{{ $isRentalEntry ? 'All Rental Types' : 'All Types' }}</option>
+                @foreach($typeFilterOptions as $type)
+                    <option value="{{ $type->id }}" {{ request('type') == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
+                @endforeach
+            </select>
+
+            {{-- Mine / All pill toggle (role must grant scope='branch' or 'all' on contacts.view) --}}
+            @if($canPickAgent)
+            @php
+                $cuId      = (string) auth()->id();
+                $vtIsMine  = (string) $filterAgentId === $cuId;
+                $vtIsAll   = $filterAgentId === '';
+                $vtIsBranch = $filterAgentId === 'branch';
+                $vtDScope  = $dataScope ?? \App\Services\PermissionService::getDataScope(auth()->user(), 'contacts');                $vtCarry   = request()->except(['agent_id', 'page']);                $vtMineUrl = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => $cuId]));                $vtAllUrl  = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => '']));                $vtBranchUrl = route('corex.rentals.contacts.index', array_merge($vtCarry, ['agent_id' => 'branch']));
+            @endphp
+            <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                <a href="{{ $vtMineUrl }}" @click.prevent="pickAgent('{{ $cuId }}')"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="{{ $vtIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show only my contacts">
+                    My Contacts
+                </a>
+                {{-- cc4 walk, finding B, 2026-09-13 - explicit Branch pill, Rentals -> Contacts ONLY. --}}
+                @if($isRentalEntry)
+                <a href="{{ $vtBranchUrl }}" @click.prevent="pickAgent('branch')"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="border-left:1px solid var(--border); {{ $vtIsBranch ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show all contacts in my branch">
+                    Branch
+                </a>
+                @endif
+                {{-- A 'branch'-scoped user's ceiling IS branch - on the rentals lens "All" would duplicate the Branch pill, so it is dropped there. --}}
+                @if(!$isRentalEntry || $vtDScope !== 'branch')
+                <a href="{{ $vtAllUrl }}" @click.prevent="pickAgent('')"
+                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
+                   style="border-left:1px solid var(--border); {{ $vtIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   title="Show all {{ $vtDScope === 'branch' ? 'branch' : 'agency' }} contacts">
+                    {{ $isRentalEntry ? 'Agency' : 'All Contacts' }}
+                </a>
+                @endif
+            </div>
+            @endif
+
+            {{-- cc4 walk, finding 8, 2026-09-13 - real sort control, Rentals -> Contacts only. See ContactController::index(). --}}
+            @if($isRentalEntry)
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter">
+                <option value="name" {{ request('sort', 'name') === 'name' ? 'selected' : '' }}>Sort: Name</option>
+                <option value="created" {{ request('sort') === 'created' ? 'selected' : '' }}>Sort: Date added</option>
+                <option value="updated" {{ request('sort') === 'updated' ? 'selected' : '' }}>Sort: Last updated</option>
+            </select>
+            <select name="direction" onchange="this.form.submit()" class="list-header-filter">
+                <option value="asc" {{ request('direction', 'asc') === 'asc' ? 'selected' : '' }}>A-Z / Oldest first</option>
+                <option value="desc" {{ request('direction') === 'desc' ? 'selected' : '' }}>Z-A / Newest first</option>
+            </select>
+            @endif
+
+            {{-- Agent picker (admin/BM only) — centered modal (matches the Properties
+                 page). A fixed, centered dialog never mis-anchors or clips when the
+                 filter bar wraps, unlike an absolutely-positioned dropdown. --}}
+            @if($canPickAgent)
+            <div class="inline-flex items-center gap-1">
+                <button type="button" @click="agentPicker = true"
+                        class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
+                        style="{{ $selectedAgent ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : '' }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <circle cx="9" cy="7" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 21v-1a6 6 0 016-6h0M16 19l2 2 4-4"/>
+                    </svg>
+                    {{ $selectedAgent ? $selectedAgent->name : 'All Agents' }}
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </button>
+
+                @if($selectedAgent)
+                <button type="button" @click="pickAgent('')"
+                   class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300 cursor-pointer"
+                   style="color:var(--text-muted);" title="Clear agent filter">&times;</button>
+                @endif
+            </div>
+
+            {{-- Picker modal --}}
+            <div x-show="agentPicker" x-cloak
+                 class="fixed inset-0 z-50 flex items-center justify-center p-4"
+                 style="background:rgba(0,0,0,0.5);"
+                 @click.self="agentPicker = false"
+                 @keydown.escape.window="agentPicker = false"
+                 x-transition.opacity>
+                <div class="w-full max-w-md rounded-md overflow-hidden flex flex-col" style="max-height:80vh;
+                     background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+
+                    <div class="flex items-center justify-between px-4 py-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
+                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Select Agent</h3>
+                        <button type="button" @click="agentPicker = false"
+                                class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300"
+                                style="color:var(--text-muted);"
+                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <div class="p-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
+                        <div class="relative">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35"/>
+                            </svg>
+                            <input type="text" x-model="agentSearch" placeholder="Search agents..."
+                                   class="w-full pl-8 pr-3 py-1.5 text-xs rounded-md outline-none transition-all duration-300"
+                                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
+                        </div>
+                    </div>
+
+                    <div class="flex-1" style="overflow-y:auto;">
+                        <button type="button" @click="pickAgent('')"
+                           class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300 text-left"
+                           style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
+                           onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0" style="background:var(--surface-2);color:var(--text-secondary);">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1h5M12 12a4 4 0 100-8 4 4 0 000 8z"/></svg>
+                            </span>
+                            All agents
+                            <template x-if="!{{ $filterAgentId ? $filterAgentId : 0 }}">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                            </template>
+                        </button>
+
+                        <template x-for="agent in filtered" :key="agent.id">
+                            <button type="button" @click="pickAgent(agent.id)"
+                               class="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300 text-left"
+                               :style="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? 'background:var(--surface-2);' : '')"
+                               onmouseover="this.style.background='var(--surface-2)'" :onmouseout="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? `this.style.background='var(--surface-2)'` : `this.style.background=''`)">
+                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0"
+                                      style="background:var(--brand-default,#0b2a4a);color:#fff;"
+                                      x-text="agent.name.charAt(0).toUpperCase()">
+                                </span>
+                                <div class="min-w-0">
+                                    <div class="font-semibold truncate" style="color:var(--text-primary);" x-text="agent.name"></div>
+                                    <div class="truncate" style="color:var(--text-muted);" x-text="agent.email"></div>
+                                </div>
+                                <template x-if="{{ $filterAgentId ? $filterAgentId : 0 }} === agent.id">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                </template>
+                            </button>
+                        </template>
+
+                        <div x-show="filtered.length === 0" class="px-4 py-4 text-xs text-center" style="color:var(--text-muted);">
+                            No agents found
+                        </div>
+                    </div>
+                </div>
+            </div>
+            @endif
+
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            @if(request()->hasAny(['search','type']))
+            <a href="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
+               class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
+            @endif
+
+        </form>
+
+    </div>
+
+    {{-- Scroll region — everything from here down scrolls; header + filters stay put. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
 
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"
@@ -365,324 +654,6 @@
         </form>
     </div>
 
-    {{-- Filters --}}
-    <div x-data="{
-            agentPicker: false,
-            agentSearch: '',
-            agents: {{ Illuminate\Support\Js::from($agentList) }},
-            get filtered() {
-                if (!this.agentSearch) return this.agents;
-                const q = this.agentSearch.toLowerCase();
-                return this.agents.filter(a => a.name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q));
-            },
-            // Submit the live filter form with the chosen agent_id so the typed
-            // search term (and the type filter) is preserved — never navigate off
-            // a stale, server-rendered link. id '' = All agents.
-            pickAgent(id) {
-                const f = this.$refs.filterForm;
-                let h = f.querySelector('input[name=agent_id]');
-                if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'agent_id'; f.appendChild(h); }
-                h.value = (id == null) ? '' : id;
-                f.submit();
-            }
-         }"
-         class="rounded-md px-4 py-3" style="background:var(--surface);border:1px solid var(--border);">
-
-        {{-- cc4 walk, 2026-09-13 — this action was hardcoded to the main
-             Contacts route regardless of entry point: submitting ANY
-             filter (search, type, agent pill — now also sort) from the
-             Rentals → Contacts lens silently redirected to the plain
-             Contacts screen, losing the rentalRelevant() lock entirely.
-             Confirmed live before this fix: the rendered form's action was
-             literally corex/contacts on a page loaded from
-             corex/rentals/contacts. Route-aware now, same pattern the pill
-             URLs above already use. --}}
-        <form method="GET" action="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index') }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
-
-            {{-- Street & Complex Search — AT-273. Lives at the far left of the filter
-                 bar as just the property icon + a "?" help popover. Clicking the house
-                 reveals an inline input; because the address report is a DIFFERENT
-                 route than this filter form, it navigates via JS (scGo) rather than a
-                 nested form. Searches ONLY Address + Linked Properties. --}}
-            <div x-data="{ scOpen: false, scHelp: false,
-                           scGo(v) {
-                               v = (v || '').trim();
-                               if (!v) { this.$refs.scInput && this.$refs.scInput.focus(); return; }
-                               {{-- No agent_id: the property search ALWAYS runs at the
-                                    agency's full contact-visibility scope, never the
-                                    list's "My Contacts" narrowing (AT-273). --}}
-                               let u = '{{ route('corex.contacts.street-complex-search') }}?q=' + encodeURIComponent(v);
-                               window.location.href = u;
-                           } }"
-                 class="flex items-center gap-1">
-
-                {{-- Property icon — click to open the street/complex search. --}}
-                <button type="button"
-                        @click="scOpen = !scOpen; scOpen && $nextTick(() => $refs.scInput && $refs.scInput.focus())"
-                        class="inline-flex items-center justify-center w-9 h-9 rounded-md flex-shrink-0 transition-all duration-300"
-                        :style="scOpen ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);color:var(--brand-icon,#0ea5e9);'"
-                        :aria-expanded="scOpen"
-                        data-tour="contact-street-search"
-                        title="Street &amp; Complex Search — click to search by street or complex name">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
-                    </svg>
-                </button>
-
-                {{-- "?" help — sits right beside the house icon. --}}
-                <div class="relative flex-shrink-0">
-                    <button type="button" @click="scHelp = !scHelp" @click.outside="scHelp = false"
-                            class="inline-flex items-center justify-center w-6 h-6 transition-all duration-300"
-                            style="color:var(--text-muted);background:transparent;border:none;"
-                            :style="scHelp ? 'color:var(--brand-icon,#0ea5e9);' : ''"
-                            title="How does this work?">
-                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
-                        </svg>
-                    </button>
-
-                    <div x-show="scHelp" x-cloak x-transition
-                         @keydown.escape.window="scHelp = false"
-                         class="absolute left-0 top-full mt-2 z-50 w-80 rounded-md p-3.5 text-xs font-normal normal-case"
-                         style="background:var(--surface);border:1px solid var(--border);box-shadow:0 12px 32px rgba(0,0,0,0.28);color:var(--text-secondary);line-height:1.5;">
-                        <div class="text-sm font-bold mb-1.5" style="color:var(--text-primary);">Street &amp; Complex Search</div>
-                        <p>Type a <strong style="color:var(--text-primary);">street name</strong> or <strong style="color:var(--text-primary);">complex / estate name</strong> and CoreX finds every contact whose <strong style="color:var(--text-primary);">Address</strong> or <strong style="color:var(--text-primary);">Linked Properties</strong> match. Names, phone numbers and emails are <em>not</em> searched here.</p>
-                        <p class="mt-2">The results open on their own page — each contact tagged with <em>Last Contacted</em>, <em>Last Modified</em> and its linked-property status — sortable (by unit number, complex, street…) and downloadable as a PDF.</p>
-                    </div>
-                </div>
-
-                {{-- Inline street/complex input — revealed when the house is clicked.
-                     Enter or the arrow navigates to the report (JS, not a form submit). --}}
-                <div x-show="scOpen" x-cloak x-transition class="relative">
-                    <input type="text" x-ref="scInput"
-                           @keydown.enter.prevent="scGo($refs.scInput.value)"
-                           placeholder="Street or complex name…"
-                           class="w-48 md:w-56 pl-3 pr-9 py-2 text-sm rounded-md"
-                           style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
-                    <button type="button" @click="scGo($refs.scInput.value)"
-                            class="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-7 h-7 rounded-md"
-                            style="background:var(--brand-icon,#0ea5e9);color:#fff;" title="Search street / complex">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
-            {{-- Search --}}
-            <div class="relative flex-1 min-w-[180px] max-w-xs">
-                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
-                </svg>
-                <input type="text" name="search" value="{{ request('search') }}"
-                       data-tour="contact-search"
-                       placeholder="Search name, phone, email…"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
-                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
-            </div>
-
-            {{-- Preserve the current agent filter across search/type submits —
-                 INCLUDING '' (= All agents). If this only rendered for a selected
-                 agent, clicking Search while on "All" would submit no agent_id and
-                 the controller would fall back to its My-contacts default. Always
-                 render it (when the user can pick agents), matching the properties page. --}}
-            @if($canPickAgent)
-            <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
-            @endif
-
-            {{-- Type filter — AT-403: on the Rentals lens, $typeFilterOptions is
-                 already narrowed to Lessor/Lessee (the rental-relevant
-                 canonical parents); "All Types" here means "all rental
-                 types", the lock in the controller keeps it from ever
-                 escaping to Buyer/Seller/Owner regardless. --}}
-            <select name="type" onchange="this.form.submit()" class="list-header-filter">
-                <option value="">{{ $isRentalEntry ? 'All Rental Types' : 'All Types' }}</option>
-                @foreach($typeFilterOptions as $type)
-                    <option value="{{ $type->id }}" {{ request('type') == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
-                @endforeach
-            </select>
-
-            {{-- Mine / All pill toggle (role must grant scope='branch' or 'all' on contacts.view) --}}
-            @if($canPickAgent)
-            @php
-                $cuId      = (string) auth()->id();
-                $vtIsMine  = (string) $filterAgentId === $cuId;
-                $vtIsAll   = $filterAgentId === '';
-                $vtIsBranch = $filterAgentId === 'branch';
-                $vtDScope  = $dataScope ?? \App\Services\PermissionService::getDataScope(auth()->user(), 'contacts');
-                $vtCarry   = request()->except(['agent_id', 'page']);
-                $vtMineUrl = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => $cuId]));
-                $vtAllUrl  = route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', array_merge($vtCarry, ['agent_id' => '']));
-                $vtBranchUrl = route('corex.rentals.contacts.index', array_merge($vtCarry, ['agent_id' => 'branch']));
-            @endphp
-            <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
-                <a href="{{ $vtMineUrl }}" @click.prevent="pickAgent('{{ $cuId }}')"
-                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
-                   style="{{ $vtIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
-                   title="Show only my contacts">
-                    My Contacts
-                </a>
-                {{-- cc4 walk, finding B, 2026-09-13 — Rentals → Contacts
-                     ONLY (the main Contacts screen's pill is unchanged).
-                     Johan: "the pill currently offers only Mine and All —
-                     there is no explicit Branch option... a branch manager
-                     cannot select the level they actually manage." Shown to
-                     anyone who can reach at least branch level (both
-                     'branch'- and 'all'-scoped users — for an 'all'-scoped
-                     admin this is a genuinely useful middle tier, their own
-                     branch, narrower than the full agency). --}}
-                @if($isRentalEntry)
-                <a href="{{ $vtBranchUrl }}" @click.prevent="pickAgent('branch')"
-                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
-                   style="border-left:1px solid var(--border); {{ $vtIsBranch ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
-                   title="Show all contacts in my branch">
-                    Branch
-                </a>
-                @endif
-                {{-- A 'branch'-scoped user's real ceiling IS branch — "All"
-                     would only ever resolve to the exact same rows as the
-                     Branch pill above, just under a misleading label, so on
-                     the rentals lens it's dropped rather than kept as a
-                     confusing duplicate. The main Contacts screen keeps
-                     showing it (unchanged) since it predates this pass and
-                     nobody asked for that screen to change. --}}
-                @if(!$isRentalEntry || $vtDScope !== 'branch')
-                <a href="{{ $vtAllUrl }}" @click.prevent="pickAgent('')"
-                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
-                   style="border-left:1px solid var(--border); {{ $vtIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
-                   title="Show all {{ $vtDScope === 'branch' ? 'branch' : 'agency' }} contacts">
-                    {{ $isRentalEntry ? 'Agency' : 'All Contacts' }}
-                </a>
-                @endif
-            </div>
-            @endif
-
-            {{-- cc4 walk, finding 8, 2026-09-13 — real sort control, Rentals
-                 → Contacts only. Default: Name (unchanged from before this
-                 control existed). See ContactController::index() for the
-                 full reasoning and the sortable column list. --}}
-            @if($isRentalEntry)
-            <select name="sort" onchange="this.form.submit()" class="list-header-filter">
-                <option value="name" {{ request('sort', 'name') === 'name' ? 'selected' : '' }}>Sort: Name</option>
-                <option value="created" {{ request('sort') === 'created' ? 'selected' : '' }}>Sort: Date added</option>
-                <option value="updated" {{ request('sort') === 'updated' ? 'selected' : '' }}>Sort: Last updated</option>
-            </select>
-            <select name="direction" onchange="this.form.submit()" class="list-header-filter">
-                <option value="asc" {{ request('direction', 'asc') === 'asc' ? 'selected' : '' }}>A–Z / Oldest first</option>
-                <option value="desc" {{ request('direction') === 'desc' ? 'selected' : '' }}>Z–A / Newest first</option>
-            </select>
-            @endif
-
-            {{-- Agent picker (admin/BM only) — centered modal (matches the Properties
-                 page). A fixed, centered dialog never mis-anchors or clips when the
-                 filter bar wraps, unlike an absolutely-positioned dropdown. --}}
-            @if($canPickAgent)
-            <div class="inline-flex items-center gap-1">
-                <button type="button" @click="agentPicker = true"
-                        class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
-                        style="{{ $selectedAgent ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : '' }}">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <circle cx="9" cy="7" r="4"/><path stroke-linecap="round" stroke-linejoin="round" d="M3 21v-1a6 6 0 016-6h0M16 19l2 2 4-4"/>
-                    </svg>
-                    {{ $selectedAgent ? $selectedAgent->name : 'All Agents' }}
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-
-                @if($selectedAgent)
-                <button type="button" @click="pickAgent('')"
-                   class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold transition-all duration-300 cursor-pointer"
-                   style="color:var(--text-muted);" title="Clear agent filter">&times;</button>
-                @endif
-            </div>
-
-            {{-- Picker modal --}}
-            <div x-show="agentPicker" x-cloak
-                 class="fixed inset-0 z-50 flex items-center justify-center p-4"
-                 style="background:rgba(0,0,0,0.5);"
-                 @click.self="agentPicker = false"
-                 @keydown.escape.window="agentPicker = false"
-                 x-transition.opacity>
-                <div class="w-full max-w-md rounded-md overflow-hidden flex flex-col" style="max-height:80vh;
-                     background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-
-                    <div class="flex items-center justify-between px-4 py-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
-                        <h3 class="text-sm font-semibold" style="color:var(--text-primary);">Select Agent</h3>
-                        <button type="button" @click="agentPicker = false"
-                                class="inline-flex items-center justify-center w-7 h-7 rounded-md transition-all duration-300"
-                                style="color:var(--text-muted);"
-                                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                        </button>
-                    </div>
-
-                    <div class="p-3 flex-shrink-0" style="border-bottom:1px solid var(--border);">
-                        <div class="relative">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style="color:var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.35-4.35"/>
-                            </svg>
-                            <input type="text" x-model="agentSearch" placeholder="Search agents..."
-                                   class="w-full pl-8 pr-3 py-1.5 text-xs rounded-md outline-none transition-all duration-300"
-                                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
-                        </div>
-                    </div>
-
-                    <div class="flex-1" style="overflow-y:auto;">
-                        <button type="button" @click="pickAgent('')"
-                           class="w-full flex items-center gap-2 px-4 py-2.5 text-xs font-semibold transition-all duration-300 text-left"
-                           style="color:var(--text-secondary);border-bottom:1px solid var(--border);"
-                           onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
-                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0" style="background:var(--surface-2);color:var(--text-secondary);">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-1a4 4 0 00-4-4H6a4 4 0 00-4 4v1h5M12 12a4 4 0 100-8 4 4 0 000 8z"/></svg>
-                            </span>
-                            All agents
-                            <template x-if="!{{ $filterAgentId ? $filterAgentId : 0 }}">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-                            </template>
-                        </button>
-
-                        <template x-for="agent in filtered" :key="agent.id">
-                            <button type="button" @click="pickAgent(agent.id)"
-                               class="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs transition-all duration-300 text-left"
-                               :style="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? 'background:var(--surface-2);' : '')"
-                               onmouseover="this.style.background='var(--surface-2)'" :onmouseout="({{ $filterAgentId ? $filterAgentId : 0 }} === agent.id ? `this.style.background='var(--surface-2)'` : `this.style.background=''`)">
-                                <span class="inline-flex items-center justify-center w-6 h-6 rounded-md text-xs font-bold flex-shrink-0"
-                                      style="background:var(--brand-default,#0b2a4a);color:#fff;"
-                                      x-text="agent.name.charAt(0).toUpperCase()">
-                                </span>
-                                <div class="min-w-0">
-                                    <div class="font-semibold truncate" style="color:var(--text-primary);" x-text="agent.name"></div>
-                                    <div class="truncate" style="color:var(--text-muted);" x-text="agent.email"></div>
-                                </div>
-                                <template x-if="{{ $filterAgentId ? $filterAgentId : 0 }} === agent.id">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 ml-auto flex-shrink-0" style="color:var(--brand-icon,#0ea5e9);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                                    </svg>
-                                </template>
-                            </button>
-                        </template>
-
-                        <div x-show="filtered.length === 0" class="px-4 py-4 text-xs text-center" style="color:var(--text-muted);">
-                            No agents found
-                        </div>
-                    </div>
-                </div>
-            </div>
-            @endif
-
-            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
-            @if(request()->hasAny(['search','type']))
-            <a href="{{ route($isRentalEntry ? 'corex.rentals.contacts.index' : 'corex.contacts.index', $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
-               class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
-            @endif
-
-        </form>
-
-    </div>
-
     {{-- Contacts table --}}
     <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
         <div class="px-5 py-3 flex items-center justify-between" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
@@ -919,6 +890,7 @@
         </div>
         @endif
     </div>
+    </div>{{-- /scroll region --}}
 
 </div>
 @endsection

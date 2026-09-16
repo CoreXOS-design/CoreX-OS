@@ -146,9 +146,17 @@
             @permission('settle_deals')
             <select name="branch" onchange="this.form.submit()" class="list-header-filter">
                 <option value="">All branches</option>
-                @foreach($branches as $br)
+                {{-- Active branches first, then an Archived group (AT-420) --}}
+                @foreach($branches->whereNull('deleted_at') as $br)
                 <option value="{{ $br->id }}" {{ request('branch') == $br->id ? 'selected' : '' }}>{{ $br->name }}</option>
                 @endforeach
+                @if($branches->whereNotNull('deleted_at')->isNotEmpty())
+                <optgroup label="Archived">
+                    @foreach($branches->whereNotNull('deleted_at') as $br)
+                    <option value="{{ $br->id }}" {{ request('branch') == $br->id ? 'selected' : '' }}>{{ $br->name }}</option>
+                    @endforeach
+                </optgroup>
+                @endif
             </select>
             @endpermission
 

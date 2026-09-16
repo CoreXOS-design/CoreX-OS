@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\Agent\AgentBranchAssigned;
+use App\Events\Branch\BranchArchived;
+use App\Events\Branch\BranchRestored;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Branch;
@@ -18,6 +21,11 @@ class BranchAssignmentController extends Controller
 
         $users = User::agencyMembers()->orderBy('name')->get();
         $branches = Branch::orderBy('name')->get();
+
+        // Archive wizard + Archived branches panel
+        // (spec: branch-archive-reassignment.md §6–§7, AT-420)
+        $branchUsers      = Branch::attachedUsersGrouped($branches->pluck('id'));
+        $archivedBranches = Branch::onlyTrashed()->orderByDesc('deleted_at')->get();
         $assigned = DB::table('branch_assignments')->pluck('branch_id', 'user_id')->toArray();
         $branchesInUse = DB::table('branch_assignments')
             ->select('branch_id', DB::raw('count(*) as cnt'))
@@ -31,7 +39,9 @@ class BranchAssignmentController extends Controller
             ->groupBy('branch_id')
             ->map(fn($rows) => $rows->pluck('value','key')->toArray())
             ->toArray();
-        return view('admin.branch-assignments.index', compact('users', 'branches', 'assigned', 'branchesInUse', 'branchSettingsByBranch'));
+        return view('admin.branch-assignments.index', compact(
+            'users', 'branches', 'assigned', 'branchesInUse', 'branchSettingsByBranch', 'branchUsers', 'archivedBranches'
+        ));
     }
 
     public function update(Request $request)
@@ -128,64 +138,176 @@ class BranchAssignmentController extends Controller
         return back();
     }
 
+    /**
+     * Archive a branch (soft delete), moving every attached person to another
+     * active branch in the SAME transaction — all or nothing.
+     * Spec: .ai/specs/branch-archive-reassignment.md §7 (AT-420).
+     *
+     * Business rule (Andre, 2026-09-15): deals carry on as loaded. Nothing
+     * historical is re-attributed — every deal, property, contact, document,
+     * target and activity keeps the branch stamped on it. The move only
+     * changes where each person's FUTURE work lands, and it is dated
+     * (user_branch_history, written by UserObserver on the Eloquent save) so
+     * activity reports can still credit the old branch for the old days.
+     */
     public function deleteBranch(Request $request, Branch $branch)
     {
         $this->authorizeAdmin();
+        $actor = auth()->user();
 
-        // Who is still attached to this branch?
-        $assignedUserIds = User::where('branch_id', $branch->id)->pluck('id')->all();
-        $legacyPivotUserIds = DB::table('branch_assignments')->where('branch_id', $branch->id)->pluck('user_id')->all();
-        $allAttachedUserIds = array_unique(array_merge($assignedUserIds, $legacyPivotUserIds));
+        $attachedUserIds = $branch->attachedUserIds();
 
-        // Spec §9: if any users are attached we require a reassignment map
-        // (user_id => target_branch_id). Without it, refuse and let the UI
-        // open the reassignment modal.
-        if (!empty($allAttachedUserIds)) {
-            $reassignments = $request->input('reassignments', []);
+        // reassignments[user_id] = target_branch_id. A blank is "not chosen yet".
+        $raw = $request->input('reassignments', []);
+        $reassignments = collect(is_array($raw) ? $raw : [])
+            ->mapWithKeys(fn ($target, $userId) => [(int) $userId => (int) $target])
+            ->filter(fn ($target, $userId) => $userId > 0 && $target > 0);
 
-            if (empty($reassignments) || !is_array($reassignments)) {
-                return $this->branchContextRedirect($request, $branch)->withErrors([
-                    'branch' => 'This branch has ' . count($allAttachedUserIds) . ' user(s) assigned. Reassign them before archiving.',
-                ])->withInput(['reassign_for_branch' => $branch->id]);
-            }
+        if (empty($attachedUserIds)) {
+            $reassignments = collect();
+        } else {
+            $count  = count($attachedUserIds);
+            $people = $count === 1 ? '1 person still works' : "{$count} people still work";
 
-            // Validate targets: each target branch must be in the same agency
-            // and not the branch we're about to archive.
-            $validTargetIds = Branch::where('agency_id', $branch->agency_id)
+            // Only an ACTIVE branch in the same agency (never the one being archived)
+            // may receive people.
+            $validTargetIds = Branch::selectable()
+                ->where('agency_id', $branch->agency_id)
                 ->where('id', '!=', $branch->id)
                 ->pluck('id')
                 ->flip();
 
-            foreach ($reassignments as $userId => $targetBranchId) {
-                if (!in_array((int) $userId, $allAttachedUserIds, true)) {
-                    return $this->branchContextRedirect($request, $branch)->withErrors(['branch' => "User {$userId} is not assigned to this branch."]);
-                }
-                if (!$validTargetIds->has((int) $targetBranchId)) {
-                    return $this->branchContextRedirect($request, $branch)->withErrors(['branch' => "Invalid target branch for user {$userId}."]);
-                }
+            if ($validTargetIds->isEmpty()) {
+                return $this->branchContextRedirect($request, $branch)->withErrors([
+                    'branch' => "{$branch->name} cannot be archived yet: {$people} from it and there is no other active branch to move them to. Add a branch first.",
+                ]);
             }
 
-            // All or nothing — every attached user must have a target
-            $unaddressed = array_diff($allAttachedUserIds, array_keys($reassignments));
+            // All or nothing — every attached person must have a target.
+            $unaddressed = array_diff($attachedUserIds, $reassignments->keys()->all());
             if (!empty($unaddressed)) {
-                return $this->branchContextRedirect($request, $branch)->withErrors(['branch' => 'All attached users must be reassigned before archiving.']);
+                $n = count($unaddressed);
+                return $this->branchContextRedirect($request, $branch)->withErrors([
+                    'branch' => "Choose a new branch for everyone before archiving {$branch->name} — {$n} "
+                        . ($n === 1 ? 'person still needs one.' : 'people still need one.'),
+                ])->withInput(['reassign_for_branch' => $branch->id]);
             }
 
-            DB::transaction(function () use ($reassignments, $branch) {
-                foreach ($reassignments as $userId => $targetBranchId) {
-                    User::where('id', (int) $userId)->update(['branch_id' => (int) $targetBranchId]);
-                    DB::table('branch_assignments')
-                        ->where('user_id', (int) $userId)
-                        ->update(['branch_id' => (int) $targetBranchId, 'updated_at' => now()]);
+            foreach ($reassignments as $userId => $targetBranchId) {
+                if (!in_array($userId, $attachedUserIds, true)) {
+                    return $this->branchContextRedirect($request, $branch)->withErrors([
+                        'branch' => "One of the people in the list no longer works from {$branch->name}. Reload the page and try again.",
+                    ]);
                 }
-                $branch->delete();
-            });
-
-            return $this->branchContextRedirect($request, $branch)->with('success', "Reassigned " . count($reassignments) . " user(s) and archived {$branch->name}.");
+                if (!$validTargetIds->has($targetBranchId)) {
+                    return $this->branchContextRedirect($request, $branch)->withErrors([
+                        'branch' => 'One of the chosen branches is not an active branch in this agency. Reload the page and try again.',
+                    ]);
+                }
+            }
         }
 
-        $branch->delete();
-        return $this->branchContextRedirect($request, $branch)->with('success', "Archived branch {$branch->name}.");
+        try {
+            $moved = DB::transaction(function () use ($branch, $reassignments, $actor) {
+                $moved = [];
+
+                foreach ($reassignments as $userId => $targetBranchId) {
+                    $user = User::find($userId);
+                    if (!$user) {
+                        continue; // vanished between page load and submit — nothing to move
+                    }
+                    $target = Branch::selectable()->findOrFail($targetBranchId);
+                    $from   = $user->branch_id ? (int) $user->branch_id : null;
+
+                    // Eloquent save — NOT a query-builder update — so UserObserver
+                    // writes the dated user_branch_history row (AT-366) that the
+                    // Performance & ROI report attributes activity with.
+                    $user->branch_id = $targetBranchId;
+                    $user->save();
+
+                    DB::table('branch_assignments')
+                        ->where('user_id', $userId)
+                        ->update(['branch_id' => $targetBranchId, 'updated_at' => now()]);
+
+                    $this->retargetManagedBranches($userId, (int) $branch->id, $targetBranchId);
+
+                    event(new AgentBranchAssigned($user, $target, $actor?->id, null, 'branch_archived', $from));
+                    $moved[] = $userId;
+                }
+
+                // A principal who manages this branch from another home branch still
+                // holds a managed-branch row for it — drop it and re-point their default.
+                $remainingManagerIds = DB::table('user_managed_branches')
+                    ->where('branch_id', $branch->id)
+                    ->pluck('user_id');
+                foreach ($remainingManagerIds as $managerId) {
+                    $this->retargetManagedBranches((int) $managerId, (int) $branch->id, null);
+                }
+
+                $branch->delete();
+                event(new BranchArchived($branch, $actor?->id, $moved));
+
+                return $moved;
+            });
+        } catch (\Throwable $e) {
+            report($e);
+            return $this->branchContextRedirect($request, $branch)->withErrors([
+                'branch' => "{$branch->name} was not archived — nothing changed. Please try again; if it keeps failing, contact support.",
+            ]);
+        }
+
+        $n = count($moved);
+        $message = $n === 0
+            ? "{$branch->name} archived."
+            : "{$branch->name} archived. {$n} " . ($n === 1 ? 'person moved.' : 'people moved.');
+
+        return $this->branchContextRedirect($request, $branch)->with('success', $message);
+    }
+
+    /**
+     * Drop the archived branch from a user's managed-branch set. If it was their
+     * login default, the default becomes $preferredBranchId when they manage it,
+     * else the first remaining (active) managed branch, else none.
+     * Spec: branch-archive-reassignment.md §7.3.
+     */
+    private function retargetManagedBranches(int $userId, int $archivedBranchId, ?int $preferredBranchId): void
+    {
+        $wasDefault = DB::table('user_managed_branches')
+            ->where('user_id', $userId)
+            ->where('branch_id', $archivedBranchId)
+            ->where('is_default', true)
+            ->exists();
+
+        DB::table('user_managed_branches')
+            ->where('user_id', $userId)
+            ->where('branch_id', $archivedBranchId)
+            ->delete();
+
+        if (!$wasDefault) {
+            return;
+        }
+
+        $remaining = DB::table('user_managed_branches')
+            ->join('branches', 'branches.id', '=', 'user_managed_branches.branch_id')
+            ->whereNull('branches.deleted_at')
+            ->where('user_managed_branches.user_id', $userId)
+            ->orderBy('branches.name')
+            ->pluck('user_managed_branches.branch_id')
+            ->map(fn ($id) => (int) $id);
+
+        if ($remaining->isEmpty()) {
+            return;
+        }
+
+        $newDefault = ($preferredBranchId && $remaining->contains($preferredBranchId))
+            ? $preferredBranchId
+            : $remaining->first();
+
+        DB::table('user_managed_branches')->where('user_id', $userId)->update(['is_default' => false]);
+        DB::table('user_managed_branches')
+            ->where('user_id', $userId)
+            ->where('branch_id', $newDefault)
+            ->update(['is_default' => true, 'updated_at' => now()]);
     }
 
     private function authorizeAdmin()
@@ -272,13 +394,24 @@ class BranchAssignmentController extends Controller
         return $this->branchContextRedirect($request, $branch)->with('success', 'Branch contact details updated.');
     }
 
-    // ── Restore soft-deleted branch ──
+    // ── Restore an archived branch (spec: branch-archive-reassignment.md §7.5, AT-420) ──
 
+    /**
+     * Restore returns the branch to active with all its historical records.
+     * No one is moved: the people the archive wizard relocated stay where they
+     * are now — move them back from Branch Assignments if needed.
+     */
     public function restoreBranch(Request $request, $id)
     {
-        abort_unless(auth()->user()->hasPermission('manage_system'), 403);
-        $record = Branch::onlyTrashed()->findOrFail($id);
-        $record->restore();
-        return $this->branchContextRedirect($request, $record)->with('success', 'Record restored.');
+        $this->authorizeAdmin();
+
+        $branch = Branch::onlyTrashed()->findOrFail($id);
+        $branch->restore();
+        event(new BranchRestored($branch, auth()->id()));
+
+        return $this->branchContextRedirect($request, $branch)->with(
+            'success',
+            "{$branch->name} restored. Agents stay where they are now — move them back from Branch Assignments if needed."
+        );
     }
 }

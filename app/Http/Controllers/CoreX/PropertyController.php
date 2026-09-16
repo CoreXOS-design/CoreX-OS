@@ -28,7 +28,18 @@ class PropertyController extends Controller
     use \App\Http\Controllers\Concerns\AuthorizesPropertyAccess;
     use \App\Http\Concerns\AppliesP24Location;
 
-    public function index(Request $request)
+    /**
+     * AT-419 — thin entry point for the Imported Stock page. Same list, filters,
+     * search, sort and agent handling as index() — just scoped to P24-imported
+     * off-market stock instead of everything else. See index()'s $importedStock
+     * branches for the two places that actually differ.
+     */
+    public function importedStock(Request $request)
+    {
+        return $this->index($request, true);
+    }
+
+    public function index(Request $request, bool $importedStock = false)
     {
         /** @var User $user */
         $user           = auth()->user();
@@ -74,9 +85,15 @@ class PropertyController extends Controller
         // redirected to the canonical URL so links, chips and pagination all
         // carry the state. This replaces the previous behaviour that silently
         // reset to "my listings" on any nav that dropped ?agent_id=.
-        // Rentals gets its own key so a sale-side saved filter set (or vice
-        // versa) never leaks across the two entry points.
-        $SESSION_KEY = $isRentalEntry ? 'corex.rentals.properties.filters' : 'corex.properties.filters';
+        // AT-419 — a distinct session key for Imported Stock so its filters
+        // (e.g. a picked agent) never bleed into/from the Properties page;
+        // they're two different lists a user may want filtered differently.
+        // One list, three entry points (Properties, Rentals -> Properties, Imported Stock): every
+        // self-referencing route() call stays on the entry point the user is on (AT-401 / AT-419).
+        $ROUTE_NAME  = $indexRouteName;
+        $SESSION_KEY = $importedStock
+            ? 'corex.properties.imported_stock.filters'
+            : ($isRentalEntry ? 'corex.rentals.properties.filters' : 'corex.properties.filters');
         $FILTER_KEYS = [
             'status', 'search', 'listing_type', 'property_type', 'category',
             'mandate_type', 'branch_id', 'price_min', 'price_max',
@@ -86,7 +103,7 @@ class PropertyController extends Controller
         // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
         if ($request->boolean('clear')) {
             $request->session()->forget($SESSION_KEY);
-            return redirect()->route($indexRouteName);
+            return redirect()->route($ROUTE_NAME);
         }
 
         // Did this request carry any filter signal? (incl. the legacy single
@@ -99,7 +116,7 @@ class PropertyController extends Controller
         if (! $hasFilterParam) {
             $saved = (array) $request->session()->get($SESSION_KEY, []);
             if (! empty($saved)) {
-                return redirect()->route($indexRouteName, $saved);
+                return redirect()->route($ROUTE_NAME, $saved);
             }
         }
 
@@ -136,6 +153,15 @@ class PropertyController extends Controller
             'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
         ]);
 
+        // AT-419 — the two pages partition every property between them: Imported
+        // Stock gets P24-imported off-market rows, Properties gets everything
+        // else (including active imported stock, unchanged).
+        if ($importedStock) {
+            $query->importedOffMarket();
+        } else {
+            $query->excludingImportedOffMarket();
+        }
+
         // ── Agent multi-select ────────────────────────────────────────────
         // agent_ids = comma list of ids | 'all' | (absent). Falls back to the
         // legacy single ?agent_id, then to the session, then to the user's own
@@ -167,22 +193,26 @@ class PropertyController extends Controller
         // — so a co-listed property appears under both agents' names. A property
         // is a single row, so an `OR` match still returns it exactly once even
         // when both the primary and secondary are in the selected set.
-        if ($search !== '') {
-            // AT-394 — a typed search ALWAYS widens to the whole agency, ahead of ANY agent/
-            // branch filter currently active — including a canPickAgent user's (admin/BM/owner)
-            // "Mine" default or an explicit agent_ids pick. (First cut of this fix only widened
-            // the plain-agent 'own' path below and left canPickAgent users' "Mine" view still
-            // narrowed — that is exactly the case Johan hit testing as an owner on his own
-            // "My Contacts"/listings.) Still bounded by AgencyScope (untouched), so this can
-            // never cross an agency boundary. Rows outside the agent's own/branch/selected-agent
-            // breadth render read-only below (see $restrictedPropertyIds).
-        } elseif ($canPickAgent && ! empty($filterAgentIds)) {
-            // Admin/BM viewing one or more specific agents
+        if ($canPickAgent && ! empty($filterAgentIds)) {
+            // An ACTIVE agent filter (the "My Properties" default, or one or more agents picked
+            // in the agent picker) is honoured until the user removes it — search or no search.
+            // A typed search NARROWS WITHIN the filtered set; it never silently widens past
+            // it (2026-09-13 ruling, reversing the second cut of AT-394 which let a search
+            // discard the agent pick — an admin filtered to one agent then searching a title
+            // saw every other agent's listings too). To search the whole agency, the user
+            // clicks "All Agents" — that removes the filter, and the branch below applies.
             $ids = array_map('intval', $filterAgentIds);
             $query->where(function ($q) use ($ids) {
                 $q->whereIn('agent_id', $ids)
                   ->orWhereIn('pp_second_agent_id', $ids);
             });
+        } elseif ($search !== '') {
+            // AT-394 — with NO agent filter active, a typed search widens to the whole agency
+            // past the user's role breadth (a plain agent's 'own' book, a BM's branch), so an
+            // agent typing a colleague's existing listing finds it instead of re-creating a
+            // duplicate. Still bounded by AgencyScope (untouched), so this can never cross an
+            // agency boundary. Rows outside the agent's own/branch breadth render read-only
+            // below (see $restrictedPropertyIds).
         } else {
             // No explicit agent pick: an admin/BM's role-default breadth (all/branch), or a
             // plain agent's "my listings" / "my branch" toggle. For an ASSISTANT "own" is the
@@ -486,7 +516,7 @@ class PropertyController extends Controller
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
-            'myDrafts', 'hasWebsiteStats', 'isRentalEntry', 'indexRouteName'
+            'myDrafts', 'hasWebsiteStats', 'importedStock', 'isRentalEntry', 'indexRouteName'
         ));
     }
 
@@ -1081,6 +1111,12 @@ class PropertyController extends Controller
         $property->dusk_images_json    = $this->storeImages($request, 'dusk_images',    $property->id);
         $property->gallery_images_json = $this->storeImages($request, 'gallery_images', $property->id);
 
+        // File every stored photo into gallery_categories_json (unsorted) so the
+        // mobile app — which reads categories ONLY — sees the same gallery the web
+        // does. No row lock needed here: the row was created inside this very
+        // transaction, so nothing else can hold it yet.
+        $property->syncGalleryCategories();
+
         // Agent images for portal syndication
         if ($request->hasFile('pp_agent_image')) {
             $property->pp_agent_image_path = $request->file('pp_agent_image')->store("properties/{$property->id}/agents", 'public');
@@ -1531,6 +1567,15 @@ class PropertyController extends Controller
 
         $previousP24SuburbId = $property->p24_suburb_id;
         $property->update($data);
+
+        // Whatever the form uploaded is now in gallery_images_json; make sure each
+        // photo is filed exactly once in gallery_categories_json — under the room
+        // chosen above, or in `unsorted` when no image_category was sent (the case
+        // that left web uploads invisible to the mobile app). Under the row lock the
+        // mobile upload uses: both columns feed galleryFingerprint().
+        if ($newGallery) {
+            $property->syncGalleryCategoriesLocked();
+        }
         if (isset($data['p24_suburb_id'])
             && (int) $data['p24_suburb_id'] > 0
             && (int) $previousP24SuburbId !== (int) $data['p24_suburb_id']) {
@@ -1979,6 +2024,13 @@ class PropertyController extends Controller
 
         if (!empty($updates)) {
             $property->update($updates);
+        }
+
+        // New gallery photos must be filed (into `unsorted`) so the mobile app,
+        // which reads gallery_categories_json only, sees them. Row-locked: both
+        // columns feed galleryFingerprint().
+        if (isset($updates['gallery_images_json'])) {
+            $property->syncGalleryCategoriesLocked();
         }
 
         if ($request->wantsJson()) {

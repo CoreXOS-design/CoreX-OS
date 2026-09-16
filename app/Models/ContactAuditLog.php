@@ -46,7 +46,7 @@ class ContactAuditLog extends Model
 
     public function contact(): BelongsTo { return $this->belongsTo(Contact::class); }
     public function user(): BelongsTo { return $this->belongsTo(User::class); }
-    public function branch(): BelongsTo { return $this->belongsTo(Branch::class); }
+    public function branch(): BelongsTo { return $this->belongsTo(Branch::class)->withTrashed(); }
 
     public function scopeForContact($q, int $contactId) { return $q->where('contact_id', $contactId); }
     public function scopeForCategory($q, string $category) { return $q->where('event_category', $category); }

@@ -55,7 +55,7 @@
             </div>
             <div>
                 <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Branch</div>
-                <div>{{ $assignment->branch?->name ?? '—' }}</div>
+                <div>{{ $assignment->branch?->display_name ?? '—' }}</div>
             </div>
             <div>
                 <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Permissions granted</div>
@@ -99,7 +99,7 @@
                         <span>
                             {{ $link->agent?->name ?? 'Unknown agent' }}
                             <span class="text-xs" style="color:var(--text-muted);">
-                                {{ $link->agent?->branch?->name ?? '—' }}
+                                {{ $link->agent?->branch?->display_name ?? '—' }}
                             </span>
                         </span>
                         @permission('assistants.manage_linked_agents')

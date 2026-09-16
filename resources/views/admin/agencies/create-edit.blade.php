@@ -1087,27 +1087,34 @@
                             </div>
                         </div>
 
-                        {{-- Delete --}}
+                        {{-- Archive (AT-420): the wizard modal lives outside this form, below --}}
                         <div class="pt-4 flex justify-end" style="border-top: 1px solid var(--border);">
                             <button type="button"
-                                    onclick="if(confirm('Delete branch &quot;{{ $branch->name }}&quot;? This cannot be undone.')) { document.getElementById('delete-branch-{{ $branch->id }}').submit(); }"
+                                    @click="$dispatch('open-modal', 'archive-branch-{{ $branch->id }}')"
                                     class="text-xs font-semibold" style="color: var(--ds-crimson);">
-                                Delete this branch
+                                Archive this branch
                             </button>
                         </div>
                     </div>
                 </form>
 
-                <form id="delete-branch-{{ $branch->id }}" method="POST" action="{{ route('admin.branches.delete', $branch) }}" class="hidden">
-                    @csrf
-                    <input type="hidden" name="from_agency_edit" value="1">
-                </form>
+                @include('admin.branches._archive-wizard', [
+                    'branch'   => $branch,
+                    'attached' => $branchUsers->get($branch->id, collect()),
+                    'targets'  => $branches,
+                    'context'  => ['from_agency_edit' => 1],
+                ])
             @empty
                 <div class="rounded-md py-8 px-6 text-center text-sm" style="background: var(--surface-2); color: var(--text-muted);">
                     No branches yet. Add the first one above.
                 </div>
             @endforelse
         </div>
+
+        @include('admin.branches._archived-panel', [
+            'archivedBranches' => $archivedBranches,
+            'context'          => ['from_agency_edit' => 1],
+        ])
     </div>
     @endif
 

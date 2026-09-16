@@ -105,7 +105,7 @@
                       <select disabled>
                           @foreach($branches as $b)
                               <option value="{{ $b->id }}" {{ (string)$effectiveBranchId === (string)$b->id ? 'selected' : '' }}>
-                                  {{ $b->name }} ({{ $b->code }})
+                                  {{ $b->display_name }} ({{ $b->code }})
                               </option>
                           @endforeach
                       </select>
@@ -115,7 +115,7 @@
                           <option value="">-- Select --</option>
                           @foreach($branches as $b)
                               <option value="{{ $b->id }}" {{ (string)old('branch_id', $deal->branch_id) === (string)$b->id ? 'selected' : '' }}>
-                                  {{ $b->name }} ({{ $b->code }})
+                                  {{ $b->display_name }} ({{ $b->code }})
                               </option>
                           @endforeach
                       </select>

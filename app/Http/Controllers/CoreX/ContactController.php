@@ -142,38 +142,41 @@ class ContactController extends Controller
         // responsible agent. The no-pick default-narrowing paths are left on the
         // original created_by basis (and ContactScope's own-row enforcement) so
         // the everyday contacts page is unchanged.
-        if ($isSearching) {
-            // AT-394 — a typed search ALWAYS widens to the whole agency, ahead of any agent/
-            // branch filter currently active — including the "Mine" default every canPickAgent
-            // user (admin/BM/owner) also lands on. (First cut of this fix only widened the
-            // plain-agent 'own' path and left canPickAgent users' "Mine" view still narrowed —
-            // that is exactly the case Johan hit testing as an owner on his own "My Contacts".)
-            // Bypasses ONLY the role-based ContactScope — agency isolation via AgencyScope is
-            // untouched, this can never cross an agency boundary. Rows outside the user's
-            // normal own/branch/selected-agent breadth are flagged read-only below and rendered
+        $hasAgentFilter = $canPickAgent && $filterAgentId !== '' && $filterAgentId !== 'all' && $filterAgentId !== 'branch';
+
+        if ($hasAgentFilter) {
+            // An ACTIVE agent filter (the "My Contacts" default, a picked agent, or
+            // "Unassigned") is honoured until the user removes it — search or no search. A
+            // typed search NARROWS WITHIN the filtered set; it never silently widens past it
+            // (2026-09-13 ruling, reversing the second cut of AT-394 which let a search
+            // discard the agent pick). To search the whole agency the user clicks "All
+            // Contacts" — that removes the filter, and the widening branch below applies.
+            if ($filterAgentId === 'unassigned') {
+                $query->whereNull('agent_id');
+            } else {
+                $query->where('agent_id', (int) $filterAgentId);
+            }
+        } elseif ($isSearching) {
+            // AT-394 — with NO agent filter active, a typed search widens to the whole agency
+            // past the user's role breadth (a plain agent's 'own' book, a BM's branch), so an
+            // agent typing a colleague's existing contact finds it instead of re-creating a
+            // duplicate. Bypasses ONLY the role-based ContactScope — agency isolation via
+            // AgencyScope is untouched, this can never cross an agency boundary. Rows outside
+            // the user's normal own/branch breadth are flagged read-only below and rendered
             // without edit/delete affordances, mirroring the existing cross-agent duplicate-
             // warning pattern (ContactDuplicateService).
             $query->withoutGlobalScope(\App\Models\Scopes\ContactScope::class);
         } elseif ($canPickAgent) {
-            if ($filterAgentId === 'unassigned') {
-                $query->whereNull('agent_id');
-            } elseif ($filterAgentId === 'branch') {
-                // cc4 walk, finding B, 2026-09-13 — explicit Branch pill,
-                // available to both 'branch'-scoped users (where this is
-                // their real ceiling) and 'all'-scoped users (a genuinely
-                // useful middle tier: their OWN branch, narrower than the
-                // full agency). Checked BEFORE the numeric agent_id branch
-                // below on purpose — (int) 'branch' casts to 0, which would
-                // otherwise silently match agent_id = 0 (nothing) instead
-                // of ever reaching this case.
+            if ($filterAgentId === 'branch') {
+                // cc4 walk, finding B, 2026-09-13 - explicit Branch pill (Rentals -> Contacts), for both
+                // 'branch'- and 'all'-scoped users. Excluded from $hasAgentFilter above on purpose:
+                // (int) 'branch' casts to 0 and would silently match agent_id = 0 (nothing).
                 $branchId = $user->effectiveBranchId();
                 if ($branchId) {
                     $query->whereHas('createdBy', fn($q) => $q->where('branch_id', $branchId));
                 } else {
                     $query->whereRaw('1 = 0');
                 }
-            } elseif ($filterAgentId !== '' && $filterAgentId !== 'all') {
-                $query->where('agent_id', (int) $filterAgentId);
             } elseif ($dataScope === 'branch' && $user->branch_id) {
                 $query->whereHas('createdBy', fn($q) => $q->where('branch_id', $user->branch_id));
             }

@@ -171,6 +171,29 @@ class CommandTask extends Model
         return $query->where('status', $status);
     }
 
+    /**
+     * Drop auto-generated property housekeeping: the document-chase chores
+     * AutoEventService::onPropertyCreated() mints per listing ("Upload signed
+     * mandate / owner ID / proof of ownership — <address>") and the idle
+     * "Property needs attention — no activity" prompts flagIdleProperties()
+     * mints daily. Both are property-health signals keyed to a listing, not
+     * to-dos an agent chose — on the Task board they buried the real work
+     * (staging: ~16k of them vs a handful of actual tasks, every one overdue).
+     *
+     * Identified structurally, not by title: automation-sourced, bound to a
+     * property, and NOT a deal task (deal automation — FICA / bond chores —
+     * also carries property_id but is genuine deal work and keeps deal_id).
+     */
+    public function scopeWithoutPropertyAutomation($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereNull('source_type')
+              ->orWhere('source_type', '!=', 'automation_rule')
+              ->orWhereNull('property_id')
+              ->orWhereNotNull('deal_id');
+        });
+    }
+
     // ── Helpers ──
 
     public function isOverdue(): bool
