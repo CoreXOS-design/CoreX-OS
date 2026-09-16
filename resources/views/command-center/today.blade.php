@@ -212,6 +212,14 @@ function commandCentre() {
     const STRIP_IDS = ['website_performance', 'my_compliance', 'agency_health', 'branch_lost_value', 'branch_compliance'];
     const toMin = (hhmm) => { const [h, m] = String(hhmm || '00:00').split(':').map(Number); return (h * 60) + (m || 0); };
     const pad = (n) => String(n).padStart(2, '0');
+    // Default to a 1-hour block when end_time is missing/invalid or crosses
+    // midnight (end <= start) — the single definition dayBounds (grid sizing)
+    // and blocks (appointment positioning) both read, so they can never
+    // disagree about how long an untimed appointment runs.
+    const itemEndMin = (item, startMin) => {
+        let e = item.end_time ? toMin(item.end_time) : startMin + 60;
+        return e <= startMin ? startMin + 60 : e;
+    };
 
     return {
         cards: @json($cards),
@@ -241,8 +249,7 @@ function commandCentre() {
             let start = 8 * 60, end = 18 * 60;
             for (const i of this.todayTimed) {
                 const s = toMin(i.time);
-                let e = i.end_time ? toMin(i.end_time) : s + 60;
-                if (e <= s) e = s + 60;                 // end before start / crosses midnight → one hour
+                const e = itemEndMin(i, s);
                 start = Math.min(start, Math.floor(s / 60) * 60);
                 end   = Math.max(end, Math.min(24 * 60, Math.ceil(e / 60) * 60));
             }
@@ -259,8 +266,7 @@ function commandCentre() {
             const total = end - start;
             const items = this.todayTimed.map(i => {
                 const s = toMin(i.time);
-                let e = i.end_time ? toMin(i.end_time) : s + 60;
-                if (e <= s) e = s + 60;
+                const e = itemEndMin(i, s);
                 return { ...i, s, e: Math.min(e, end) };
             }).sort((a, b) => a.s - b.s || a.e - b.e);
 
