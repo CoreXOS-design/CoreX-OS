@@ -128,3 +128,29 @@ Smoke test (Johan, 10 minutes): open a contact and a property page (§3); DR2 de
 - Neither the e-sign pipeline gate files nor the portal-sync files changed.
 - No `dd`/`dump`/debug leftovers, no `env()` outside config in added code, no hardcoded hosts or agency ids outside migrations.
 - Live worker topology serves every queue the new code dispatches to (`default`, `matching`, `p24images`, `p24import`).
+
+---
+
+## 9. Verified in Chrome on localhost — 2026-09-17 (fix branch `fix/prod-audit-2026-09-16`)
+
+Local rehearsal of the whole promotion on the real dev dataset, then every fix walked in a real
+Chrome (puppeteer-core, headful) as the users involved. Harness + screenshots in the session
+scratchpad (`e2e/`).
+
+| Step | Result |
+|---|---|
+| `php artisan migrate --force` on the dev DB (94 migrations, real data) | DONE 94, 0 pending, 18 s, no errors |
+| `deploy:sync-reference-data` | provisioned; 2 pre-existing WARNINGs: `assistant` role_defaults for agencies 20 and 23 resolve to zero keys (config shape, not this promotion) |
+| Dry runs of all four post-deploy commands | commission: 1 deal (#169, LIST A only); imported stock: 2 rented + 56 cancelled + 10 sold-3rd-party + 2 archived → Imported Stock; lost buyers: 83 contacts / 113 matches; gallery: 7,531 rows |
+| `properties:backfill-p24-imported --apply --agency=1` (local) | Backfill complete; Imported Stock page lists 20 rows |
+| 10 touched pages as admin (contacts ×3, properties, imported stock, core matches, rental apps, rental settings, DR2 index, admin deal form) | all 200, 0 server errors; contacts pages had 3 Alpine expression errors → root cause was `@json` emitting `"branch"` inside a double-quoted attribute → fixed in `6a6340317`, re-checked: 0 console messages |
+| Imported Stock lens | property opened from Imported Stock: Back = "Back to Imported Stock", sidebar highlights Imported Stock; entered via Properties: "Back to Properties" |
+| "Our Share %" on both V1 deal forms | hidden for an internal side; appears when External is ticked (admin form); hidden on DR2 create |
+| DR2 "Add to deal" on deal 171 | picker bound as `add_property_id`; add of property 5874 succeeded → `deal_properties` 2 rows, `property_value` re-summed 560,000 + 1,000,000 = 1,560,000, commission unchanged 48,300 |
+| Core Matches reassignment, match 635 (Willemien Trytsman) Shawn → Retha via the real POST | `agent_id` 26 → 24; Shawn (own scope, search) no longer sees the buyer; Retha does |
+| Rental applicant gate, fresh browser holding only the link (application 1, status returned) | show renders "Verify it's you" (no form); upload → 403 "Please verify this link before changing documents."; remove → 403 |
+| Rental validity windows save | "Document validity windows saved.", no 500 (soft-delete reconcile path) |
+| Deal 169 / #1818 settlement screen | selling pool R 25,500.00 (was R 12,750), external payable on the internal side R 0.00 (was R 14,662.50), listing (external) payable R 29,325.00 — and this local row still holds `selling_our_share_percent = 50`, so the screen balances on code alone |
+
+Not exercised in the browser (covered by tests only): e-sign identity gate on the six mutation
+actions (`IdentityGateEnforcedOnMutationsTest`, 11 tests) and queued rental mail (needs a worker).
