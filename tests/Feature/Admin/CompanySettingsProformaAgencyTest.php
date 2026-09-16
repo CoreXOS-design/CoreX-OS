@@ -119,10 +119,15 @@ final class CompanySettingsProformaAgencyTest extends TestCase
         $this->assertDatabaseCount('agency_proforma_settings', 0);
     }
 
-    public function test_owner_save_to_an_archived_agency_falls_back_to_their_own(): void
+    public function test_owner_save_to_an_archived_agency_is_refused_not_written(): void
     {
         $this->inland->delete(); // archived (soft delete)
 
+        // This owner has no agency/branch of their own (globalOwner — the QA2
+        // login), so once the archived id is correctly rejected there is
+        // nothing left to fall back to: refused with the plain message, same
+        // as posting no agency_id at all. The one thing this must NEVER do is
+        // write proforma settings for an archived agency.
         $resp = $this->actingAs($this->globalOwner())->put(route('admin.proforma-settings.update'), [
             'agency_id'      => $this->inland->id, // forged onto an archived agency
             'number_prefix'  => 'INL-',
@@ -131,9 +136,28 @@ final class CompanySettingsProformaAgencyTest extends TestCase
             'due_days'       => 30,
         ]);
 
+        $resp->assertRedirect(route('admin.company-settings'));
+        $resp->assertSessionHas('error');
+        $this->assertDatabaseCount('agency_proforma_settings', 0);
+    }
+
+    public function test_owner_save_to_an_archived_agency_falls_back_to_a_resolvable_one(): void
+    {
+        $this->inland->delete(); // archived (soft delete)
+
+        $resp = $this->actingAs($this->globalOwner())
+            ->withSession(['active_agency_id' => $this->coastal->id]) // owner has switched into coastal
+            ->put(route('admin.proforma-settings.update'), [
+                'agency_id'      => $this->inland->id, // forged onto an archived agency
+                'number_prefix'  => 'INL-',
+                'number_padding' => 4,
+                'due_date_rule'  => 'end_of_month',
+                'due_days'       => 30,
+            ]);
+
         $resp->assertSessionHasNoErrors();
-        // Falls back to the owner's own resolvable agency (the coastal one, first alphabetically)
-        // rather than writing settings for the archived agency.
+        // Falls back to the agency the owner is actually switched into, rather
+        // than writing settings for the archived agency.
         $this->assertDatabaseHas('agency_proforma_settings', ['agency_id' => $this->coastal->id, 'number_prefix' => 'INL-']);
         $this->assertDatabaseMissing('agency_proforma_settings', ['agency_id' => $this->inland->id]);
     }
