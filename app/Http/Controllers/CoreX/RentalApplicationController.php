@@ -867,7 +867,24 @@ class RentalApplicationController extends Controller
 
         $request->merge(RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
 
-        $validated = $request->validate(array_merge(RentalApplication::fieldValidationRules(), [
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(3) —
+        // custom fields on the agent's own editable capture form, same
+        // nullable-only posture this whole screen already has for every
+        // shipped field (this form never enforces requiredness — that's
+        // the applicant's own signed submission's job) — reusing
+        // customFieldAutosaveRulesFor()'s always-nullable rule shape.
+        $customFieldRules = RentalApplication::customFieldAutosaveRulesFor($rentalApplication->agency_id);
+        if (! empty($customFieldRules)) {
+            $customNumberKeys = RentalApplication::customNumberFieldKeysFor($rentalApplication->agency_id);
+            $request->merge([
+                'custom_field_values' => RentalApplication::sanitizeNumericInput(
+                    $request->input('custom_field_values', []),
+                    $customNumberKeys
+                ),
+            ]);
+        }
+
+        $validated = $request->validate(array_merge(RentalApplication::fieldValidationRules(), $customFieldRules, [
             'property_id' => ['nullable', 'integer'],
         ]));
 
@@ -906,6 +923,15 @@ class RentalApplicationController extends Controller
         $fields = collect($validated)->except(['property_id'])->all();
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
         $fields = RentalApplication::normalizeStillLiving($fields);
+
+        // MERGE into existing custom_field_values, never replace — same
+        // reasoning as submit()/autosave(): a retired custom field's
+        // already-captured answer (or one for a field this form simply
+        // didn't ask about) must never be wiped by a blind update() here.
+        if (array_key_exists('custom_field_values', $fields)) {
+            $newValues = array_map(fn ($v) => $v === '' ? null : $v, $fields['custom_field_values'] ?? []);
+            $fields['custom_field_values'] = array_merge($rentalApplication->custom_field_values ?? [], $newValues);
+        }
 
         DB::transaction(function () use ($rentalApplication, $validated, $fields) {
             $rentalApplication->update(array_merge(

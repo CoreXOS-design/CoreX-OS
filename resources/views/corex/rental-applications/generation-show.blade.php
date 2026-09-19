@@ -86,6 +86,13 @@
                             'value' => $value,
                             'label' => $cfg['label'] ?? \Illuminate\Support\Str::headline($field),
                             'order' => $cfg['order'] ?? 999,
+                            // §7, piece (c)(3) — a custom yes_no field's
+                            // answer is stored as the string "1"/"0", same
+                            // as every checkbox-shaped value elsewhere in
+                            // this module; only a custom field carries its
+                            // own field_type in the frozen config, so a
+                            // shipped field's $cfg simply has none.
+                            'field_type' => $cfg['field_type'] ?? null,
                         ];
                     })
                     ->values()
@@ -97,6 +104,7 @@
                     <span style="color: var(--text-muted);">{{ $row['label'] }}:</span>
                     <span style="color: var(--text-primary);" class="font-medium">
                         @if(is_bool($value)) {{ $value ? 'Yes' : 'No' }}
+                        @elseif($row['field_type'] === 'yes_no') {{ $value == '1' ? 'Yes' : 'No' }}
                         @elseif(in_array($field, $dateFields, true)) {{ \Illuminate\Support\Carbon::parse($value)->format('d M Y') }}
                         @else {{ $value }}
                         @endif

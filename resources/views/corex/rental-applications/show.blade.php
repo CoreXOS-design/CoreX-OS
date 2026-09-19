@@ -56,7 +56,25 @@
                 Save
             </button>
 
-            @php($canSend = (bool) $rentalApplication->recipientEmail())
+            {{-- .ai/specs/rental-application-field-config.md §7, piece
+                 (c)(3) — the bare single-parenthesis PHP-directive
+                 one-liner form (removed below) has no guard against
+                 Blade's raw-PHP extraction regex treating it as a
+                 block-opener; adding the "Additional Questions" section
+                 further down this file exposed it for real (a clean
+                 compile broke the moment that content was added, with no
+                 other line touched — isolated and confirmed via a direct
+                 Blade-compile diff before landing this fix). Same
+                 documented AT-243/AT-252 gotcha this codebase has been
+                 bitten by before elsewhere; the block form below is
+                 unconditionally safe. NOTE for the next person editing
+                 this comment: never type the literal one-liner directive
+                 syntax inside a Blade comment either — the extraction
+                 regex matches it there too, comment or not, which is
+                 exactly how this got found. --}}
+            @php
+                $canSend = (bool) $rentalApplication->recipientEmail();
+            @endphp
             <form method="POST" action="{{ route('corex.rental-applications.send', $rentalApplication) }}" class="inline-flex items-center gap-2">
                 @csrf
                 <button type="submit" class="text-xs"
@@ -506,6 +524,63 @@
             </div>
             @endif
         </div>
+
+        @php
+            // .ai/specs/rental-application-field-config.md §7, piece
+            // (c)(3) — same $fieldConfig this whole form already resolves
+            // through (RentalApplication::displayFieldConfig()), never a
+            // parallel field-listing mechanism. Not rendered via
+            // <x-rental-application-field> — see the public form's own
+            // identical comment on why a bracketed HTML name
+            // (custom_field_values[key]) breaks that component's flat-name
+            // old() call.
+            $customFields = collect($fieldConfig)->where('is_custom', true)->sortBy('order');
+        @endphp
+        @if($customFields->isNotEmpty())
+        <div>
+            <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Additional Questions</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                @foreach($customFields as $cf)
+                    @php
+                        $cfName = 'custom_field_values[' . $cf['key'] . ']';
+                        $cfOldKey = 'custom_field_values.' . $cf['key'];
+                        $cfValue = old($cfOldKey, $rentalApplication->custom_field_values[$cf['key']] ?? null);
+                        $cfError = $errors->has($cfOldKey);
+                    @endphp
+                    <div class="{{ $cf['field_type'] === 'text' ? 'sm:col-span-2' : '' }}">
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $cf['label'] }}</label>
+                        @if($cf['field_type'] === 'yes_no')
+                            <select name="{{ $cfName }}" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid {{ $cfError ? 'var(--ds-red, #dc2626)' : 'var(--border)' }};">
+                                <option value="">— Select —</option>
+                                <option value="1" @selected($cfValue == '1')>Yes</option>
+                                <option value="0" @selected($cfValue !== null && $cfValue == '0')>No</option>
+                            </select>
+                        @elseif($cf['field_type'] === 'choice_list')
+                            <select name="{{ $cfName }}" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid {{ $cfError ? 'var(--ds-red, #dc2626)' : 'var(--border)' }};">
+                                <option value="">— Select —</option>
+                                @foreach($cf['options'] ?? [] as $option)
+                                    <option value="{{ $option }}" @selected($cfValue === $option)>{{ $option }}</option>
+                                @endforeach
+                            </select>
+                        @elseif($cf['field_type'] === 'date')
+                            <input type="date" name="{{ $cfName }}" value="{{ $cfValue }}"
+                                   class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid {{ $cfError ? 'var(--ds-red, #dc2626)' : 'var(--border)' }};">
+                        @elseif($cf['field_type'] === 'number')
+                            <input type="text" inputmode="decimal" name="{{ $cfName }}" value="{{ $cfValue }}"
+                                   class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid {{ $cfError ? 'var(--ds-red, #dc2626)' : 'var(--border)' }};">
+                        @else
+                            <input type="text" name="{{ $cfName }}" value="{{ $cfValue }}"
+                                   class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid {{ $cfError ? 'var(--ds-red, #dc2626)' : 'var(--border)' }};">
+                        @endif
+                        @if($cf['help_text'])
+                            <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $cf['help_text'] }}</p>
+                        @endif
+                        @error($cfOldKey) <p class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</p> @enderror
+                    </div>
+                @endforeach
+            </div>
+        </div>
+        @endif
 
     </form>
 </div>

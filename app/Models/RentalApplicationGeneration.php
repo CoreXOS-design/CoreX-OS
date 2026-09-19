@@ -124,6 +124,17 @@ class RentalApplicationGeneration extends Model
             ->mapWithKeys(fn ($field) => [$field => $application->getAttribute($field)])
             ->all();
 
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(3) —
+        // custom field VALUES are applicant-supplied content, the same
+        // legal-record category as every shipped field's own answer —
+        // merged into the SAME $snapshot (never a separate, un-hashed
+        // column the way field_config_snapshot below deliberately is),
+        // so they get the SAME hash-chain tamper-evidence. Collision-safe:
+        // every custom field key is namespaced `custom_...`
+        // (RentalApplicationCustomField::generateKey()), never a real
+        // shipped column name.
+        $snapshot = array_merge($snapshot, $application->custom_field_values ?? []);
+
         $prev = self::latestFor($application->id);
         $prevHash = $prev?->content_hash;
 

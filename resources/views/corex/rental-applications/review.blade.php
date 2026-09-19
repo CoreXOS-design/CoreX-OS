@@ -832,6 +832,33 @@
                             <dt style="color: var(--text-muted);">{{ $row['label'] }}</dt><dd>{{ $row['display'] }}</dd>
                         @endforeach
                     </dl>
+                    @php
+                        // .ai/specs/rental-application-field-config.md §7,
+                        // piece (c)(3) — custom field ANSWERS, sourced from
+                        // $fieldConfig (already includes them, per the
+                        // resolver extension) and the application's own
+                        // custom_field_values. Screen-space rule (Johan) —
+                        // only a field with a real answer earns a row here;
+                        // an empty custom field is nothing the agent needs
+                        // to see on this curated glance-box.
+                        $customFieldRows = collect($fieldConfig)
+                            ->where('is_custom', true)
+                            ->sortBy('order')
+                            ->map(fn ($cf) => [
+                                'label' => $cf['label'],
+                                'value' => $rentalApplication->custom_field_values[$cf['key']] ?? null,
+                                'field_type' => $cf['field_type'],
+                            ])
+                            ->filter(fn ($row) => $row['value'] !== null && $row['value'] !== '');
+                    @endphp
+                    @if($customFieldRows->isNotEmpty())
+                        <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mt-2 pt-2" style="border-top: 1px solid var(--border);">
+                            @foreach($customFieldRows as $row)
+                                <dt style="color: var(--text-muted);">{{ $row['label'] }}</dt>
+                                <dd>{{ $row['field_type'] === 'yes_no' ? ($row['value'] == '1' ? 'Yes' : 'No') : $row['value'] }}</dd>
+                            @endforeach
+                        </dl>
+                    @endif
                     @if($viewerRole === 'agent')
                         <a href="{{ route('corex.rental-applications.show', $rentalApplication) }}" class="text-xs inline-block mt-3" style="color: var(--ds-blue, #2563eb);">View submitted application &rarr;</a>
                     @endif
@@ -2270,7 +2297,20 @@
              freely edit both before sending. Submitting posts whatever is
              actually in these two fields, edited or not. --}}
         @if($viewerRole === 'agent' && $rentalApplication->status === 'declined' && !$rentalApplication->applicant_notified_at)
-            @php($declineRecipientEmail = $rentalApplication->recipientEmail())
+            {{-- .ai/specs/rental-application-field-config.md §7, piece
+                 (c)(3) — the bare single-parenthesis PHP-directive
+                 one-liner form has no guard against Blade's raw-PHP
+                 extraction regex treating it as a block-opener (confirmed
+                 live elsewhere in this same build — show.blade.php's own
+                 identical fix, which also found that even TYPING that
+                 literal one-liner syntax inside a Blade comment gets
+                 matched by the same regex, comment or not — deliberately
+                 not written out literally here either). Converted
+                 proactively before adding new content to this file, not
+                 reactively after breaking it. --}}
+            @php
+                $declineRecipientEmail = $rentalApplication->recipientEmail();
+            @endphp
             <div x-show="declineSendDrawerOpen" x-cloak
                  class="fixed inset-0 z-[100] flex justify-end"
                  style="background: rgba(0,0,0,0.5);"
