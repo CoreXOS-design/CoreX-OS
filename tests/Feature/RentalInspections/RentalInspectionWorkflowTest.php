@@ -89,7 +89,9 @@ final class RentalInspectionWorkflowTest extends TestCase
 
     private function makeObservation(RentalInspection $inspection, RentalInspectionItem $item, string $condition, array $extra = []): RentalInspectionObservation
     {
-        return RentalInspectionObservation::create(array_merge([
+        // record() is the one real entry point (§14.1 fix 2) — create and
+        // discrepancy-detection happen atomically.
+        return RentalInspectionObservation::record(array_merge([
             'agency_id' => $this->agency->id,
             'rental_inspection_id' => $inspection->id,
             'rental_inspection_item_id' => $item->id,
@@ -137,8 +139,7 @@ final class RentalInspectionWorkflowTest extends TestCase
         $item = $this->makeItem();
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
         $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_GOOD);
-        $obs2 = $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED);
-        \App\Models\RentalInspectionDiscrepancy::detectFor($obs2);
+        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED);
 
         $this->expectException(\LogicException::class);
         $inspection->markCompleted();

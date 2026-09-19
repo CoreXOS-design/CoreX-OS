@@ -106,6 +106,26 @@ class RentalInspectionObservation extends Model
     }
 
     /**
+     * §14.1 (mobile-foundation audit, fix 2) — the ONE way to record an
+     * observation. Before this method existed, creating an observation and
+     * detecting a discrepancy were two separate calls that only ever
+     * happened together in test helper code — every real caller (the web
+     * controller, a future API controller) would have had to remember both
+     * steps, in the right order, independently. Wrapped in a transaction so
+     * a failure detecting the discrepancy can never leave an observation
+     * committed without the conflict it should have raised.
+     */
+    public static function record(array $attributes): self
+    {
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($attributes) {
+            $observation = self::create($attributes);
+            RentalInspectionDiscrepancy::detectFor($observation);
+
+            return $observation;
+        });
+    }
+
+    /**
      * §0.1/§11 — a tenant fault report made after the fault-report window
      * closed doesn't block anything on its own; the agent decides whether
      * to accept, reject, or defer it, and that decision is recorded here.

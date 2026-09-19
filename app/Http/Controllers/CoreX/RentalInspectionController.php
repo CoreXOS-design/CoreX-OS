@@ -109,12 +109,7 @@ class RentalInspectionController extends Controller
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
 
-        $rentalInspection->update([
-            'status' => RentalInspection::STATUS_CANCELLED,
-            'cancelled_at' => now(),
-            'cancelled_by_user_id' => $request->user()->id,
-            'cancel_reason' => $validated['cancel_reason'],
-        ]);
+        $rentalInspection->cancel($request->user(), $validated['cancel_reason']);
 
         return redirect()->route('corex.rental-inspections.show', $rentalInspection)->with('success', 'Inspection cancelled.');
     }
