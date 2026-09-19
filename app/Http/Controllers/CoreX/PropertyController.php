@@ -228,6 +228,13 @@ class PropertyController extends Controller
         }
 
         if ($search !== '') {
+            // AT-422 — a search on Properties also lists imported off-market stock, and that
+            // always comes AFTER live / non-imported properties whatever sort is picked. It
+            // must be the first ORDER BY key, ahead of the "own listings first" rule below.
+            if (! $importedStock) {
+                $query->importedLast();
+            }
+
             // AT-394 — the viewer's OWN listings sort first, ahead of everything else (including
             // whatever sort the user picked below) — a widened search mixes in colleagues'
             // listings, and the agent's own book is what they're most likely looking for. "Own"
@@ -473,9 +480,14 @@ class PropertyController extends Controller
 
         // Sort by marketing_status (derived — PHP sort, current page only)
         if ($sort === 'marketing_status') {
-            $properties->setCollection(
-                $properties->getCollection()->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc')->values()
-            );
+            $sorted = $properties->getCollection()->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc');
+            // AT-422 — this PHP re-sort would otherwise mix imported rows back in among live
+            // ones on a search page. Stable second pass (PHP >= 8.0) keeps imported stock last
+            // while preserving the marketing-status order inside each group.
+            if ($search !== '' && ! $importedStock) {
+                $sorted = $sorted->sortBy(fn ($p) => $p->isImportedStock() ? 1 : 0);
+            }
+            $properties->setCollection($sorted->values());
         }
 
         // AT-188 — the current agent's own unpublished drafts, newest first.

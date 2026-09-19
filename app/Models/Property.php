@@ -259,6 +259,25 @@ class Property extends Model
     }
 
     /**
+     * AT-422 — orders imported off-market stock AFTER everything else. Used by the
+     * Properties search, which now lists both: live and non-imported properties
+     * must always come first, imported stock after them. Meant to be the FIRST
+     * ORDER BY key so no later sort can pull an imported row above a live one, and
+     * — being SQL — it holds across pages, not just within one. Same status set
+     * and casing rule as the two scopes above.
+     */
+    public function scopeImportedLast($query)
+    {
+        $statuses = self::importedStockStatuses();
+        $placeholders = implode(',', array_fill(0, count($statuses), '?'));
+
+        return $query->orderByRaw(
+            "CASE WHEN p24_imported_at IS NOT NULL AND LOWER(status) IN ($placeholders) THEN 1 ELSE 0 END",
+            $statuses
+        );
+    }
+
+    /**
      * AT-422 — instance mirror of scopeImportedOffMarket(): true when this row is
      * P24-imported stock that has gone off-market. Drives the "Imported" tag on the
      * Properties list, where a typed search now surfaces these rows alongside

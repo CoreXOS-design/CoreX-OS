@@ -25,7 +25,13 @@
 > controller action). The tag is driven by the property itself (`Property::isImportedStock()` —
 > imported AND off-market), so an active imported listing still shows no tag anywhere. The tag
 > now also appears in the table (list) view, which previously had no tag on Imported Stock rows.
-> Files: `PropertyController::index()`, `Property::isImportedStock()`,
+> **Ordering (same day, on Johan's instruction):** in a search, live and non-imported properties
+> ALWAYS come first and imported stock after them, whatever sort the user picks (`Property::scopeImportedLast()`,
+> the first ORDER BY key, so it holds across pages too). It ranks above AT-394's "my own listings
+> first" rule: the viewer's own imported listing still sits below a colleague's live one. Inside each
+> group the AT-394 own-first rule and the chosen sort apply as before. The page-level
+> "marketing status" re-sort keeps imported rows last as well.
+> Files: `PropertyController::index()`, `Property::isImportedStock()`, `Property::scopeImportedLast()`,
 > `resources/views/corex/properties/index.blade.php`, `tests/Feature/Properties/ImportedStockTest.php`.
 
 ## 1. What this feature does and why

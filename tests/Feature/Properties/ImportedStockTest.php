@@ -231,6 +231,118 @@ final class ImportedStockTest extends TestCase
         $this->assertSame(2, substr_count($res->getContent(), self::IMPORTED_TAG));
     }
 
+    // ── AT-422: in a search, imported stock always comes AFTER live/non-imported ──
+
+    /** @return list<string> the result titles in the order the page lists them */
+    private function searchTitles(array $query): array
+    {
+        return $this->get(route('corex.properties.index', $query))
+            ->assertOk()
+            ->viewData('properties')->getCollection()->pluck('title')->all();
+    }
+
+    private function backdate(Property $p, int $minutesAgo): void
+    {
+        DB::table('properties')->where('id', $p->id)->update(['created_at' => now()->subMinutes($minutesAgo)]);
+    }
+
+    public function test_search_lists_live_and_non_imported_first_then_imported_even_when_imported_is_newest(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $live     = $this->property($agencyId, $admin, 'ZZZ-Order-Live',         ['status' => 'for_sale']);
+        $manual   = $this->property($agencyId, $admin, 'ZZZ-Order-Manual-Sold',  ['status' => 'sold', 'p24_imported_at' => null]);
+        $imported = $this->property($agencyId, $admin, 'ZZZ-Order-Imported',     ['status' => 'withdrawn', 'p24_imported_at' => now()]);
+        $this->backdate($live, 30);
+        $this->backdate($manual, 20);
+        $this->backdate($imported, 0);   // newest — the default "newest first" sort would put it on top
+
+        $this->assertSame(
+            ['ZZZ-Order-Manual-Sold', 'ZZZ-Order-Live', 'ZZZ-Order-Imported'],
+            $this->searchTitles(['search' => 'ZZZ-Order'])
+        );
+    }
+
+    public function test_imported_stock_stays_last_whatever_sort_is_chosen(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        // Two imported rows chosen so every sort direction would otherwise float one of
+        // them to the top: highest price + first alphabetically, and lowest price + last.
+        $this->property($agencyId, $admin, 'ZZZ-Sort-M-Live',      ['status' => 'for_sale', 'price' => 1500000]);
+        $this->property($agencyId, $admin, 'ZZZ-Sort-N-Manual',    ['status' => 'sold',     'price' => 1200000, 'p24_imported_at' => null]);
+        $this->property($agencyId, $admin, 'ZZZ-Sort-A-Imp-High',  ['status' => 'withdrawn', 'price' => 9000000, 'p24_imported_at' => now()]);
+        $this->property($agencyId, $admin, 'ZZZ-Sort-Z-Imp-Low',   ['status' => 'expired',   'price' => 100000,  'p24_imported_at' => now()]);
+
+        foreach (['newest', 'oldest', 'price_desc', 'price_asc', 'title', 'status', 'marketing_status'] as $sort) {
+            foreach (['asc', 'desc'] as $dir) {
+                $titles = $this->searchTitles(['search' => 'ZZZ-Sort', 'sort' => $sort, 'dir' => $dir]);
+
+                $this->assertCount(4, $titles, "sort={$sort} dir={$dir}");
+                $this->assertEqualsCanonicalizing(
+                    ['ZZZ-Sort-M-Live', 'ZZZ-Sort-N-Manual'],
+                    array_slice($titles, 0, 2),
+                    "live/non-imported must be the first two for sort={$sort} dir={$dir}"
+                );
+                $this->assertEqualsCanonicalizing(
+                    ['ZZZ-Sort-A-Imp-High', 'ZZZ-Sort-Z-Imp-Low'],
+                    array_slice($titles, 2),
+                    "imported must be the last two for sort={$sort} dir={$dir}"
+                );
+            }
+        }
+    }
+
+    public function test_imported_stock_is_last_even_when_it_is_the_viewers_own_listing(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $agentA = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'agent']);
+        $this->actingAs($admin);
+
+        // The AT-394 "my own listings first" rule must not lift the viewer's own IMPORTED
+        // listing above a colleague's live one — imported comes last, full stop.
+        $this->property($agencyId, $admin,  'ZZZ-Own-Imported',       ['status' => 'withdrawn', 'p24_imported_at' => now()]);
+        $this->property($agencyId, $agentA, 'ZZZ-Colleague-Live',     ['status' => 'for_sale']);
+        $this->property($agencyId, $admin,  'ZZZ-Own-Live',           ['status' => 'for_sale']);
+
+        $titles = $this->searchTitles(['search' => 'ZZZ-', 'agent_ids' => 'all']);
+
+        $this->assertSame('ZZZ-Own-Imported', end($titles), 'imported stock must be last');
+        // Below the imported line, the existing own-first rule still applies.
+        $this->assertSame('ZZZ-Own-Live', $titles[0], "the viewer's own live listing still leads");
+    }
+
+    public function test_imported_stock_stays_after_live_properties_across_pages(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $perPage = $this->get(route('corex.properties.index', ['search' => 'ZZZ-Page']))
+            ->viewData('properties')->perPage();
+
+        // One more live row than fits a page, plus two imported rows made the NEWEST so an
+        // unordered "newest first" list would put them on page 1.
+        for ($i = 1; $i <= $perPage + 1; $i++) {
+            $p = $this->property($agencyId, $admin, sprintf('ZZZ-Page-Live-%02d', $i), ['status' => 'for_sale']);
+            $this->backdate($p, 600 - $i);
+        }
+        $this->property($agencyId, $admin, 'ZZZ-Page-Imported-1', ['status' => 'withdrawn', 'p24_imported_at' => now()]);
+        $this->property($agencyId, $admin, 'ZZZ-Page-Imported-2', ['status' => 'sold',      'p24_imported_at' => now()]);
+
+        $page1 = $this->searchTitles(['search' => 'ZZZ-Page']);
+        $page2 = $this->searchTitles(['search' => 'ZZZ-Page', 'page' => 2]);
+
+        $this->assertCount($perPage, $page1);
+        foreach ($page1 as $title) {
+            $this->assertStringStartsWith('ZZZ-Page-Live-', $title, 'no imported row may appear on page 1');
+        }
+        $this->assertCount(3, $page2);
+        $this->assertStringStartsWith('ZZZ-Page-Live-', $page2[0]);
+        $this->assertEqualsCanonicalizing(['ZZZ-Page-Imported-1', 'ZZZ-Page-Imported-2'], array_slice($page2, 1));
+    }
+
     public function test_search_finds_imported_stock_whatever_its_status_casing(): void
     {
         [$agencyId, $admin] = $this->agencyWithAdmin();
