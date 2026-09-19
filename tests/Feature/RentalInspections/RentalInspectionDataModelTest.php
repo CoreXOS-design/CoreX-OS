@@ -91,7 +91,10 @@ final class RentalInspectionDataModelTest extends TestCase
 
     private function makeObservation(RentalInspection $inspection, RentalInspectionItem $item, string $condition): RentalInspectionObservation
     {
-        $observation = RentalInspectionObservation::create([
+        // record() is the one real entry point (§14.1 fix 2) — create and
+        // discrepancy-detection happen atomically, not as two calls a test
+        // helper remembers to make in the right order.
+        return RentalInspectionObservation::record([
             'agency_id' => $this->agency->id,
             'rental_inspection_id' => $inspection->id,
             'rental_inspection_item_id' => $item->id,
@@ -100,10 +103,6 @@ final class RentalInspectionDataModelTest extends TestCase
             'notes' => $condition !== RentalInspectionObservation::CONDITION_GOOD ? 'Test note' : null,
             'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
         ]);
-
-        RentalInspectionDiscrepancy::detectFor($observation);
-
-        return $observation;
     }
 
     public function test_inspection_denormalizes_property_id_from_lease_at_creation(): void

@@ -11,7 +11,6 @@ use App\Models\Lease;
 use App\Models\LeaseTenant;
 use App\Models\Property;
 use App\Models\RentalInspection;
-use App\Models\RentalInspectionDiscrepancy;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
 use App\Models\User;
@@ -132,11 +131,12 @@ final class RentalInspectionListScreenTest extends TestCase
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $withDiscrepancy->id, 'rental_inspection_item_id' => $item->id,
             'observed_by_user_id' => $admin->id, 'condition' => 'good', 'source' => 'in_inspection',
         ]);
-        $obs2 = RentalInspectionObservation::create([
+        // record() is the one real entry point (§14.1 fix 2) — create and
+        // discrepancy-detection happen atomically.
+        RentalInspectionObservation::record([
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $withDiscrepancy->id, 'rental_inspection_item_id' => $item->id,
             'observed_by_user_id' => $admin->id, 'condition' => 'damaged', 'notes' => 'x', 'source' => 'in_inspection',
         ]);
-        RentalInspectionDiscrepancy::detectFor($obs2);
         $this->inspection($this->property($this->branchA, 'Clean property', $admin), $admin);
 
         $response = $this->actingAs($admin)->get(route('corex.rental-inspections.index', ['has_unresolved_discrepancy' => 1]));

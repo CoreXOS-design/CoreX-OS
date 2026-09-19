@@ -208,6 +208,23 @@ class RentalInspection extends Model
     }
 
     /**
+     * §14.1 (mobile-foundation audit, fix 1) — the cancellation transition,
+     * pulled out of the web controller so a future API controller can call
+     * this exact method instead of re-implementing the same four-field
+     * update by hand. This is the ONLY place `status`/`cancelled_at`/
+     * `cancelled_by_user_id`/`cancel_reason` are ever set together.
+     */
+    public function cancel(User $by, string $reason): void
+    {
+        $this->forceFill([
+            'status' => self::STATUS_CANCELLED,
+            'cancelled_at' => now(),
+            'cancelled_by_user_id' => $by->id,
+            'cancel_reason' => $reason,
+        ])->save();
+    }
+
+    /**
      * §0.2/§3.2a/§11 — every observation ever recorded against every item on
      * THIS PROPERTY, oldest first, regardless of which lease/tenancy
      * recorded it. This is what an out-inspection view must read: a fault

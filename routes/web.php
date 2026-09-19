@@ -2843,6 +2843,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');
     Route::post('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'update'])
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.update');
+    // .ai/specs/agency-onboarding-rentals-step.md §8 — fault-report and out-inspection
+    // signing windows, agency-configurable, both default 7 days.
+    Route::get('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'edit'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.edit');
+    Route::post('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'update'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.update');
     // AT-392 Phase 2 — qualifying-formula threshold, same settings screen, separate
     // form/route so it can never interfere with the existing checklist save above.
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
@@ -3081,6 +3087,25 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.destroy');
         Route::post('/{rentalInspection}/restore', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'restore'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.restore');
+
+        // Recording — RentalInspectionRecordingController, deliberately separate
+        // (this controller's own docblock). Spec: rental-inspections.md §14.1/§14.2.
+        Route::post('/{rentalInspection}/observations', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeObservation'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.observations.store');
+        Route::post('/{rentalInspection}/observations/{observation}/photos', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhoto'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.observations.photos.store');
+        Route::post('/{rentalInspection}/discrepancies/{discrepancy}/resolve', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'resolveDiscrepancy'])
+            ->middleware('permission:rental_inspections.resolve_discrepancy')->name('corex.rental-inspections.discrepancies.resolve');
+        // sign_on_behalf is checked INSIDE the controller (§6 — it only applies to
+        // one of the three signer_role values, which a route-level permission:*
+        // middleware can't see) — gated at .create here, the narrower check happens
+        // on the one path that needs it.
+        Route::post('/{rentalInspection}/signatures', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeSignature'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.signatures.store');
+        Route::post('/{rentalInspection}/start-awaiting-signature', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'startAwaitingSignature'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-awaiting-signature');
+        Route::post('/{rentalInspection}/complete', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'complete'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.complete');
     });
 
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,
@@ -3960,6 +3985,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Bulk rental-image delete — "Delete selected" / "Delete all". One transaction,
         // same permission + HARD-delete semantics as the single rental delete above.
         Route::post('/{property}/rental-images/delete-bulk',[\App\Http\Controllers\CoreX\PropertyController::class, 'deleteRentalImages'])->name('rental-images.delete-bulk');
+        // Rental inspection items — Johan's ruling §0.6, the agent adds items per
+        // property, differing from the advertised marketing room list above.
+        // Spec: rental-inspections.md §14.1/§14.2.
+        Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
+        Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new
         // property or a type-change draft still saves its rental fields
