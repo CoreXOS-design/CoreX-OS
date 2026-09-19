@@ -124,11 +124,15 @@
                         <template x-for="b in blocks" :key="'b' + b.id">
                             <a :href="dayUrl(b)"
                                class="absolute rounded-md px-2.5 py-1.5 flex flex-col gap-0.5 overflow-hidden no-underline transition-colors"
-                               :style="'top:' + b.top + '%; height:' + b.height + '%; left: calc(3.25rem + ' + b.left + '% - ' + (b.left / 100 * 3.25) + 'rem); width: calc(' + b.width + '% - ' + (b.width / 100 * 3.25) + 'rem - 4px); border: 1px solid var(--border); border-left: 3px solid ' + b.colour + '; background: color-mix(in srgb, ' + b.colour + ' 10%, var(--surface-2));'"
-                               :title="b.title">
-                                <span class="text-xs font-semibold truncate" style="color: var(--text-primary);" x-text="b.title"></span>
-                                <span class="text-[0.6875rem] truncate" style="color: var(--text-muted);">
-                                    <span class="font-mono tabular-nums" x-text="b.range"></span><span x-show="b.category" x-text="' · ' + b.category"></span>
+                               :style="'top:' + b.top + '%; height:' + b.height + '%; left: calc(3.25rem + ' + b.left + '% - ' + (b.left / 100 * 3.25) + 'rem); width: calc(' + b.width + '% - ' + (b.width / 100 * 3.25) + 'rem - 4px); border: 1px solid var(--border); border-left: 3px solid ' + b.colour + '; background: color-mix(in srgb, ' + b.colour + ' 10%, var(--surface-2));' + (b.compact ? ' flex-direction: row; align-items: center; gap: 0.5rem; padding-top: 1px; padding-bottom: 1px;' : '')"
+                               :title="b.title + ' — ' + b.range + (b.category ? ' · ' + b.category : '')">
+                                {{-- AT-422 — a SHORT appointment (under an hour) is one line, "10:30  Title", at the
+                                     same font size: the two-line card needs more height than it is drawn with. --}}
+                                <span class="text-xs font-semibold truncate" style="color: var(--text-primary);"
+                                      :style="b.compact ? 'order: 2; flex: 1 1 0%; min-width: 0; line-height: 1.15;' : ''" x-text="b.title"></span>
+                                <span class="text-[0.6875rem] truncate" style="color: var(--text-muted);"
+                                      :style="b.compact ? 'order: 1; flex: none; line-height: 1.15;' : ''">
+                                    <span class="font-mono tabular-nums" x-text="b.compact ? b.time : b.range"></span><span x-show="b.category && !b.compact" x-text="' · ' + b.category"></span>
                                 </span>
                             </a>
                         </template>
@@ -220,6 +224,14 @@ function commandCentre() {
         let e = item.end_time ? toMin(item.end_time) : startMin + 60;
         return e <= startMin ? startMin + 60 : e;
     };
+    // AT-422 — a short appointment (a 10-minute call) must still be readable. Nothing is
+    // DRAWN shorter than MIN_BLOCK_MIN; the day window and the overlap packing both use
+    // that drawn length (not the real one), so a short block can never spill out of the
+    // grid or be drawn on top of the next entry. Anything under COMPACT_UNDER_MIN has too
+    // little height for the two-line card, so it becomes one line: "10:30  Title".
+    const MIN_BLOCK_MIN = 30;
+    const COMPACT_UNDER_MIN = 60;
+    const drawnEndMin = (item, startMin) => Math.max(itemEndMin(item, startMin), startMin + MIN_BLOCK_MIN);
 
     return {
         cards: @json($cards),
@@ -249,7 +261,7 @@ function commandCentre() {
             let start = 8 * 60, end = 18 * 60;
             for (const i of this.todayTimed) {
                 const s = toMin(i.time);
-                const e = itemEndMin(i, s);
+                const e = drawnEndMin(i, s);
                 start = Math.min(start, Math.floor(s / 60) * 60);
                 end   = Math.max(end, Math.min(24 * 60, Math.ceil(e / 60) * 60));
             }
@@ -266,9 +278,10 @@ function commandCentre() {
             const total = end - start;
             const items = this.todayTimed.map(i => {
                 const s = toMin(i.time);
-                const e = itemEndMin(i, s);
-                return { ...i, s, e: Math.min(e, end) };
-            }).sort((a, b) => a.s - b.s || a.e - b.e);
+                const e = Math.min(itemEndMin(i, s), end);        // real end
+                const v = Math.min(drawnEndMin(i, s), end);       // drawn end (never shorter than MIN_BLOCK_MIN)
+                return { ...i, s, e, v };
+            }).sort((a, b) => a.s - b.s || a.v - b.v);
 
             // Lane packing PER OVERLAP GROUP: an appointment that overlaps nothing
             // takes the full width; only the ones that clash share it.
@@ -281,14 +294,15 @@ function commandCentre() {
                 if (group.length && it.s >= groupEnd) closeGroup();
                 let k = lanes.findIndex(lastEnd => lastEnd <= it.s);
                 if (k === -1) { k = lanes.length; lanes.push(0); }
-                lanes[k] = it.e; laneOf[idx] = k;
-                group.push(idx); groupEnd = Math.max(groupEnd, it.e);
+                lanes[k] = it.v; laneOf[idx] = k;
+                group.push(idx); groupEnd = Math.max(groupEnd, it.v);
             });
             closeGroup();
             return items.map((it, idx) => ({
                 ...it,
                 top:    ((it.s - start) / total) * 100,
-                height: (Math.max(30, it.e - it.s) / total) * 100,
+                height: ((it.v - it.s) / total) * 100,
+                compact: (it.e - it.s) < COMPACT_UNDER_MIN,
                 left:   (laneOf[idx] / lanesOf[idx]) * 100,
                 width:  (1 / lanesOf[idx]) * 100,
                 range:  it.time + (it.end_time ? ' – ' + it.end_time : ''),

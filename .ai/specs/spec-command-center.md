@@ -1031,6 +1031,20 @@ inside itself when it has more than fits.
 ```
 Below 1024px the three regions stack and the page scrolls normally.
 
+### Amendment — short appointments stay readable (2026-09-19, AT-422)
+> Short entries (a 10-minute call) were drawn as a squashed sliver with the text cut off,
+> and two close-together short entries were drawn on top of each other. Rules:
+> - Nothing is **drawn** shorter than 30 minutes. The day window and the side-by-side lane
+>   packing both use that *drawn* length, not the real one, so a short block can never be
+>   stacked on the next entry or spill past the bottom of the grid (a 17:45 call widens the
+>   window to 19:00 rather than being cut off).
+> - An appointment **shorter than an hour** is a **one-line** card at the SAME font size:
+>   `10:00  Call Shawn` (start time, then title; the long title ends in "…"). Hour-or-longer
+>   entries keep the two-line card (title, then time range · category). Hovering any card
+>   shows the full title, time range and category. The font is deliberately NOT shrunk.
+> - Checked in a real browser (Chromium) against the old layout: every short entry's text was
+>   clipped before; none is now, at desktop and 420px widths.
+
 ### Rules
 - **Timeline** draws `today_appointments` items with `date_label = Today` and
   `all_day = false` as blocks on an hour grid. Window is 08:00–18:00, widened to

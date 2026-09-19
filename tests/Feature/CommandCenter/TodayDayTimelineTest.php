@@ -92,6 +92,45 @@ final class TodayDayTimelineTest extends TestCase
         $resp->assertSee('"end_time":"15:00"', false);
     }
 
+    /**
+     * AT-422 — short appointments (a 10-minute call, a 15-minute call 5 minutes later, a
+     * call at 17:45) must reach the board with the fields the layout needs, and the board
+     * must carry the one-line ("compact") layout for entries under an hour. The layout maths
+     * itself runs in the browser (Alpine) and was checked there and in Node; this guards the
+     * data contract and that the short-entry layout is not silently removed.
+     */
+    public function test_short_appointments_reach_the_board_with_the_short_entry_layout(): void
+    {
+        [$agencyId, $branchId, $user] = $this->seedBasics();
+        foreach ([
+            ['Call Shawn',      '10:00', '10:15'],
+            ['Callback buyer',  '10:20', '10:30'],
+            ['Quick sign-off',  '17:45', '17:50'],
+        ] as [$title, $from, $to]) {
+            [$fh, $fm] = array_map('intval', explode(':', $from));
+            [$th, $tm] = array_map('intval', explode(':', $to));
+            CalendarEvent::create([
+                'user_id' => $user->id, 'event_type' => 'manual', 'category' => 'call',
+                'title' => $title, 'event_date' => now()->setTime($fh, $fm),
+                'end_date' => now()->setTime($th, $tm), 'all_day' => false, 'status' => 'pending',
+                'agency_id' => $agencyId, 'branch_id' => $branchId,
+            ]);
+        }
+        Cache::forget("command_centre_{$user->id}_{$agencyId}");
+
+        $resp = $this->actingAs($user->fresh())->get(route('command-center.today'))->assertOk();
+
+        foreach (['Call Shawn', 'Callback buyer', 'Quick sign-off'] as $title) {
+            $resp->assertSee($title);
+        }
+        $resp->assertSee('"time":"10:00"', false);
+        $resp->assertSee('"end_time":"10:15"', false);
+        $resp->assertSee('"end_time":"17:50"', false);
+        // The short-entry layout and the drawn-length rule the overlap packing relies on.
+        $resp->assertSee('b.compact', false);
+        $resp->assertSee('drawnEndMin', false);
+    }
+
     /** @return array{0:int,1:int,2:User} */
     private function seedBasics(): array
     {
