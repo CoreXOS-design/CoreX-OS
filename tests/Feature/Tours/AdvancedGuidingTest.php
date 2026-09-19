@@ -142,6 +142,43 @@ class AdvancedGuidingTest extends TestCase
         }
     }
 
+    /**
+     * A tour's own `permission` must be one its page actually requires. When a
+     * route is re-gated and the tour isn't (comp-seller-info kept the borrowed
+     * whistleblow key after AT-161 moved the page to outreach.compose), people
+     * who can open the page silently lose its guide.
+     */
+    public function test_tour_permission_matches_its_page_gate(): void
+    {
+        // Tours that cover ONE gated part of a page, so they need a narrower key
+        // than the page itself: the Outreach tab on a contact (outreach.compose
+        // inside a page gated by access_contacts).
+        $narrower = ['outreach-composer'];
+        // Page gates already reported as inconsistent and awaiting a decision —
+        // the tour follows the sidebar's key until the route is settled:
+        // Core Matches (route: access_contacts; sidebar + tour: access_core_matches),
+        // see ContactMatchController::renderBoard().
+        $pendingGateDecision = ['re-core-matches'];
+
+        foreach ($this->routedTours() as $key => $tour) {
+            if (empty($tour['permission']) || in_array($key, $narrower, true) || in_array($key, $pendingGateDecision, true)
+                || in_array($key, self::RETIRED_SCREENS, true)) {
+                continue;
+            }
+            $route = Route::getRoutes()->getByName($tour['route']);
+            $gates = [];
+            foreach ($route ? $route->gatherMiddleware() : [] as $m) {
+                if (is_string($m) && str_starts_with($m, 'permission:')) {
+                    $gates[] = strtok(substr($m, strlen('permission:')), ',');
+                }
+            }
+            if ($gates === []) {
+                continue; // gated in-controller — nothing to compare against
+            }
+            $this->assertContains($tour['permission'], $gates, "Tour '$key' permission '{$tour['permission']}' is not its page's gate (" . implode(', ', $gates) . ')');
+        }
+    }
+
     public function test_record_page_tours_declare_a_real_pick_list(): void
     {
         foreach ($this->routedTours() as $key => $tour) {

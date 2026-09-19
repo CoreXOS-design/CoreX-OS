@@ -167,14 +167,15 @@ return [
     ],
 
     // ── Seller Information Pack ──────────────────────────────────────────────
-    // Route gate: middleware('permission:compliance.whistleblow.view') on the
-    // seller-info group.
+    // Route gate: middleware('permission:outreach.compose') on the seller-info
+    // group (AT-161 moved it off the borrowed whistleblow key) — the tour follows
+    // the same key, so everyone who can open the page gets its guide.
     'comp-seller-info' => [
         'key'         => 'comp-seller-info',
         'title'       => 'Sending a Seller Information Pack',
         'description' => 'Send a seller a researched pack explaining why proper compliance paperwork protects them.',
         'route'       => 'compliance.seller-info.index',
-        'permission'  => 'compliance.whistleblow.view',
+        'permission'  => 'outreach.compose',
         'setup'       => [
             ['action' => 'scrollTop'],
         ],
