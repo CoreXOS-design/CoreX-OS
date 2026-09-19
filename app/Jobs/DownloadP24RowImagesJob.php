@@ -145,6 +145,10 @@ class DownloadP24RowImagesJob implements ShouldQueue
             $property->gallery_images_json = $ordered;
             $property->images_json = $ordered;
             $property->saveQuietly();
+            // File the newly-written master list into gallery_categories_json —
+            // every writer of gallery_images_json must, or the mobile app's
+            // room-by-room gallery (built from categories alone) shows 0 photos.
+            $property->syncGalleryCategoriesLocked();
         }
 
         if ($stored >= $expected) {

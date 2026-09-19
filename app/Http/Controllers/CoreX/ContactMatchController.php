@@ -216,16 +216,30 @@ class ContactMatchController extends Controller
             // own branch by ContactMatch's OWN branch scope, for any
             // manager who holds core_matches.all_view but not
             // branches.view_all, on any agency with branch-split on.
-            $q->when($scope !== 'own', fn ($q2) => $q2->withoutGlobalScope(BranchScope::class))
+            //
+            // Bypassed for 'own' as well (audit 2026-09-16, H2): on the own
+            // scope the constraint below is agent_id = viewer, which is
+            // strictly narrower than any branch rule — and a buyer an admin
+            // reassigned to this agent from another branch is exactly the
+            // row a branch scope would otherwise hide. Assignment, not
+            // branch, decides whose board a buyer is on.
+            $q->withoutGlobalScope(BranchScope::class)
                 ->when($listingType !== '', fn ($q2) => $q2->where('listing_type', $listingType))
                 ->when($statusFilter !== '', fn ($q2) => $q2->where('status', $statusFilter))
                 ->when($savedFrom !== '', fn ($q2) => $q2->whereDate('created_at', '>=', $savedFrom))
                 ->when($savedTo !== '', fn ($q2) => $q2->whereDate('created_at', '<=', $savedTo));
 
+            // Prod-promotion audit 2026-09-16, H2 — own/branch/agent-filter
+            // scope on agent_id (the OWNING agent, the one field
+            // ContactMatch::reassignTo() moves), never created_by_user_id
+            // ("who clicked create", historical). Scoping on the creator
+            // made reassignment inert: the old agent's board kept the
+            // buyer, the new agent's board never got it, and the manager's
+            // agent filter still filed it under the old agent.
             if ($scope === 'own') {
-                $q->where('created_by_user_id', auth()->id());
+                $q->where('agent_id', auth()->id());
             } elseif ($scope === 'branch') {
-                $q->whereHas('createdBy', fn ($q2) => $q2->where('branch_id', $branchId));
+                $q->whereHas('agent', fn ($q2) => $q2->where('branch_id', $branchId));
             }
             // scope === 'agency': no extra constraint beyond the
             // BranchScope bypass above — ContactMatch's BelongsToAgency
@@ -233,7 +247,7 @@ class ContactMatchController extends Controller
             // boundary an agency can never cross.
 
             if ($agentId !== null) {
-                $q->where('created_by_user_id', $agentId);
+                $q->where('agent_id', $agentId);
             }
         };
 
@@ -248,8 +262,20 @@ class ContactMatchController extends Controller
         // ContactScope for the same reason: an oversight scope must not
         // be silently re-narrowed by either of Contact's own unrelated
         // visibility rules.
+        //
+        // Bypassed on EVERY scope, 'own' included (audit 2026-09-16, H2).
+        // The contact set here is already exactly "contacts with a match
+        // this viewer may see" — resolved above from agent_id under the
+        // viewer's scope — so re-applying ContactScope (which keys on the
+        // CONTACT's created_by_user_id) only ever subtracts. On 'own' that
+        // subtraction is the reassignment bug itself: a buyer moved to
+        // agent B still has a contact created by agent A, so B's board
+        // fetched the match id and then dropped the contact. Assignment
+        // of the match, not authorship of the contact, decides whose
+        // board a buyer is on; the agency boundary (BelongsToAgency on
+        // both models, never bypassed) still holds.
         $contactsQuery = Contact::query()
-            ->when($scope !== 'own', fn ($q) => $q->withoutGlobalScope(ContactScope::class)->withoutGlobalScope(BranchScope::class))
+            ->withoutGlobalScope(ContactScope::class)->withoutGlobalScope(BranchScope::class)
             ->whereIn('id', $qualifyingContactIds)
             // A Lost buyer never renders on this board, full stop — history
             // and future in one filter, no dependency on an event having
@@ -665,7 +691,7 @@ class ContactMatchController extends Controller
             if (\Schema::hasColumn('deals', 'buyer_phone'))  $deal->buyer_phone  = $contact->phone;
             if (\Schema::hasColumn('deals', 'deal_type'))    $deal->deal_type    = $match->listing_type === 'rental' ? 'rental' : 'sale';
             if (\Schema::hasColumn('deals', 'accepted_status')) $deal->accepted_status = 'P';
-            if (\Schema::hasColumn('deals', 'agent_id'))     $deal->agent_id     = $match->created_by_user_id;
+            if (\Schema::hasColumn('deals', 'agent_id'))     $deal->agent_id     = $match->agent_id ?? $match->created_by_user_id; // prod-audit 2026-09-16: the deal belongs to the ASSIGNED agent
             if (\Schema::hasColumn('deals', 'created_by_user_id')) $deal->created_by_user_id = auth()->id();
 
             $deal->save();

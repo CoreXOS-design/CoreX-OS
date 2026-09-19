@@ -13,7 +13,14 @@
 
     Guards (per the approved design):
       • container, not window — targets #appScroll / main.overflow-y-auto
-      • key by PATHNAME — a PRG redirect to a NEW url gets a new key → lands at top
+      • key by PATHNAME + QUERY STRING — a PRG redirect ordinarily lands back on
+        the exact same full URL (redirect()->back() preserves it), so a save/
+        delete/action-button reload still restores scroll; but a NEW query string
+        on the SAME pathname — a pagination link (?page=2), a changed filter — is
+        genuinely different content and gets its own (empty) key, so it lands at
+        top instead of inheriting the previous page's scroll depth. (2026-09-08 —
+        keying by pathname alone was restoring page 1's scroll position onto
+        page 2/3/... of the same list, since both share one pathname.)
       • clamp on restore — content may have shrunk (e.g. after a delete)
       • rAF + timed retries — late Alpine/async content that grows height
       • explicit URL #fragment wins — defers to ->withFragment() anchors
@@ -30,10 +37,14 @@
         try { history.scrollRestoration = 'manual'; } catch (e) {}
     }
 
-    function keyFor() { return 'corexScroll:' + location.pathname; }
+    function keyFor() { return 'corexScroll:' + location.pathname + location.search; }
 
+    // A page may freeze its own header and scroll an inner region instead of <main>
+    // (contacts show, AT-393) — it marks that region `data-scroll-region` and we
+    // preserve/restore THAT element's scrollTop; every other page keeps #appScroll.
     function scroller() {
-        return document.getElementById('appScroll')
+        return document.querySelector('[data-scroll-region]')
+            || document.getElementById('appScroll')
             || document.querySelector('main.overflow-y-auto');
     }
 

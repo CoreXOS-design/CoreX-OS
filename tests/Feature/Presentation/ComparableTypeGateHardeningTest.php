@@ -301,6 +301,117 @@ class ComparableTypeGateHardeningTest extends TestCase
             . 'the exact shape all three historical recurrences failed on');
     }
 
+    // ── AT-405 (Johan, 2026-09-10) — undeterminable title type must stop
+    //    meaning "discard". Live-testing property 6061: a full-title House
+    //    subject, 20 otherwise-eligible Trafalgar comps all rejected because
+    //    the CMA-Info "Residential" word (with no scheme/section signal)
+    //    coerced to TITLE_OTHER, which can never equal the subject's real
+    //    type. TitleTypeClassifier's 2026-08-25 fix (Residence/Residential
+    //    → null instead of guessing full_title) is correct and untouched;
+    //    the bug is this hydrator's filter having no path for "unknown". ──
+
+    /**
+     * The exact reported shape: same-subject report, comp rows carry only
+     * the generic "Residential" word, no scheme_name/section_number at all.
+     * Before the fix these hydrated zero; the row must now be admitted for
+     * a full-title subject.
+     */
+    public function test_full_title_subject_hydrates_a_same_subject_residential_comp_with_no_sectional_signal(): void
+    {
+        $agencyId = $this->seedAgency();
+        $userId = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId])->id;
+        $propertyId = $this->seedProperty($agencyId, 'House', 'full_title', 'Trafalgar');
+        $presentation = $this->makePresentation($agencyId, $propertyId, 'House', 'Trafalgar');
+        $presentation->update(['property_address' => '1 Syfret Place, Trafalgar']);
+
+        $reportId = (int) DB::table('market_reports')->insertGetId([
+            'agency_id' => $agencyId, 'uploaded_by_user_id' => $userId,
+            'file_path' => 'reports/' . Str::random(10) . '.pdf', 'file_name' => Str::random(8) . '.pdf',
+            'file_hash' => Str::random(40), 'report_date' => now()->toDateString(),
+            'subject_address' => '1 Syfret Place, Trafalgar', 'source_suburb' => 'Trafalgar',
+            'parse_status' => 'parsed', 'is_demo' => 0,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        for ($i = 1; $i <= 3; $i++) {
+            DB::table('market_report_comp_rows')->insert([
+                'agency_id' => $agencyId, 'market_report_id' => $reportId, 'row_index' => $i, 'row_type' => 'comp',
+                'address' => "{$i} Rodney Drive, Trafalgar", 'suburb_normalised' => 'trafalgar',
+                // The exact live-testing shape: generic word, zero structured
+                // sectional signal on the row.
+                'property_type' => 'Residential',
+                'scheme_name' => null, 'section_number' => null, 'ss_number' => null, 'flat_number' => null,
+                'sale_date' => now()->subMonths($i)->toDateString(), 'sale_price' => 1_200_000 + ($i * 50_000),
+                'is_demo' => 0, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+
+        $summary = (new MicSnapshotHydrator())->hydrateForPresentation($presentation->fresh(['property']));
+
+        $comps = PresentationSoldComp::where('presentation_id', $presentation->id)->get();
+        $this->assertGreaterThan(0, $comps->count(),
+            'a full-title subject\'s own same-subject-report comps, carrying only the ambiguous '
+            . 'property_type="Residential" with no scheme/section/ss/flat signal, must now hydrate');
+        $this->assertSame(0, $summary['excluded_by_type'], 'none of these were excluded — they are the ones that should pass');
+    }
+
+    /**
+     * The safety rail: a comp that IS genuinely sectional (real scheme_name)
+     * must still be excluded from a full-title subject's pool. The fix must
+     * not have widened into "any null passes" — only the specific ambiguous
+     * words TitleTypeClassifier itself documents as the null-source.
+     */
+    public function test_full_title_subject_still_excludes_a_genuinely_sectional_comp(): void
+    {
+        $agencyId = $this->seedAgency();
+        $propertyId = $this->seedProperty($agencyId, 'House', 'full_title', 'Trafalgar');
+        $presentation = $this->makePresentation($agencyId, $propertyId, 'House', 'Trafalgar');
+
+        DB::table('market_report_comp_rows')->insert([
+            'agency_id' => $agencyId, 'market_report_id' => $this->seedReport($agencyId, 'irrelevant, not the same-subject report'), 'row_index' => 1, 'row_type' => 'comp',
+            'address' => 'Unit 4, Breakerview Bay, Trafalgar', 'suburb_normalised' => 'trafalgar',
+            'property_type' => 'Residence', // same ambiguous word, but WITH a real scheme
+            'scheme_name' => 'Breakerview Bay', 'section_number' => '4',
+            'sale_date' => now()->subMonth()->toDateString(), 'sale_price' => 950_000,
+            'is_demo' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $summary = (new MicSnapshotHydrator())->hydrateForPresentation($presentation->fresh(['property']));
+
+        $this->assertSame(0, PresentationSoldComp::where('presentation_id', $presentation->id)->count(),
+            'a genuinely sectional comp (real scheme_name) must still be excluded from a full-title subject');
+        $this->assertSame(1, $summary['excluded_by_type'], 'and it must be counted as excluded, not silently dropped with no explanation');
+    }
+
+    /**
+     * The other safety rail: a null caused by a DIFFERENT asset class
+     * (Commercial/Industrial — also null per TitleTypeClassifier, but for an
+     * unrelated reason) must not be swept in by this fix. Widening to "any
+     * null passes" would admit commercial stock into a residential subject's
+     * comp pool — a new regression this fix must not introduce.
+     */
+    public function test_full_title_subject_still_excludes_a_commercial_typed_comp(): void
+    {
+        $agencyId = $this->seedAgency();
+        $propertyId = $this->seedProperty($agencyId, 'House', 'full_title', 'Trafalgar');
+        $presentation = $this->makePresentation($agencyId, $propertyId, 'House', 'Trafalgar');
+
+        DB::table('market_report_comp_rows')->insert([
+            'agency_id' => $agencyId, 'market_report_id' => $this->seedReport($agencyId, 'irrelevant, not the same-subject report'), 'row_index' => 1, 'row_type' => 'comp',
+            'address' => '10 Commerce Street, Trafalgar', 'suburb_normalised' => 'trafalgar',
+            'property_type' => 'Commercial', // null per the classifier too, but wrong asset class, not ambiguous tenure
+            'scheme_name' => null, 'section_number' => null,
+            'sale_date' => now()->subMonth()->toDateString(), 'sale_price' => 3_200_000,
+            'is_demo' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        (new MicSnapshotHydrator())->hydrateForPresentation($presentation->fresh(['property']));
+
+        $this->assertSame(0, PresentationSoldComp::where('presentation_id', $presentation->id)->count(),
+            'a commercial-typed comp must still be excluded from a residential subject — this fix is scoped to the '
+            . 'ambiguous residential words only, not every null');
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     private function seedAgency(): int
@@ -359,6 +470,20 @@ class ComparableTypeGateHardeningTest extends TestCase
             'accepted_status' => 'R', 'is_demo' => 0,
             'period' => now()->format('Y-m'), 'deal_date' => now()->subMonth()->toDateString(),
             'total_commission' => 0,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+    }
+
+    /** A market report NOT tied to any subject address — used only to satisfy the FK on comp rows that must not be treated as same-subject-vetted. */
+    private function seedReport(int $agencyId, string $subjectAddress): int
+    {
+        $userId = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId])->id;
+        return (int) DB::table('market_reports')->insertGetId([
+            'agency_id' => $agencyId, 'uploaded_by_user_id' => $userId,
+            'file_path' => 'reports/' . Str::random(10) . '.pdf', 'file_name' => Str::random(8) . '.pdf',
+            'file_hash' => Str::random(40), 'report_date' => now()->toDateString(),
+            'subject_address' => $subjectAddress, 'source_suburb' => 'Nowhere',
+            'parse_status' => 'parsed', 'is_demo' => 0,
             'created_at' => now(), 'updated_at' => now(),
         ]);
     }

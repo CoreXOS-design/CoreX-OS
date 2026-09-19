@@ -319,6 +319,29 @@ ALTER TABLE users ADD COLUMN is_mentor_eligible BOOLEAN DEFAULT FALSE;
 
 ---
 
+### 6.1 Layout — "Two income streams" (2026-09-14)
+
+Andre asked for `/corex/my-earnings` to look better and, shown five drafted layouts on a design
+canvas (cockpit strip / cap-first hero / statement ledger / two income streams / tabs), picked
+**option 4 · Two income streams**. Canvas: https://claude.ai/code/artifact/7a9f9da2-a58b-4d0c-985f-e93bae2fde2f
+(chosen option and the other four on page 1, the old stacked layout on page 2).
+
+- **Frozen header** (`corex-page-banner`, `flex-shrink-0`): title, one-line helper, tour launcher.
+  Root is `w-full lg:h-full flex flex-col`; the body is `lg:flex-1 lg:min-h-0` so at lg+ the page
+  never scrolls — each column scrolls inside itself (`corex-brand-scroll`). Below lg the columns
+  stack and the page scrolls normally.
+- **Left column — My commission** (`minmax(0,1.55fr)`): a three-cell headline strip (This month,
+  This year, Cap with bar + "R x to go" / Capped + "Resets in N days"); the post-cap fee row only
+  when capped; the 12-month stacked Chart.js chart at 170px; the transactions table scrolling
+  inside the card with a sticky thead; pagination pinned under it. The table shows Date,
+  Description, Type, Net, Status — Gross / My Split / Fees are NOT dropped: they sit as a muted
+  second line under the description, so no figure the old eight-column table showed is lost.
+- **Right column — My revenue share**: This month ("From N tier 1 agents") and This year; the
+  tier 1 agent list with a GCI bar relative to the top agent that month; a 12-bar "Rev share by
+  month" strip built from the same `$monthlyData` the chart uses (pure Blade/CSS, no second chart).
+- View-only. Every figure, query, route, permission and `data-tour="earn-dashboard-*"` anchor is
+  unchanged. Deliberately NOT built from the mockup: nothing — the mockup added no actions.
+
 ## 7. Principal Dashboard — Commission Overview
 
 ### Top Cards

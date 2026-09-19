@@ -77,7 +77,9 @@ class CoreMatchReasonClassifier
     public function classify(ContactMatch $match, Collection $unseenProperties): Collection
     {
         $lastSharedAt = $this->history->lastSharedAt($match);
-        $threshold = AgencyContactSettings::forAgency((int) $match->agency_id)->coreMatchesPriceDropThresholdFraction();
+        // Read-only lookup (audit M9): this classifier runs on the PUBLIC
+        // shared-match page; a GET must never insert the agency's settings row.
+        $threshold = AgencyContactSettings::forAgencyReadOnly((int) $match->agency_id)->coreMatchesPriceDropThresholdFraction();
 
         return $unseenProperties->map(fn (Property $property) => [
             'property' => $property,

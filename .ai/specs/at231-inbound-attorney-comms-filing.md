@@ -153,6 +153,30 @@ Prevent-or-absorb: reassign to the *same* deal is a no-op; reassign to a soft-de
 
 ---
 
+### 3.9 Review-screen layout — "Split view" (Andre, 2026-09-14)
+
+The global review queue (`/corex/comms-suspense`, `resources/views/corex/communications/comms-suspense.blade.php`)
+was rebuilt from one tall card per email into an Outlook-style split view. Five layouts were drafted on a
+design canvas (inbox rows / split view / compact cards + filed rail / confidence lanes / expandable ledger);
+Andre picked **option 2 · Split view**.
+
+- **Frozen header** (`corex-page-banner`, `flex-shrink-0`): title, "N to review" count, one-line helper, and a
+  search box that filters the visible list client-side on subject + sender + deal. No page scroll — the two
+  panels scroll inside themselves (`corex-brand-scroll`), same rule as Today, Deeds Capture and Outcomes.
+- **Left panel (380px)** — tabs **To review** (pending, paginated 20) and **Recently filed** (last 10 verified).
+  Each row: confidence chip, received-ago, subject, sender, suggested deal + attachment count. Click selects.
+- **Right panel** — the selected email read in full: chip + received date, subject, sender, attachment chips
+  (open in a new tab), the plain-text `display_body`, and ONE pinned action bar underneath:
+  "File to" dropdown (agent-scoped deals, suggestion pre-selected and marked "— Suggested") + **Confirm & file**,
+  **Search all deals** (deal picker), **Reject** (confirm prompt). A Recently-filed selection shows "Filed to #deal"
+  and the single **Reassign…** action.
+- Every action, route, permission and the deal picker are unchanged from the card layout; this is a view-only
+  change. Below `lg` the list stacks above the reading pane (list capped at 40vh).
+- Empty states: "Nothing to review — every attorney email has filed itself." / "Nothing filed recently." /
+  "No emails match your search."
+
+---
+
 ## 4. WHATSAPP ROUTE — person-level
 
 ### 4.1 Provider-contact WA resolution + the tickbox (Johan Q3)

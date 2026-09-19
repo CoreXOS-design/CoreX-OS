@@ -30,19 +30,65 @@ class MatchingService
     public const TIER_FAIR_MIN   = 50;
 
     /**
-     * Property statuses considered valid for each listing intent. A sale match
-     * must never surface a rental listing's status and vice versa.
+     * Relaxed-mode price tolerance (.ai/specs/matches.md §5.1 — "price_min /
+     * price_max | Relaxed | +/-30% band").
+     *
+     * ONE number, shared by the SQL candidate query AND by score()'s price hard
+     * gate. 2026-09-10: those two had drifted apart. propertiesForMatch()
+     * widened the SQL bound by 30% and then called score() WITHOUT a band, so
+     * the gate re-cut at the exact stated ceiling and returned 0 — the widened
+     * rows were fetched only to be thrown away, and the relaxed near-miss
+     * surfacing the spec describes had never actually worked. The price gate's
+     * own docblock already claimed it gated on "the SAME tolerance-widened
+     * band"; it simply was never handed one. Named here so SQL and scorer can
+     * never disagree again — BUILD_STANDARD §6 (fix the class).
      */
-    private const STATUS_BY_LISTING_TYPE = [
-        'sale'   => ['for_sale', 'forsale', 'active', 'available', 'on_market'],
-        // 'to_let' added 2026-09-15 alongside the prospecting/not_selling fix —
-        // same defect class, flagged separately: this is the real "available
-        // to rent" status this system's data actually uses (found live: 18
-        // to_let listings existed and were invisible to matching before this;
-        // only 7 of 560 rental listings carried a status this list recognised
-        // at all). Never formally ruled on by Johan for rentals specifically —
-        // told to him as fixed alongside the sale-side fix, his to overrule.
-        'rental' => ['for_rent', 'forrent', 'to_rent', 'torent', 'available_rent', 'active', 'to_let'],
+    public const RELAXED_PRICE_BAND = 0.30;
+
+    /**
+     * Statuses that belong to the OPPOSITE listing intent — the belt-and-braces
+     * cross-check that stops a property mis-tagged with the wrong listing_type
+     * (but a correct status) from slipping through.
+     *
+     * 2026-09-10 (Johan, live bug — contact 18900 / match 671 showed ZERO
+     * rentals): this used to be a WHITELIST (STATUS_BY_LISTING_TYPE) of the
+     * statuses each intent was ALLOWED to carry. A whitelist fails CLOSED on
+     * any status it has not heard of, and the rental list never contained
+     * `to_let` — CoreX's own canonical on-market rental status
+     * (Property::systemStatuses(), Property.php "the four on-market pickers
+     * active/for_sale/to_let/under_offer"). Result: 19 of agency 1's 26 live
+     * rentals were discarded before a single one was scored, silently, with no
+     * error anywhere. `under_offer`, `on_show`, `on_auction` and every
+     * agency-defined status in PropertySettingItem were dropped by the same
+     * mechanism.
+     *
+     * Inverted to a BLACKLIST so the check fails OPEN: only a status that is
+     * unambiguously the OTHER market's excludes. A neutral status (active,
+     * on_show, available, or anything an agency defines for itself) passes
+     * either way, and a status nobody has taught this class about can never
+     * again silently delete live stock — BUILD_STANDARD §2 (the input-space
+     * rule) and §3 (prevent or absorb, never break).
+     *
+     * `under_offer` is the one status this check would let through that
+     * Property::MATCHING_EXCLUDED_ON_MARKET_STATUSES then stops on purpose —
+     * Johan's ruling of 2026-09-10, recorded there.
+     *
+     * 2026-09-15 merge note (Staging promotion): QA1 independently carried a
+     * STATUS_BY_LISTING_TYPE whitelist for this exact check — the same
+     * pre-fix shape this docblock describes above, just never updated to the
+     * 2026-09-10 blacklist. Dropped in favour of this already-shipped,
+     * Johan-approved fix; nothing QA1 added here was reachable by any caller
+     * (grep confirmed STATUS_BY_LISTING_TYPE had zero references outside its
+     * own declaration), so nothing behavioural was lost. Its one substantive
+     * addition — `to_let` must never be treated as a wrong-intent status for
+     * a rental match — already holds true here: `to_let` appears only in the
+     * SALE exclusion list below, never the rental one.
+     */
+    private const WRONG_INTENT_STATUSES = [
+        // A SALE match must never surface a listing sitting on a rental status.
+        'sale'   => ['to_let', 'to_rent', 'torent', 'for_rent', 'forrent', 'available_rent', 'let_out', 'rented'],
+        // A RENTAL match must never surface a listing sitting on a sale status.
+        'rental' => ['for_sale', 'forsale', 'on_auction', 'sold', 'sold_by_3rd_party', 'transferred'],
     ];
 
     /** Allowed values for the agency `matches_visibility_scope` setting. */
@@ -127,10 +173,12 @@ class MatchingService
         $scope = (string) \App\Models\PerformanceSetting::get('matches_visibility_scope', self::SCOPE_AGENCY);
 
         return match ($scope) {
-            self::SCOPE_AGENT  => ['agent_id' => $match->created_by_user_id],
+            // Prod-audit 2026-09-16 — stock visibility follows the ASSIGNED agent
+            // (agent_id, set on create and moved by reassignTo()), not the creator.
+            self::SCOPE_AGENT  => ['agent_id' => $match->agent_id ?? $match->created_by_user_id],
             self::SCOPE_BRANCH => [
                 'agent_id'  => null,
-                'branch_id' => $match->createdBy?->branch_id,
+                'branch_id' => $match->agent?->branch_id ?? $match->createdBy?->branch_id,
             ],
             default            => ['agent_id' => null], // agency
         };
@@ -143,19 +191,28 @@ class MatchingService
      * cancelled mandate: none of these may ever surface as a "new match" or fire
      * a match email. A property is "matchable" only while it is genuinely live.
      *
-     * THE single source of truth for match eligibility USED TO be maintained
-     * here as its own copy (NON_MATCHABLE_STATUSES) — replaced 2026-09-15
-     * after it was found live, missing 'prospecting'/'not_selling' (560 of
-     * 842 properties in the agency-wide matchable pool, 66%, were
-     * ingested-but-unmandated stock with no real mandate). Same defect class
-     * as the rental to_let gap: the matching engine's idea of which statuses
-     * are matchable was wrong AND duplicated in more than one place
-     * (Property::OFF_MARKET_STATUSES already had the correct broader list;
-     * this class's own copy had drifted from it). Now delegates to
-     * Property::isMatchableStatus() — the ONE place this is defined — instead
-     * of re-listing the values. Method kept here (not just called directly)
-     * so every existing caller of MatchingService::isMatchableStatus()
-     * continues to work unchanged.
+     * THE single source of truth for match eligibility. It replaces the earlier
+     * split EXCLUDED_FOR_NOTIFY / EXCLUDED_FOR_DISPLAY lists, which (a) disagreed
+     * — notify was missing let_out/expired/cancelled/unavailable — and (b) were
+     * compared with a case-SENSITIVE `in_array(..., true)` against a lowercase
+     * list, while the `status` column is stored mixed-case across ingress paths
+     * (P24 sync writes capitalised 'Sold'/'Withdrawn'/'Rented'; the wizard writes
+     * lowercase). The result: 769 `Sold` and every `let_out` rental leaked into
+     * agent match emails. Fix-the-class — one list, one normalised predicate
+     * (isMatchableStatus), every matching entry point routed through it.
+     *
+     * 2026-09-10 -> 2026-09-15: this class carried its OWN copy of that fix
+     * (NON_MATCHABLE_EXTRA_STATUSES + nonMatchableStatuses()), derived from
+     * Property::OFF_MARKET_STATUSES. Superseded 2026-09-15 after the same
+     * defect class recurred one level up — this class's copy had ALSO drifted
+     * (missing 'prospecting'/'not_selling'; 560 of 842 properties, 66%, of the
+     * agency-wide matchable pool were ingested-but-unmandated stock). Now
+     * delegates to Property::isMatchableStatus() — the ONE place this is
+     * defined, so it cannot drift a third time — which folds in this class's
+     * own 'rented'/'pending'/'under_offer' matching-only exclusions verbatim
+     * as Property::MATCHING_EXCLUDED_ON_MARKET_STATUSES. Method kept here
+     * (not called directly) so every existing caller of
+     * MatchingService::isMatchableStatus() continues to work unchanged.
      */
     public static function isMatchableStatus(?string $status): bool
     {
@@ -258,7 +315,7 @@ class MatchingService
                 $query->where('agent_id', $overrides['agent_id']);
             }
         } else {
-            $query->where('agent_id', $match->created_by_user_id);
+            $query->where('agent_id', $match->agent_id ?? $match->created_by_user_id);
         }
         if (!empty($overrides['branch_id'])) {
             $query->where('branch_id', $overrides['branch_id']);
@@ -316,14 +373,16 @@ class MatchingService
         if ($listingType) {
             $query->where('listing_type', $listingType);
 
-            // Belt-and-braces: also constrain by status so a property mis-tagged
-            // with the wrong listing_type but correct status doesn't slip through.
-            $allowedStatuses = self::STATUS_BY_LISTING_TYPE[$listingType] ?? null;
-            if ($allowedStatuses) {
-                $query->where(function (Builder $sub) use ($allowedStatuses) {
+            // Belt-and-braces: also exclude a property mis-tagged with the wrong
+            // listing_type but sitting on the OTHER market's status. Blacklist,
+            // not whitelist — see WRONG_INTENT_STATUSES for why (a whitelist
+            // silently ate every `to_let` rental in the agency).
+            $wrongIntent = self::WRONG_INTENT_STATUSES[$listingType] ?? null;
+            if ($wrongIntent) {
+                $query->where(function (Builder $sub) use ($wrongIntent) {
                     $sub->whereNull('status')
-                        ->orWhereRaw('LOWER(status) IN ('
-                            . collect($allowedStatuses)->map(fn ($s) => "'$s'")->implode(',')
+                        ->orWhereRaw('LOWER(TRIM(status)) NOT IN ('
+                            . collect($wrongIntent)->map(fn ($s) => "'" . addslashes($s) . "'")->implode(',')
                             . ')');
                 });
             }
@@ -332,16 +391,29 @@ class MatchingService
         if ($category)          $strLoose($query, 'category', $category);
         if (!empty($propertyTypes)) $strLooseIn($query, 'property_type', $propertyTypes);
 
-        // Numeric criteria: allow NULL on the property side too.
+        // Numeric criteria: a property-side value that is NULL *or 0* means the
+        // listing simply hasn't captured that figure, and an incomplete listing
+        // is never penalised.
+        //
+        // 2026-09-10 (Johan, live bug — match 671): this used to tolerate NULL
+        // only, so a captured-but-unpriced listing (price = 0) was deleted here
+        // as though it cost nothing and therefore fell below every buyer's
+        // minimum. score() has ALWAYS read 0 the other way — its price gate says
+        // "Only gates when the PROPERTY reports a price: 0/null price is
+        // incomplete data, not a mismatch", and its beds gate says the same for
+        // 0 beds. So the SQL pre-filter was throwing away rows the scorer would
+        // have happily scored (the St Michaels On Sea 2-bed scored 60 and was
+        // never seen). Same class as the status whitelist above: two halves of
+        // one engine disagreeing about what "missing" means. They agree now.
         $numLoose = function (Builder $q, string $col, string $op, int $val) {
             $q->where(function (Builder $q2) use ($col, $op, $val) {
-                $q2->whereNull($col)->orWhere($col, $op, $val);
+                $q2->whereNull($col)->orWhere($col, 0)->orWhere($col, $op, $val);
             });
         };
         // In relaxed mode the SQL bound is widened into a tolerance band so a
         // near-miss survives to the scoring stage — score() then decays it and
         // the MIN_SCORE_TO_DISPLAY floor drops anything genuinely too far off.
-        $priceTol = $relaxed ? 0.30 : 0.0;  // ±30% price band
+        $priceTol = $relaxed ? self::RELAXED_PRICE_BAND : 0.0;  // ±30% price band
         $countTol = $relaxed ? 1    : 0;    // allow 1 short on beds / baths / garages
         $sizeTol  = $relaxed ? 0.30 : 0.0;  // ±30% floor / erf size band
 
@@ -367,15 +439,19 @@ class MatchingService
         if ($erfMax)     $numLoose($query, 'erf_size_m2', '<=', (int) ceil($erfMax * (1 + $sizeTol)));
 
         // Hard-cutover suburb filter: match by P24 suburb id.
-        $suburbIds = $overrides['p24_suburb_ids'] ?? $match->p24SuburbIdList();
+        $suburbIds = self::suburbIdsWithParentAreas(
+            $overrides['p24_suburb_ids'] ?? $match->p24SuburbIdList()
+        );
         if (!empty($suburbIds)) {
             $query->whereIn('p24_suburb_id', $suburbIds);
         }
 
         return $query->with(['agent', 'branch'])
             ->get()
-            ->map(function (Property $p) use ($match) {
-                $sc = $this->score($p, $match);
+            ->map(function (Property $p) use ($match, $priceTol) {
+                // $priceTol, not 0.0 — the scorer's price gate must use the same
+                // band the SQL above widened by. See RELAXED_PRICE_BAND.
+                $sc = $this->score($p, $match, $priceTol);
                 $p->setAttribute('match_score', $sc);
                 $p->setAttribute('match_tier', self::tierFor($sc));
                 return $p;
@@ -507,7 +583,7 @@ class MatchingService
         // Both callers always evaluate in relaxed mode — same as
         // propertiesForMatch()'s default ($overrides['relaxed'] never set by
         // either).
-        $priceTol = 0.30;
+        $priceTol = self::RELAXED_PRICE_BAND;
         $countTol = 1;
         $sizeTol  = 0.30;
 
@@ -520,8 +596,10 @@ class MatchingService
             if ($p->listing_type !== $listingType) {
                 return false;
             }
-            $allowedStatuses = self::STATUS_BY_LISTING_TYPE[$listingType] ?? null;
-            if ($allowedStatuses !== null && $p->status !== null && !in_array(strtolower($p->status), $allowedStatuses, true)) {
+            // Mirror of propertiesForMatch()'s WRONG_INTENT_STATUSES clause.
+            $wrongIntent = self::WRONG_INTENT_STATUSES[$listingType] ?? null;
+            if ($wrongIntent !== null && $p->status !== null
+                && in_array(strtolower(trim((string) $p->status)), $wrongIntent, true)) {
                 return false;
             }
         }
@@ -537,8 +615,11 @@ class MatchingService
         }
 
         $numLooseOk = function ($val, string $op, int $threshold): bool {
-            if ($val === null) {
-                return true; // property side NULL is never penalised
+            // NULL or 0 = the listing never captured this figure. Mirrors
+            // propertiesForMatch()'s $numLoose and score()'s own gates, which
+            // both read 0 as "incomplete", not as a real value of zero.
+            if ($val === null || (int) $val === 0) {
+                return true; // incomplete listings are never penalised
             }
             return $op === '>=' ? ((int) $val >= $threshold) : ((int) $val <= $threshold);
         };
@@ -557,8 +638,8 @@ class MatchingService
         if ($match->erf_size_min && !$numLooseOk($p->erf_size_m2, '>=', (int) floor($match->erf_size_min * (1 - $sizeTol)))) return false;
         if ($match->erf_size_max && !$numLooseOk($p->erf_size_m2, '<=', (int) ceil($match->erf_size_max * (1 + $sizeTol)))) return false;
 
-        $suburbIds = $match->p24SuburbIdList();
-        if (!empty($suburbIds) && !in_array($p->p24_suburb_id, $suburbIds, true)) {
+        $suburbIds = self::suburbIdsWithParentAreas($match->p24SuburbIdList());
+        if (!empty($suburbIds) && !in_array((int) $p->p24_suburb_id, $suburbIds, true)) {
             return false;
         }
 
@@ -965,6 +1046,30 @@ class MatchingService
             $delta = $price - $maxFull;
             return max(0.0, 1 - $delta / max(1, $max * 0.5));
         }
+
+        // Inside the tolerance band but OUTSIDE the buyer's stated range: decay
+        // across the band instead of paying full price marks.
+        //
+        // 2026-09-10: without this, handing score() a band (which is what makes
+        // relaxed near-misses reachable at all) would pay a property 30% over
+        // budget the SAME price score as one bang inside the range — a live
+        // R11 400 rental scored 100 against a R10 000 ceiling. That is a worse
+        // version of the very complaint that created the price hard gate on
+        // 2026-08-11 ("Lucille Maxwell's R951,501 ceiling matched 88-91% on a
+        // property ~R130k over budget"). .ai/specs/matches.md §5.1 is explicit
+        // that a near-miss is "surfaced with a decayed match_score"; this is
+        // where it decays.
+        //
+        // A caller passing no band ($bandPct = 0.0) is unaffected: minFull/
+        // maxFull then equal min/max, so neither branch below can be entered
+        // and the behaviour is byte-for-byte what it was.
+        if ($max && $price > $max) {
+            return max(0.0, 1 - ($price - $max) / max(1, $maxFull - $max));
+        }
+        if ($min && $price < $min) {
+            return max(0.0, 1 - ($min - $price) / max(1, $min - $minFull));
+        }
+
         return 1.0;
     }
 
@@ -1000,9 +1105,29 @@ class MatchingService
      * so a buyer explicitly wanting a DIFFERENT suburb is never counted as "demand
      * for properties like yours in {property_suburb}".
      */
+    /**
+     * A wishlist's suburbs PLUS their parent areas (Johan's ruling,
+     * 2026-09-10) — "Margate Beach" also means "Margate", "Uvongo Beach" also
+     * means "Uvongo". See P24Suburb::withParentAreaIds() for the rule and why
+     * it is scoped per city.
+     *
+     * Every suburb decision in this class routes through here — the SQL
+     * candidate query, suburbCompatible()'s hard gate, and the
+     * matchSurvivesFilters() mirror — so the query and the scorer can never
+     * disagree about which areas a buyer asked for. That disagreement is
+     * exactly the class of bug this file was just cleaned of.
+     *
+     * @param  int[]  $ids
+     * @return int[]
+     */
+    public static function suburbIdsWithParentAreas(array $ids): array
+    {
+        return empty($ids) ? [] : \App\Models\P24Suburb::withParentAreaIds($ids);
+    }
+
     public function suburbCompatible(Property $property, ContactMatch $match): bool
     {
-        $ids = $match->p24SuburbIdList();
+        $ids = self::suburbIdsWithParentAreas($match->p24SuburbIdList());
         if (empty($ids)) return true;                   // open to anywhere
         if (!$property->p24_suburb_id) return false;    // buyer named suburbs; property has none
         return in_array((int) $property->p24_suburb_id, $ids, true);

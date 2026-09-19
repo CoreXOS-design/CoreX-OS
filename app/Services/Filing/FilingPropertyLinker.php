@@ -37,6 +37,17 @@ class FilingPropertyLinker
      * DR2 picker uses — so a super-admin sees everything they are entitled to, an agency user
      * sees their agency's stock, and nobody hand-rolls a tenant filter again.
      *
+     * AT-404 (Johan, 2026-09-10) — this had no ORDER BY at all. searchAddress() matches every
+     * address-shaped column with a loose LIKE, so a common street/suburb name routinely returns
+     * far more than $limit rows, and with no sort MySQL returned them in effectively ascending-id
+     * order — the agency's oldest withdrawn/expired/prospecting stock, not its current listings.
+     * A property that is a genuine, exact, ACTIVE match ("34 Marine Drive") sat below the cutoff
+     * behind a dozen dead 2017-2019 mandates for the same street. Ordering on-market stock first
+     * (Property::scopeOnMarket()'s own canonical "not in OFF_MARKET_STATUSES" definition — no new
+     * status list invented here) and most-recent-id second within each tier puts the listing an
+     * agent is actually looking for at the top instead of leaving it to the mercy of unspecified
+     * row order.
+     *
      * @return Collection<int,Property>
      */
     public function candidates(?string $address, User $user, int $limit = 15): Collection
@@ -50,6 +61,12 @@ class FilingPropertyLinker
             ->visibleTo($user)
             ->searchAddress($address)
             ->with(['agent', 'branch'])
+            ->orderByRaw(
+                'CASE WHEN status NOT IN (' .
+                collect(Property::OFF_MARKET_STATUSES)->map(fn ($s) => "'$s'")->implode(',') .
+                ') THEN 0 ELSE 1 END'
+            )
+            ->orderByDesc('id')
             ->limit($limit)
             ->get();
     }

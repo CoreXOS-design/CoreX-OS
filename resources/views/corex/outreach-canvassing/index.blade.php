@@ -9,6 +9,10 @@
            streams are counted SEPARATELY (own subtotal each); the total is shown as a
            VISIBLE SUM of the parts so the origin of every WhatsApp is always answerable.
     Tab 2: Consent Funnel — the existing AT-91 WhatsApp matrix, retained as-is.
+
+    AT-393 — header, tab switcher, subtotal tiles and the filter card are frozen (the page
+    wrapper is a full-height flex column); each tab's body is its own scroll region.
+    Spec: .ai/specs/outreach-canvassing-board-list.md
 --}}
 
 @php
@@ -18,13 +22,19 @@
         'comms_tile'     => '--ds-orange,#ea580c',
     ];
     $sub = $feed['subtotals'] ?? ['mic_prospect' => 0, 'direct_contact' => 0, 'comms_tile' => 0];
+    $filterQ = $filterQ ?? '';
+    $filterAgentId = $filterAgentId ?? null;
+    $agents = $agents ?? collect();
+    // Carried on every tile / clear link so a source click never drops the search or agent.
+    $carry = array_filter(['q' => $filterQ, 'agent_id' => $filterAgentId], fn ($v) => $v !== '' && $v !== null);
+    $filtersActive = $filterQ !== '' || $filterSource || $filterAgentId;
 @endphp
 
 @section('corex-content')
-<div class="w-full space-y-5" x-data="{ tab: '{{ $activeTab }}' }">
+<div class="w-full h-full flex flex-col" x-data="{ tab: '{{ $activeTab }}' }">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Outreach &amp; Canvassing</h1>
@@ -41,7 +51,7 @@
     </div>
 
     {{-- Tab switcher --}}
-    <div class="flex gap-1" style="border-bottom:1px solid var(--border,#e5e7eb);">
+    <div class="flex gap-1 flex-shrink-0 mt-3" style="border-bottom:1px solid var(--border,#e5e7eb);">
         <button @click="tab = 'activity'"
                 :style="tab === 'activity' ? 'color:var(--brand-icon,#0ea5e9); border-color:var(--brand-icon,#0ea5e9);' : 'color:var(--text-muted,#9ca3af);'"
                 :class="tab === 'activity' ? 'border-b-2' : 'border-b-2 border-transparent'"
@@ -53,12 +63,13 @@
     </div>
 
     {{-- ════════════════ TAB 1 — ACTIVITY FEED ════════════════ --}}
-    <div x-show="tab === 'activity'" x-cloak class="space-y-5">
+    <div x-show="tab === 'activity'" x-cloak class="flex-1 min-h-0 flex flex-col">
 
-        {{-- Source subtotals — three SEPARATE streams, never blended. Total = visible sum. --}}
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {{-- Source subtotals — three SEPARATE streams, never blended. Total = visible sum.
+             Window-wide and source-wide: the search box never changes these. --}}
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 flex-shrink-0 mt-3">
             @foreach(['mic_prospect','direct_contact','comms_tile'] as $src)
-                <a href="{{ route('corex.outreach-canvassing.index', ['tab' => 'activity', 'days' => $filterDays, 'source' => $src]) }}"
+                <a href="{{ route('corex.outreach-canvassing.index', array_merge(['tab' => 'activity', 'days' => $filterDays, 'source' => $src], $carry)) }}"
                    class="rounded-md px-4 py-3 no-underline transition-all"
                    style="background:var(--surface,#fff); border:1px solid {{ $filterSource === $src ? 'var('.$sourceTokens[$src].')' : 'var(--border,#e5e7eb)' }};">
                     <div class="flex items-center gap-2">
@@ -79,30 +90,57 @@
             </div>
         </div>
 
-        {{-- Filters --}}
-        <form method="GET" action="{{ route('corex.outreach-canvassing.index') }}" class="flex items-center gap-2 flex-wrap">
+        {{-- Filters — one GET form: search + agent (scope-limited) + window + source. --}}
+        <form method="GET" action="{{ route('corex.outreach-canvassing.index') }}"
+              class="rounded-md px-4 py-3 mt-3 flex-shrink-0 flex flex-wrap items-center gap-3"
+              style="background: var(--surface,#fff); border: 1px solid var(--border,#e5e7eb);">
             <input type="hidden" name="tab" value="activity">
-            <label class="text-xs" style="color:var(--text-secondary,#6b7280);">Window</label>
-            <select name="days" onchange="this.form.submit()" class="px-3 py-1.5 text-sm rounded-md"
-                    style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0b2a4a);">
+
+            <div class="relative flex-1 min-w-[180px] max-w-xs">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="q" value="{{ $filterQ }}"
+                       placeholder="Search who, agent, action or outcome…"
+                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
+                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+            </div>
+
+            @if($canSeeTeam && $agents->isNotEmpty())
+            <select name="agent_id" onchange="this.form.submit()" class="list-header-filter">
+                <option value="">All agents</option>
+                @foreach($agents as $a)
+                    <option value="{{ $a->id }}" {{ (int) $filterAgentId === (int) $a->id ? 'selected' : '' }}>{{ $a->name }}</option>
+                @endforeach
+            </select>
+            @endif
+
+            <select name="days" onchange="this.form.submit()" class="list-header-filter">
                 @foreach([30 => 'Last 30 days', 90 => 'Last 90 days', 180 => 'Last 180 days', 365 => 'Last year'] as $d => $lbl)
                     <option value="{{ $d }}" {{ (int)$filterDays === $d ? 'selected' : '' }}>{{ $lbl }}</option>
                 @endforeach
             </select>
-            <select name="source" onchange="this.form.submit()" class="px-3 py-1.5 text-sm rounded-md"
-                    style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0b2a4a);">
+
+            <select name="source" onchange="this.form.submit()" class="list-header-filter">
                 <option value="">All sources</option>
                 @foreach($sourceLabels as $sk => $sl)
                     <option value="{{ $sk }}" {{ $filterSource === $sk ? 'selected' : '' }}>{{ $sl }}</option>
                 @endforeach
             </select>
-            @if($filterSource)
+
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            @if($filtersActive)
                 <a href="{{ route('corex.outreach-canvassing.index', ['tab' => 'activity', 'days' => $filterDays]) }}"
-                   class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Clear source filter</a>
+                   class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
             @endif
+
+            <span class="ml-auto text-xs" style="color:var(--text-muted);">{{ number_format($feedRows->total()) }} action{{ $feedRows->total() === 1 ? '' : 's' }}</span>
         </form>
 
-        @if(empty($feed['rows']))
+        {{-- Scroll region — the feed table + pagination scroll; everything above stays put. --}}
+        <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
+
+        @if($feedRows->total() === 0)
             <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
                 <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                      style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
@@ -110,10 +148,15 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z" />
                     </svg>
                 </div>
-                <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">No outreach or canvassing activity yet</h3>
-                <p class="text-sm" style="color:var(--text-muted,#9ca3af);">
-                    Claims, pitches and comms-tile messages will appear here as they happen — each tagged with where it came from.
-                </p>
+                @if($filtersActive)
+                    <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">No actions match these filters</h3>
+                    <p class="text-sm" style="color:var(--text-muted,#9ca3af);">Try a different search, agent, window or source.</p>
+                @else
+                    <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary,#111827);">No outreach or canvassing activity yet</h3>
+                    <p class="text-sm" style="color:var(--text-muted,#9ca3af);">
+                        Claims, pitches and comms-tile messages will appear here as they happen — each tagged with where it came from.
+                    </p>
+                @endif
             </div>
         @else
             <div class="rounded-md overflow-hidden" style="background:var(--surface,#fff); border:1px solid var(--border,#e5e7eb);">
@@ -131,7 +174,7 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach($feed['rows'] as $r)
+                            @foreach($feedRows as $r)
                                 <tr style="border-bottom:1px solid var(--border,#eef2f6);">
                                     <td class="px-4 py-2.5 whitespace-nowrap">
                                         <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[0.6875rem] font-semibold"
@@ -154,6 +197,11 @@
                         </tbody>
                     </table>
                 </div>
+                @if($feedRows->hasPages())
+                <div class="px-4 py-3" style="border-top: 1px solid var(--border,#e5e7eb);">
+                    {{ $feedRows->links() }}
+                </div>
+                @endif
             </div>
             @if(!empty($feed['truncated']))
                 <p class="text-xs" style="color:var(--text-muted,#9ca3af);">
@@ -166,10 +214,12 @@
                 stream. The three are never merged — the total above is the visible sum of the parts.
             </p>
         @endif
+
+        </div>{{-- /scroll region --}}
     </div>
 
     {{-- ════════════════ TAB 2 — CONSENT FUNNEL (AT-91, as-is) ════════════════ --}}
-    <div x-show="tab === 'consent'" x-cloak>
+    <div x-show="tab === 'consent'" x-cloak class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4">
         @include('corex.outreach-summary._board', ['rows' => $rows, 'totals' => $totals, 'hasAwaiting' => $hasAwaiting, 'embedded' => true])
     </div>
 </div>

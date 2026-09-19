@@ -551,3 +551,75 @@ Defence-in-depth: `SubjectFieldCompleteness::missingSoftInputs()` (`app/Support/
 ---
 
 *Ready to fire Phase 1.*
+
+---
+
+## 11. Outcomes dashboard — Cockpit strip layout (2026-09-13)
+
+Andre asked for `/corex/presentations/outcomes` to stop scrolling and picked
+**1 · Cockpit strip** from four drafts on a design canvas
+(https://claude.ai/code/artifact/6e8f6b14-6c48-4643-8037-c7343ab4fdda — the other
+three, Split view / Tabs / Outcome board, stay there). View-only change to
+`resources/views/presentations/outcomes/index.blade.php`; the controller, its
+filters, the metrics, the loss-reasons breakdown and the table are untouched.
+
+**The rule:** the page fits the viewport. The banner (title + the filter form on
+its right) and the numbers strip stay put; the outcomes table is the one region
+that scrolls, inside itself, with a sticky column header; the loss-reasons chart
+sits in a 300px rail beside the table (below it, capped at 40vh, under `lg`).
+Same frozen-header / inner-scroll pattern as the Today page and Deeds Capture:
+root `w-full h-full flex flex-col`, body `flex-1 min-h-0`, the scroll region
+`flex-1 min-h-0 overflow-auto corex-brand-scroll`.
+
+**What moved, not what changed:**
+
+| Before | Now |
+|---|---|
+| Filter form in its own card under the banner | Same form, same fields (from / to / outcome / loss reason / agent, Apply, Clear), on the right of the banner with screen-reader-only labels |
+| Six tall metric tiles | The same six numbers as one slim strip (three per row below `lg`) |
+| Loss-reasons card full width above the table | Same bars in the rail beside the table |
+| Table in page flow, page scrolls | Table scrolls inside its card; pagination pinned to the card foot |
+
+The tour anchors (`pres-outcomes-intro / -filters / -metrics / -loss-reasons`)
+and the empty state are preserved. Further Outcomes UI work extends this frame;
+do not reintroduce stacked sections.
+
+---
+
+## 12. Presentation show page — Sticky rail layout (2026-09-14)
+
+Andre asked for `/presentations/{id}` (the presentation info page) to use less
+space and get a better header, and picked **4 · Sticky rail** from five drafts on
+a design canvas (https://claude.ai/code/artifact/9d823f57-4a7c-402c-9929-37b24e0158de
+— the other four, Identity card + two columns / Tabbed workspace / Stats in
+header + collapsible rows / Toolbar + bento grid, stay there on a second page).
+View-only change to `resources/views/presentations/show.blade.php`; the
+controller, every action, every section and every modal are untouched.
+
+**The frame:** `grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start`.
+The left `<aside>` is `lg:sticky lg:top-0` inside `<main id="appScroll">` (the
+app's scroll container), so it stays put while the right column scrolls. Below
+`lg` it stacks above the sections.
+
+**Left rail (one surface card, contact-header vocabulary):** "← All Presentations"
+link, status `ds-badge`, the full title (wraps — no truncation), the address (+
+suburb when the address doesn't already contain it), then every action button
+stacked full-width with the same conditions and disabled states as before (View
+Analysis / Run · Re-run Analysis / Pricing Simulator / Seller Live Test / Compile
+Pack / Download PDF / Complete Pack ZIP). Under a hairline, the record facts on
+`--surface-2`: Property (type · bed · bath · garage), Size (erf · floor), Asking
+price, Seller, Created, Snapshots (count · time · "View latest →").
+
+**Right column (`space-y-4`), what moved, not what changed:**
+
+| Before | Now |
+|---|---|
+| Flat `corex-page-banner` + a separate action-button `ds-status-card` | Both merged into the rail |
+| Snapshots card beside Last Analysis | Snapshots is a rail fact; Last Analysis sits beside Holding Costs in the 2-col grid |
+| Power Panel + Buyer Demand after the Executive Summary | Directly after Outcome + Refresh requests, so the verdict reads first |
+| `space-y-6` / `gap-6` | `space-y-4` / `gap-4` |
+
+Order is now: Outcome → Refresh requests → Power Panel → Buyer Demand → Share
+Links → Documents → Executive Summary → Last Analysis | Holding Costs → Market
+News → Live updates. Further show-page work extends this frame; do not
+reintroduce a page banner or a standalone action bar.

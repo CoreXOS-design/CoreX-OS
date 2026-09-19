@@ -17,9 +17,45 @@ class ProformaSettingsController extends Controller
 {
     // Gated by route middleware `permission:proforma.manage` (admin only).
 
+    /**
+     * The agency whose proforma settings are being read or saved.
+     *
+     * Owners are cross-agency until they switch into one, so for them the
+     * agency comes from the form (`agency_id`, posted by the Company Settings
+     * page for the agency it is SHOWING); everyone else is pinned to their own.
+     * A login with no resolvable agency is sent back with a plain message —
+     * never the `(int) null` = 0 sentinel that BelongsToAgency refuses (Rule 17,
+     * the 500 Andre hit on QA2 2026-09-15).
+     */
     private function agencyId(Request $request): int
     {
-        return (int) $request->user()?->effectiveAgencyId();
+        $user = $request->user();
+
+        $requested = (int) $request->input('agency_id', 0);
+        if ($requested > 0 && $user?->isOwnerRole() && Agency::whereKey($requested)->exists()) {
+            return $requested;
+        }
+
+        $agencyId = (int) ($user?->effectiveAgencyId() ?: 0);
+        if ($agencyId <= 0) {
+            abort(redirect()->route('admin.company-settings')->with(
+                'error',
+                'Choose an agency first — proforma settings belong to one agency. Use the agency switcher, then try again.'
+            ));
+        }
+
+        return $agencyId;
+    }
+
+    /** Land back on the Company Settings tab the save came from, when it came from there. */
+    private function redirectAfterSave(Request $request)
+    {
+        if ($request->filled('from_company_settings')) {
+            return redirect()->route('admin.company-settings', ['agency' => $request->input('from_company_settings')])
+                ->withFragment('company');
+        }
+
+        return back();
     }
 
     public function index(Request $request)
@@ -51,7 +87,7 @@ class ProformaSettingsController extends Controller
             try {
                 $admin->advanceStartNumber($agencyId, $request->user(), (int) $data['start_number']);
             } catch (\DomainException $e) {
-                return back()->with('error', $e->getMessage());
+                return $this->redirectAfterSave($request)->with('error', $e->getMessage());
             }
         }
 
@@ -63,6 +99,6 @@ class ProformaSettingsController extends Controller
             'bank_details'   => $data['bank_details'] ?? null,
         ]);
 
-        return back()->with('success', 'Proforma settings saved.');
+        return $this->redirectAfterSave($request)->with('success', 'Proforma settings saved.');
     }
 }

@@ -32,8 +32,8 @@ return [
             ],
             [
                 'element' => '[data-tour="cc-today-board"]',
-                'title'   => 'Your work, sorted by urgency',
-                'body'    => 'CoreX reads across all your work — appointments, buyers, documents, listings — and lays it out in three bands: Action Required (deal with now), Today, and a Snapshot to glance at. You do not go hunting; the work comes to you.',
+                'title'   => 'Your day on one screen',
+                'body'    => 'CoreX reads across all your work — appointments, buyers, documents, listings — and lays it out without scrolling: today\'s appointments hour by hour on the left with a line at the current time, everything waiting on you stacked on the right with the most urgent on top, and your numbers along the bottom. You do not go hunting; the work comes to you.',
             ],
             [
                 'element' => '[data-tour="cc-today-refresh"]',
@@ -43,7 +43,7 @@ return [
             [
                 'element' => '[data-tour="cc-today-greeting"]',
                 'title'   => 'Make it a habit',
-                'body'    => 'Open this first thing, clear the Action Required band, and the rest of your day follows. Close this and have a look at what is waiting for you today.',
+                'body'    => 'Open this first thing, work the queues on the right from the top down, and the rest of your day follows. Close this and have a look at what is waiting for you today.',
             ],
         ],
     ],

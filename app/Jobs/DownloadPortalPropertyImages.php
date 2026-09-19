@@ -130,6 +130,10 @@ class DownloadPortalPropertyImages implements ShouldQueue
                 $existing = $property->gallery_images_json ?? [];
                 $property->gallery_images_json = array_merge($existing, $batchStored);
                 $property->saveQuietly();
+                // File the newly-added photos into gallery_categories_json —
+                // every writer of gallery_images_json must, or the mobile app's
+                // room-by-room gallery (built from categories alone) shows 0 photos.
+                $property->syncGalleryCategoriesLocked();
             }
 
             $this->updateProgress($cacheKey, $total, $downloaded, $failed, false);

@@ -11,6 +11,11 @@
     // also reachable from Contacts, not only the Pipeline boards.
     $primaryWishlistForLens = $buyer->matches->firstWhere('is_primary', true) ?? $buyer->matches->first();
     $isRentalContact = ($primaryWishlistForLens->listing_type ?? null) === 'rental';
+    // AT-401 - the Back link honours whichever board (sales or Rentals) the agent entered
+    // through; session('corex.lens.pipeline') is set by BuyerPipelineController::index().
+    $backToRentals = (bool) session('corex.lens.pipeline', false);
+    $backRoute     = $backToRentals ? 'corex.rentals.pipeline.index' : 'command-center.buyers.pipeline';
+    $backBoard     = $backToRentals ? 'Rental Pipeline' : 'Buyer Pipeline';
 
     // SINGLE SOURCE for the viewing-picker. Build the property rows ONCE with
     // a shape-safe accessor (data_get works for arrays AND objects, so a
@@ -56,73 +61,121 @@
 @endphp
 <div class="w-full space-y-5" x-data="buyerWishlists(@js($wishlistsConfig))">
 
-    {{-- Back to Buyer Pipeline — AT-401: honours whichever board (sales or
-         Rentals) the agent most recently entered through, so returning from
-         a buyer opened via Rentals → Rental Pipeline doesn't drop them onto
-         the sales board. session('corex.lens.pipeline') is set by
-         BuyerPipelineController::index() on the way in. --}}
-    <div>
-        <a href="{{ route(session('corex.lens.pipeline', false) ? 'corex.rentals.pipeline.index' : 'command-center.buyers.pipeline') }}"
-           class="inline-flex items-center gap-1 text-xs no-underline"
-           style="color: var(--text-muted);">
-            ← Back to {{ session('corex.lens.pipeline', false) ? 'Rental Pipeline' : 'Buyer Pipeline' }}
-        </a>
-    </div>
+    {{-- ════════════════════════════════════════════════════════════════════
+         BUYER HEADER — same shape as the contact page header
+         (corex.contacts._header): a surface card, NOT a full-bleed
+         corex-page-banner. The old layout put the Back link on
+         its own line ABOVE a banner that negative-margins itself to the top
+         of <main>, which left a hollow band between the two.
 
-    {{-- Page header (Pattern A — branded) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div class="flex items-center gap-4">
-                <div class="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white"
-                     style="background: var(--brand-button, #0ea5e9);">
-                    {{ strtoupper(substr($buyer->first_name ?? '', 0, 1) . substr($buyer->last_name ?? '', 0, 1)) }}
-                </div>
-                <div>
-                    <h1 class="text-xl font-bold text-white leading-tight">{{ $buyer->full_name }}</h1>
-                    <div class="flex items-center gap-2 mt-1 flex-wrap">
-                        @php
-                            $stateBadgeVariant = match($buyer->buyer_state) {
-                                'warm' => 'ds-badge-success',
-                                'cold' => 'ds-badge-warning',
-                                'lost' => 'ds-badge-danger',
-                                default => 'ds-badge-info',
-                            };
-                        @endphp
-                        <span class="ds-badge {{ $stateBadgeVariant }}">{{ ucfirst($buyer->buyer_state ?? 'New') }}</span>
-                        @unless($buyer->hasCountableWishlist())
-                            <span class="ds-badge ds-badge-warning"
-                                  title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $isRentalContact ? 'tenant' : 'buyer' }} is excluded from all match figures. Add a wishlist to include them.">Not in figures</span>
-                        @endunless
-                        <span class="text-xs text-white/60">Since {{ $buyer->buyer_pipeline_entered_at?->format('d M Y') ?? 'Unknown' }}</span>
-                        <span class="text-xs text-white/60">· Last activity {{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</span>
-                        <span class="text-xs text-white/60">· Agent: {{ $buyer->agent?->name ?? 'Unassigned' }}</span>
-                    </div>
+         Layout — two bands:
+           · Identity row — Back (icon) + name + badges LEFT, actions RIGHT.
+           · Facts strip  — six record facts as equal cells, hairline rules
+                            (1px grid gap over a --border background).
+         Every action below is the original, unchanged — only the chrome moved.
+         ════════════════════════════════════════════════════════════════════ --}}
+    @php
+        $stateBadgeVariant = match($buyer->buyer_state) {
+            'warm' => 'ds-badge-success',
+            'cold' => 'ds-badge-warning',
+            'lost' => 'ds-badge-danger',
+            default => 'ds-badge-info',
+        };
+    @endphp
+    <div class="rounded-lg overflow-hidden" style="background:var(--surface); border:1px solid var(--border); box-shadow:0 1px 2px rgba(15,23,42,0.06);">
+
+        {{-- Identity row — Back + name + badges LEFT, actions RIGHT. --}}
+        <div class="px-5 py-3.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+                <a href="{{ route($backRoute) }}"
+                   class="corex-btn-outline text-xs no-underline inline-flex items-center flex-shrink-0"
+                   style="padding-left:0.5rem; padding-right:0.5rem;"
+                   title="Back to {{ $backBoard }}" aria-label="Back to {{ $backBoard }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
+                    <span class="sr-only">Back to {{ $backBoard }}</span>
+                </a>
+                <h1 class="text-2xl font-bold leading-tight" style="color: var(--text-primary);">{{ $buyer->full_name }}</h1>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <span class="ds-badge {{ $stateBadgeVariant }}">{{ ucfirst($buyer->buyer_state ?? 'New') }}</span>
+                    @unless($buyer->hasCountableWishlist())
+                        <span class="ds-badge ds-badge-warning"
+                              title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $isRentalContact ? 'tenant' : 'buyer' }} is excluded from all match figures. Add a wishlist to include them.">Not in figures</span>
+                    @endunless
                 </div>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                <button type="button" @click="showViewingPicker = true" class="corex-btn-primary">Schedule Viewing</button>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+                <button type="button" @click="showViewingPicker = true" class="corex-btn-primary text-xs flex-shrink-0">Schedule Viewing</button>
                 {{-- AT-XX Viewing Pack — entry point. Creates a draft pack for this buyer and opens its workspace. --}}
-                <form method="POST" action="{{ route('corex.viewing-packs.store') }}" class="inline">
+                <form method="POST" action="{{ route('corex.viewing-packs.store') }}" class="inline flex-shrink-0">
                     @csrf
                     <input type="hidden" name="contact_id" value="{{ $buyer->id }}">
-                    <button type="submit" class="corex-btn-outline corex-btn-on-brand">Build Viewing Pack</button>
+                    <button type="submit" class="corex-btn-outline text-xs">Build Viewing Pack</button>
                 </form>
-                <a href="{{ route('corex.contacts.show', $buyer) }}" class="corex-btn-outline corex-btn-on-brand no-underline">Contact Record</a>
+                <a href="{{ route('corex.contacts.show', $buyer) }}" class="corex-btn-outline text-xs flex-shrink-0 no-underline">Contact Record</a>
                 {{-- Share actions are buyer-level, not per-wishlist (Johan, 2026-08-24) —
                      WhatsApp/Email/Client Page live here once, not duplicated on every
                      wishlist card below. --}}
                 @include('command-center.buyers._buyer-share-bar', ['buyer' => $buyer])
                 @if($buyer->buyer_state !== 'lost')
                 <button type="button" x-data x-on:click="$refs.lostModal.showModal()"
-                        class="corex-btn-outline corex-btn-on-brand">
+                        class="corex-btn-outline text-xs flex-shrink-0">
                     Mark Lost
                 </button>
                 @else
                 <button type="button" x-data x-on:click="$refs.reengageModal.showModal()"
-                        class="corex-btn-outline corex-btn-on-brand">
+                        class="corex-btn-outline text-xs flex-shrink-0">
                     Re-engage {{ $isRentalContact ? 'Tenant' : 'Buyer' }}
                 </button>
                 @endif
+            </div>
+        </div>
+
+        {{-- Facts strip — six cells, hairline-separated, flush to the card edge. --}}
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px"
+             style="background:var(--border); border-top:1px solid var(--border);">
+
+            <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
+                <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Phone</div>
+                <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">
+                    @if($buyer->phone)
+                        <a href="tel:{{ preg_replace('/\s+/', '', $buyer->phone) }}" class="no-underline hover:underline" style="color:inherit;">{{ $buyer->phone }}</a>
+                    @else
+                        <span style="color:var(--text-muted);">—</span>
+                    @endif
+                </div>
+            </div>
+
+            <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
+                <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Email</div>
+                <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">
+                    @if($buyer->email)
+                        <a href="mailto:{{ $buyer->email }}" class="no-underline hover:underline" style="color:inherit;">{{ $buyer->email }}</a>
+                    @else
+                        <span style="color:var(--text-muted);">—</span>
+                    @endif
+                </div>
+            </div>
+
+            <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
+                <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Agent</div>
+                <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">{{ $buyer->agent?->name ?? 'Unassigned' }}</div>
+            </div>
+
+            <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
+                <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">In pipeline since</div>
+                <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">{{ $buyer->buyer_pipeline_entered_at?->format('d M Y') ?? 'Unknown' }}</div>
+            </div>
+
+            <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
+                <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Last activity</div>
+                <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">{{ $buyer->last_activity_at?->diffForHumans() ?? 'Never' }}</div>
+            </div>
+
+            <div class="px-4 py-2.5 min-w-0" style="background:var(--surface-2);">
+                <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:var(--text-muted);">Matches</div>
+                <div class="text-sm truncate mt-0.5" style="color:var(--text-primary);">
+                    {{ number_format($matched->count()) }} propert{{ $matched->count() === 1 ? 'y' : 'ies' }}
+                </div>
             </div>
         </div>
     </div>

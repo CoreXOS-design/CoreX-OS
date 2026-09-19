@@ -179,7 +179,10 @@ public function index(Request $request)
 
         $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
             ->orderBy('name')->get();
-        $branches = Branch::orderBy('name')->get();
+        // Report filter + row name lookup: active branches first, then archived
+        // ones, so a deal loaded under a since-archived branch still shows its
+        // branch and can still be filtered on (AT-420).
+        $branches = Branch::listForReports();
 
         // Branch context for Branch Commission column
         $branchIdContext = (int) $request->input('branch_id');
@@ -234,7 +237,12 @@ public function index(Request $request)
 
         $agents = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
             ->orderBy('name')->get();
-        $branches = Branch::orderBy('name')->get();
+        // Active branches, PLUS this deal's own branch even if it has since been
+        // archived — otherwise the select would silently re-stamp the deal onto
+        // another branch on save. Deals carry on as loaded (AT-420).
+        $branches = Branch::withTrashed()
+            ->where(fn ($q) => $q->whereNull('deleted_at')->orWhere('id', $deal->branch_id))
+            ->orderBy('name')->get();
 
         return view('admin.deals.form', [
             'mode' => 'edit',
@@ -493,6 +501,14 @@ $financialLocked = ($deal->exists && (($deal->commission_status ?? "") === "Paid
                 $data[$side.'_our_share_percent'] = 0;
                 continue;
             }
+
+            // Prod-promotion audit 2026-09-16, A4: "Our Share %" only means
+            // something for an EXTERNAL side. An internal side keeps 100% of
+            // its split, always — a stray value here (the form no longer
+            // renders the field for an internal side, but a stale tab or a
+            // crafted POST still can) must never be persisted, because it is
+            // exactly what produced the deal-#169 settlement defect.
+            $data[$side.'_our_share_percent'] = 100;
 
             if (count($agents) === 0) {
                 return back()->withErrors("{$side} side requires at least one agent.")->withInput();

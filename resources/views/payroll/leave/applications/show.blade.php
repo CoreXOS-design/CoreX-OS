@@ -32,7 +32,7 @@
                         <div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white" style="background:var(--brand-icon);">{{ strtoupper(substr($application->user->name ?? '?', 0, 1)) }}</div>
                         <div>
                             <p class="text-sm font-semibold" style="color:var(--text-primary);">{{ $application->user->name }}</p>
-                            <p class="text-xs" style="color:var(--text-muted);">{{ $application->payrollEmployee?->designation_snapshot }} | {{ $application->user->branch->name ?? '-' }}</p>
+                            <p class="text-xs" style="color:var(--text-muted);">{{ $application->payrollEmployee?->designation_snapshot }} | {{ $application->user->branch->display_name ?? '-' }}</p>
                         </div>
                     </div>
                 </div>

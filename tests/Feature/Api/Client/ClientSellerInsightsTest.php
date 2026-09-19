@@ -52,9 +52,14 @@ class ClientSellerInsightsTest extends TestCase
     private function makeProperty(Agency $agency, array $overrides = []): Property
     {
         $branchId = Branch::query()->where('agency_id', $agency->id)->value('id');
+        // properties.agent_id is NOT NULL — the fixture must name a listing agent
+        // (prod-audit 2026-09-16: this file failed on that alone before any assertion ran).
+        $agentId = \App\Models\User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branchId])->id;
+
         return Property::query()->withoutGlobalScope(AgencyScope::class)->create(array_merge([
             'agency_id' => $agency->id,
             'branch_id' => $branchId,
+            'agent_id'  => $agentId,
             'title'     => 'Beach House',
             'suburb'    => 'Shelly Beach',
             'status'    => 'active',
@@ -162,5 +167,37 @@ class ClientSellerInsightsTest extends TestCase
     public function test_requires_client_ability(): void
     {
         $this->getJson('/api/v1/client/seller-properties')->assertStatus(401);
+    }
+
+    /**
+     * Prod-audit 2026-09-16 — contact_property links are soft-deleted
+     * (2026_09_16_100000). An owner UNLINKED from a property must stop seeing
+     * it in the client app: it drops off the list and its insights 404.
+     */
+    public function test_an_archived_seller_link_no_longer_lists_or_opens_the_property(): void
+    {
+        $agency   = $this->makeAgency();
+        $contact  = $this->makeContact($agency);
+        $kept     = $this->makeProperty($agency, ['title' => 'Still Mine']);
+        $unlinked = $this->makeProperty($agency, ['title' => 'Unlinked']);
+        $this->linkSeller($contact, $kept, 'seller');
+        $this->linkSeller($contact, $unlinked, 'seller');
+
+        DB::table('contact_property')
+            ->where('contact_id', $contact->id)
+            ->where('property_id', $unlinked->id)
+            ->update(['deleted_at' => now()]);
+
+        $token = $this->authClient($agency, $contact);
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson('/api/v1/client/seller-properties')
+            ->assertOk()
+            ->assertJsonCount(1, 'properties')
+            ->assertJsonPath('properties.0.id', $kept->id);
+
+        $this->withHeader('Authorization', "Bearer {$token}")
+            ->getJson("/api/v1/client/seller-properties/{$unlinked->id}/insights")
+            ->assertStatus(404);
     }
 }

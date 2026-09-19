@@ -37,21 +37,16 @@ class DealMoneyLineRebuilder
         $listingSideInc = (float)$totalCommissionIncVat * ($listingSplitPct / 100.0);
         $sellingSideInc = (float)$totalCommissionIncVat * ($sellingSplitPct / 100.0);
 
-        $listingOurPct = max(0.0, min(100.0, (float)($deal->listing_our_share_percent ?? 100)));
-        $sellingOurPct = max(0.0, min(100.0, (float)($deal->selling_our_share_percent ?? 100)));
-
         $listingPool = \App\Services\Finance\CommissionPoolCalculator::internalPool($totalCommissionExVat, (bool) $deal->listing_external, $listingSplitPct);
         $sellingPool = \App\Services\Finance\CommissionPoolCalculator::internalPool($totalCommissionExVat, (bool) $deal->selling_external, $sellingSplitPct);
 
-        // What's owed OUT to the external agency for a side — unrelated to the
-        // internal-pool defect above, left exactly as it was.
-        $listingExternalPayable = $deal->listing_external
-            ? $listingSideInc
-            : max(0, $listingSideInc * (1.0 - ($listingOurPct / 100.0)));
-
-        $sellingExternalPayable = $deal->selling_external
-            ? $sellingSideInc
-            : max(0, $sellingSideInc * (1.0 - ($sellingOurPct / 100.0)));
+        // What's owed OUT to the external agency for a side. One definition,
+        // shared with the pool rule above (CommissionPoolCalculator): only an
+        // external side owes anything out; an internal side keeps its full
+        // split as pool, so its payable is 0 — never a slice derived from
+        // our_share_percent (prod-promotion audit 2026-09-16, finding A1).
+        $listingExternalPayable = \App\Services\Finance\CommissionPoolCalculator::externalPayable($listingSideInc, (bool) $deal->listing_external);
+        $sellingExternalPayable = \App\Services\Finance\CommissionPoolCalculator::externalPayable($sellingSideInc, (bool) $deal->selling_external);
 
         $externalPayableTotal = $listingExternalPayable + $sellingExternalPayable;
 

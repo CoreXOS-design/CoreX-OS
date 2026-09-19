@@ -69,17 +69,31 @@ class MobilePropertyController extends Controller
             $query->searchAddress($term);
         }
 
+        // Cover image resolved IN SQL. This used to select all five image JSON
+        // columns for every row and let allImages()[0] pick the cover in PHP.
+        // For "My properties" that is a few dozen rows and nobody noticed; for
+        // "All properties" on a real agency it is 5,000+ rows carrying 20–90
+        // photo URLs per column — tens of MB out of MySQL and ~25k json_decodes
+        // per request. The app's scope toggle sat for 30–40s and usually
+        // tripped its 15s client timeout. Same precedence as allImages():
+        // dawn → noon → dusk → gallery → images, first non-empty string wins.
+        // The columns are real JSON type, so JSON_EXTRACT never sees invalid
+        // text; JSON_TYPE guards against a leading JSON null / non-string.
+        $firstImage = fn (string $col) => "CASE WHEN JSON_TYPE(JSON_EXTRACT(`{$col}`, '$[0]')) = 'STRING'"
+            . " THEN NULLIF(JSON_UNQUOTE(JSON_EXTRACT(`{$col}`, '$[0]')), '') END";
+        $coverSql = 'COALESCE(' . implode(', ', array_map($firstImage, [
+            'dawn_images_json', 'noon_images_json', 'dusk_images_json',
+            'gallery_images_json', 'images_json',
+        ])) . ') AS cover_image';
+
         $properties = $query
             ->orderByDesc('updated_at')
             ->get([
                 'id', 'title', 'address', 'street_number', 'street_name',
                 'suburb', 'city', 'complex_name', 'unit_number',
                 'beds', 'baths', 'garages', 'status', 'property_type',
-                'category', 'listing_type', 'price', 'agent_id',
-                // All image groups so the thumbnail matches the web card,
-                // which uses allImages()[0] (dawn→noon→dusk→gallery→images).
-                'gallery_images_json', 'dawn_images_json', 'noon_images_json',
-                'dusk_images_json', 'images_json', 'updated_at',
+                'category', 'listing_type', 'price', 'agent_id', 'updated_at',
+                DB::raw($coverSql),
             ])
             ->map(fn (Property $p) => [
                 'id'            => $p->id,
@@ -93,9 +107,10 @@ class MobilePropertyController extends Controller
                 'listing_type'  => $p->listing_type,
                 'price'         => $p->effectivePrice(),
                 'price_display' => $p->formattedPrice(),
-                // Same first image as the web listing card, as an absolute URL
-                // so it loads on a mobile device (relative /storage paths don't).
-                'thumbnail'     => $this->coverImageUrl($p),
+                // Same first image as the web listing card (see $coverSql), as
+                // an absolute URL so it loads on a device (relative /storage
+                // paths don't).
+                'thumbnail'     => $this->absoluteImageUrl($p->getAttribute('cover_image')),
                 'updated_at'    => $p->updated_at?->toIso8601String(),
             ]);
 
@@ -1506,6 +1521,183 @@ class MobilePropertyController extends Controller
         ], $moved === 0 && $unknown !== [] ? 422 : 200);
     }
 
+    // ── PUT /api/mobile/properties/{id}/gallery/reorder ─────────────
+    // Persists a drag-reorder of the property's photos. Two scopes:
+    //   - room_tag omitted/null → reorders the master gallery grid
+    //     (gallery_images_json) — this order is also what decides the
+    //     cover photo and the order sent to portals.
+    //   - room_tag given        → reorders the photos WITHIN that one
+    //     tag's bucket (gallery_categories_json.categories[name=room_tag]
+    //     .images) only, leaving the master grid order untouched.
+    //
+    // Body: { "images": ["<url>", …], "room_tag": "Kitchen" | null,
+    //          "gallery_fingerprint": "<sha1>" (optional) }
+    //
+    // `images` is a PERMUTATION of the URLs already in that scope — this
+    // endpoint only reorders, it never adds or removes a photo (upload and
+    // images/delete own those). A submitted URL not currently in scope is
+    // dropped and reported back in `unknown_images` rather than silently
+    // accepted. A URL that IS in scope but missing from the submission is
+    // never dropped — it stays in the gallery, appended at the end in its
+    // prior relative order, so a stale/partial client array can never
+    // delete a photo through this endpoint.
+    public function reorderImages(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($request->user(), $property);
+
+        $data = $request->validate([
+            'images'              => 'required|array',
+            'images.*'            => 'string|max:2048',
+            'room_tag'            => 'nullable|string|max:100',
+            'gallery_fingerprint' => 'nullable|string',
+        ]);
+
+        $roomTag = $this->canonicalGalleryTag($property, $data['room_tag'] ?? null, $tagError);
+        if ($tagError !== null) {
+            return response()->json($tagError, 422);
+        }
+
+        $sent = $data['gallery_fingerprint'] ?? null;
+        if (is_string($sent) && $sent !== '' && $sent !== $property->galleryFingerprint()) {
+            return response()->json([
+                'message' => 'This gallery has changed since you loaded it. Refresh and redo the reorder.',
+                'stale'   => true,
+            ], 409);
+        }
+
+        $unknown = [];
+
+        // Reorders $current to follow $requested's order. Anything in $requested
+        // that isn't in $current is dropped into $unknown (by reference) instead
+        // of being accepted as a new member — adding photos is upload's job, not
+        // this endpoint's. Anything in $current missing from $requested keeps its
+        // place at the end, so a partial array never deletes a photo.
+        $reorder = function (array $current, array $requested) use (&$unknown) {
+            $currentKeys = [];
+            foreach ($current as $u) {
+                if (is_string($u)) {
+                    $currentKeys[$this->imageMatchKey($u)] = $u;
+                }
+            }
+
+            $placed = [];
+            $seen   = [];
+            foreach ($requested as $u) {
+                if (!is_string($u)) continue;
+                $key = $this->imageMatchKey($u);
+                if (!isset($currentKeys[$key])) {
+                    $unknown[] = $u;
+                    continue;
+                }
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+                $placed[] = $currentKeys[$key];
+            }
+            foreach ($currentKeys as $key => $u) {
+                if (!isset($seen[$key])) {
+                    $placed[] = $u;
+                }
+            }
+
+            return $placed;
+        };
+
+        DB::transaction(function () use ($property, $data, $roomTag, $reorder) {
+            /** @var Property $locked */
+            $locked = Property::whereKey($property->getKey())->lockForUpdate()->firstOrFail();
+
+            if ($roomTag === null) {
+                $locked->gallery_images_json = $reorder($locked->gallery_images_json ?? [], $data['images']);
+            } else {
+                $cats       = $locked->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+                $categories = $cats['categories'] ?? [];
+                $index      = null;
+                foreach ($categories as $i => $cat) {
+                    if (($cat['name'] ?? null) === $roomTag) {
+                        $index = $i;
+                        break;
+                    }
+                }
+                if ($index !== null) {
+                    $categories[$index]['images'] = $reorder($categories[$index]['images'] ?? [], $data['images']);
+                    $cats['categories'] = $categories;
+                    $locked->gallery_categories_json = $cats;
+                }
+            }
+
+            $locked->saveQuietly();
+        });
+
+        $fresh = $property->fresh();
+
+        return response()->json([
+            'message'             => 'Photo order updated.',
+            'room_tag'            => $roomTag,
+            'unknown_images'      => $unknown,
+            'gallery_images'      => $this->absoluteImageUrls($fresh->gallery_images_json ?? []),
+            'gallery_categories'  => $this->buildGalleryCategories($fresh),
+            'gallery_fingerprint' => $fresh->galleryFingerprint(),
+        ]);
+    }
+
+    // ── PUT /api/mobile/properties/{id}/gallery/tags/reorder ────────
+    // Persists a drag-reorder of the TAG LIST itself (not the photos inside
+    // each tag) — writes gallery_tag_order, the same column the web gallery
+    // sorter writes via reorderImages(). See Property::applyGalleryTagOrder().
+    //
+    // Body: { "tags": ["Kitchen", "Lounge", …] }  — full or partial order.
+    // Any currently-available tag omitted from the list is appended at the
+    // end automatically on read (applyGalleryTagOrder's own behaviour), so
+    // a client can't strand a tag by sending a stale/incomplete list. A
+    // submitted name that doesn't match any currently-available tag
+    // (case-insensitively) is rejected outright — this endpoint reorders
+    // tags, it does not create them (POST gallery/tags does that).
+    public function reorderGalleryTags(Request $request, Property $property): JsonResponse
+    {
+        $this->authorizeProperty($request->user(), $property);
+
+        $data = $request->validate([
+            'tags'   => 'required|array',
+            'tags.*' => 'string|max:100',
+        ]);
+
+        $available = $property->getAvailableGalleryTags();
+        $byLower = [];
+        foreach ($available as $t) {
+            $byLower[strtolower($t)] = $t;
+        }
+
+        $invalid = [];
+        $order   = [];
+        $seen    = [];
+        foreach ($data['tags'] as $t) {
+            if (!is_string($t)) continue;
+            $key = strtolower(trim($t));
+            if (!isset($byLower[$key])) {
+                $invalid[] = $t;
+                continue;
+            }
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+            $order[] = $byLower[$key];
+        }
+
+        if ($invalid !== []) {
+            return response()->json([
+                'message'        => 'Some tags do not exist on this property.',
+                'errors'         => ['tags' => ['Unknown tag(s): ' . implode(', ', $invalid)]],
+                'available_tags' => $available,
+            ], 422);
+        }
+
+        $property->update(['gallery_tag_order' => $order]);
+
+        return response()->json([
+            'message'        => 'Tag order updated.',
+            'available_tags' => $property->fresh()->getAvailableGalleryTags(),
+        ]);
+    }
+
     // ── POST /api/mobile/properties/{id}/images/delete ─────────────
     // Removes already-uploaded photos. Body accepts either shape (or both):
     //   { "images": ["<url>", …] }
@@ -1674,14 +1866,13 @@ class MobilePropertyController extends Controller
     /**
      * Comparison key for "is this the same stored image?" — the URL path with
      * any scheme/host stripped. Lets an absolute URL handed to the client match
-     * the host-relative value the gallery may actually hold.
+     * the host-relative value the gallery may actually hold. Delegates to
+     * Property::imageMatchKey() — the canonical definition — so a future fix
+     * to path-matching only has to happen once.
      */
     private function imageMatchKey(string $url): string
     {
-        $url  = trim($url);
-        $path = parse_url($url, PHP_URL_PATH);
-
-        return ltrim(is_string($path) && $path !== '' ? $path : $url, '/');
+        return Property::imageMatchKey($url);
     }
 
     private function fullPropertyResponse(Property $property): array
@@ -1793,9 +1984,20 @@ class MobilePropertyController extends Controller
      */
     private function buildGalleryCategories(Property $property): array
     {
-        $raw = $property->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
-        $mapped = [];
+        // Read-side safety net for rows written before every writer filed its
+        // photos into gallery_categories_json: reconcile against the master
+        // list on a CLONE (files anything unfiled into unsorted, drops any
+        // stale filed entry that has left the master list — the exact
+        // Property::syncGalleryCategories() algorithm every persisted writer
+        // uses, so the mobile read side can never disagree with them). Cloned
+        // rather than run on $property itself so this never changes what
+        // galleryFingerprint() hashes for the response carrying this payload —
+        // a GET must never write, and must never shift the concurrency token.
+        $reconciled = clone $property;
+        $reconciled->syncGalleryCategories();
 
+        $raw = $reconciled->gallery_categories_json ?? ['categories' => [], 'unsorted' => []];
+        $mapped = [];
         foreach ($raw['categories'] ?? [] as $cat) {
             $mapped[$cat['name']] = $this->absoluteImageUrls($cat['images'] ?? []);
         }

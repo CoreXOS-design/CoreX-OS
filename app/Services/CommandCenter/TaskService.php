@@ -19,6 +19,17 @@ class TaskService
     }
 
     /**
+     * The Task board's base query: role visibility MINUS auto-generated
+     * property housekeeping (see CommandTask::scopeWithoutPropertyAutomation).
+     * The board, its header counts and its Archived view all read through
+     * this so the page never disagrees with itself.
+     */
+    private function boardQuery(User $user)
+    {
+        return $this->visibleQuery($user)->withoutPropertyAutomation();
+    }
+
+    /**
      * Create a task.
      */
     public function create(array $data, ?User $assignedBy = null): CommandTask
@@ -34,7 +45,7 @@ class TaskService
      */
     public function getOpenTasks(User $user, int $limit = 20): Collection
     {
-        return $this->visibleQuery($user)
+        return $this->boardQuery($user)
             ->open()
             ->with(['property', 'contact'])
             ->orderByRaw("CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END")
@@ -48,7 +59,7 @@ class TaskService
      */
     public function getOverdueTasks(User $user, int $limit = 10): Collection
     {
-        return $this->visibleQuery($user)
+        return $this->boardQuery($user)
             ->overdue()
             ->with(['property', 'contact'])
             ->orderBy('due_date')
@@ -76,7 +87,7 @@ class TaskService
     public function getTasksByStatus(User $user): array
     {
         $column = function (string $status, bool $recentFirst = false) use ($user) {
-            $query = $this->visibleQuery($user)
+            $query = $this->boardQuery($user)
                 ->where('status', $status)
                 ->with(['property', 'contact', 'assignee']);
 
@@ -105,8 +116,21 @@ class TaskService
      */
     public function getSummary(User $user): array
     {
-        $base = $this->visibleQuery($user);
+        return $this->summarise($this->boardQuery($user));
+    }
 
+    /**
+     * Header counts for the Task board — kept as its own name for the board's
+     * call site, but identical to getSummary() so the board, dashboard widget,
+     * and mobile API never disagree on "N open / N overdue".
+     */
+    public function getBoardSummary(User $user): array
+    {
+        return $this->getSummary($user);
+    }
+
+    private function summarise($base): array
+    {
         return [
             'today'    => (clone $base)->dueToday()->count(),
             'overdue'  => (clone $base)->overdue()->count(),

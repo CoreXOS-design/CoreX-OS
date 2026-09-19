@@ -24,7 +24,7 @@
             </div>
             <div>
                 <strong style="color:var(--text-muted);">Branch:</strong>
-                <p style="color:var(--text-primary);">{{ $takeOn->user->branch->name ?? '-' }}</p>
+                <p style="color:var(--text-primary);">{{ $takeOn->user->branch->display_name ?? '-' }}</p>
             </div>
             <div>
                 <strong style="color:var(--text-muted);">Working Pattern:</strong>

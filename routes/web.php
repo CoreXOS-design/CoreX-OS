@@ -2835,9 +2835,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
     // AT-392 — Rental Applications settings: agency-configurable supporting-document checklist.
     Route::get('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'edit'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.edit');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.edit');
     Route::post('/settings/rental-applications', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'update'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.update');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.update');
     // .ai/specs/leases.md §5.2 — expiry-notice window, agency-configurable, default 60 days.
     Route::get('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'edit'])
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');
@@ -2846,75 +2846,75 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // AT-392 Phase 2 — qualifying-formula threshold, same settings screen, separate
     // form/route so it can never interfere with the existing checklist save above.
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.qualifying-formula');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.qualifying-formula');
 
     // Reopen/resubmit, 2026-09-08.
     Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.reopen-link-expiry');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.reopen-link-expiry');
     // Applicant-side autosave, 2026-09-12.
     Route::post('/settings/rental-applications/autosave-debounce', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateAutosaveDebounce'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.autosave-debounce');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.autosave-debounce');
     // Autosave volume cap, 2026-09-12.
     Route::post('/settings/rental-applications/autosave-rate-limit', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateAutosaveRateLimit'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.autosave-rate-limit');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.autosave-rate-limit');
     // Document upload/replace/remove volume cap, 2026-09-13.
     Route::post('/settings/rental-applications/document-rate-limit', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDocumentRateLimit'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.document-rate-limit');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.document-rate-limit');
     // AT-392 round 2, 2026-09-13 — whether approved applications still accept documents.
     Route::post('/settings/rental-applications/document-uploads-after-approval', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDocumentUploadsOpenAfterApproval'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.document-uploads-after-approval');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.document-uploads-after-approval');
     // AT-392 round 2, 2026-09-13 — the five remaining public-route volume caps.
     Route::post('/settings/rental-applications/route-rate-limits', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRouteRateLimits'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.route-rate-limits');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.route-rate-limits');
     // FICA-mandatory, AT-392 round 3, 2026-09-13 — whether FICA must be complete before authorisation.
     Route::post('/settings/rental-applications/require-fica-before-authorisation', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireFicaBeforeAuthorisation'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.require-fica-before-authorisation');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.require-fica-before-authorisation');
     // Submission hard floor, AT-392 round 5, 2026-09-13 — every applicant
     // form field's compulsory tick, and the agency-configurable marital
     // status option list (Ruling 1) that drives the spouse-fields group.
     Route::post('/settings/rental-applications/required-fields', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequiredFields'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.required-fields');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.required-fields');
     Route::post('/settings/rental-applications/marital-status-options', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateMaritalStatusOptions'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.marital-status-options');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.marital-status-options');
     // Return gate, AT-392 round 4, 2026-09-13 — gate method + attempt cap.
     Route::post('/settings/rental-applications/return-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReturnGate'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.return-gate');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.return-gate');
     Route::post('/settings/rental-applications/identity-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateIdentityGate'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.identity-gate');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.identity-gate');
     // Item 2 follow-up, 2026-09-10 — lock the property link once submitted for authorisation.
     Route::post('/settings/rental-applications/property-lock', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updatePropertyLock'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.property-lock');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.property-lock');
     // Contact-type ruling, 2026-09-11 — tag the contact "Tenant" on approval.
     Route::post('/settings/rental-applications/tenant-tagging', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateTenantTagging'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.tenant-tagging');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.tenant-tagging');
     // AT-392 approval-leg, 2026-09-10 — max matched properties per approval email.
     Route::post('/settings/rental-applications/approval-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateApprovalEmailSettings'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.approval-email');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.approval-email');
     // AT-392 authoriser flow, 2026-09-08 — decline email wording, same settings screen.
     Route::post('/settings/rental-applications/decline-email', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateDeclineEmail'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-email');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.decline-email');
     // AT-392 — validity windows per document type per purpose.
     Route::post('/settings/rental-applications/validity-windows', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateValidityWindows'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.validity-windows');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.validity-windows');
     // AT-392 authoriser flow, 2026-09-08 — RO/CO tiers, same settings screen.
     Route::post('/settings/rental-applications/ro', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRO'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.ro');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.ro');
     Route::post('/settings/rental-applications/co', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateCO'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.co');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.co');
     // Highlighter collection expansion, 2026-09-09 — Johan: "as many
     // highlighters as they want, each with their own label." Full CRUD,
     // same settings screen. Supersedes the fixed six-colour mark-colors
     // route (removed — RentalApplicationHighlighter absorbs it).
     Route::post('/settings/rental-applications/highlighters', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'store'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.store');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.highlighters.store');
     Route::put('/settings/rental-applications/highlighters/{highlighter}', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'update'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.update');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.highlighters.update');
     Route::post('/settings/rental-applications/highlighters/{highlighter}/archive', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'archive'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.archive');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.highlighters.archive');
     Route::post('/settings/rental-applications/highlighters/{highlighter}/restore', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'restore'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.restore');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.highlighters.restore');
     Route::post('/settings/rental-applications/highlighters/reorder', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'reorder'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.highlighters.reorder');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.highlighters.reorder');
     // Decline reason templates, 2026-09-15 — Johan: "a decline that tells
     // an applicant how to fix it." Full CRUD, dedicated list screen (search/
     // sort/filter/pagination/empty state), same permission gate as every
@@ -2922,15 +2922,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // send/merge work agreed before either lane wrote code — this
     // controller is the template library only.
     Route::get('/settings/rental-applications/decline-reason-templates', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'index'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.index');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.decline-reason-templates.index');
     Route::post('/settings/rental-applications/decline-reason-templates', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'store'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.store');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.decline-reason-templates.store');
     Route::put('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'update'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.update');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.decline-reason-templates.update');
     Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/archive', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'archive'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.archive');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.decline-reason-templates.archive');
     Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/restore', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'restore'])
-        ->middleware('permission:rental_applications.manage_settings')->name('corex.settings.rental-applications.decline-reason-templates.restore');
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.decline-reason-templates.restore');
 
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
@@ -3740,6 +3740,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // is covered by DEFAULT: it fails closed until someone deliberately adds it to the
     // middleware's ASSISTANT_MAY allow list. Reads and the allow-listed edits pass straight
     // through — an assistant is supposed to work the agent's listings, just not create them.
+    // AT-419 — Imported Stock, gated by its OWN permission key (independent of
+    // access_properties) rather than the main group's. Registered as a separate
+    // group ahead of the main one below so this literal path is matched before
+    // that group's '/{property}' wildcard show route ever gets a look at it.
+    Route::prefix('properties')->middleware(['permission:access_imported_stock', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
+        Route::get('/imported-stock', [\App\Http\Controllers\CoreX\PropertyController::class, 'importedStock'])->name('imported-stock');
+    });
+
     Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');
@@ -4241,6 +4249,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Notes
         Route::get('/{contact}/notes/quick-view', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'quickView'])->name('notes.quick-view');
         Route::post('/{contact}/notes',          [\App\Http\Controllers\CoreX\ContactNoteController::class, 'store'])->name('notes.store');
+        Route::put('/{contact}/notes/{note}',    [\App\Http\Controllers\CoreX\ContactNoteController::class, 'update'])->name('notes.update');
         Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\CoreX\ContactNoteController::class, 'destroy'])->name('notes.destroy');
 
         // Testimonials (capture only — publishing lives in Company Settings → Website)

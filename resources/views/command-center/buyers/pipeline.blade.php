@@ -21,7 +21,11 @@
     // this flag is what's missing on the one view where the rows themselves vary.
     $showsMixedTypes = !($isRentalEntry ?? false) && empty($leadType ?? null);
 @endphp
-<div class="w-full space-y-5">
+{{-- Kanban view fills the content area (md:h-full / md:min-h-0 — same mechanism as the
+     Task board and Today page) so the four state columns are always viewport-tall and
+     scroll inside themselves, with Won / Success pinned beneath them. Below md the
+     columns stack and the page scrolls. List view keeps normal page flow. --}}
+<div class="w-full flex flex-col gap-5 {{ $view === 'kanban' ? 'md:h-full md:min-h-0' : '' }}">
     {{-- Header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -170,7 +174,7 @@
 
     @if($view === 'kanban')
         {{-- Kanban View (drag-drop enabled) --}}
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" x-data="kanbanDrag()">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:flex-1 md:min-h-0" x-data="kanbanDrag()">
             @foreach(['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold', 'lost' => 'Lost'] as $stateKey => $stateLabel)
                 @php
                     $stateColour = match($stateKey) {
@@ -181,15 +185,16 @@
                     };
                     $stateItems = $columns[$stateKey] ?? collect();
                 @endphp
-                <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);"
+                <div class="flex flex-col rounded-md overflow-hidden md:min-h-0" style="background: var(--surface); border: 1px solid var(--border);"
                      @dragover.prevent="dragOverColumn('{{ $stateKey }}')"
                      @drop.prevent="dropOnColumn('{{ $stateKey }}')"
                      :style="dragTarget === '{{ $stateKey }}' ? 'outline: 2px solid {{ $stateColour }}; outline-offset: -2px;' : ''">
-                    <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 2px solid {{ $stateColour }};">
+                    <div class="px-4 py-3 flex items-center justify-between shrink-0" style="border-bottom: 2px solid {{ $stateColour }};">
                         <span class="text-sm font-semibold" style="color: var(--text-primary);">{{ $stateLabel }}</span>
                         <span class="text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap" style="background: color-mix(in srgb, {{ $stateColour }} 15%, transparent); color: {{ $stateColour }};">{{ number_format($counts[$stateKey] ?? 0) }}</span>
                     </div>
-                    <div class="p-2 space-y-2 max-h-[60vh] overflow-y-auto">
+                    {{-- Column body — fills the column and scrolls inside itself, sidebar-style bar --}}
+                    <div class="flex-1 min-h-[8rem] md:min-h-0 p-2 space-y-2 overflow-y-auto corex-brand-scroll">
                         @forelse($stateItems as $buyer)
                             @php
                                 $buyerRisk = $riskScores[$buyer->id] ?? null;
@@ -377,7 +382,7 @@
          property) live HERE, out of the active pipeline above. Fed by BuyerStateService::markWon
          off the ContactLinkedToProperty(role:buyer) event; terminal state, never decayed by cron. --}}
     @php $wonBuyers = $wonBuyers ?? collect(); @endphp
-    <div class="mt-6 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden md:shrink-0" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 2px solid var(--ds-green, #059669);">
             <span class="text-sm font-semibold" style="color: var(--text-primary);">Won / Success</span>
             <span class="text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap" style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">{{ number_format($counts['won'] ?? $wonBuyers->count()) }}</span>
@@ -385,7 +390,7 @@
         @if($wonBuyers->isEmpty())
             <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won {{ $personNounPlural }} yet. When a {{ $personNoun }} is linked to a property, they move here automatically.</div>
         @else
-            <div class="p-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+            <div class="p-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 md:max-h-[30vh] overflow-y-auto corex-brand-scroll">
                 @foreach($wonBuyers as $buyer)
                     <a href="{{ route('command-center.buyers.show', $buyer) }}"
                        class="block p-3 rounded-md transition hover:opacity-80 no-underline"

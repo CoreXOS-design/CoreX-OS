@@ -58,6 +58,11 @@ class Property extends Model
         'sold', 'sold_by_3rd_party', 'transferred', 'withdrawn', 'expired',
         'cancelled', 'let_out', 'draft', 'archived', 'unavailable',
         'prospecting', 'not_selling',
+        // Prod-audit 2026-09-16 — the P24 importer writes 'rented'
+        // (P24ListingsCsvParser); it is the let-side twin of 'sold' and the
+        // AT-419 spec lists it as off-market. Without it, rented imports sat
+        // on the Properties list counted as Available.
+        'rented',
     ];
 
     /**
@@ -183,6 +188,74 @@ class Property extends Model
             self::OFF_MARKET_STATUSES,
             self::MATCHING_EXCLUDED_ON_MARKET_STATUSES
         )));
+    }
+
+    /**
+     * AT-419 — the statuses that mean "this was P24 stock, it's now concluded/
+     * off the market" for the Imported Stock page specifically. Deliberately
+     * NARROWER than OFF_MARKET_STATUSES: excludes 'draft' and 'prospecting'/
+     * 'not_selling'. A withdrawn/expired/sold import can get picked up by the
+     * UNRELATED stale-stock/duplicate-resolution pipeline
+     * (TrackedPropertyMatchOrCreateService / PropertyDuplicateTakeService) and
+     * flipped to 'prospecting' (or 'draft') once it's stale and unworked — at
+     * that point it has left the "imported off-market P24 stock" bucket and
+     * belongs to the Prospecting / Drafts workflow instead, not here (Andre,
+     * 2026-09-15, found live on the restored HFC data: 3 drafts + 7
+     * prospecting rows had p24_imported_at set from their original P24
+     * import, but current status showed they'd since been reclassified).
+     * 'archived'/'unavailable' stay in — those are genuinely just "no longer
+     * marketed", not a different pipeline.
+     */
+    /**
+     * Derived from OFF_MARKET_STATUSES rather than re-listed, so a future
+     * addition there (e.g. sold_by_3rd_party) can never silently leave
+     * imported stock unpartitioned between the two pages — the exact defect
+     * class matchingExcludedStatusList() above already guards against.
+     */
+    public static function importedStockStatuses(): array
+    {
+        return array_values(array_diff(self::OFF_MARKET_STATUSES, [
+            'draft', self::STATUS_PROSPECTING, self::STATUS_NOT_SELLING,
+        ]));
+    }
+
+    /**
+     * AT-419 — the Properties list = everything EXCEPT P24-imported stock that
+     * has gone off-market (per importedStockStatuses() above). Paired with
+     * scopeImportedOffMarket() below: together they partition every property
+     * between the two pages with no row on both or neither. Case-insensitive
+     * on purpose (LOWER(status)) — some P24-import statuses land capitalised
+     * (e.g. "Withdrawn") while these constants are lowercase snake_case; a
+     * strict match would leave capitalised off-market imports stranded on the
+     * Properties page. Scoped to this pair of scopes only — isOnMarket()/
+     * scopeOnMarket() themselves are unchanged (wide blast radius across MIC
+     * matching, syndication stats, the deal register and more; out of scope
+     * for this build — reported to Johan separately).
+     */
+    public function scopeExcludingImportedOffMarket($query)
+    {
+        $statuses = self::importedStockStatuses();
+        $placeholders = implode(',', array_fill(0, count($statuses), '?'));
+
+        return $query->where(function ($q) use ($placeholders, $statuses) {
+            $q->whereNull('p24_imported_at')
+              ->orWhereRaw("LOWER(status) NOT IN ($placeholders)", $statuses);
+        });
+    }
+
+    /**
+     * AT-419 — the Imported Stock page: P24-imported properties whose status
+     * is one of importedStockStatuses() (withdrawn, sold, expired, cancelled,
+     * …). See scopeExcludingImportedOffMarket() above for the casing note and
+     * why this is narrower than OFF_MARKET_STATUSES.
+     */
+    public function scopeImportedOffMarket($query)
+    {
+        $statuses = self::importedStockStatuses();
+        $placeholders = implode(',', array_fill(0, count($statuses), '?'));
+
+        return $query->whereNotNull('p24_imported_at')
+            ->whereRaw("LOWER(status) IN ($placeholders)", $statuses);
     }
 
     /**
@@ -469,6 +542,7 @@ class Property extends Model
     protected $fillable = [
         'external_id',
         'p24_listing_number',
+        'p24_imported_at',
         'title',
         'excerpt',
         'description',
@@ -652,6 +726,7 @@ class Property extends Model
         'pet_friendly'        => 'boolean',
         'spaces_json'         => 'array',
         'published_at'        => 'datetime',
+        'p24_imported_at'      => 'datetime',
         'price'               => 'integer',
         'price_on_application' => 'boolean',
         'has_deposit'         => 'boolean',
@@ -778,7 +853,7 @@ class Property extends Model
 
     public function branch(): BelongsTo
     {
-        return $this->belongsTo(Branch::class);
+        return $this->belongsTo(Branch::class)->withTrashed();
     }
 
     /** Build 3 — the property's recorded condition level (drives CMA
@@ -2580,6 +2655,140 @@ class Property extends Model
             $this->gallery_images_json ?? [],
             $this->gallery_categories_json ?? [],
         ]));
+    }
+
+    /**
+     * Comparison key for "is this the same stored image?" — the URL path with
+     * any scheme/host stripped. The master list (gallery_images_json) holds
+     * host-relative `/storage/...` values while a category may hold the
+     * absolute URL the mobile app was handed, so the two must be compared on
+     * path, never on the raw string. The canonical definition —
+     * MobilePropertyController::imageMatchKey() delegates here.
+     */
+    public static function imageMatchKey(string $url): string
+    {
+        $url  = trim($url);
+        $path = parse_url($url, PHP_URL_PATH);
+
+        return ltrim(is_string($path) && $path !== '' ? $path : $url, '/');
+    }
+
+    /**
+     * Re-establish the gallery invariant IN MEMORY: every URL in
+     * gallery_images_json appears exactly once in gallery_categories_json —
+     * either under one category's `images` or in `unsorted`.
+     *
+     * Why: the mobile app's room-by-room gallery is built from
+     * gallery_categories_json ALONE. The web create form and the web edit form
+     * wrote photos into gallery_images_json without filing them anywhere, so a
+     * listing with a full gallery read "0 photos" in the app. The mobile upload
+     * path always files a photo (room or unsorted); this makes every other
+     * writer agree with it.
+     *
+     *   - a master-list URL filed nowhere is appended to `unsorted`
+     *   - a URL filed in a category (or unsorted) that is no longer in the
+     *     master list is dropped
+     *   - a URL filed more than once keeps its FIRST placement (categories in
+     *     order, then unsorted) — a room wins over unsorted
+     *   - matching is by path (see imageMatchKey), stored strings are kept as-is
+     *   - empty categories are kept: their names are gallery tags
+     *
+     * Does NOT save. Callers persist under the same row lock the mobile upload
+     * uses (see syncGalleryCategoriesLocked) — galleryFingerprint() hashes both
+     * columns, so an unlocked read-modify-write here is the classic lost update.
+     *
+     * @return bool  true when gallery_categories_json was changed
+     */
+    public function syncGalleryCategories(): bool
+    {
+        $original = $this->gallery_categories_json;
+        $cats     = is_array($original) ? $original : [];
+
+        $master = [];
+        foreach ((array) ($this->gallery_images_json ?? []) as $u) {
+            if (is_string($u) && trim($u) !== '') {
+                $master[self::imageMatchKey($u)] ??= $u;
+            }
+        }
+
+        $seen = [];
+        $keep = function (mixed $urls) use (&$seen, $master): array {
+            $out = [];
+            foreach ((array) $urls as $u) {
+                if (! is_string($u) || trim($u) === '') {
+                    continue;
+                }
+                $key = self::imageMatchKey($u);
+                if (! isset($master[$key]) || isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $out[]      = $u;
+            }
+
+            return $out;
+        };
+
+        $categories = [];
+        foreach ((array) ($cats['categories'] ?? []) as $cat) {
+            if (! is_array($cat)) {
+                continue;
+            }
+            $categories[] = [
+                'name'   => (string) ($cat['name'] ?? ''),
+                'images' => $keep($cat['images'] ?? []),
+            ];
+        }
+
+        $unsorted = $keep($cats['unsorted'] ?? []);
+        foreach ($master as $key => $u) {
+            if (! isset($seen[$key])) {
+                $seen[$key] = true;
+                $unsorted[] = $u;
+            }
+        }
+
+        $result = ['categories' => array_values($categories), 'unsorted' => array_values($unsorted)];
+
+        // Nothing to file and nothing filed: leave a null column null rather
+        // than writing an empty structure to every photo-less listing.
+        if ($original === null && $result === ['categories' => [], 'unsorted' => []]) {
+            return false;
+        }
+        if ($original == $result) { // loose: key order inside the stored JSON is irrelevant
+            return false;
+        }
+
+        $this->gallery_categories_json = $result;
+
+        return true;
+    }
+
+    /**
+     * Persist syncGalleryCategories() under the row lock every gallery writer
+     * must use: re-read the row FOR UPDATE, sync against what is actually
+     * stored, saveQuietly. Concurrent writers to the same property queue;
+     * different properties never contend. The in-memory instance is brought in
+     * line with what was written.
+     *
+     * @return bool  true when the stored gallery_categories_json changed
+     */
+    public function syncGalleryCategoriesLocked(): bool
+    {
+        return \Illuminate\Support\Facades\DB::transaction(function (): bool {
+            /** @var static $locked */
+            $locked = static::withoutGlobalScopes()->whereKey($this->getKey())->lockForUpdate()->firstOrFail();
+
+            $changed = $locked->syncGalleryCategories();
+            if ($changed) {
+                $locked->saveQuietly();
+            }
+
+            $this->setAttribute('gallery_categories_json', $locked->gallery_categories_json);
+            $this->syncOriginalAttribute('gallery_categories_json');
+
+            return $changed;
+        });
     }
 
     /**

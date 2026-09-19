@@ -105,7 +105,7 @@
                       <select disabled>
                           @foreach($branches as $b)
                               <option value="{{ $b->id }}" {{ (string)$effectiveBranchId === (string)$b->id ? 'selected' : '' }}>
-                                  {{ $b->name }} ({{ $b->code }})
+                                  {{ $b->display_name }} ({{ $b->code }})
                               </option>
                           @endforeach
                       </select>
@@ -115,7 +115,7 @@
                           <option value="">-- Select --</option>
                           @foreach($branches as $b)
                               <option value="{{ $b->id }}" {{ (string)old('branch_id', $deal->branch_id) === (string)$b->id ? 'selected' : '' }}>
-                                  {{ $b->name }} ({{ $b->code }})
+                                  {{ $b->display_name }} ({{ $b->code }})
                               </option>
                           @endforeach
                       </select>
@@ -236,11 +236,17 @@
 
                 <div class="flex items-center gap-3">
                     <label class="inline-flex items-center gap-2">
-                        <input type="checkbox" name="listing_external" id="listing_external" {{ old('listing_external', $deal->listing_external) ? 'checked' : '' }}>
+                        <input type="checkbox" name="listing_external" id="listing_external" {{ old('listing_external', $deal->listing_external) ? 'checked' : '' }}
+                               onchange="document.getElementById('listing_our_share_wrap').style.display = this.checked ? '' : 'none';">
                         External
                     </label>
 
-                    <input type="number" step="0.01" name="listing_our_share_percent" value="{{ old('listing_our_share_percent', $deal->listing_our_share_percent) }}" class="w-36" placeholder="Our Share %">
+                    {{-- "Our Share %" only means something for an EXTERNAL side — shown only when
+                         External is ticked (same rule as the V2 form); the server forces 100 on an
+                         internal side regardless. Audit 2026-09-16, A4. Field name unchanged. --}}
+                    <span id="listing_our_share_wrap" style="{{ old('listing_external', $deal->listing_external) ? '' : 'display:none;' }}">
+                        <input type="number" step="0.01" name="listing_our_share_percent" value="{{ old('listing_our_share_percent', $deal->listing_our_share_percent) }}" class="w-36" placeholder="Our Share %">
+                    </span>
                     <div class="w-64">
                         <div class="flex items-center justify-between">
                             <div class="ds-label">Listing split %</div>
@@ -280,11 +286,15 @@
 
                 <div class="flex items-center gap-3">
                     <label class="inline-flex items-center gap-2">
-                        <input type="checkbox" name="selling_external" id="selling_external" {{ old('selling_external', $deal->selling_external) ? 'checked' : '' }}>
+                        <input type="checkbox" name="selling_external" id="selling_external" {{ old('selling_external', $deal->selling_external) ? 'checked' : '' }}
+                               onchange="document.getElementById('selling_our_share_wrap').style.display = this.checked ? '' : 'none';">
                         External
                     </label>
 
-                    <input type="number" step="0.01" name="selling_our_share_percent" value="{{ old('selling_our_share_percent', $deal->selling_our_share_percent) }}" class="w-36" placeholder="Our Share %">
+                    {{-- External-only, same rule as the listing side above (A4). --}}
+                    <span id="selling_our_share_wrap" style="{{ old('selling_external', $deal->selling_external) ? '' : 'display:none;' }}">
+                        <input type="number" step="0.01" name="selling_our_share_percent" value="{{ old('selling_our_share_percent', $deal->selling_our_share_percent) }}" class="w-36" placeholder="Our Share %">
+                    </span>
                     <div class="w-64">
                         <div class="ds-label">Selling split %</div>
                         <div class="mt-2 flex items-center gap-3">

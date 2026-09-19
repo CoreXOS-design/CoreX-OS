@@ -21,7 +21,7 @@
         {{-- Employee header --}}
         <div class="rounded-md p-4 mb-4" style="background:var(--surface); border:1px solid var(--border);">
             <p class="text-sm font-bold" style="color:var(--text-primary);">{{ $employee->user->name }}</p>
-            <p class="text-xs" style="color:var(--text-secondary);">{{ $employee->designation_snapshot }} | {{ $employee->user->branch->name ?? '—' }} | Employed: {{ $employee->employment_date?->format('d M Y') }}</p>
+            <p class="text-xs" style="color:var(--text-secondary);">{{ $employee->designation_snapshot }} | {{ $employee->user->branch->display_name ?? '—' }} | Employed: {{ $employee->employment_date?->format('d M Y') }}</p>
         </div>
 
         {{-- Per-type statements --}}

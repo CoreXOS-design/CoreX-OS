@@ -44,7 +44,7 @@ class TaskController extends Controller
         $user     = $request->user();
         $view     = $request->get('view', 'kanban');
         $columns  = $this->service->getTasksByStatus($user);
-        $summary  = $this->service->getSummary($user);
+        $summary  = $this->service->getBoardSummary($user);
 
         return view('command-center.tasks.index', [
             'user'    => $user,
@@ -193,6 +193,7 @@ class TaskController extends Controller
 
         $tasks = CommandTask::onlyTrashed()
             ->visibleTo($user, PermissionService::taskScope($user))
+            ->withoutPropertyAutomation()
             ->with(['property', 'contact'])
             ->orderByDesc('deleted_at')
             ->get();

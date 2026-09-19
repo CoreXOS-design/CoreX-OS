@@ -10,7 +10,7 @@ These override everything else. Violating scope is worse than doing nothing. Whe
 
 4. STAY IN YOUR LANE. Work only in your assigned module. Never wander into another part of CoreX for any reason.
 
-5. QA1 ONLY — JOHAN GATES EVERYTHING. All work lands on QA1 and STAYS there. NEVER promote to Staging or live. Flow: QA1 -> Johan tests on QA1 -> Johan's explicit go -> Staging -> live. No live work of any kind (code OR data) without Johan's specific explicit order for that exact action.
+5. TWO QA LANES — THE LANE OWNER GATES STAGING, JOHAN GATES LIVE. Johan's work lands on QA1 (branch `QA1`); Andre's work lands on QA2 (branch `QA2`). Work STAYS on its lane until the lane owner has tested it there and given an explicit go. Flow: QA1 -> Johan tests -> Johan's go -> Staging; QA2 -> Andre tests -> Andre's go -> Staging. A lane never promotes the other lane's work. Nothing goes from Staging to live, and no live work of any kind (code OR data) happens, without Johan's specific explicit order for that exact action. (Amended 2026-09-16 on Andre's instruction — QA2 is a real lane, not a sandbox.)
 
 6. NO SILENT EXTRAS. No speculative changes, no "while I was here," no drive-by refactors, no dependency bumps, no formatting sweeps, no touching unrelated files.
 

@@ -596,7 +596,9 @@ foreach ($rows as &$r) {
         $teamDeals = DB::table('deal_user')
             ->join('users', 'users.id', '=', 'deal_user.user_id')
             ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
-            ->where('users.branch_id', $branchId)
+            // Branch = the branch stamped on the deal, legacy fallback to the
+            // agent's current branch (spec branch-archive-reassignment.md §5, AT-420).
+            ->whereRaw(\App\Models\Deal::branchAttributionSql() . ' = ?', [$branchId])
             ->whereBetween('deals.deal_date', [$start->toDateString(), $end->toDateString()])
             ->whereRaw("COALESCE(deals.accepted_status,'') != 'D'")
             ->when($agencyId !== null, fn($q) => $q->where('deals.agency_id', $agencyId))

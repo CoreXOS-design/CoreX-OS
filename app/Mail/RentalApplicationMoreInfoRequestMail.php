@@ -2,6 +2,8 @@
 
 namespace App\Mail;
 
+use Illuminate\Contracts\Queue\ShouldQueue;
+
 use App\Models\RentalApplication;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -19,8 +21,12 @@ use Illuminate\Queue\SerializesModels;
  * documents there at any status (cc4's add-after-submit build), so no new
  * token or route was needed, only this notification.
  */
-class RentalApplicationMoreInfoRequestMail extends Mailable
+class RentalApplicationMoreInfoRequestMail extends Mailable implements ShouldQueue
 {
+    // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
+    // sent inside the page request; the live mail worker group drains this queue.
+    public $queue = 'mail';
+
     use Queueable, SerializesModels;
 
     public string $contactName;

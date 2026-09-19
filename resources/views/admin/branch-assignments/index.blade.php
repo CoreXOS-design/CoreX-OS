@@ -54,11 +54,15 @@
                         {{ $branch->name }} <span style="color: var(--text-muted);">({{ $branch->code }})</span>
                     </div>
 
-                    <form method="POST" action="{{ route('admin.branches.delete', $branch) }}"
-                          onsubmit="return confirm('Delete this branch? This cannot be undone.');">
-                        @csrf
-                        <button class="text-xs font-semibold" style="color: var(--ds-crimson);">Delete</button>
-                    </form>
+                    {{-- Archive wizard (AT-420): moves everyone on the branch, keeps all history --}}
+                    <button type="button" class="text-xs font-semibold" style="color: var(--ds-crimson);"
+                            x-data @click="$dispatch('open-modal', 'archive-branch-{{ $branch->id }}')">Archive</button>
+                    @include('admin.branches._archive-wizard', [
+                        'branch'   => $branch,
+                        'attached' => $branchUsers->get($branch->id, collect()),
+                        'targets'  => $branches,
+                        'context'  => [],
+                    ])
                 </div>
             @empty
                 <div class="rounded-md py-8 px-6 text-center text-sm" style="color: var(--text-muted);">
@@ -67,6 +71,8 @@
             @endforelse
         </div>
     </div>
+
+    @include('admin.branches._archived-panel', ['archivedBranches' => $archivedBranches, 'context' => []])
 
     {{-- Branch Contact Details --}}
     <div class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">

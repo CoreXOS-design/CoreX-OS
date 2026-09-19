@@ -32,9 +32,16 @@
                            Print/PDF (wishlist-specific, stays on the card).
                            match-results.blade.php never passes this — stays
                            byte-identical to before.
+      $showStats          bool, default true — the matches / client views /
+                           hidden stat chips. match-results.blade.php passes
+                           false (2026-09-13 contact-style header): its facts
+                           strip shows those three figures as cells, so the
+                           bar contributes buttons only. Buyers Pipeline never
+                           passes this — stays byte-identical.
 --}}
 @php
     $showShareActions = $showShareActions ?? true;
+    $showStats        = $showStats ?? true;
     $defaultWaMsg = \App\Models\PerformanceSetting::get('matches_wa_message',
         "Hi {name}! \xf0\x9f\x91\x8b\n\nI've put together a personalised selection of properties that match your search criteria.\n\nView your property matches here:\n{link}\n\nFeel free to reach out if you'd like to arrange viewings or have any questions!"
     );
@@ -167,6 +174,7 @@
          supplies its own wrapper. Do not add a layout div here — it would silently change
          match-results' header structure. --}}
     {{-- Stats row --}}
+    @if($showStats)
     <div class="flex items-center gap-4">
             <div class="md:text-right">
                 <div class="text-[1.625rem] font-semibold leading-tight" style="color: var(--match-action-bar-stat-color, #fff);">
@@ -193,6 +201,7 @@
             </div>
             @endif
         </div>
+    @endif
 
         {{-- Action buttons --}}
         <div class="flex items-center gap-2">

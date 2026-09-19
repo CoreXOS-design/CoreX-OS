@@ -378,6 +378,7 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'is_assistant' => (bool) $user->is_assistant,
                 'branch' => $user->branch?->name ?? null,
                 'ffc_status' => $user->ffc_status ?? null,
                 'agency' => $agency ? [
@@ -416,6 +417,9 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'role' => $user->role,
+                'role_label' => $user->roleModel()?->label ?? ucfirst((string) ($user->role ?? 'agent')),
+                'is_assistant' => (bool) $user->is_assistant,
                 'branch' => $user->branch?->name ?? null,
                 'ffc_status' => $user->ffc_status ?? null,
                 'agency' => $agency ? [
@@ -425,6 +429,13 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 ] : null,
             ]);
         })->name('v1.profile');
+
+        // Mobile Profile screen — FFC/cell/WhatsApp/socials view+edit, plus the
+        // public agent-page preview URL. Spec: .ai/specs/mobile-agent-profile.md
+        Route::get('/mobile/profile', [\App\Http\Controllers\Api\MobileProfileController::class, 'show'])
+            ->name('v1.mobile.profile.show');
+        Route::patch('/mobile/profile', [\App\Http\Controllers\Api\MobileProfileController::class, 'update'])
+            ->name('v1.mobile.profile.update');
 
         // Mobile "Delete my account" (Apple 5.1.1(v)). Turns app_access OFF —
         // see .ai/specs/mobile-app-access.md. Does not touch the User row.
@@ -523,6 +534,10 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             // itself, so anything that arrived untagged stayed untagged forever
             // on mobile. See MobilePropertyController::assignGalleryTag().
             Route::put('/{property}/gallery/assign',        [MobilePropertyController::class, 'assignGalleryTag'])->name('v1.mobile.properties.gallery.assign');
+            // Drag-reorder the photo grid (or one tag's bucket) and the tag list
+            // itself. Spec: .ai/specs/mobile-gallery-sort.md
+            Route::put('/{property}/gallery/reorder',       [MobilePropertyController::class, 'reorderImages'])->name('v1.mobile.properties.gallery.reorder');
+            Route::put('/{property}/gallery/tags/reorder',  [MobilePropertyController::class, 'reorderGalleryTags'])->name('v1.mobile.properties.gallery.tags.reorder');
             // Take a photo back off the listing. Needed once the app enqueues at
             // the shutter and drains without waiting for the camera to close: a
             // photo deleted in review may already be on the server, and until now
@@ -587,6 +602,18 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             Route::delete('/{contact}/drive/{document}',         [MobileContactComplianceController::class, 'driveDestroy'])->name('v1.mobile.contacts.drive.destroy');
 
             Route::get('/{contact}/fica', [MobileContactComplianceController::class, 'ficaIndex'])->name('v1.mobile.contacts.fica.index');
+
+            // Notes & Testimonials — same tables/rules as the web Contact
+            // "Notes & Testimonials" tab. Spec: .ai/specs/contact-notes-testimonials.md
+            Route::get('/{contact}/notes',           [\App\Http\Controllers\Api\MobileContactNotesController::class, 'notesIndex'])->name('v1.mobile.contacts.notes.index');
+            Route::post('/{contact}/notes',          [\App\Http\Controllers\Api\MobileContactNotesController::class, 'notesStore'])->name('v1.mobile.contacts.notes.store');
+            Route::put('/{contact}/notes/{note}',    [\App\Http\Controllers\Api\MobileContactNotesController::class, 'notesUpdate'])->name('v1.mobile.contacts.notes.update');
+            Route::delete('/{contact}/notes/{note}', [\App\Http\Controllers\Api\MobileContactNotesController::class, 'notesDestroy'])->name('v1.mobile.contacts.notes.destroy');
+
+            Route::get('/{contact}/testimonials',                       [\App\Http\Controllers\Api\MobileContactNotesController::class, 'testimonialsIndex'])->name('v1.mobile.contacts.testimonials.index');
+            Route::post('/{contact}/testimonials',                      [\App\Http\Controllers\Api\MobileContactNotesController::class, 'testimonialsStore'])->name('v1.mobile.contacts.testimonials.store');
+            Route::put('/{contact}/testimonials/{testimonial}',         [\App\Http\Controllers\Api\MobileContactNotesController::class, 'testimonialsUpdate'])->name('v1.mobile.contacts.testimonials.update');
+            Route::delete('/{contact}/testimonials/{testimonial}',      [\App\Http\Controllers\Api\MobileContactNotesController::class, 'testimonialsDestroy'])->name('v1.mobile.contacts.testimonials.destroy');
         });
 
         // ── Mobile Core Matches ─────────────────────────────────────
@@ -707,6 +734,7 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
+            'is_assistant' => (bool) $user->is_assistant,
             'branch' => $user->branch?->name ?? null,
             'ffc_status' => $user->ffc_status ?? null,
             'agency' => $agency ? [

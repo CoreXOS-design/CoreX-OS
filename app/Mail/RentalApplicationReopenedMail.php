@@ -2,6 +2,8 @@
 
 namespace App\Mail;
 
+use Illuminate\Contracts\Queue\ShouldQueue;
+
 use App\Mail\Signatures\BaseSignatureMail;
 use App\Models\RentalApplication;
 use Illuminate\Mail\Mailables\Content;
@@ -18,8 +20,12 @@ use Illuminate\Mail\Mailables\Envelope;
  * routing, same agent footer, only its own subject/body copy and the
  * agent's reopen note.
  */
-class RentalApplicationReopenedMail extends BaseSignatureMail
+class RentalApplicationReopenedMail extends BaseSignatureMail implements ShouldQueue
 {
+    // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
+    // sent inside the page request; the live mail worker group drains this queue.
+    public $queue = 'mail';
+
     public string $contactName;
     public string $agencyName;
     public string $onlineUrl;

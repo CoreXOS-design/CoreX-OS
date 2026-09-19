@@ -205,7 +205,7 @@
                                 <div class="text-sm" style="color: var(--text-primary);">{{ $m->message }}</div>
                                 <div class="text-xs mt-1.5 flex flex-wrap items-center gap-2" style="color: var(--text-muted);">
                                     <span class="ds-badge ds-badge-warning">Archived</span>
-                                    <span>{{ $m->branch?->name ?? 'Global' }}</span>
+                                    <span>{{ $m->branch?->display_name ?? 'Global' }}</span>
                                     <span>&middot;</span>
                                     <span>Created by: <span class="font-semibold" style="color: var(--text-secondary);">{{ $m->creator->name ?? 'System' }}</span></span>
                                 </div>
@@ -277,7 +277,7 @@
                                 @if(is_null($m->branch_id))
                                     <span class="ds-badge ds-badge-info">Global</span>
                                 @else
-                                    <span class="ds-badge ds-badge-success">{{ $m->branch?->name ?? 'Branch' }}</span>
+                                    <span class="ds-badge ds-badge-success">{{ $m->branch?->display_name ?? 'Branch' }}</span>
                                 @endif
                             </div>
 

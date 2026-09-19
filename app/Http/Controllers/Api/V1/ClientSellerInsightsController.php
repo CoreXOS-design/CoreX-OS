@@ -61,6 +61,9 @@ class ClientSellerInsightsController extends Controller
         $links = DB::table('contact_property')
             ->where('contact_id', $contact->id)
             ->whereIn('role', self::SELLER_ROLES)
+            // Prod-audit 2026-09-16 — links are soft-deleted (contact_property.deleted_at);
+            // an unlinked seller must not keep seeing the property in the client app.
+            ->whereNull('deleted_at')
             ->pluck('role', 'property_id');
 
         if ($links->isEmpty()) {
@@ -118,6 +121,7 @@ class ClientSellerInsightsController extends Controller
             ->where('contact_id', $contact->id)
             ->where('property_id', $property)
             ->whereIn('role', self::SELLER_ROLES)
+            ->whereNull('deleted_at')
             ->value('role');
 
         if (!$role) {

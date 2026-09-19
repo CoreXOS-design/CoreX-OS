@@ -20,7 +20,9 @@ use Illuminate\Database\Eloquent\Model;
  */
 class RentalApplicationDocumentValidityWindow extends Model
 {
-    use BelongsToAgency;
+    // Prod-audit 2026-09-16 (M2) — this was the module's one real hard delete
+    // (settings save wiped per-document overrides). Non-negotiable #1: soft.
+    use BelongsToAgency, \Illuminate\Database\Eloquent\SoftDeletes;
 
     protected $fillable = ['agency_id', 'purpose', 'document_type_id', 'validity_days'];
 

@@ -15,6 +15,17 @@
      }"
      x-init="window.addEventListener('hashchange', () => tab = (window.location.hash || '#overview').replace('#', ''))">
 
+    {{-- Frozen top block: page header + agent identity strip stay pinned to the top of the
+         scroll area while the tabs and tab content scroll beneath.
+         • Full-bleed (-mx / px cancel <main>'s p-4 / lg:p-6) so the opaque background also
+           covers the side gutters — .corex-page-banner is itself full-bleed via negative margins.
+         • Negative top margin + matching padding absorb <main>'s top padding; the banner's own
+           -mt then lands flush at the very top of the scroll area.
+         • Sticky offset is NEGATIVE <main>'s padding: browsers measure a sticky box against the
+           scroll container's content box (inside its padding), so top:0 would pin it 1.5rem
+           down and leave a bare strip of background above the header. --}}
+    <div class="sticky -top-4 lg:-top-6 z-20 -mt-4 pt-4 lg:-mt-6 lg:pt-6 -mx-4 px-4 lg:-mx-6 lg:px-6 pb-3" style="background:var(--bg);">
+
     {{-- Page header (Pattern A — flat neutral bar, AT-336; matches /worksheet + Properties) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -51,6 +62,32 @@
             </div>
         </div>
     </div>
+
+    {{-- Agent identity strip — sits directly under the header, inside the frozen block --}}
+    <div class="flex items-center justify-between flex-wrap gap-2 mt-2 px-1">
+        <div class="flex items-center gap-3 text-sm" style="color:var(--text-muted);">
+            @if($photoUrl)
+            <img src="{{ $photoUrl }}" alt="" style="width:24px; height:24px; object-fit:cover; border-radius:50%; border:1px solid var(--border);">
+            @else
+            <div style="width:24px; height:24px; border-radius:50%; background:var(--surface-2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:0.6875rem; font-weight:700; color:var(--text-muted);">{{ $user->initials() }}</div>
+            @endif
+            <span style="color:var(--text-primary); font-weight:600;">{{ $user->name }}</span>
+            <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
+            <span>{{ $user->designation ?? 'No designation' }}</span>
+            <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
+            <span>{{ $user->branch?->display_name ?? 'No branch' }}</span>
+        </div>
+        @if($profilePercent < 100)
+        <button type="button" @click="setTab('compliance')" class="flex items-center gap-2" style="background:none; border:none; cursor:pointer; padding:0;">
+            <div class="ds-progress-track" style="width:80px;">
+                <div class="ds-progress-bar ds-bar-green" style="width:{{ $profilePercent }}%;"></div>
+            </div>
+            <span class="text-xs font-medium" style="color:var(--text-muted);">{{ $profilePercent }}% complete</span>
+        </button>
+        @endif
+    </div>
+
+    </div>{{-- /frozen top block --}}
 
     <div>
         <div class="w-full space-y-4">
@@ -104,30 +141,6 @@
             </button>
             @endforeach
         </nav>
-    </div>
-
-    {{-- Agent subtitle strip --}}
-    <div class="flex items-center justify-between flex-wrap gap-2">
-        <div class="flex items-center gap-3 text-sm" style="color:var(--text-muted);">
-            @if($photoUrl)
-            <img src="{{ $photoUrl }}" alt="" style="width:24px; height:24px; object-fit:cover; border-radius:50%; border:1px solid var(--border);">
-            @else
-            <div style="width:24px; height:24px; border-radius:50%; background:var(--surface-2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-size:0.6875rem; font-weight:700; color:var(--text-muted);">{{ $user->initials() }}</div>
-            @endif
-            <span style="color:var(--text-primary); font-weight:600;">{{ $user->name }}</span>
-            <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
-            <span>{{ $user->designation ?? 'No designation' }}</span>
-            <span style="width:3px; height:3px; border-radius:50%; background:var(--text-muted); display:inline-block;"></span>
-            <span>{{ $user->branch?->name ?? 'No branch' }}</span>
-        </div>
-        @if($profilePercent < 100)
-        <button type="button" @click="setTab('compliance')" class="flex items-center gap-2" style="background:none; border:none; cursor:pointer; padding:0;">
-            <div class="ds-progress-track" style="width:80px;">
-                <div class="ds-progress-bar ds-bar-green" style="width:{{ $profilePercent }}%;"></div>
-            </div>
-            <span class="text-xs font-medium" style="color:var(--text-muted);">{{ $profilePercent }}% complete</span>
-        </button>
-        @endif
     </div>
 
     {{-- ═══════════════════════════════════════════
@@ -513,7 +526,7 @@
                         </div>
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Branch</div>
-                            <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->branch?->name ?? 'Not assigned' }}</div>
+                            <div style="padding:9px 12px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); font-size:0.8125rem; opacity:0.7;">{{ $user->branch?->display_name ?? 'Not assigned' }}</div>
                         </div>
                         <div>
                             <div style="font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Agency</div>

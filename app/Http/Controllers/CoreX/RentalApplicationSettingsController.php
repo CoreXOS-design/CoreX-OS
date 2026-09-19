@@ -856,18 +856,27 @@ class RentalApplicationSettingsController extends Controller
             );
         }
 
-        RentalApplicationDocumentValidityWindow::where('agency_id', $agencyId)
-            ->whereNotNull('document_type_id')
-            ->delete();
-
+        // Prod-audit 2026-09-16 (M2) — reconcile instead of wipe-and-recreate.
+        // Each posted override is upserted (restoring a previously archived row
+        // for the same purpose + document type, so the unique key never
+        // collides); every override NOT posted is archived, never hard-deleted.
+        $keptIds = [];
         foreach ($validated['overrides'] ?? [] as $row) {
-            RentalApplicationDocumentValidityWindow::create([
+            $window = RentalApplicationDocumentValidityWindow::withTrashed()->firstOrNew([
                 'agency_id' => $agencyId,
                 'purpose' => $row['purpose'],
                 'document_type_id' => $row['document_type_id'],
-                'validity_days' => $row['validity_days'],
             ]);
+            $window->validity_days = $row['validity_days'];
+            $window->deleted_at = null;
+            $window->save();
+            $keptIds[] = $window->id;
         }
+
+        RentalApplicationDocumentValidityWindow::where('agency_id', $agencyId)
+            ->whereNotNull('document_type_id')
+            ->whereNotIn('id', $keptIds)
+            ->delete();
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Document validity windows saved.');

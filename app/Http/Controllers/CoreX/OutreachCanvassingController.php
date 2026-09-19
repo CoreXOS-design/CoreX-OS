@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Services\SellerOutreach\OutreachActivityFeedService;
 use App\Services\SellerOutreach\WhatsappOutreachSummaryService;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * Part 4 — unified "Outreach & Canvassing" board.
@@ -101,11 +102,55 @@ class OutreachCanvassingController extends Controller
 
         $feed = $feedService->feed($agencyId, $filters);
 
+        // AT-393 — search + pagination over the feed rows (spec
+        // .ai/specs/outreach-canvassing-board-list.md). The feed is already
+        // scoped + source-filtered by the service; search only narrows the VISIBLE
+        // rows (subtotals/total stay the honest window-wide breakdown), and the
+        // page is cut from the row array because rows are built in PHP.
+        $q = trim((string) $request->query('q', ''));
+        $rows = collect($feed['rows']);
+        if ($q !== '') {
+            $needle = mb_strtolower($q);
+            $rows = $rows->filter(function (array $r) use ($needle): bool {
+                foreach (['who', 'agent', 'action', 'outcome', 'channel', 'source_label'] as $k) {
+                    if (isset($r[$k]) && $r[$k] !== '' && str_contains(mb_strtolower((string) $r[$k]), $needle)) {
+                        return true;
+                    }
+                }
+                return false;
+            })->values();
+        }
+        $perPage = 25;
+        $page = LengthAwarePaginator::resolveCurrentPage();
+        $feedRows = new LengthAwarePaginator(
+            $rows->forPage($page, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()],
+        );
+
+        // Agent picker for the existing ?agent_id= drill-down — only the people this
+        // scope can already see (branch users for 'branch', agency users for 'all').
+        $agents = collect();
+        if ($effectiveScope === 'all') {
+            $agents = \App\Models\User::withoutGlobalScopes()->where('agency_id', $agencyId)->orderBy('name')->get(['id', 'name']);
+        } elseif ($effectiveScope === 'branch') {
+            $agents = \App\Models\User::withoutGlobalScopes()->whereIn('id', $branchUserIds ?: [-1])->orderBy('name')->get(['id', 'name']);
+        }
+        $filterAgentId = ($canSeeTeam && is_numeric($request->query('agent_id')) && isset($filters['user_id']))
+            ? (int) $filters['user_id']
+            : null;
+
         // Tab 2 — the AT-91 consent-funnel board, untouched.
         $board = $summaryService->board();
 
         return view('corex.outreach-canvassing.index', [
-            'feed'         => $feed,
+            'feed'          => $feed,
+            'feedRows'      => $feedRows,
+            'filterQ'       => $q,
+            'agents'        => $agents,
+            'filterAgentId' => $filterAgentId,
             'rows'         => $board['rows'],
             'totals'       => $board['totals'],
             'hasAwaiting'  => $board['has_awaiting'],

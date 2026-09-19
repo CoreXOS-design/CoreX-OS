@@ -265,3 +265,37 @@ the buyer pack.
 - Core Match Intelligence (three-tier agent/manager/admin correction surface) — separate
   fast-follow ticket. This build only writes the silent `core_match_miss` capture event.
 - Agent-specific intel fields on the agent sheet — named future extension pending agent feedback.
+
+## List page filters, frozen header (AT-393 — built 2026-09-14, Andre's instruction, QA1 only)
+
+`/corex/viewing-packs` (route `corex.viewing-packs.index`).
+
+**Why.** The packs list is paged at 25 but had no way to find one pack among many, and
+the header scrolled away with the table. Same frozen-top treatment as the other AT-393
+list pages, plus a filter card.
+
+**Filters** — one GET form directly under the header; all optional (`''` = no filter);
+they compose with each other and with the existing archived toggle (carried as a hidden
+`archived=1` when viewing archived packs). Pagination carries them (`withQueryString`).
+
+| Control | Query key | Behaviour |
+|---|---|---|
+| Search | `q` | `like` on pack `title` OR the buyer's name (person: first / last / "first last"; entity: `entity_name`) |
+| Agent | `agent_id` | packs whose `agent_id` is that agent. Rendered only above `own` data scope — for `branch` scope the list is the branch's users, for `all` the agency's |
+| Status | `status` | one of `ViewingPack::STATUSES` (`draft`, `ready`) |
+
+"Search" submits; "Clear" (shown only when a filter is active) returns to the unfiltered
+list, staying on archived if that was on. A live "N packs" count sits at the right of the
+bar. Empty state distinguishes "no packs" from "no match".
+
+**Layout.** Page wrapper is a full-height flex column; header + filter card are
+`flex-shrink-0`; flash + table + pagination live in a
+`flex-1 min-h-0 overflow-y-auto corex-brand-scroll` scroll region.
+
+**Permissions.** Unchanged (`access_viewing_packs`, `viewing_packs.view`); row visibility
+still via `scopeVisibleTo` (AT-112) — filters only ever narrow that set.
+
+**Tests.** `tests/Feature/ViewingPack/ViewingPackIndexFilterTest.php`.
+
+**Files.** `app/Http/Controllers/CommandCenter/ViewingPackController.php` (index),
+`resources/views/command-center/viewing-packs/index.blade.php`.

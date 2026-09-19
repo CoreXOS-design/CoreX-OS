@@ -140,15 +140,27 @@ final class Dr2ExternalAgencyMetadataInvarianceTest extends TestCase
         );
     }
 
-    public function test_our_share_percent_moves_the_pool(): void
+    /**
+     * Inverted 2026-09-16 (prod-audit). Since acaf76b89 "our share %" means
+     * something ONLY for a side handed to an EXTERNAL agency; on an internal
+     * side the whole side is ours, whatever stray value the column holds.
+     * The old expectation pinned the very defect that fix removed (deal #169:
+     * R58,650 gross printing R12,750 instead of R25,500).
+     */
+    public function test_our_share_percent_does_not_move_an_internal_pool(): void
     {
         $full  = $this->makeDeal(['listing_our_share_percent' => 100]);
         $half  = $this->makeDeal(['listing_our_share_percent' => 50]);
 
+        $this->assertGreaterThan(0.0, $full->listingPool());
         $this->assertEqualsWithDelta(
-            $full->listingPool() / 2.0, $half->listingPool(), 0.01,
-            'halving listing_our_share_percent MUST halve the listing pool'
+            $full->listingPool(), $half->listingPool(), 0.01,
+            'our_share_percent on an INTERNAL side must not change the listing pool'
         );
+
+        // …and the rebuilt money lines owe nothing to an external agency on that side.
+        $pools = DealMoneyLineRebuilder::computeDealPools($half->fresh());
+        $this->assertSame(0.0, (float) $pools['listingExternalPayable']);
     }
 
     public function test_external_flag_zeroes_the_side_pool(): void

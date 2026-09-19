@@ -13,7 +13,7 @@
     .contact-show-btn-hover { transition: opacity 150ms ease; }
     .contact-show-btn-hover:hover { opacity: 0.85; }
 </style>
-<div class="w-full space-y-4"
+<div class="w-full h-full flex flex-col"
      x-data="contactShowData('{{ route('corex.contacts.properties.search', $contact) }}', '{{ request('tab', 'info') }}')"
      x-init="activeTab = initTab">
 
@@ -50,6 +50,12 @@
     @endphp
 
     @include('corex.contacts._header')
+
+    {{-- AT-393 — frozen header. The page is a full-height flex column: the header above
+         stays put and everything from here down scrolls in this inner region (same
+         pattern as the contacts index). `data-scroll-region` opts this region into the
+         global scroll preserve/restore, so a save/delete reload lands back where you were. --}}
+    <div class="flex-1 min-h-0 overflow-y-auto mt-4 space-y-4" data-scroll-region>
 
     {{-- AT-267 — view-only lock when the current user may not edit this contact (an assistant
          looking at a colleague's contact). An UNOWNED contact stays editable — see canMutateContact. --}}
@@ -479,7 +485,7 @@
 
             @include('corex.contacts._recent-sends')
 
-            <form method="POST" action="{{ route('corex.contacts.update', $contact) }}" class="space-y-6"
+            <form id="contact-update-form" method="POST" action="{{ route('corex.contacts.update', $contact) }}" class="space-y-6"
                   x-data="{ contactKind: '{{ old('contact_kind', $contact->contact_kind ?? 'natural_person') }}', idKind: '{{ old('id_type', ($contact->id_type ?? null) === 'passport' ? 'passport' : 'sa_id') }}' }">
                 @csrf @method('PUT')
                 <input type="hidden" name="_from_show" value="1">
@@ -724,11 +730,6 @@
                 </div>
 
                 @include('corex.contacts._assigned-agents')
-
-                <div class="flex items-center gap-3 pt-2">
-                    <button type="submit" class="corex-btn-primary text-sm">Save Changes</button>
-                    <a href="{{ route('corex.contacts.index') }}" class="text-sm" style="color:var(--text-muted);">Cancel</a>
-                </div>
             </form>
 
             @if($contact->isEntity())
@@ -981,6 +982,16 @@
                 </form>
             </div>
             @endif
+
+            {{-- AT-393 — Save/Cancel for the details form above. It sits BELOW the
+                 Representatives / Linked Entities panel (Johan: the panel must be above
+                 the save button) and reaches the form via the `form` attribute, because
+                 that panel carries its own link/unlink forms and cannot be nested inside
+                 the details form. --}}
+            <div class="flex items-center gap-3 pt-2">
+                <button type="submit" form="contact-update-form" class="corex-btn-primary text-sm">Save Changes</button>
+                <a href="{{ route('corex.contacts.index') }}" class="text-sm" style="color:var(--text-muted);">Cancel</a>
+            </div>
 
             @include('corex.contacts.partials.client-app-access', ['contact' => $contact])
         </div>
@@ -1749,6 +1760,8 @@
         </div>
 
     </div>{{-- /tab container --}}
+
+    </div>{{-- /scroll region (AT-393) --}}
 
 </div>
 

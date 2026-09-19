@@ -1306,6 +1306,29 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
     color: #fff;
 }
 
+/* Daily Activity "Checklist + counters" layout (2026-09-14) — once-a-day rows
+   and the −/+ stepper around the qty input. Tint follows --brand-icon like the chips. */
+.ds-daily-check:hover {
+    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent);
+}
+.ds-daily-check:has(input:checked) {
+    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);
+}
+.ds-daily-stepper button {
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    transition: background-color 150ms ease, color 150ms ease;
+}
+.ds-daily-stepper button:hover {
+    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);
+    color: var(--text-primary);
+}
+.ds-daily-stepper:focus-within {
+    border-color: var(--brand-button, #0ea5e9);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand-button, #0ea5e9) 15%, transparent);
+}
+
 .ds-field {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -3126,31 +3149,37 @@ html.dark .corex-nav-panel {
    scoped to the sidebar scroll areas only. Firefox uses scrollbar-color; the
    webkit rules build the "floating pill" look (transparent border + padding-box
    clip = inset padding so the thumb never touches the edges). Theme-agnostic:
-   the transparent track blends into whatever the sidebar bg is. */
+   the transparent track blends into whatever the sidebar bg is.
+   `.corex-brand-scroll` is the opt-in hook for any other scroll area that must
+   carry the SAME bar as the sidebar (e.g. Buyer Pipeline kanban columns). */
 .corex-sidebar,
 .corex-nav-root,
 .corex-nav-panel,
-.corex-nav-search-results {
+.corex-nav-search-results,
+.corex-brand-scroll {
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--brand-icon, #6366f1) 40%, transparent) transparent;
 }
 .corex-sidebar::-webkit-scrollbar,
 .corex-nav-root::-webkit-scrollbar,
 .corex-nav-panel::-webkit-scrollbar,
-.corex-nav-search-results::-webkit-scrollbar {
+.corex-nav-search-results::-webkit-scrollbar,
+.corex-brand-scroll::-webkit-scrollbar {
     width: 9px;
     height: 9px;
 }
 .corex-sidebar::-webkit-scrollbar-track,
 .corex-nav-root::-webkit-scrollbar-track,
 .corex-nav-panel::-webkit-scrollbar-track,
-.corex-nav-search-results::-webkit-scrollbar-track {
+.corex-nav-search-results::-webkit-scrollbar-track,
+.corex-brand-scroll::-webkit-scrollbar-track {
     background: transparent;
 }
 .corex-sidebar::-webkit-scrollbar-thumb,
 .corex-nav-root::-webkit-scrollbar-thumb,
 .corex-nav-panel::-webkit-scrollbar-thumb,
-.corex-nav-search-results::-webkit-scrollbar-thumb {
+.corex-nav-search-results::-webkit-scrollbar-thumb,
+.corex-brand-scroll::-webkit-scrollbar-thumb {
     border-radius: 9999px;
     border: 2px solid transparent;      /* inset padding → slim floating pill */
     background-clip: padding-box;
@@ -3165,7 +3194,8 @@ html.dark .corex-nav-panel {
 .corex-sidebar::-webkit-scrollbar-thumb:hover,
 .corex-nav-root::-webkit-scrollbar-thumb:hover,
 .corex-nav-panel::-webkit-scrollbar-thumb:hover,
-.corex-nav-search-results::-webkit-scrollbar-thumb:hover {
+.corex-nav-search-results::-webkit-scrollbar-thumb:hover,
+.corex-brand-scroll::-webkit-scrollbar-thumb:hover {
     background-image: linear-gradient(
         180deg,
         var(--brand-icon, #6366f1),
@@ -3174,7 +3204,8 @@ html.dark .corex-nav-panel {
 }
 .corex-sidebar::-webkit-scrollbar-corner,
 .corex-nav-root::-webkit-scrollbar-corner,
-.corex-nav-panel::-webkit-scrollbar-corner {
+.corex-nav-panel::-webkit-scrollbar-corner,
+.corex-brand-scroll::-webkit-scrollbar-corner {
     background: transparent;
 }
 
