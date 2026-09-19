@@ -1,24 +1,36 @@
-# Rental Work Orders
+# Rental Work Orders (and Fault Reports)
 
 **Status:** Spec — not yet built. NO CODE has been written against this spec.
-**Date:** 2026-09-14 (amended 2026-09-22 — see below)
+**Date:** 2026-09-14 (amended 2026-09-22, amended again 2026-09-24 — see below)
 **Author:** cc4
-**Pillar:** Property (`Property`) — every work order anchors to a property; Contact (owner, tenant,
-supplier's own contact person) is who is notified and who reported it; touches Lease (`.ai/specs/
-leases.md`) and Rental Inspections (`.ai/specs/rental-inspections.md`, both now landed and built) as
-its two structural dependencies.
+**Pillar:** Property (`Property`) — every work order and fault report anchors to a property; Contact
+(owner, tenant, supplier's own contact person) is who is notified and who reported it; touches Lease
+(`.ai/specs/leases.md`) and Rental Inspections (`.ai/specs/rental-inspections.md`, both now landed and
+built) as its two structural dependencies.
 **Sequencing:** Johan's ruling — core matches/pipeline → inspections → **work orders (this spec)**.
 Both dependencies are read, coordinated on directly, and cited below; neither is re-designed here.
 
-**Amendment, 2026-09-22 — Johan has ruled work orders IN SCOPE.** This revision settles what he
-settled, adds an owner-approval gate his new ruling requires, corrects one factual claim (§4, the
-WhatsApp send capability), and names four questions he has been asked but has not yet ruled on —
-these are argued honestly and left open, not decided here (§1a, §3.2a, §3.4a, §3.4b). See §0a for
-exactly what changed and why, and §13 for the mobile-foundation constraint this amendment also adds.
+**Amendment, 2026-09-22 — Johan has ruled work orders IN SCOPE.** This revision settled what he
+settled, added an owner-approval gate, corrected one factual claim (§4, WhatsApp), and named four
+questions he had not yet ruled on. See §0a for exactly what changed then.
+
+**Amendment, 2026-09-24 — Johan has settled the first of those four questions, and settled it
+differently than either the conductor's proposal or mine.** Fault reports are their own record —
+neither an inspection nor a `rental_work_orders` row at `reported_by_type='tenant'`. His reasoning,
+verbatim: a geyser bursting in month 7 and a tenant moving out in month 16 means an out-inspection
+in month 16 cannot be judged fairly without seeing that history first — "the fault and repair history
+is precisely what makes an out-inspection correct." That is context FOR the out-inspection, attached
+to it, not merged into it. See §0b for the full settlement, §1a for the corrected argument (my
+previous recommendation there was wrong and is struck through, not deleted, so the reasoning that led
+to it is still visible), and the new §3a for the `rental_fault_reports` schema this ruling requires.
+
+Three of the four original open questions remain genuinely open — §3.2a (how a tenant reports, still
+the front door that doesn't exist), §3.4a (owner-approval evidentiary capture), §3.4b (the spend
+threshold) — none decided by this amendment either.
 
 ---
 
-## 0a. What this amendment settles, adds, and leaves open
+## 0a. What the 2026-09-22 amendment settled, added, and left open (historical — see §0b for what changed since)
 
 **Settled by Johan's new ruling, built into this revision:**
 - Contractors live in the existing supplier list (`AgencyServiceProvider`) — already this spec's
@@ -35,20 +47,55 @@ exactly what changed and why, and §13 for the mobile-foundation constraint this
 - Deposits are OUT except advertising deposits — named as a real, current gap (§5.1a), not solved:
   damage found at move-out has no financial home in CoreX today.
 
-**Four things Johan has been asked and has not yet ruled on — argued honestly, left open:**
-1. §1a — is a tenant fault report an inspection, or a separate thing? (The conductor's own live
-   argument with Johan; ad_hoc is examined and, argued here, does not solve it.)
-2. §3.2a — how does a tenant, who has no CoreX login, actually report a fault?
-3. §3.4a — how is the owner's approval captured and retained as evidence, not just obtained?
-4. §3.4b — the agency-configurable spend threshold below which no approval is required.
+**Four things Johan had been asked and had not yet ruled on at the time:**
+1. ~~§1a — is a tenant fault report an inspection, or a separate thing?~~ **Settled 2026-09-24 — see
+   §0b/§1a. Neither of the two answers argued at the time was right; Johan's own is.**
+2. §3.2a — how does a tenant, who has no CoreX login, actually report a fault? **Still open.**
+3. §3.4a — how is the owner's approval captured and retained as evidence, not just obtained? **Still
+   open.**
+4. §3.4b — the agency-configurable spend threshold below which no approval is required. **Still
+   open.**
 
 **Corrected:** §4's notification section overstated WhatsApp — confirmed directly against the code,
 there is no automated WhatsApp send anywhere in CoreX, only a `wa.me` link an agent opens and sends
 from their own phone. Said plainly now instead of implying parity with the automated email path.
 
-**New:** §13 — the mobile-foundation constraint, per the same ruling that now applies to
+**Added:** §13 — the mobile-foundation constraint, per the same ruling that now applies to
 `rental-inspections.md` §14: an agent raises a work order standing in the property, so the logic
 behind every action here lives in a service Andre's app can call, not in a controller or a Blade.
+
+---
+
+## 0b. What the 2026-09-24 amendment settles — fault reports are their own record
+
+Johan, verbatim: *"as you said in and out inspections can create work orders. what I think needs to be
+part of the out inspection is a sub reports of reported faults and what was repaired and what not.
+this has a massive influence if the out inspection is correct or not - geyser in month 7 and the
+tenant moves out on month 16 means an agent can see what damages there were when the geyser burst,
+and what was not repaired. so might not need to be part of the actual out inspection, but Im seeing an
+attached report of faults and their repairs."*
+
+**Settled, built into this revision:**
+- A fault report is its own record (`rental_fault_reports`, §3a) — not an inspection, not a
+  `rental_work_orders` row wearing a different `reported_by_type`. It has its own lifecycle: reported
+  → owner approval where required → work order raised (optional) → outcome. It can link to a lease, a
+  property, and optionally an inspection observation, but needs none of the last two to exist.
+- **Outcome, not status.** A fault report's terminal state is one of five real outcomes — `repaired`,
+  `repaired_partially`, `not_repaired`, `owner_declined`, `tenant_liable` — argued in §3a.2, because
+  "closed" tells an agent at month 16 nothing about what they're actually looking at.
+- **Attached to the out-inspection, not merged into it.** The out-inspection records what the agent
+  observes NOW; the fault report records what happened DURING the tenancy. Two records, one screen —
+  §3a.4/§6.
+- **Scoped by lease, not by property**, for the out-inspection's attached view specifically — this
+  tenant's context is this tenant's tenancy, argued in §3a.4 against the deliberately property-wide
+  carry-forward `rental_inspection_items` already uses for a different purpose.
+- Photos on fault reports, same pipeline as everywhere else — `rental_fault_report_photos`, §3a.3.
+
+**Unchanged, still true:** contractors in the existing supplier list, owner approval gates the work
+and must be recorded not obtained (now applying to the fault report's own approval step, §3a.1, before
+a work order is even raised — see the note there on how a downstream work order inherits it),
+agency-configurable spend threshold (§3.4b, still open), finances out, deposits out except advertising
+deposits, no automated WhatsApp.
 
 ---
 
@@ -128,15 +175,28 @@ pass — see §7 for each of the four rows walked through against the actual sch
 
 ---
 
-## 1a. Is a tenant fault report an inspection? (open — the conductor's live argument with Johan)
+## 1a. Is a tenant fault report an inspection? SETTLED 2026-09-24 — it is its own record
 
-Johan's words, as put to me: *"tenant report a fault that at this stage should be logged under
-inspections?"* The conductor's own view, argued against that: *"An inspection is a scheduled event
-with a checklist at a point in time — in and out. A tenant reporting a burst geyser on a Tuesday is
-unscheduled and has no checklist. Forcing it into the inspection record means mid-tenancy faults
+**Johan's ruling, verbatim, and the reasoning that decided it** (quoted in full in §0b): a geyser
+bursting in month 7 and a tenant moving out in month 16 means an out-inspection cannot be judged
+fairly without seeing that history first. *"the fault and repair history is precisely what makes an
+out-inspection correct."* That history is context FOR the out-inspection, attached to it, not part of
+it. **This is a better argument than either of the two below, and it is the one this spec now builds
+to.** Full design in §3a.
+
+The original question and the two answers argued at the time — kept, not deleted, so the reasoning
+that led to Johan's actual answer is still visible:
+
+Johan's words, as originally put to me: *"tenant report a fault that at this stage should be logged
+under inspections?"* The conductor's own view, argued against that: *"An inspection is a scheduled
+event with a checklist at a point in time — in and out. A tenant reporting a burst geyser on a Tuesday
+is unscheduled and has no checklist. Forcing it into the inspection record means mid-tenancy faults
 pollute the in-versus-out comparison, which is the whole evidentiary point of inspections."* Her
-proposal: a fault report is its own record that CAN link to an inspection but need not, and both a
-fault report and an inspection can raise a work order.
+proposal at the time: a fault report is its own record that CAN link to an inspection but need not,
+and both a fault report and an inspection can raise a work order. **This is the closer of the two
+original answers to what Johan actually settled on** — right that it's its own record, though Johan's
+own reasoning (an out-inspection needs the history to judge itself correctly) is sharper than the
+pollution concern that motivated it here.
 
 **Checked directly against the actual, already-built `rental-inspections.md` schema and the live
 Stage 3 code, not argued in the abstract — does `type='ad_hoc'` solve this? No, argued below, on three
@@ -171,18 +231,25 @@ separate grounds:**
    `reported_at`, which THIS spec already has, for other reasons, before this amendment ever raised the
    question.
 
-**My argued position, offered as a recommendation, not decided here:** a tenant fault report does not
-need to be a third record type at all. It can simply be the FIRST STATUS of a `rental_work_orders`
-row — `reported_by_type='tenant'` already exists in this spec's own schema (§3.2) for exactly this.
-"Logged under inspections" and "logged as a work order, optionally bridged to an inspection via
+~~**My argued position at the time, offered as a recommendation:** a tenant fault report does not need
+to be a third record type at all. It can simply be the FIRST STATUS of a `rental_work_orders` row —
+`reported_by_type='tenant'` already exists in this spec's own schema (§3.2) for exactly this. "Logged
+under inspections" and "logged as a work order, optionally bridged to an inspection via
 `reported_inspection_observation_id`" describe the same underlying need from two directions — Johan's
 instinct that it should connect to inspections is already satisfied by that nullable FK, without
-needing the fault report itself to BE an inspection. This is a different resolution shape than the
-conductor's own proposal (hers: two linked record types; mine: one record, the work order, already
-capable of standing alone via `reported_by_type='tenant'` or bridging via
-`reported_inspection_observation_id`) — both are laid out here honestly because this is Johan's
-decision, not mine. What is NOT in question, on either resolution: `type='ad_hoc'` is not the answer,
-for the three reasons above.
+needing the fault report itself to BE an inspection.~~
+
+**This was wrong, and it's worth being honest about exactly why.** Folding a fault report into
+`rental_work_orders` at `status='reported'` conflates two things Johan's ruling shows are genuinely
+different: a work order is about COMMISSIONING AND TRACKING a repair (supplier, cost, completion
+photo); a fault report is about PRESERVING A TENANCY'S HISTORY so a LATER, unrelated event — an
+out-inspection, up to nine months later — can be judged correctly against it. A fault that was
+reported, approved, and fully repaired still needs to remain visible and retrievable as "this happened
+during this tenancy" long after any work order tied to it is done and irrelevant to look at directly.
+Collapsing the two into one record's status field would have made "show me this tenancy's fault
+history" the same query as "show me this tenancy's active repair jobs" — correct for neither purpose.
+`type='ad_hoc'` remains the wrong answer too, for the three reasons already given above — nothing
+about Johan's ruling changes that part of the argument.
 
 ---
 
@@ -294,10 +361,12 @@ rental_work_orders
                                   --   evidence purpose of this spec; drop it at build time if
                                   --   unwanted without weakening anything else here.
   reported_by_type                -- enum: 'tenant' | 'agent_noticed' | 'owner_instructed' |
-                                  --   'inspection' — §3.2. This is the field that answers
-                                  --   "tenant-reported, agent-noticed, or owner-instructed carry
-                                  --   different weight in a dispute," per the task's own
-                                  --   instruction.
+                                  --   'inspection' | 'fault_report' — §3.2. This is the field that
+                                  --   answers "tenant-reported, agent-noticed, or owner-instructed
+                                  --   carry different weight in a dispute," per the task's own
+                                  --   instruction. 'fault_report' is NEW, 2026-09-24 amendment —
+                                  --   §3a: a work order raised FROM a fault report (§3a) rather
+                                  --   than directly.
   reported_by_contact_id           -- nullable FK contacts — set when reported_by_type is
                                    --   'tenant' or 'owner_instructed'
   reported_by_user_id              -- nullable FK users — set when reported_by_type is
@@ -308,6 +377,13 @@ rental_work_orders
                                       --   tenant's post-move-in fault-window report, per
                                       --   rental-inspections.md §3.2). This is the direct bridge
                                       --   between the two specs Johan named as one evidence chain.
+  reported_fault_report_id            -- NULLABLE FK rental_fault_reports. NEW, 2026-09-24
+                                      --   amendment — set when reported_by_type='fault_report':
+                                      --   this work order was commissioned FROM a fault report
+                                      --   (§3a), not raised directly. When set, the fault report's
+                                      --   own owner_approval_status (already satisfied before the
+                                      --   work order existed, §3a.1) is inherited rather than
+                                      --   asking the owner twice — see §3a.1's note.
   reported_at
   ordered_at                        -- nullable, when a supplier was actually engaged/instructed
   completed_at                      -- nullable
@@ -394,10 +470,15 @@ considered answer to the edge case, not left implicit.
 `reported_inspection_observation_id`, matching the pattern rental-inspections.md already uses for
 `observed_by_user_id`/`observed_by_contact_id`:
 
-- **`tenant`** — the tenant themselves reported it (a call, a message, a portal report if one exists).
-  `reported_by_contact_id` is the tenant's own contact row (ideally one of the lease's `lease_tenants`,
-  though this spec does not hard-enforce that match — a former tenant or a neighbour could plausibly
-  report something too).
+- **`tenant`** — the tenant themselves reported it directly to the work order, bypassing a fault
+  report. **[cc4 design call, flagged for Johan, 2026-09-24]**: now that fault reports (§3a) exist
+  specifically to preserve a tenancy's fault history for a later out-inspection, this spec's
+  preference is that a TENANT report always creates a `rental_fault_reports` row first
+  (`reported_by_type='fault_report'` below), so it survives as tenancy context regardless of what
+  happens to any resulting work order. This value is kept for a case that skips that — e.g. an agent
+  judges something trivial enough to fix without formally logging a fault report — but whether that
+  should be allowed at all, or every tenant report should be forced through a fault report, is Johan's
+  call, not decided here.
 - **`agent_noticed`** — the agent spotted it themselves (during a routine visit, a showing, anything not
   a formal inspection). `reported_by_user_id` set.
 - **`owner_instructed`** — the owner asked for something to be done (a proactive upgrade, a
@@ -409,6 +490,9 @@ considered answer to the edge case, not left implicit.
   `rental_inspection_observations.source` values `in_inspection`/`tenant_fault_report`/`out_inspection`).
   `reported_inspection_observation_id` links directly to that observation, so the work order and the
   inspection evidence are provably the same event, not two separately-typed accounts of it.
+- **`fault_report`** — **new, 2026-09-24 amendment, the preferred path for anything tenant-originated**
+  — this work order was commissioned from a `rental_fault_reports` row (§3a), not raised directly.
+  `reported_fault_report_id` links to it.
 
 ### 3.2a How does the tenant actually report? (open — a real front door does not exist yet)
 
@@ -551,6 +635,195 @@ emergency repair) are all real follow-on questions this proposal surfaces but do
 
 ---
 
+## 3a. Fault reports — their own record, settled 2026-09-24 (§0b/§1a)
+
+A fault report is what actually happened during a tenancy that might need repair — a tenant's damp
+patch, a burst geyser, an agent noticing a cracked tile on a routine visit. It exists whether or not a
+work order is ever raised from it, and it survives long after any work order tied to it is closed,
+because its job is to still be there, correct and complete, the day an out-inspection needs to read it
+— possibly months or years later.
+
+```
+rental_fault_reports
+  id
+  agency_id                      -- BelongsToAgency
+  branch_id
+  property_id                     -- REQUIRED, always set — same reasoning as rental_work_orders
+                                  --   .property_id (§3.1): every fault happens on a known property
+                                  --   regardless of what else is or isn't attached.
+  lease_id                        -- NULLABLE FK leases. WHICH TENANCY this happened during. Null
+                                  --   only for the rare vacancy-period case (an agent notices
+                                  --   something wrong between tenants) — mirrors
+                                  --   rental_work_orders.lease_id (§3.1a) exactly. This is the
+                                  --   field §3a.4's lease-scoping is built on.
+  rental_inspection_item_id        -- NULLABLE FK rental_inspection_items. WHAT/WHERE, same
+                                    --   reasoning as rental_work_orders' own column (§3.1) —
+                                    --   nullable because not every fault concerns one identifiable
+                                    --   space.
+  reported_inspection_observation_id  -- NULLABLE FK rental_inspection_observations. Set when a
+                                      --   fault surfaces DURING an inspection (an agent notices it
+                                      --   while walking the property) rather than being phoned in
+                                      --   independently — Johan's own words allow for this: "it can
+                                      --   link to... an inspection." Optional, not required — a
+                                      --   fault report needs no inspection to exist at all.
+  rental_work_order_id              -- NULLABLE FK rental_work_orders. Set once a work order is
+                                    --   raised FROM this fault report (the reverse side of
+                                    --   rental_work_orders.reported_fault_report_id, §3.1). Null
+                                    --   while the fault sits unaddressed, or if it's resolved
+                                    --   without ever needing a formal work order (e.g. the tenant
+                                    --   fixed it themselves, or it turned out not to need repair).
+  reported_by_type                  -- enum: 'tenant' | 'agent_noticed' | 'owner_instructed' — same
+                                    --   three human-origin values as rental_work_orders' own field
+                                    --   (§3.2), deliberately NOT including 'inspection' or
+                                    --   'fault_report' here — a fault report is the ORIGIN record,
+                                    --   it doesn't itself arise from a work order or from another
+                                    --   fault report.
+  reported_by_contact_id             -- nullable FK contacts — set when reported_by_type is
+                                     --   'tenant' or 'owner_instructed'
+  reported_by_user_id                -- nullable FK users — set when reported_by_type is
+                                     --   'agent_noticed'
+  title                              -- short label, e.g. "Damp patch — main bedroom ceiling"
+  description                        -- free text, what was reported
+  status                             -- enum: 'reported' | 'awaiting_approval' | 'approved' |
+                                     --   'declined' | 'work_order_raised' | 'resolved' |
+                                     --   'cancelled'. Tracks the PROCESS. See below for how this
+                                     --   relates to a linked work order's own status once one
+                                     --   exists.
+  owner_approval_status               -- enum: 'not_required' | 'pending' | 'approved' | 'declined'
+                                     --   — same shape as rental_work_orders' own field (§3.1),
+                                     --   applied HERE first: Johan's lifecycle is "reported → owner
+                                     --   approval where required → work order raised → outcome" —
+                                     --   approval happens at the FAULT-REPORT stage, before a
+                                     --   supplier is ever engaged. See §3a.1.
+  outcome                            -- nullable enum: 'repaired' | 'repaired_partially' |
+                                     --   'not_repaired' | 'owner_declined' | 'tenant_liable'. Set
+                                     --   only once status='resolved'. See §3a.2 — this is the field
+                                     --   the whole 2026-09-24 ruling is actually about.
+  outcome_note                        -- text, required whenever outcome is anything other than
+                                     --   'repaired' (mirrors rental_work_orders' own "notes
+                                     --   required unless the condition is good" pattern from
+                                     --   rental-inspections.md §0.3) — an outcome of
+                                     --   'not_repaired' or 'tenant_liable' with no explanation is
+                                     --   exactly the kind of bare label this whole spec's evidence
+                                     --   philosophy (§1) argues against.
+  reported_at
+  resolved_at                        -- nullable, when outcome was set
+  cancelled_at, cancelled_by_user_id, cancel_reason  -- nullable, for a report logged in error
+  created_by_user_id
+  created_at, updated_at, deleted_at   -- soft-delete, gated identically to rental_work_orders
+                                      --   (§3.1): deletable only while nothing has been logged
+                                      --   against it (no photo, no linked work order); once
+                                      --   anything exists, only 'cancelled', never destroyed. FICA
+                                      --   five-year retention applies at its strictest, same as
+                                      --   every other evidence table in this spec and its siblings.
+
+rental_fault_report_photos           -- evidence at the time of report — "a tenant reporting damp
+                                     --   sends a picture," same weight as any other photo in this
+                                     --   spec's evidence chain
+  id
+  agency_id
+  rental_fault_report_id
+  storage_path
+  uploaded_by_user_id
+  client_idempotency_key               -- uuid, unique — same offline-safety pattern as
+                                       --   rental_work_order_photos/rental_inspection_photos
+  file_size_bytes
+  created_at                           -- immutable, no deleted_at — same evidence-integrity
+                                       --   reasoning as every other photo table in this spec.
+                                       --   Deliberately NO photo_type column here (unlike
+                                       --   rental_work_order_photos' reported/in_progress/completed
+                                       --   split) — a fault report's photos are all "as reported";
+                                       --   REPAIR evidence lives on the linked work order's own
+                                       --   photos once one exists, keeping the two evidence trails
+                                       --   cleanly separated by which record they belong to, not by
+                                       --   a type flag on a shared table.
+```
+
+### 3a.1 Owner approval happens here, before a work order exists
+
+Johan's lifecycle, verbatim: "reported → owner approval where required → work order raised → outcome."
+This means `owner_approval_status` on the FAULT REPORT (not only on the work order) is where the gate
+actually first applies — an agent cannot move a fault report to `work_order_raised` while approval is
+`pending`/`declined`, mirroring exactly the gate already built for `rental_work_orders.status='ordered'`
+(§3.4). **When a work order IS raised from an already-approved fault report, its own
+`owner_approval_status` is set to `approved` directly, inherited from the fault report** — the owner
+is not asked twice for one decision. A work order raised WITHOUT a fault report (owner-instructed
+proactive work, or directly from an inspection observation) still goes through its own approval gate
+independently, since there was no upstream fault report to have already asked the question. §3.4a's
+open question (HOW an approval is captured) applies identically at this earlier stage — nothing about
+moving the gate here changes what's still undecided about the mechanism.
+
+### 3a.2 Outcome, not status — the field this whole amendment is actually about
+
+Johan's own example makes the stakes concrete: an agent standing in a property at month 16, looking at
+a stained ceiling, needs to know whether that geyser burst in month 7 was **repaired** (the stain is
+old, harmless, cosmetic) or the owner **declined** to fix it (the stain is current, ongoing, the
+owner's problem) — "closed" tells that agent nothing. Five outcomes, each chosen because it changes
+the conclusion an out-inspection draws differently from every other one:
+
+- **`repaired`** — fully fixed. The fault is resolved and, absent a NEW later observation, the item's
+  current condition is trusted.
+- **`repaired_partially`** — some of the problem was addressed, not all of it (a supplier fixed the
+  burst pipe but the water-damaged ceiling board itself was never replaced). Distinct from
+  `repaired` specifically because an out-inspection reading `repaired` and finding damage anyway would
+  wrongly conclude the tenant caused NEW damage, when in fact it's the SAME damage, never fully closed
+  out.
+- **`not_repaired`** — nothing was done. `outcome_note` must say why (no supplier available, ran out
+  of time before move-out, genuinely forgotten) — this is the direct evidentiary answer to situation 3
+  in §1's table, now anchored on the fault report rather than inferred from a work order that may
+  never have existed.
+- **`owner_declined`** — the owner was asked and said no. Deliberately separate from `not_repaired`:
+  this is an AFFIRMATIVE decision on record (via §3a.1's approval gate, or a direct decline before a
+  work order was ever proposed), not mere neglect — a materially different fact for a dispute than
+  "nobody got around to it."
+- **`tenant_liable`** — the determination is that the tenant caused it and the cost is theirs,
+  independent of whether physical repair happened yet. **Argued, not left unexamined**: this mixes a
+  liability judgement into what is otherwise a physical-repair-state field, which is not perfectly
+  clean — but Johan's own framing lists it as a peer of the other four ("repaired, repaired partially,
+  not repaired and why, owner declined, tenant liable"), and a single, plain-language "how did this
+  end" value that an agent can read at a glance is more useful at move-out than decomposing repair-
+  state and liability-state into two separate fields an agent would have to cross-reference. Kept as
+  Johan specified it.
+
+### 3a.3 Photos on fault reports — same pipeline, same thinking
+
+`rental_fault_report_photos` reuses `PropertyImageStorer` exactly like `rental_work_order_photos` and
+`rental_inspection_photos` already do — no new upload pipeline, no new sizing/encoding decision. "A
+tenant reporting damp sends a picture" carries the same evidentiary weight this whole spec already
+gives every other photo: `client_idempotency_key` for offline-safe retries (§13), immutable once
+uploaded, no deletion. The one structural choice, argued above (§3a schema block): fault-report photos
+are always "as reported," and repair-evidence photos live on the linked work order once one exists,
+rather than a shared `photo_type` column trying to serve two different records' worth of meaning.
+
+### 3a.4 Scoped by lease for the out-inspection, not by property
+
+Johan's distinction, direct: *"a fault from the previous tenant's occupancy is not this tenant's
+context, though it may still matter to the owner."* This is a deliberate CONTRAST with how
+`rental_inspection_items`' own carry-forward already works (`RentalInspection::carryForwardItems()`,
+`rental-inspections.md` §0.2/§3.2a) — that query is intentionally PROPERTY-wide, because a physical
+space outlives any one tenancy and its full condition history matters regardless of who was living
+there. A fault report's relevance to an out-inspection is the opposite shape: **the out-inspection's
+attached sub-report queries `rental_fault_reports` filtered to `lease_id = <this lease>` only** — the
+current tenant's own tenancy, nothing from before it. The owner-facing, agency-wide list screen (§6)
+is NOT lease-scoped the same way — an owner or admin reviewing "every fault ever reported on this
+property" legitimately wants the property-wide view across every tenancy; only the specific,
+attached-to-an-out-inspection sub-report is deliberately narrowed to the one tenancy it's judging.
+
+### 3a.5 Attached to the out-inspection, not merged into it
+
+Johan, verbatim: *"so might not need to be part of the actual out inspection, but Im seeing an
+attached report of faults and their repairs."* Concretely: when the out-inspection screen (the
+Rental Images tab's rebuilt Out Inspection section, `rental-inspections.md` §4) is open, it fetches and
+displays `rental_fault_reports` for `lease_id = <this lease>` (§3a.4) as its own, clearly separate
+block — title, outcome, outcome note, dated — sitting ALONGSIDE the out-inspection's own item/
+observation recording, never interleaved into it. Two records, one screen, exactly as instructed: the
+out-inspection records what the agent observes NOW; the attached report shows what happened DURING the
+tenancy, so the agent can judge the former correctly in light of the latter. No schema change to
+`rental_inspections`/`rental_inspection_observations` is needed for this — it is a second query the
+out-inspection screen runs and renders next to its own data, not a join or a merge.
+
+---
+
 ## 4. Notifications — owner, tenant, supplier, and what each actually says
 
 Per §2's reused infrastructure: **internal staff through `NotificationDispatcher`, external parties by
@@ -565,6 +838,10 @@ New event keys to register (idempotent migration, matching
   to keep track of... if the work has been completed or not" Johan explicitly asked for, not just a
   passive list screen.
 - `rental_work_order.completed` — fires to the assigned agent (internal) as confirmation.
+- `rental_fault_report.created` — **new, 2026-09-24** — fires to the property's assigned agent
+  (internal) the moment a fault report is logged, independent of whether a work order ever follows.
+- `rental_fault_report.resolved` — **new, 2026-09-24** — fires to the assigned agent when a fault
+  report's `outcome` is set (§3a.2), whatever that outcome is.
 
 External mail, one Mailable class per recipient (plain `Mail::to(...)->send(...)`, modeled on
 `DealDistributionService`/`CocWorkOrderService`'s existing pattern):
@@ -576,12 +853,16 @@ External mail, one Mailable class per recipient (plain `Mail::to(...)->send(...)
   genuinely has no owner attached** (the known, non-bug portal-import-stock state per §2) — logged as a
   no-op, not a failure.
 - **Tenant** (resolved via the lease's `lease_tenants`, if `lease_id` is set — see §3.1a for the
-  vacancy case where there is no tenant to notify at all) — on creation: acknowledgement that their
-  reported problem has been logged (if `reported_by_type='tenant'`) or notice that a work order affecting
-  their home has been raised (if reported by someone else). On completion: confirmation the repair is
-  done. **This is the mechanism that makes a tenant's fault report accountable** — situation 3 in §1
-  depends on the tenant being able to show they reported it, which this notification (and the
-  `rental_work_order_updates` log) both corroborate independently.
+  vacancy case where there is no tenant to notify at all) — **the acknowledgement now happens at fault
+  report creation (§3a), not work-order creation, 2026-09-24 amendment**: the moment a tenant's fault
+  is logged, they get confirmation it's on record — this no longer waits for a work order to exist,
+  since §1a/§0b's whole point is that a fault report is real and evidenced on its own, whether or not
+  one follows. A work order raised without an upstream fault report (agent/owner-originated) still
+  notifies the tenant on creation as before. On resolution: confirmation of the outcome (§3a.2) —
+  "repaired," not just "closed," so the tenant sees the same honest conclusion the out-inspection will
+  later read. **This is the mechanism that makes a tenant's fault report accountable** — situation 3
+  in §1 depends on the tenant being able to show they reported it, which this notification (and the
+  fault report's own timestamped record) both corroborate independently.
 - **Supplier** (resolved via `agency_service_provider_id`, only once one is assigned — "can even email
   the supplier," an optional step per Johan's own wording) — the job details: property address,
   description, trade type, and who to contact back. Sent to the specific `AgencyServiceProviderContact`
@@ -659,36 +940,64 @@ entry under the existing Rentals section, alongside Leases and Rental Inspection
   already used by leases and rental inspections. Direct-URL access to another agency's work order by ID
   is a 404 via the global scope, not a hidden link.
 
+### 6a. Fault reports — a third surface, 2026-09-24 amendment
+
+Same floor, own screens — a fault report is its own record (§3a), not a tab within work orders:
+
+**On the property itself** — alongside the Work Order button, a "Report a Fault" button opening the
+log form (what's wrong, who reported it, optional photo) and that property's own fault-report history.
+
+**A new agency-wide Rental Fault Reports list screen** — route group `corex.rental-fault-reports.*`,
+sidebar entry under Rentals alongside Leases, Rental Inspections, and Rental Work Orders. Same search/
+sort/filter/pagination/empty-state/scoping floor as §6's work-order list (property, tenant, title/
+description search; reported date default sort; status, outcome, and date-range filters; agency+own/
+branch scoping via `BelongsToAgency`+`AgencyScope`).
+
+**Attached to the out-inspection screen** — the piece Johan actually asked for (§3a.5): when an
+out-inspection is open, a "Fault & Repair History" block queries `rental_fault_reports` scoped to
+`lease_id = <this lease>` (§3a.4) and renders each one — title, outcome, outcome note, dated —
+alongside, never inside, the out-inspection's own item/observation recording. This is the "sub report"
+Johan described, and it is read-only from the out-inspection screen — a fault report is resolved from
+its own screen or the property tab, not edited from inside someone else's inspection.
+
 ---
 
 ## 7. The four-situation test, walked through against the actual schema
 
-Proving §1's table against §3's fields, concretely, so this isn't asserted without being shown:
+Proving §1's table against §3's fields, concretely, so this isn't asserted without being shown.
+**Updated, 2026-09-24**: situations 2 and 3 are tenant-originated, so they now read primarily off
+`rental_fault_reports` (§3a) — the record that exists whether or not a work order ever follows —
+rather than off `rental_work_orders` alone, matching §3.2's new preference that a tenant report
+creates a fault report first.
 
-1. **Tenant broke it, never reported, still broken at move-out.** No `rental_work_orders` row exists
-   linking to that item for the relevant lease period. The out-inspection screen, pulling "every work
-   order ever raised against this item" (a join on `rental_inspection_item_id`), finds nothing in that
-   window — the absence is itself the record. The current tenant is responsible.
-2. **Tenant broke it, reported it, repaired, owner already paid.** A row exists: `reported_by_type
-   ='tenant'`, `status='completed'`, `paid_by='owner'`, a `completed` photo attached, dated inside the
-   relevant lease's date range (via `lease_id`). The out-inspection screen shows this against the item
-   before showing any new damage — the tenant is not charged again for something already settled.
-3. **Tenant reported it, nobody fixed it.** A row exists: `reported_by_type='tenant'`, `reported_at`
-   set, but `status` never reaches `completed` (stuck at `reported`, possibly `ordered` with no
-   `completed_at`). The `rental_work_order_updates` log shows exactly when it was reported and that
-   nothing closed it. This is the owner's neglect on record, not the tenant's fault, regardless of what
-   the out-inspection observes on that item now.
-4. **A contractor repaired it badly.** A row exists: `status='completed'`, `agency_service_provider_id`
-   set (a specific, named supplier), `completed_at` dated. A LATER `rental_inspection_observation` on
-   the same item (via the shared `rental_inspection_item_id`) shows damage again, dated after
-   `completed_at`. The timeline — completed repair, then a later bad-condition observation — points
-   directly at the contractor's work, not the tenant occupying the property at the time of that later
-   observation.
+1. **Tenant broke it, never reported, still broken at move-out.** No `rental_fault_reports` row and no
+   `rental_work_orders` row exists linking to that item for the relevant lease period. The
+   out-inspection's attached fault-report block (§3a.5), scoped to `lease_id = <this lease>` (§3a.4),
+   finds nothing in that window — the absence is itself the record. The current tenant is responsible.
+2. **Tenant broke it, reported it, repaired, owner already paid.** A `rental_fault_reports` row exists:
+   `reported_by_type='tenant'`, `status='resolved'`, `outcome='repaired'`, linked via `lease_id` to the
+   relevant tenancy, with a linked `rental_work_orders` row (`reported_by_type='fault_report'`,
+   `status='completed'`, `paid_by='owner'`, a `completed` photo attached). The out-inspection's attached
+   block shows `outcome='repaired'` against the item before the agent even looks at its current
+   condition — the tenant is not charged again for something already settled.
+3. **Tenant reported it, nobody fixed it.** A `rental_fault_reports` row exists: `reported_by_type
+   ='tenant'`, `reported_at` set, but `status` never reaches `resolved` (or reaches it with
+   `outcome='not_repaired'`, `outcome_note` explaining why). No linked work order needs to exist at all
+   — the fault report alone, now that it survives independently of one, is the owner's neglect on
+   record, not the tenant's fault, regardless of what the out-inspection observes on that item now.
+   (`outcome='owner_declined'` is the sharper version of this same situation — see §3a.2 for why it's
+   kept distinct from plain `not_repaired`.)
+4. **A contractor repaired it badly.** A `rental_work_orders` row exists (raised from a fault report or
+   directly): `status='completed'`, `agency_service_provider_id` set (a specific, named supplier),
+   `completed_at` dated. A LATER `rental_inspection_observation` on the same item (via the shared
+   `rental_inspection_item_id`) shows damage again, dated after `completed_at`. The timeline — completed
+   repair, then a later bad-condition observation — points directly at the contractor's work, not the
+   tenant occupying the property at the time of that later observation.
 
-Every one of the four is answered by fields this spec already defines for other, independently-justified
-reasons (who reported it, who paid, the append-only log, the stable item link) — no additional "fault"
-field was needed to pass this test, which is itself evidence the schema is shaped correctly rather than
-patched to fit afterward.
+Every one of the four is answered by fields this spec (now across two tables, `rental_fault_reports`
+and `rental_work_orders`) already defines for other, independently-justified reasons — who reported it,
+its outcome, who paid, the stable item link — no additional bare "fault" field was needed to pass this
+test, which is itself evidence the schema is shaped correctly rather than patched to fit afterward.
 
 ---
 
@@ -745,6 +1054,17 @@ convention already established by the two sibling specs:
   an approval at all, and matters more, not less.
 - `rental_work_orders.cancel`
 
+**New, 2026-09-24 — fault reports get their own keys**, same naming convention, since they're now
+their own record rather than a work-order status:
+- `rental_fault_reports.view`
+- `rental_fault_reports.create` (covers logging a fault, adding photos)
+- `rental_fault_reports.record_approval` — same reasoning as `rental_work_orders.record_approval`
+  above, applied one stage earlier per §3a.1.
+- `rental_fault_reports.resolve` (setting the outcome, §3a.2) — deliberately separate from `.create`,
+  same reasoning as `.complete` on work orders: an outcome becoming final is a heavier call than
+  logging what was reported.
+- `rental_fault_reports.cancel`
+
 ---
 
 ## 11. Files to create (none yet written — spec only)
@@ -774,13 +1094,44 @@ convention already established by the two sibling specs:
 - `resources/views/corex/rental-work-orders/index.blade.php` — the new list screen (§6).
 - `resources/views/corex/properties/partials/rental-tab-work-orders.blade.php` — the property-level
   button + history (§6).
+- **New, 2026-09-24 — fault reports (§3a):**
+  - `database/migrations/xxxx_create_rental_fault_reports_table.php`
+  - `database/migrations/xxxx_create_rental_fault_report_photos_table.php`
+  - `database/migrations/xxxx_add_reported_fault_report_id_to_rental_work_orders_table.php` — the new
+    FK + `reported_by_type`/`'fault_report'` enum value (§3.1).
+  - `database/migrations/xxxx_register_rental_fault_report_notification_events.php` (idempotent, §4).
+  - `app/Models/RentalFaultReport.php`, `RentalFaultReportPhoto.php` — `use BelongsToAgency`.
+  - `app/Services/Rentals/RentalFaultReportService.php` — the approval gate (§3a.1), the outcome
+    transition (§3a.2), raising a linked work order. Same thin-controller discipline as
+    `RentalWorkOrderService` (§13) from day one, not retrofitted.
+  - `app/Http/Controllers/CoreX/RentalFaultReportController.php` — thin, calls the service.
+  - `app/Mail/Rentals/RentalFaultReportOwnerMail.php`, `RentalFaultReportTenantMail.php`.
+  - `resources/views/corex/rental-fault-reports/index.blade.php` — the new list screen (§6a).
+  - `resources/views/corex/properties/partials/rental-tab-fault-reports.blade.php` — the property-level
+    button + history (§6a).
+  - The out-inspection's "Fault & Repair History" attached block (§3a.5, §6a) — a read query added to
+    the existing out-inspection screen (`rental-inspections.md`'s rebuilt tab), not a new screen of its
+    own.
+- **Conditional on §3.4a's resolution, not written now**: if the tokened-link option is chosen,
+  `database/migrations/xxxx_create_rental_fault_report_approvals_table.php` (or a shared
+  `rental_approvals` table used by both fault reports and work orders, worth considering at build time
+  since §3a.1 has the same open mechanism as §3.4a — one table, not two, if both resolve the same way),
+  `app/Models/RentalFaultReportApproval.php`, `app/Mail/Rentals/RentalFaultReportOwnerApprovalMail.php`,
+  and the public token-gated route/controller pair (mirroring `RentalApplicationSigningController`'s
+  shape). If the internal-note option is chosen instead, no new files — `owner_approval_status` plus a
+  note-type log entry already covers it.
 - `config/corex-permissions.php` — new permission keys (§10).
-- Sidebar entry for the new list screen (same-day, non-negotiable #2).
+- Sidebar entry for the new list screens (same-day, non-negotiable #2) — Rental Work Orders AND Rental
+  Fault Reports both, under the existing Rentals section.
 - Setup Wizard entry for `no_approval_spend_threshold` (§3.4b) if and once that setting is built —
   same "designed in, not requested later" rule as every other agency setting (non-negotiable #10a).
 - `tests/Feature/RentalWorkOrders/*` — the four-situation test in §7 as real fixtures at minimum, plus
   completion-gate enforcement, the approval gate refusing `ordered` while pending/declined, agency
   scoping, and notification dispatch (internal vs external split).
+- `tests/Feature/RentalFaultReports/*` — **new, 2026-09-24**: the outcome-required-note enforcement
+  (§3a), the lease-scoping of the out-inspection's attached block (§3a.4 — proving a PREVIOUS tenancy's
+  fault report does NOT appear), the approval gate blocking `work_order_raised`, and the reverse FK
+  (`rental_work_orders.reported_fault_report_id`) round-tripping correctly.
 - Re-run `php artisan schema:dump`, commit refreshed `database/schema/mysql-schema.sql`
   (non-negotiable #12a).
 
@@ -792,11 +1143,15 @@ convention already established by the two sibling specs:
   not a future-question flag any more. REOS handles the money.
 - A deposit ledger or deposit-deduction processing (§5.1a) — settled OUT except advertising deposits;
   named as a real, current gap, not solved here.
-- The EXACT mechanism for capturing owner approval (§3.4a) and the spend threshold below which it
-  isn't required (§3.4b) — the GATE is settled and built into §3's schema; how it's satisfied is not.
-- Whether a tenant fault report is its own record type or simply a `rental_work_orders` row at
-  `reported_by_type='tenant'` (§1a) — argued, not decided; this spec builds to the latter by default
-  since it requires nothing new, but does not foreclose the former.
+- The EXACT mechanism for capturing owner approval — on a fault report (§3a.1) and on a work order
+  (§3.4a) — and the spend threshold below which it isn't required (§3.4b). The GATE is settled and
+  built into both schemas; how it's satisfied is not.
+- **How a tenant actually reports a fault (§3.2a) — SETTLED that fault reports are their own record
+  (§0b/§1a/§3a), STILL OPEN what the tenant's actual front door into one is.** Tenants remain `Contact`
+  rows with no CoreX login, confirmed directly against the code. The three costed options in §3.2a
+  (tokened link, self-filing inbound email, or the agent capturing it on the tenant's behalf) are
+  unchanged by this amendment — this spec still builds to the third (zero new mechanism) by default,
+  absent a ruling otherwise.
 - A supplier-facing reply/secure-link mechanism to self-report completion (§4) — named as a future
   upgrade path (DR2's `DealSecureLinkMail` is the existing pattern to copy when wanted), not built here.
 - Automated WhatsApp notification of anyone (§4) — does not exist in CoreX and is not built here; a
@@ -835,10 +1190,21 @@ namespace):
 | `POST` | `/api/v1/mobile/work-orders/{workOrder}/assign-supplier` | `RentalWorkOrderService::assignSupplier()` — refuses per the approval gate exactly like the web path does, same method, not a second implementation of the gate. |
 | `POST` | `/api/v1/mobile/work-orders/{workOrder}/complete` | `RentalWorkOrderService::complete()` — the photo/payer completion gate (§3.4) enforced once, in the service, not duplicated in a controller. |
 
-**Offline**: `rental_work_order_photos.client_idempotency_key` (§3.1) already exists for the same
-reason `rental_inspection_photos`' own column does — a retried upload on a bad connection must never
-create a duplicate. The same four arrival cases `rental-inspections.md` §14.4 works through (late,
-out-of-order, a genuine app-side duplicate, and data that's gone stale by the time it arrives — here,
-most concretely, a work order reported against a lease that's since ended) apply identically and are
-not re-argued in full here; the server-side answer is the same: never discard real evidence because
-something moved on, tell the app plainly what changed.
+**Fault reports (2026-09-24 amendment) carry the identical discipline.** §3a's own logic already lives
+on `RentalFaultReportService`/`RentalFaultReport` per §11, not a controller, so these extend the same
+table rather than starting a second one:
+
+| Method | Route | Calls |
+|---|---|---|
+| `POST` | `/api/v1/mobile/properties/{property}/fault-reports` | `RentalFaultReportService::report()` — this is the tenant-originated front door §12/Q2 is still deciding the auth story for; whichever way that's settled, this is the route it lands on, since the service call underneath doesn't change. |
+| `POST` | `/api/v1/mobile/fault-reports/{faultReport}/photos` | Reuses `PropertyImageStorer` directly — same reasoning as the work-order photo row above and `rental-inspections.md` §14.5. One photo pipeline, not three. |
+| `POST` | `/api/v1/mobile/fault-reports/{faultReport}/outcome` | `RentalFaultReportService::setOutcome()` — the outcome-requires-a-note-unless-repaired rule (§3a.2) enforced once, in the service. |
+
+**Offline**: `rental_work_order_photos.client_idempotency_key` (§3.1) and `rental_fault_report_photos`'
+own copy of the same column (§3a) already exist for the same reason `rental_inspection_photos`' does
+— a retried upload on a bad connection must never create a duplicate. The same four arrival cases
+`rental-inspections.md` §14.4 works through (late, out-of-order, a genuine app-side duplicate, and
+data that's gone stale by the time it arrives — here, most concretely, a work order or fault report
+reported against a lease that's since ended) apply identically and are not re-argued in full here; the
+server-side answer is the same: never discard real evidence because something moved on, tell the app
+plainly what changed.
