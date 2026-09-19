@@ -291,4 +291,30 @@ class RentalInspection extends Model
             ->with(['observations' => fn (HasMany $q) => $q->oldest('created_at')->oldest('id')])
             ->get();
     }
+
+    /**
+     * §14.1/§14.7 — the ONE place "what does the inspection tab need" is
+     * resolved: property items plus whichever in/out inspection is
+     * currently under way. Called from BOTH the JSON endpoint
+     * (RentalInspectionRecordingController::tabData(), what a mobile client
+     * fetches) and the property page's own initial server render (so the
+     * web tab doesn't pay a second round-trip for data it can render
+     * inline) — one resolution, two callers, never two implementations
+     * that could drift (§14.1).
+     */
+    public static function tabPayloadFor(Property $property): array
+    {
+        $items = RentalInspectionItem::where('property_id', $property->id)
+            ->with(['observations' => fn (HasMany $q) => $q->latest('created_at')])
+            ->get();
+
+        $withDetail = fn (string $type) => self::currentFor($property, $type)
+            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures']);
+
+        return [
+            'items' => $items,
+            'in_inspection' => $withDetail(self::TYPE_IN),
+            'out_inspection' => $withDetail(self::TYPE_OUT),
+        ];
+    }
 }
