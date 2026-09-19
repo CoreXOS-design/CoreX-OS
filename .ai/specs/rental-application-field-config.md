@@ -87,54 +87,31 @@ not assumed:
 
 ---
 
-## 2. What an agency may NOT switch off — the honest answer, not a guess
+## 2. Locked/compliance fields — RULED OUT. There is no locked set.
 
-**This is the one place I will not paper over a gap with a guess, because you asked me not to.**
+**Johan's ruling, 2026-09-19, verbatim: "everything is tick / untick for optional / compulsory."**
 
-I searched exhaustively — every field-level comment, every docblock, `.ai/specs/rental-applications.md`,
-`.ai/specs/compliance.md` — for any statement tying a specific field to FICA, POPIA, the Rental
-Housing Act, or "required by law." **I found none.** No field carries a legal citation anywhere in the
-code today — not `id_number`, not `declaration_signature`, not `tpn_consent_signature`.
+This section originally investigated whether some fields should be compliance-locked (unable to be
+switched off by an agency) for FICA/POPIA/Rental Housing Act reasons. That investigation found no
+field anywhere in the code carrying a stated legal basis, and — more importantly — found Johan's own
+prior, separate, already-explicit ruling on this exact question (`RentalApplication.php`, 2026-09-13,
+"round 5"): *"every field on the applicant form is agency tick/untick, no locked set"* — *"we provide
+the system, they set it up the way they want to use it."*
 
-**More than that — I found the opposite of a locked set, already ruled on.** `RentalApplication.php`
-carries Johan's own prior, explicit, twice-repeated ruling (2026-09-13, "round 5"): *"every field on the
-applicant form is agency tick/untick, no locked set"* — and the settings controller's own comment:
-*"we provide the system, they set it up the way they want to use it."* `id_number`,
-`declaration_signature`, and `tpn_consent_signature` are all in the agency-untickable registry today,
-exactly like `special_conditions` or `adults`. They ship required *by default*
-(`DEFAULT_REQUIRED_FIELD_KEYS` includes all three), but an agency can currently untick every one of
-them, including both signatures and the ID number.
+That earlier ruling had gone unseen by the conductor when this task was framed, which is why the
+question was asked again. It is now asked and answered a second time, on the record, in this file,
+specifically so it is not re-litigated by anyone building or extending this feature. **There is no
+locked/compliance field concept in this spec.** No candidate list, no warning-instead-of-lock
+compromise, no future option held open. `id_number`, `declaration_signature`, `tpn_consent_signature`
+— every field, without exception — is agency tick/untick for optional/compulsory, exactly like
+`special_conditions` or `adults`, via the existing `required_field_keys` mechanism (§1b), which this
+ruling confirms is exactly the right shape and needs no further design here.
 
-**The one thing that is explicitly, deliberately NOT settings-gated** is signature *well-formedness*,
-not signature *presence* — `RentalApplication.php:526-536` quotes Johan directly: *"that one is a
-correctness bug and is NOT a settings question."* If a signature is present, it must be a genuine,
-non-blank PNG; whether it's present at all is still an agency's call today.
-
-**The one genuinely load-bearing legal citation that exists anywhere in this module** is not a field —
-it's the qualifying formula's ceiling: `RentalApplicationQualifyingSetting.php:17-24` cites *"the
-actual legal figure: rent must not exceed 30% of GROSS income (Johan, from his own reading of the
-law)"*, and the settings screen shows a persistent warning (citing "Rental Housing Act affordability
-guideline" verbatim) if an agency configures above it — a warning, never a block, and an agency can
-still lower it. As noted in §1c, this formula's output isn't even read by anything today.
-
-**So: this task asks me to identify compliance-locked fields, and the codebase's own most recent,
-explicit ruling says there currently are none, by design.** I am not resolving this tension either way.
-Two real possibilities, and only Johan can say which:
-1. The 2026-09-13 "no locked set" ruling was correct for where the product was then, and this task is
-   a genuine, deliberate policy change — introduce a locked floor now, for named legal reasons Johan
-   can state even though the code never has.
-2. The "no locked set" ruling stands, and what's actually wanted is a **default-on, agency-can-untick**
-   set (already the mechanism, per §1b) plus a **visible warning** when an agency unticks something
-   Johan considers risky (ID number, both signatures) — softer than a hard lock, consistent with how
-   the 30%-formula ceiling is already handled (warn, don't block).
-
-**Candidates, listed as UNKNOWN per your own instruction, not silently decided either way:**
-- `id_number` — plausible FICA/identity basis, never stated in code.
-- `declaration_signature` — plausible basis (an unsigned application may not be a valid record of
-  consent to anything captured), never stated in code.
-- `tpn_consent_signature` — the real-world correct characterization is very likely POPIA consent for a
-  third-party credit check (TPN), but the codebase itself never makes this connection explicit anywhere
-  — I checked.
+**The one axis this ruling does NOT touch — still in scope, still wanted**: SHOWN vs. HIDDEN. Johan's
+original instruction was *"if an agency wants more or less fields on their application we can do it
+specifically for them"* — an agency can still remove a field from the form entirely (§6/§7 below,
+`hidden_field_keys`). Optional-vs-compulsory (this section) and shown-vs-hidden (§6) are two genuinely
+different axes; the ruling above settles only the first.
 
 ---
 
@@ -310,8 +287,7 @@ not this spec's job.
   in §6/§7, not built or designed here.
 - The exact file-storage join shape for file-upload custom fields (§7) — flagged as a build-time
   decision.
-- Whether a locked/compliance floor gets introduced at all (§2) — Johan's call, not decided here either
-  way.
+- A locked/compliance field concept — ruled out entirely, §2, 2026-09-19. Not a deferred item.
 - Building the Rental Inspections item-config generalization (§8) — named as carryable, not designed
   or built.
 - Any code, migration, or UI — nothing here is built. Spec only, per explicit instruction.

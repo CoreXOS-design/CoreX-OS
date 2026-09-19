@@ -2876,6 +2876,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.required-fields');
     Route::post('/settings/rental-applications/marital-status-options', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateMaritalStatusOptions'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.marital-status-options');
+    // .ai/specs/rental-application-field-config.md — shown/hidden, label
+    // and help-text overrides, and within-section ordering. Same permission
+    // gate as every other control on this screen (required-fields above,
+    // marital-status-options above) — not a new, finer-grained permission.
+    Route::post('/settings/rental-applications/field-display', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateFieldDisplayConfig'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.field-display');
     // Return gate, AT-392 round 4, 2026-09-13 — gate method + attempt cap.
     Route::post('/settings/rental-applications/return-gate', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReturnGate'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.return-gate');
