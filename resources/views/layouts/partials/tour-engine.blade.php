@@ -26,14 +26,16 @@
      ════════════════════════════════════════════════════════════════════════ --}}
 @auth
 @php
+    // The agency's Guided Tours switch governs ALL of it — the "?" menu, the
+    // first-visit tour, Advanced Guide / Spot Help and guide handoffs. Off means
+    // no help surface at all (config/corex-features.php 'guided-tours' → affects).
+    $__guiding       = app(\App\Services\Features\AgencyFeatureService::class)->enabled('guided-tours');
     $__tourRouteName = \Illuminate\Support\Facades\Route::currentRouteName();
-    $__tour          = \App\Support\Tours\TourRegistry::forRoute($__tourRouteName);
+    $__tour          = $__guiding ? \App\Support\Tours\TourRegistry::forRoute($__tourRouteName) : null;
     // Respect optional per-tour role-gating (defaults to "inherit the route's gate").
     if ($__tour && ! \App\Support\Tours\TourRegistry::visibleTo($__tour, auth()->user())) {
         $__tour = null;
     }
-    // Advanced Guide / Spot Help / guide handoffs ride the agency's Guided Tours switch.
-    $__guiding = app(\App\Services\Features\AgencyFeatureService::class)->enabled('guided-tours');
 
     // A guide requested for a record page (e.g. Spot Help on one property) lands
     // on its pick list first; resolve that tour's note + label server-side so
@@ -175,7 +177,7 @@
 
         // Explicit Advanced/Spot request for THIS page (?guide=<key>&mode=…&section=…).
         $__guideRequest = null;
-        if ($__guiding && request()->query('guide') === $__tour['key'] && ! request()->boolean('pick')) {
+        if (request()->query('guide') === $__tour['key'] && ! request()->boolean('pick')) {
             $__guideRequest = [
                 'mode'    => request()->query('mode') === 'spot' ? 'spot' : 'advanced',
                 'section' => request()->query('section'),
@@ -183,11 +185,6 @@
         }
 
         $__tourClient = \App\Support\Tours\TourRegistry::forClient($__tour);
-        if (! $__guiding) {
-            // Switch off: the menu offers only the Guided Tour.
-            $__tourClient['advanced'] = false;
-            $__tourClient['spot']     = false;
-        }
     @endphp
 
     {{-- Vendored assets — loaded once per page regardless of include count. --}}

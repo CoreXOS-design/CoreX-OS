@@ -161,8 +161,10 @@ the screens they describe, like the existing tours.
   `TourRegistry::visibleTo` (owner bypass → explicit tour `permission` → the route's
   permission). Ellie's buttons are filtered through the same check, and so are the "?"
   menu and the Guided Tours directory.
-- The whole feature sits behind the existing `guided-tours` feature switch, so an agency
-  that has guided tours off gets neither the new menu options nor Ellie's guide buttons.
+- The whole feature sits behind the existing `guided-tours` feature switch. An agency
+  that has guided tours off gets NO help surface at all: no "?", no first-visit tour,
+  no Advanced Guide / Spot Help, no Ellie guide buttons (fixed 2026-09-19: before this,
+  the old "?" and first-visit tour ignored the switch).
 - **Setup Wizard (Non-negotiable #10a):** not triggered, because no new setting is
   added.
 - **API (Non-negotiable #7):** no new endpoint. Ellie's existing reply gains a `guides`
