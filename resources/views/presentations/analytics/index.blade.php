@@ -40,14 +40,14 @@
         </div>
         <div class="flex items-center gap-2">
             <label for="filter-to" class="text-xs font-medium" style="color: var(--text-secondary);">To</label>
-            <input id="filter-to" type="date" name="to" value="{{ $to->toDateString() }}"
+            <input id="filter-to" data-tour="pres-analytics-to" type="date" name="to" value="{{ $to->toDateString() }}"
                    class="rounded-md px-2.5 py-1.5 text-[13px] leading-5 w-[150px]"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         @if($isManager)
             <div class="flex items-center gap-2">
                 <label for="filter-agent" class="text-xs font-medium" style="color: var(--text-secondary);">Agent</label>
-                <select id="filter-agent" name="agent_id" class="rounded-md px-2.5 py-1.5 text-[13px] leading-5 w-[150px]"
+                <select id="filter-agent" data-tour="pres-analytics-agent" name="agent_id" class="rounded-md px-2.5 py-1.5 text-[13px] leading-5 w-[150px]"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="">All</option>
                     @foreach($agents as $a)
@@ -57,7 +57,7 @@
             </div>
         @endif
         <div>
-            <button type="submit" class="corex-btn-primary text-xs py-1.5">Apply</button>
+            <button type="submit" class="corex-btn-primary text-xs py-1.5" data-tour="pres-analytics-apply">Apply</button>
         </div>
     </form>
 

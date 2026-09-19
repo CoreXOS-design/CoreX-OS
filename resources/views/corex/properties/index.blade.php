@@ -407,7 +407,7 @@
             @endif
 
             {{-- Sort --}}
-            <select name="sort" onchange="this.form.submit()" class="list-header-filter">
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-sort">
                 <option value="newest"     {{ ($filters['sort'] ?? 'newest') === 'newest'     ? 'selected' : '' }}>Newest first</option>
                 @if(($agencySortMode ?? 'created') === 'status_priority' || ($filters['sort'] ?? '') === 'status_priority')
                 <option value="status_priority" {{ ($filters['sort'] ?? '') === 'status_priority' ? 'selected' : '' }}>Status order (default)</option>
@@ -419,7 +419,7 @@
             </select>
 
             {{-- More filters toggle --}}
-            <button type="button" @click="advancedOpen = !advancedOpen"
+            <button type="button" @click="advancedOpen = !advancedOpen" data-tour="re-properties-more"
                     class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
                     :style="advancedOpen ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -580,7 +580,7 @@
             </div>
 
             {{-- ── Advanced filters panel ───────────────────────────────────── --}}
-            <div x-show="advancedOpen" x-cloak x-transition class="w-full mt-3 pt-3" style="border-top:1px dashed var(--border);">
+            <div x-show="advancedOpen" x-cloak x-transition data-tour="re-properties-more-panel" class="w-full mt-3 pt-3" style="border-top:1px dashed var(--border);">
                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
 
                     {{-- Property Type --}}
@@ -1000,7 +1000,7 @@
     </div>
 
     {{-- ═══ LIST VIEW ═══ --}}
-    <div x-show="view === 'list'" x-cloak class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
+    <div x-show="view === 'list'" x-cloak data-tour="re-properties-table" class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
       <div class="overflow-x-auto">
         <table class="min-w-full text-sm ds-table">
             @php

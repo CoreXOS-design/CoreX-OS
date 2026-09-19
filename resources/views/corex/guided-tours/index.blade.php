@@ -12,6 +12,15 @@
        onmouseover JS (UI_DESIGN_SYSTEM.md §5 rule 11). */
     .corex-tour-start { transition: filter 300ms ease; }
     .corex-tour-start:hover { filter: brightness(1.08); }
+    /* Secondary card actions (Advanced Guide / Spot Help) — outline chips. */
+    .corex-tour-alt {
+        background: transparent; color: var(--brand-icon, #0ea5e9);
+        border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 45%, var(--border));
+        transition: background 300ms ease;
+    }
+    .corex-tour-alt:hover { background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); }
+    .corex-tour-spot-item { color: var(--text-secondary); transition: background 200ms ease; }
+    .corex-tour-spot-item:hover { background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent); color: var(--text-primary); }
     /* Search placeholder — neutral token (the page-banner neutraliser does not
        catch the placeholder-white/50 utility). */
     .corex-tour-search::placeholder { color: var(--text-faint); }
@@ -41,8 +50,9 @@
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Guided Tours</h1>
                 <p class="text-xs" style="color: var(--text-muted);">
-                    Short, interactive walkthroughs of CoreX — click one and it takes you to the screen and
-                    walks you through it, step by step. Your own training, any time you need a refresher.
+                    Short, interactive walkthroughs of CoreX. <strong>Guided Tour</strong> explains a screen;
+                    <strong>Advanced Guide</strong> walks you through actually doing the job, moving on as you go;
+                    <strong>Spot Help</strong> shows you just the one part you're stuck on.
                 </p>
             </div>
 
@@ -118,10 +128,47 @@
                         {{ $tour['description'] ?: 'A short, interactive walkthrough of this screen.' }}
                     </p>
 
-                    {{-- Action pinned to the bottom so every card is the same shape,
-                         with exactly one uniform full-width action per entry. --}}
+                    {{-- Actions pinned to the bottom so every card is the same shape. --}}
                     <div class="mt-auto pt-4">
-                        @if($tour['url'])
+                        @if($tour['url'] && ! $tour['external'])
+                            <div class="grid gap-2 {{ $tour['advancedUrl'] ? 'grid-cols-2' : 'grid-cols-1' }}">
+                                <a href="{{ $tour['url'] }}"
+                                   class="corex-tour-start inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline"
+                                   style="background: var(--brand-button, #0ea5e9); color:#fff;">
+                                    {{ $tour['cta'] ?: 'Guided Tour' }}
+                                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                                </a>
+                                @if($tour['advancedUrl'])
+                                    <a href="{{ $tour['advancedUrl'] }}"
+                                       title="Walks you through actually doing it, step by step"
+                                       class="corex-tour-alt inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-semibold no-underline">
+                                        Advanced Guide
+                                    </a>
+                                @endif
+                            </div>
+                            @if(! empty($tour['spot']))
+                                <div class="relative mt-2" x-data="{ spotOpen: false }" @keydown.escape="spotOpen = false">
+                                    <button type="button" @click="spotOpen = !spotOpen" :aria-expanded="spotOpen ? 'true' : 'false'"
+                                            class="corex-tour-alt inline-flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-md text-xs font-semibold">
+                                        Spot Help — just one part
+                                        <svg class="w-3.5 h-3.5 transition-transform" :class="spotOpen && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+                                    </button>
+                                    <div x-show="spotOpen" x-cloak @click.outside="spotOpen = false"
+                                         class="mt-1 rounded-md p-1"
+                                         style="background: var(--surface-2); border: 1px solid var(--border);">
+                                        @foreach($tour['spot'] as $section)
+                                            <a href="{{ $section['url'] }}"
+                                               class="corex-tour-spot-item block px-3 py-1.5 rounded text-xs no-underline">{{ $section['name'] }}</a>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            @endif
+                            @if($tour['pick'])
+                                <p class="text-[0.6875rem] mt-2" style="color: var(--text-muted);">
+                                    {{ $tour['pickNote'] ?: 'Opens your list first — pick a record and it starts there.' }}
+                                </p>
+                            @endif
+                        @elseif($tour['url'])
                             <a href="{{ $tour['url'] }}"
                                @if($tour['external']) target="_blank" rel="noopener noreferrer" @endif
                                class="corex-tour-start inline-flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-md text-xs font-semibold no-underline"

@@ -170,7 +170,7 @@
              style="background:var(--surface); border:1px solid var(--border); box-shadow:0 10px 30px rgba(0,0,0,0.18);">
             <div class="flex items-center gap-3 px-4 py-3" style="border-bottom:1px solid var(--border);">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
-                <input x-ref="searchInput" x-init="$watch('searchOpen', v => v && $nextTick(() => $refs.searchInput.focus()))"
+                <input x-ref="searchInput" data-tour="train-help-search-input" x-init="$watch('searchOpen', v => v && $nextTick(() => $refs.searchInput.focus()))"
                        x-model="searchQuery" @input.debounce.300ms="doSearch()"
                        type="text" placeholder="Search training docs..."
                        class="flex-1 bg-transparent text-sm outline-none" style="color:var(--text-primary);">
@@ -181,10 +181,10 @@
                     <div class="px-4 py-6 text-center text-sm" style="color:var(--text-muted);">Searching...</div>
                 </template>
                 <template x-if="!searchLoading && searchResults.length === 0 && searchQuery.length >= 2">
-                    <div class="px-4 py-6 text-center text-sm" style="color:var(--text-muted);">No results found.</div>
+                    <div class="px-4 py-6 text-center text-sm" data-tour="train-help-search-empty" style="color:var(--text-muted);">No results found.</div>
                 </template>
                 <template x-for="(result, idx) in searchResults" :key="idx">
-                    <a :href="result.url" class="block px-4 py-3 transition-colors hover:opacity-80" style="border-bottom:1px solid var(--border);">
+                    <a :href="result.url" data-tour="train-help-search-result" class="block px-4 py-3 transition-colors hover:opacity-80" style="border-bottom:1px solid var(--border);">
                         <div class="text-sm font-medium" style="color:var(--text-primary);" x-text="result.doc_title"></div>
                         <div class="text-xs mt-0.5" style="color:var(--brand-icon, #0ea5e9);" x-text="result.section"></div>
                         <div class="text-xs mt-1 line-clamp-2" style="color:var(--text-muted);" x-text="result.snippet"></div>

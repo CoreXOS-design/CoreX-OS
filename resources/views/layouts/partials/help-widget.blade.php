@@ -1,5 +1,6 @@
 {{-- HELP_WIDGET — Combined Ellie + Feedback panel, triggered from sidebar icon --}}
-<div x-data="helpWidget()" id="help-widget-root">
+<div x-data="helpWidget()" id="help-widget-root"
+     @corex-guide:started.window="open = false">
 
     {{-- Header icon button — rendered via x-teleport into #help-widget-slot --}}
     <template x-teleport="#help-widget-slot">
@@ -70,12 +71,25 @@
                         </template>
                         {{-- Chat history --}}
                         <template x-for="(msg, idx) in ellieMessages" :key="idx">
-                            <div class="flex" :class="msg.who === 'me' ? 'justify-end' : 'justify-start'">
+                            <div class="flex flex-col" :class="msg.who === 'me' ? 'items-end' : 'items-start'">
                                 <div class="max-w-[85%] px-3 py-2 rounded-lg text-[13px] leading-relaxed whitespace-pre-line"
                                      :style="msg.who === 'me'
                                          ? 'background:var(--brand-button);color:#fff;'
                                          : 'background:var(--surface);border:1px solid var(--border);color:var(--text-primary);'"
                                      x-text="msg.text"></div>
+                                {{-- Advanced Guiding — buttons that walk the agent through it on screen
+                                     (spec: .ai/specs/advanced-guiding.md §3.2). --}}
+                                <template x-if="msg.who !== 'me' && Array.isArray(msg.guides) && msg.guides.length">
+                                    <div class="max-w-[85%] mt-1.5 flex flex-col gap-1.5">
+                                        <template x-for="g in msg.guides" :key="g.key + g.mode + (g.section || '')">
+                                            <button type="button" @click="launchGuide(g)"
+                                                    class="help-guide-btn inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold text-left">
+                                                <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"/></svg>
+                                                <span x-text="g.label"></span>
+                                            </button>
+                                        </template>
+                                    </div>
+                                </template>
                             </div>
                         </template>
                         {{-- Typing indicator --}}
@@ -203,6 +217,15 @@
     </template>
 </div>
 
+<style>
+    .help-guide-btn {
+        background: color-mix(in srgb, var(--brand-button) 12%, transparent);
+        color: var(--brand-button);
+        border: 1px solid color-mix(in srgb, var(--brand-button) 40%, transparent);
+        transition: background 0.2s ease;
+    }
+    .help-guide-btn:hover { background: color-mix(in srgb, var(--brand-button) 20%, transparent); }
+</style>
 <script>
 function helpWidget() {
     const CONVO_KEY = 'ELLIE_CONVO_ID';
@@ -324,7 +347,11 @@ function helpWidget() {
                 if (data.conversation_id) localStorage.setItem(CONVO_KEY, String(data.conversation_id));
 
                 this.ellieTyping = false;
-                this.ellieMessages.push({ who: 'ellie', text: data.reply || 'Sorry, I got no reply.' });
+                this.ellieMessages.push({
+                    who: 'ellie',
+                    text: data.reply || 'Sorry, I got no reply.',
+                    guides: Array.isArray(data.guides) ? data.guides : [],
+                });
             } catch (err) {
                 this.ellieTyping = false;
                 this.ellieError = 'Ellie is unavailable right now. (' + (err?.message || 'unknown') + ')';
@@ -333,6 +360,16 @@ function helpWidget() {
                 this.ellieBusy = false;
                 this._saveEllieMessages();
                 this.scrollEllie();
+            }
+        },
+
+        // Start (or travel to) the guide Ellie offered. The tour engine owns the
+        // run; it closes this panel via corex-guide:started so nothing covers the page.
+        launchGuide(g) {
+            if (window.CoreXGuide && typeof window.CoreXGuide.launch === 'function') {
+                window.CoreXGuide.launch(g);
+            } else if (g && g.url) {
+                window.location.href = g.url;
             }
         },
 

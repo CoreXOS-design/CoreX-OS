@@ -68,14 +68,14 @@
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title (optional)</label>
-                    <input type="text" name="title" value="{{ old('title') }}"
+                    <input type="text" name="title" value="{{ old('title') }}" data-tour="docs-upload-title"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="Descriptive title...">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">File</label>
-                    <input type="file" name="file"
+                    <input type="file" name="file" data-tour="docs-upload-file"
                            class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);"
                            required>
@@ -83,7 +83,7 @@
                         <p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>
                     @enderror
                 </div>
-                <button type="submit" class="corex-btn-primary w-full">
+                <button type="submit" class="corex-btn-primary w-full" data-tour="docs-upload-btn">
                     Upload
                 </button>
             </form>
@@ -109,7 +109,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Doc Type</label>
-                    <select name="doc_type" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <select name="doc_type" data-tour="docs-filter-type" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="">All types</option>
                         @foreach($docTypes as $dt)
                             <option value="{{ $dt }}" {{ request('doc_type') === $dt ? 'selected' : '' }}>
@@ -129,7 +129,7 @@
                         @endforeach
                     </select>
                 </div>
-                <button type="submit" class="corex-btn-outline w-full">
+                <button type="submit" class="corex-btn-outline w-full" data-tour="docs-filter-apply">
                     Apply Filters
                 </button>
                 <a href="{{ route('documents.library.index', array_filter(['presentation_id' => $presentationId, 'return' => $returnUrl])) }}"
@@ -224,7 +224,7 @@
         @else
             <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="overflow-x-auto">
-                    <table class="min-w-full text-sm ds-table">
+                    <table class="min-w-full text-sm ds-table" data-tour="docs-table">
                         <thead>
                             <tr style="background: var(--surface-2);">
                                 @if($presentation)

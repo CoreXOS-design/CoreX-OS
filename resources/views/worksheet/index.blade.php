@@ -246,21 +246,21 @@
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label for="wks-personal" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Personal (Take-home)</label>
-                    <input id="wks-personal" type="number" step="0.01" name="personal_net_target" value="{{ old('personal_net_target', $w->personal_net_target ?? 0) }}"
+                    <input id="wks-personal" data-tour="at-worksheet-personal" type="number" step="0.01" name="personal_net_target" value="{{ old('personal_net_target', $w->personal_net_target ?? 0) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                     @error('personal_net_target') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                 </div>
                 <div>
                     <label for="wks-business" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Business (Fuel/Marketing/etc.)</label>
-                    <input id="wks-business" type="number" step="0.01" name="business_net_target" value="{{ old('business_net_target', $w->business_net_target ?? 0) }}"
+                    <input id="wks-business" data-tour="at-worksheet-business" type="number" step="0.01" name="business_net_target" value="{{ old('business_net_target', $w->business_net_target ?? 0) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                     @error('business_net_target') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
                 </div>
                 <div>
                     <label for="wks-want" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Want (Savings/Holiday/Buffer)</label>
-                    <input id="wks-want" type="number" step="0.01" name="want_net_target" value="{{ old('want_net_target', $w->want_net_target ?? 0) }}"
+                    <input id="wks-want" data-tour="at-worksheet-want" type="number" step="0.01" name="want_net_target" value="{{ old('want_net_target', $w->want_net_target ?? 0) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />
                     @error('want_net_target') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
@@ -338,7 +338,7 @@
 
                 <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
                     <label for="wks-commission" class="sr-only">Commission %</label>
-                    <input id="wks-commission" type="number" step="0.01" name="commission_percent"
+                    <input id="wks-commission" data-tour="at-worksheet-commission" type="number" step="0.01" name="commission_percent"
                            value="{{ old('commission_percent', $w->commission_percent ?? 7.5) }}"
                            class="w-full rounded-md px-3 py-2 text-sm"
                            style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);" />

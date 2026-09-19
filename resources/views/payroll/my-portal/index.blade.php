@@ -40,8 +40,8 @@
                             <td class="px-3 py-2.5 text-right text-sm font-semibold" style="color:var(--brand-icon);">R {{ number_format($ps->net_pay, 2) }}</td>
                             <td class="px-3 py-2.5 text-right">
                                 <div class="flex items-center justify-end gap-2">
-                                    <a href="{{ route('my-portal.payslips.show', $ps) }}" class="text-xs font-semibold" style="color:var(--brand-icon);">View</a>
-                                    <a href="{{ route('my-portal.payslips.pdf', $ps) }}" class="text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Download</a>
+                                    <a href="{{ route('my-portal.payslips.show', $ps) }}" data-tour="portal-payslips-view" class="text-xs font-semibold" style="color:var(--brand-icon);">View</a>
+                                    <a href="{{ route('my-portal.payslips.pdf', $ps) }}" data-tour="portal-payslips-download" class="text-xs font-semibold" style="color:var(--text-secondary, #6b7280);">Download</a>
                                 </div>
                             </td>
                         </tr>

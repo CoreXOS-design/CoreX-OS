@@ -54,14 +54,14 @@
                          fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0z"/>
                     </svg>
-                    <input type="text" name="q" value="{{ $activeSearch }}" placeholder="Search title or description..."
+                    <input type="text" name="q" data-tour="feedback-search" value="{{ $activeSearch }}" placeholder="Search title or description..."
                            class="w-full rounded-md pl-9 pr-3 py-2 text-sm"
                            style="background:var(--surface-2);border:1px solid var(--border);color:var(--text-primary);">
                 </div>
-                <button type="submit" class="corex-btn-primary corex-btn-xs">Search</button>
+                <button type="submit" class="corex-btn-primary corex-btn-xs" data-tour="feedback-search-btn">Search</button>
             </form>
 
-            <div class="flex flex-wrap items-center gap-2 lg:ml-auto">
+            <div class="flex flex-wrap items-center gap-2 lg:ml-auto" data-tour="feedback-status">
                 <a href="{{ route('command-center.feedback-reports', array_filter(['q' => $activeSearch])) }}"
                    class="text-xs font-semibold px-3 py-1.5 rounded-md no-underline transition-all duration-300"
                    style="{{ !$activeStatus ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);' }}">
@@ -121,7 +121,7 @@
         </div>
 
         <div class="overflow-x-auto">
-            <table class="min-w-full text-sm ds-table">
+            <table class="min-w-full text-sm ds-table" data-tour="feedback-table">
                 <thead>
                     <tr style="background:var(--surface-2);">
                         <th class="px-4 py-2.5 w-10">

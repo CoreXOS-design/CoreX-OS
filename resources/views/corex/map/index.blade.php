@@ -207,7 +207,7 @@
                  'agency' for owners; 'all' visible only for owners. --}}
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Stock scope</div>
-                <div id="scope-pills" data-default="{{ $mapDefaultScope }}" data-owner="{{ $mapIsOwner ? '1' : '0' }}"
+                <div id="scope-pills" data-tour="re-map-scope" data-default="{{ $mapDefaultScope }}" data-owner="{{ $mapIsOwner ? '1' : '0' }}"
                      style="display: inline-flex; width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
                     <button type="button" data-scope="my"     class="scope-pill" style="flex: 1; padding: 5px 6px; font-size: 0.75rem; font-weight: 500; background: transparent; color: var(--text-secondary); border: 0; border-radius: 4px; cursor: pointer;">My</button>
                     <button type="button" data-scope="agency" class="scope-pill" style="flex: 1; padding: 5px 6px; font-size: 0.75rem; font-weight: 500; background: transparent; color: var(--text-secondary); border: 0; border-radius: 4px; cursor: pointer;">Agency</button>
@@ -318,7 +318,7 @@
             {{-- Phase 3g V2 Part A — display mode radio. --}}
             <div style="margin-bottom: 12px;">
                 <div style="font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); font-weight: 600; margin-bottom: 6px;">Display mode</div>
-                <div id="display-mode-group" style="display: flex; gap: 8px;">
+                <div id="display-mode-group" data-tour="re-map-display" style="display: flex; gap: 8px;">
                     @foreach(['pins' => 'Pins', 'heatmap' => 'Heat', 'both' => 'Both'] as $key => $label)
                     <label style="display: inline-flex; align-items: center; gap: 5px; cursor: pointer; font-size: 0.75rem;">
                         <input type="radio" name="display-mode" value="{{ $key }}" {{ $key === 'pins' ? 'checked' : '' }} style="margin: 0;">
@@ -343,7 +343,7 @@
             </div>
 
             {{-- Phase A.3.1 — collapsible filter sections via native <details>. --}}
-            <div id="filters-body" style="margin-bottom: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
+            <div id="filters-body" data-tour="re-map-filters" style="margin-bottom: 12px; padding-top: 12px; border-top: 1px solid var(--border);">
 
                 <details class="map-filter-block" style="margin-bottom: 4px;">
                     <summary style="cursor: pointer; padding: 5px 0; font-size: 0.75rem; font-weight: 600; color: var(--text-secondary);">Property type</summary>
@@ -470,7 +470,7 @@
                 </details>
 
                 <div style="display: flex; gap: 6px; margin-top: 10px;">
-                    <button type="button" id="filter-apply"
+                    <button type="button" id="filter-apply" data-tour="re-map-apply"
                         style="flex: 1; padding: 7px 10px; font-size: 0.75rem; font-weight: 600; color: #fff; background: var(--brand-button); border: 0; border-radius: 6px; cursor: pointer;">
                         Apply
                     </button>
@@ -506,7 +506,7 @@
         </aside>
 
         {{-- Main canvas --}}
-        <main style="flex: 1; position: relative; background: var(--surface-2);">
+        <main data-tour="re-map-canvas" style="flex: 1; position: relative; background: var(--surface-2);">
             <div id="corex-map" style="position: absolute; inset: 0;"></div>
             <div id="empty-state" style="display: none; position: absolute; inset: 50% 0 0 0; transform: translateY(-50%); text-align: center; color: var(--text-muted); font-size: 0.875rem; pointer-events: none;">
                 No data in this area yet — try importing CMA reports for this suburb.

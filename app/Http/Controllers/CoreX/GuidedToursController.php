@@ -5,7 +5,6 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Support\Tours\TourRegistry;
 use Illuminate\Support\Facades\Route as RouteFacade;
-use Illuminate\Support\Str;
 
 /**
  * Guided Tours directory (AT-41) — the agent's self-serve training index.
@@ -42,7 +41,7 @@ class GuidedToursController extends Controller
                 // through its route's middleware, so a tour whose screen the
                 // user can't open (e.g. the Deal Register for an agent without
                 // deals_v2.view) must not appear here either.
-                return $this->userCanAccessRoute($tour['route'] ?? null, $user);
+                return TourRegistry::canOpenRoute($tour['route'] ?? null, $user);
             })
             ->map(function ($tour) {
                 // Resolve the launch URL safely. Routes that need parameters
@@ -53,15 +52,36 @@ class GuidedToursController extends Controller
                 $url = null;
                 $needsContext = false;
 
+                $advancedUrl = null;
+                $spot = [];
+                $pick = false;
+
                 if ($external) {
                     // External-link entry (e.g. Mobile app): the card is the whole
                     // feature — it leaves CoreX rather than driving a tour.
                     $url = $external;
                 } elseif ($routeName && RouteFacade::has($routeName)) {
-                    try {
-                        $url = route($routeName, [], false) . '?tour=' . urlencode($tour['key']);
-                    } catch (\Throwable $e) {
-                        $needsContext = true; // route requires a bound model
+                    // Record pages (e.g. one property) launch via their pick list;
+                    // the guide then starts itself on the record the agent opens.
+                    $target = TourRegistry::launchTarget($tour, 'tour');
+                    if ($target) {
+                        $url  = $target['url'];
+                        $pick = $target['pick'];
+                    } else {
+                        $needsContext = true; // route requires a bound model, no pick list
+                    }
+
+                    // Advanced Guide + Spot Help (spec: advanced-guiding.md). This page
+                    // is itself behind the Guided Tours switch (feature:guided-tours).
+                    if ($url) {
+                        $advancedUrl = TourRegistry::launchTarget($tour, 'advanced')['url'] ?? null;
+                        if (TourRegistry::supportsSpotHelp($tour)) {
+                            foreach (TourRegistry::sections($tour) as $section) {
+                                if ($spotTarget = TourRegistry::launchTarget($tour, 'spot', $section)) {
+                                    $spot[] = ['name' => $section, 'url' => $spotTarget['url']];
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -71,6 +91,10 @@ class GuidedToursController extends Controller
                     'description'  => $tour['description'] ?? null,
                     'steps'        => count($tour['steps'] ?? []),
                     'url'          => $url,
+                    'advancedUrl'  => $advancedUrl,
+                    'spot'         => $spot,
+                    'pick'         => $pick,
+                    'pickNote'     => $pick ? ($tour['pick_note'] ?? null) : null,
                     'needsContext' => $needsContext,
                     'external'     => (bool) $external,
                     // Host shown on the card so it's obvious the button leaves CoreX.
@@ -87,46 +111,6 @@ class GuidedToursController extends Controller
                 : array_search($group, static::GROUP_ORDER, true));
 
         return view('corex.guided-tours.index', ['groups' => $tours]);
-    }
-
-    /**
-     * Does this user satisfy every `permission:<key>` middleware on the tour's
-     * route? That middleware (App\Http\Middleware\CheckPermission) is CoreX's
-     * standard route gate — it aborts 403 unless $user->hasPermission($key).
-     * We replay the same check so the directory never lists a tour for a screen
-     * the user would be bounced out of. A tour with no resolvable route, or a
-     * route carrying no permission middleware, is treated as accessible (the
-     * route is its own gate, and there is none to fail).
-     */
-    private function userCanAccessRoute(?string $routeName, $user): bool
-    {
-        if (! $routeName || ! RouteFacade::has($routeName)) {
-            // No (or unresolvable) route — nothing to gate on. Visibility is
-            // then governed solely by the tour's explicit `permission` key,
-            // already checked above.
-            return true;
-        }
-
-        $route = RouteFacade::getRoutes()->getByName($routeName);
-        if (! $route) {
-            return true;
-        }
-
-        foreach ($route->gatherMiddleware() as $middleware) {
-            if (! is_string($middleware) || ! Str::startsWith($middleware, 'permission:')) {
-                continue;
-            }
-
-            // 'permission:deals_v2.view' → 'deals_v2.view' (CheckPermission
-            // takes a single key; ignore any trailing args defensively).
-            $key = Str::before(Str::after($middleware, 'permission:'), ',');
-
-            if (! (method_exists($user, 'hasPermission') && $user->hasPermission($key) === true)) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /** Display order of the directory's category sections. */

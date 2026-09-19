@@ -41,7 +41,7 @@
 
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">From</label>
-            <input type="date" name="from" value="{{ $filters['from'] ?? '' }}"
+            <input type="date" name="from" value="{{ $filters['from'] ?? '' }}" data-tour="re-portal-leads-from"
                    class="w-full rounded-md text-sm transition-all duration-300"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" />
         </div>
@@ -78,7 +78,7 @@
         </div>
 
         <div class="flex items-end gap-2">
-            <button type="submit"
+            <button type="submit" data-tour="re-portal-leads-apply"
                     class="corex-btn-primary text-xs w-full justify-center">Apply</button>
             <a href="{{ route('corex.portal-leads.index') }}"
                class="corex-btn-outline text-xs whitespace-nowrap">Reset</a>

@@ -85,7 +85,7 @@
                 @error('asking_price_inc')<p class="mt-1 text-xs" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>@enderror
             </div>
             <div class="flex items-end">
-                <button type="submit" class="corex-btn-primary">
+                <button type="submit" class="corex-btn-primary" data-tour="pres-analysis-run-btn">
                     @if(isset($latestSnapshot) && $latestSnapshot) Re-run Analysis @else Run Analysis @endif
                 </button>
             </div>
@@ -145,7 +145,7 @@
              Replaces the old "Compile Pack" path. --}}
         <form method="POST" action="{{ route('presentations.analysis.confirm', $presentation) }}" class="inline">
             @csrf
-            <button type="submit" class="corex-btn-primary" style="background:var(--ds-green,#059669);">
+            <button type="submit" class="corex-btn-primary" style="background:var(--ds-green,#059669);" data-tour="pres-analysis-confirm">
                 Confirm &amp; Generate
             </button>
         </form>

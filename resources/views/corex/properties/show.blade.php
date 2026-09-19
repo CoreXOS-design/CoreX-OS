@@ -156,11 +156,12 @@
                 <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
             </button>
 
-            <button type="submit" form="prop-update-form" data-prop-save
+            <button type="submit" form="prop-update-form" data-prop-save data-tour="prop-save"
                     class="prop-action-btn prop-action-btn-success">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
                 <span class="prop-save-label">Save Changes</span>
             </button>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
         </div>
         @endif
     </div>
@@ -1331,7 +1332,7 @@
                 @continue
             @endif
             <button type="button"
-                    data-prop-tab="{{ $tab['key'] }}"
+                    data-prop-tab="{{ $tab['key'] }}" data-tour="prop-tab-{{ $tab['key'] }}"
                     @click="activeTab = '{{ $tab['key'] }}'"
                     @if($tab['key'] === 'rental') x-show="isRentalListing" x-cloak @endif
                     :class="'border-b-2'"
@@ -1875,12 +1876,12 @@
                         <svg class="prop-section-chevron" :class="info.identity ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
                     <div x-show="info.identity" x-collapse class="prop-section-body space-y-4">
-                        <div>
+                        <div data-tour="prop-info-title">
                             <label class="prop-label">Title <span class="prop-required">*</span></label>
                             <input type="text" name="title" value="{{ old('title', $property->title) }}" required class="prop-input">
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            <div>
+                            <div data-tour="prop-info-type">
                                 <label class="prop-label">Property Type <span class="prop-required">*</span></label>
                                 @php $ptCurrent = old('property_type', $property->property_type); @endphp
                                 <select name="property_type" required class="prop-select prop-field-enum">
@@ -2015,7 +2016,7 @@
                     </button>
                     <div x-show="info.pricing" x-collapse class="prop-section-body space-y-4">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" x-data="{ showPriceModal: false }">
-                            <div class="relative">
+                            <div class="relative" data-tour="prop-info-price">
                                 <label class="prop-label">Price (ZAR) <span class="prop-required">*</span></label>
                                 <div class="flex prop-field-money">
                                     <input type="number" name="price" value="{{ old('price', $property->price) }}" required min="0"
@@ -2174,7 +2175,7 @@
                     $initSpaces     = $spacesData['spaces']   ?? [];
                     $initFeatures   = $spacesData['features'] ?? new \stdClass();
                 @endphp
-                <div @unless($canEdit ?? true) data-edit-only @endunless x-data="spacesAndFeaturesManager(
+                <div data-tour="prop-spaces-features" @unless($canEdit ?? true) data-edit-only @endunless x-data="spacesAndFeaturesManager(
                     {{ json_encode($initSpaces) }},
                     {{ json_encode($initFeatures) }},
                     {{ (int)($property->beds  ?? 0) }},
@@ -2199,8 +2200,8 @@
                     <input type="hidden" name="ai_review"   :value="aiReviewed ? 1 : 0">
 
                     {{-- Reopen the AI photo-suggestions modal (also auto-opens on load). --}}
-                    <div x-show="hasAiSuggestions" x-cloak class="mb-2">
-                        <button type="button" @click="openAiModal()"
+                    <div x-show="hasAiSuggestions" x-cloak class="mb-2" data-tour="prop-ai-wrap">
+                        <button type="button" @click="openAiModal()" data-tour="prop-ai-btn"
                                 class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors"
                                 style="background:rgba(51,196,224,0.12); color:var(--corex-accent, #33c4e0); border:1px solid rgba(51,196,224,0.35);">
                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.5 3.5l1.2 2.6 2.6 1.2-2.6 1.2-1.2 2.6-1.2-2.6L5.7 7.3l2.6-1.2L9.5 3.5zM17 11l.8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8.8-1.7z"/></svg>
@@ -2219,7 +2220,7 @@
                          class="fixed inset-0 z-[60] flex items-center justify-center p-4"
                          style="background:rgba(0,0,0,0.55);"
                          @keydown.escape.window="aiModalOpen && closeAiModal()">
-                        <div class="w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-md shadow-2xl"
+                        <div data-tour="prop-ai-modal" class="w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-md shadow-2xl"
                              style="background:var(--surface); border:1px solid var(--border);"
                              @click.outside="closeAiModal()">
 
@@ -2333,7 +2334,7 @@
                             {{-- Footer --}}
                             <div class="flex items-center justify-between gap-3 p-4 border-t" style="border-color:var(--border);">
                                 <span class="text-xs" style="color:var(--text-muted);">Remember to <strong style="color:var(--text-secondary);">Save</strong> the property to keep your choices.</span>
-                                <button type="button" @click="closeAiModal()"
+                                <button type="button" @click="closeAiModal()" data-tour="prop-ai-done"
                                         class="px-4 py-2 rounded-md text-sm font-semibold text-white transition-opacity hover:opacity-90"
                                         style="background:var(--brand-button, var(--brand-icon));">Done</button>
                             </div>
@@ -2341,7 +2342,7 @@
                     </div></template>
 
                     {{-- ── SPACES ────────────────────────────────────────────── --}}
-                    <div x-data="{ spacesInfoOpen: false }">
+                    <div x-data="{ spacesInfoOpen: false }" data-tour="prop-spaces">
                         <div class="flex items-center mb-1.5">
                             <span class="text-xs font-semibold" style="color:var(--text-secondary);">Spaces:</span>
                             <div class="ml-auto relative">
@@ -2367,10 +2368,10 @@
                         </div>
 
                         <div class="rounded-md" style="border:1px solid var(--border); overflow:hidden;">
-                            <div class="flex overflow-x-auto" style="scrollbar-width:thin; scroll-behavior:smooth;">
+                            <div class="flex overflow-x-auto" data-tour="prop-space-tiles" style="scrollbar-width:thin; scroll-behavior:smooth;">
                                 <template x-for="(space, idx) in spaces" :key="space.type">
                                     <button type="button"
-                                            @click="openSpace(idx)"
+                                            data-tour="prop-space-tile" @click="openSpace(idx)"
                                             class="flex flex-col items-center justify-center gap-2 px-4 py-4 transition-all cursor-pointer"
                                             style="flex:1 0 110px; border-right:1px solid var(--border);"
                                             :style="(idx === modalSpaceIdx && modalOpen)
@@ -2392,7 +2393,7 @@
 
                                 {{-- + Add tile --}}
                                 <button type="button"
-                                        @click="addSpaceOpen = true"
+                                        data-tour="prop-space-add" @click="addSpaceOpen = true"
                                         class="flex flex-col items-center justify-center gap-2 px-4 py-4 transition-all cursor-pointer"
                                         style="flex:1 0 80px; border-left:1px solid var(--border); background:var(--surface);"
                                         onmouseover="this.style.background='color-mix(in srgb, var(--brand-icon) 4%, transparent)'"
@@ -2435,7 +2436,7 @@
                             </div>
                         </div>
 
-                        <div class="rounded-md overflow-hidden" style="border:1px solid var(--border);">
+                        <div class="rounded-md overflow-hidden" data-tour="prop-features-box" style="border:1px solid var(--border);">
                             <div class="flex" style="background:var(--surface); border-bottom:1px solid var(--border);">
                                 <template x-for="[catKey, catDef] in Object.entries(featureCategories)" :key="catKey">
                                     <button type="button"
@@ -2463,7 +2464,7 @@
                                 </button>
                             </div>
 
-                            <div class="flex flex-wrap gap-1.5 p-3" style="background:var(--surface-2); min-height:50px;">
+                            <div class="flex flex-wrap gap-1.5 p-3" data-tour="prop-feature-chips" style="background:var(--surface-2); min-height:50px;">
                                 <template x-for="feat in featureCategories[featureCategoryTab].features" :key="feat">
                                     <button type="button"
                                             @click="toggleGlobalFeature(featureCategoryTab, feat)"
@@ -2507,7 +2508,7 @@
                          class="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center"
                          style="background:rgba(0,0,0,0.6);">
                         <div class="absolute inset-0" @click="featurePickerOpen ? featurePickerOpen=false : closeModal()"></div>
-                        <div class="relative w-full sm:w-[500px] max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-md shadow-2xl"
+                        <div data-tour="prop-space-modal" class="relative w-full sm:w-[500px] max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-md shadow-2xl"
                              style="background:var(--surface); border:1px solid var(--border);">
 
                             {{-- Modal header --}}
@@ -2557,7 +2558,7 @@
 
                                         {{-- Feature picker panel (replaces body when open) --}}
                                         <template x-if="featurePickerOpen">
-                                            <div class="space-y-4">
+                                            <div class="space-y-4" data-tour="prop-space-feature-picker">
                                                 <div class="flex items-center gap-2">
                                                     <button type="button" @click="featurePickerOpen = false"
                                                             class="flex items-center gap-1 text-xs font-semibold" style="color:var(--brand-icon);">
@@ -2594,11 +2595,11 @@
                                             <div class="space-y-5">
 
                                                 {{-- Features of all [space]s --}}
-                                                <div>
+                                                <div data-tour="prop-space-features-all">
                                                     <div class="flex items-center justify-between mb-2">
                                                         <label class="text-xs font-semibold" style="color:var(--text-secondary);"
                                                                x-text="'Features of all ' + currentSpace.type + 's'"></label>
-                                                        <button type="button" @click="openFeaturePicker('all')"
+                                                        <button type="button" @click="openFeaturePicker('all')" data-tour="prop-space-add-feature"
                                                                 class="text-xs px-2.5 py-1 rounded-md font-semibold"
                                                                 style="background:color-mix(in srgb, var(--brand-icon) 10%, transparent); color:var(--brand-icon); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent);">
                                                             + Add Feature
@@ -2620,7 +2621,7 @@
                                                 </div>
 
                                                 {{-- Description of all [space]s --}}
-                                                <div>
+                                                <div data-tour="prop-space-description">
                                                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);"
                                                            x-text="'Description of all ' + currentSpace.type + 's'"></label>
                                                     <textarea x-model="currentSpace.descriptionAll" rows="2"
@@ -2686,7 +2687,7 @@
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.021-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"/></svg>
                                     Remove Space
                                 </button>
-                                <button type="button" @click="featurePickerOpen ? featurePickerOpen=false : closeModal()"
+                                <button type="button" @click="featurePickerOpen ? featurePickerOpen=false : closeModal()" data-tour="prop-space-done"
                                         class="flex items-center gap-1.5 text-sm font-semibold text-white px-4 py-2 rounded-md"
                                         style="background:var(--ds-green);">
                                     <template x-if="featurePickerOpen">
@@ -2706,7 +2707,7 @@
                          class="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center"
                          style="background:rgba(0,0,0,0.6);">
                         <div class="absolute inset-0" @click="addSpaceOpen = false"></div>
-                        <div class="relative w-full sm:w-[560px] max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-md shadow-2xl"
+                        <div data-tour="prop-space-add-modal" class="relative w-full sm:w-[560px] max-h-[90vh] flex flex-col rounded-t-2xl sm:rounded-md shadow-2xl"
                              style="background:var(--surface); border:1px solid var(--border);">
                             <div class="flex items-center justify-between px-5 py-4" style="border-bottom:1px solid var(--border);">
                                 <h3 class="text-base font-bold" style="color:var(--text-primary);">Add a Space</h3>
@@ -2718,7 +2719,7 @@
                                 </button>
                             </div>
                             <div class="flex-1 overflow-y-auto p-4">
-                                <div class="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                                <div class="grid grid-cols-4 sm:grid-cols-5 gap-2" data-tour="prop-space-types">
                                     <template x-for="type in availableSpaceTypes" :key="type">
                                         <button type="button"
                                                 @click="addSpace(type)"
@@ -2739,7 +2740,7 @@
                 </div>{{-- /spacesAndFeaturesManager --}}
 
                 {{-- Description / marketing copy (still inside Property section) --}}
-                <div>
+                <div data-tour="prop-info-description">
                     <p class="prop-subsection-heading">Description</p>
                     <textarea name="description" rows="6" class="prop-textarea" placeholder="Full property description...">{{ old('description', $property->description) }}</textarea>
                 </div>
@@ -2775,7 +2776,7 @@
                         {{-- Internal row --}}
                         <div class="flex items-center cursor-pointer transition-colors"
                              style="border-bottom:1px solid var(--border);"
-                             @click="openModal = 'internal'"
+                             data-tour="prop-address-internal" @click="openModal = 'internal'"
                              @mouseenter="$el.style.background='var(--surface-2)'" @mouseleave="$el.style.background=''">
                             <div class="px-3 py-2.5 flex items-center gap-1.5 flex-shrink-0" style="width:100px;">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" style="color:var(--ds-amber);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
@@ -2869,7 +2870,7 @@
                          class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
                          @keydown.escape.window="openModal = null">
                         <div class="absolute inset-0 bg-black/60" @click="openModal = null"></div>
-                        <div class="relative w-full max-w-[46rem] max-h-[85vh] overflow-y-auto rounded-lg shadow-2xl"
+                        <div data-tour="prop-address-modal" class="relative w-full max-w-[46rem] max-h-[85vh] overflow-y-auto rounded-lg shadow-2xl"
                              style="background:var(--surface); border:1px solid var(--border);" @click.stop>
 
                             <div class="sticky top-0 z-10 flex items-center justify-between px-5 py-3 rounded-t-lg"
@@ -2990,7 +2991,7 @@
                             </div>
 
                             <div class="sticky bottom-0 px-5 py-3 rounded-b-lg flex justify-end" style="background:var(--surface); border-top:1px solid var(--border);">
-                                <button type="button" @click="openModal = null" class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--ds-green);">Done</button>
+                                <button type="button" @click="openModal = null" data-tour="prop-address-done" class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--ds-green);">Done</button>
                             </div>
                         </div>
                     </div>
@@ -3154,7 +3155,7 @@
                             <p class="prop-subsection-heading">Lifecycle</p>
                             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                                 <div x-data="{ st: '{{ old('status', $property->status) }}' }" class="contents">
-                                <div>
+                                <div data-tour="prop-status">
                                     <label class="prop-label">Status <span class="prop-required">*</span></label>
                                     <select name="status" required x-model="st" class="prop-select prop-field-lifecycle">
                                         <option value="">— None —</option>
@@ -3185,7 +3186,7 @@
                                     <p class="text-xs mt-1" style="color:var(--text-muted);" x-show="st !== 'active'" x-cloak>Banners show only on Active (on-market) listings.</p>
                                 </div>
                                 </div>
-                                <div>
+                                <div data-tour="prop-mandate-type">
                                     <label class="prop-label">Mandate Type</label>
                                     <select name="mandate_type" class="prop-select prop-field-lifecycle">
                                         <option value="">— None —</option>
@@ -3231,7 +3232,7 @@
                                                title="Listed Date is always the date the property was loaded">
                                         @endif
                                     </div>
-                                    <div x-data="{ qaOpen: false, picked: {{ $importedFields && $expiryInitial !== '' ? 'true' : 'false' }} }" @click.outside="qaOpen = false" class="relative">
+                                    <div x-data="{ qaOpen: false, picked: {{ $importedFields && $expiryInitial !== '' ? 'true' : 'false' }} }" @click.outside="qaOpen = false" class="relative" data-tour="prop-expiry">
                                         <label class="prop-label">Expiry Date</label>
                                         @if($importedFields)
                                         {{-- Reads "Imported" until the agent clicks it, then it becomes the normal date
@@ -3404,7 +3405,7 @@
                     <p class="prop-subsection-heading">Assignment</p>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {{-- Primary Agent Card --}}
-                        <div class="rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <div class="rounded-md p-3" data-tour="prop-agent" style="background:var(--surface-2); border:1px solid var(--border);">
                             <label class="prop-label" style="margin-bottom:0.5rem;">Primary Agent <span class="prop-required">*</span></label>
                             <div class="flex items-start gap-3" x-data="{ agentId: {{ (int) old('agent_id', $property->agent_id) }} }">
                                 {{-- Agent photo preview — uses the eager-loaded full User relation
@@ -3560,7 +3561,7 @@
             <div @unless($canEdit ?? true) data-edit-only @endunless x-data="galleryUploader('{{ route('corex.properties.upload-images', $property) }}', '{{ csrf_token() }}')">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload Images</h3>
 
-                <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
+                <label data-tour="prop-gallery-upload" class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
                        :style="uploading ? 'opacity:0.6; pointer-events:none;' : ''"
                        style="border-color:var(--border-hover); color:var(--text-secondary);"
                        onmouseover="this.style.borderColor='var(--brand-icon)'" onmouseout="this.style.borderColor='var(--border-hover)'">
@@ -3571,7 +3572,7 @@
                            @change="onPick($event)">
                 </label>
 
-                <button x-show="files.length > 0 && !uploading" type="button"
+                <button x-show="files.length > 0 && !uploading" type="button" data-tour="prop-gallery-upload-btn"
                         @click="upload()"
                         class="mt-2 px-4 py-2 rounded-md text-sm font-semibold text-white"
                         style="background:var(--brand-button,#0ea5e9);">
@@ -3755,7 +3756,7 @@
                 }
             @endphp
 
-            <div x-data="Object.assign(smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }}, '{{ $property->galleryFingerprint() }}', {{ Js::from($thumbMap) }}), { tagsInfoOpen: false, manageTagsOpen: false, selectMode: false })" class="space-y-4">
+            <div data-tour="prop-gallery" x-data="Object.assign(smartGallery({{ Js::from($galleryImages) }}, {{ Js::from($tagMap) }}, {{ $property->id }}, '{{ csrf_token() }}', {{ Js::from($availableTags) }}, '{{ $property->galleryFingerprint() }}', {{ Js::from($thumbMap) }}), { tagsInfoOpen: false, manageTagsOpen: false, selectMode: false })" class="space-y-4">
 
                 {{-- Header --}}
                 <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">
@@ -3807,7 +3808,7 @@
                                 </p>
                             </div>
                         </div>
-                        <button type="button" @click="if (selectMode) toggleSelectMode(); if (manageTagsOpen) manageTagsOpen=false; if (!tagMode) activeTag=null; toggleTagMode()"
+                        <button type="button" data-tour="prop-gallery-tag-btn" @click="if (selectMode) toggleSelectMode(); if (manageTagsOpen) manageTagsOpen=false; if (!tagMode) activeTag=null; toggleTagMode()"
                                 class="text-[0.6875rem] font-semibold px-2.5 py-1 rounded transition-colors"
                                 :style="tagMode ? 'background:var(--brand-icon); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'">
                             <span x-text="tagMode ? 'Done Tagging' : 'Tag Images'"></span>
@@ -3920,7 +3921,7 @@
                 </template>
 
                 {{-- Sticky tag-pick bar — shows above the gallery while in Tag mode --}}
-                <div x-show="tagMode" x-cloak x-transition
+                <div x-show="tagMode" x-cloak x-transition data-tour="prop-gallery-tagbar"
                      class="rounded-md px-3 py-2.5 flex flex-wrap items-center gap-2"
                      style="position:sticky; top:8px; z-index:25; background:var(--surface); border:1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent); box-shadow:0 4px 12px rgba(0,0,0,0.18);">
                     <span class="text-xs font-semibold flex-shrink-0" style="color:var(--text-primary);">
@@ -4079,7 +4080,7 @@
                 </div>
 
                 {{-- Empty state --}}
-                <div x-show="images.length === 0" class="rounded-md p-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
+                <div x-show="images.length === 0" data-tour="prop-gallery-empty" class="rounded-md p-8 text-center" style="background:var(--surface-2); border:1px dashed var(--border-hover);">
                     <div class="text-sm" style="color:var(--text-secondary);">No gallery images yet. Upload some above.</div>
                 </div>
 
@@ -5136,7 +5137,7 @@
             </div>
 
             {{-- Link existing contact --}}
-            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:20px;">
+            <div style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:20px;" data-tour="prop-contacts-link">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-4" style="color:var(--text-muted);">Link Existing Contact</h3>
 
                 <div class="relative mb-3">
@@ -5151,7 +5152,7 @@
 
                 {{-- Search results — SELECTING a result does NOT link; it opens
                      the confirm + role step below so the role is chosen first. --}}
-                <div x-show="results.length > 0 && !selected" class="rounded-md overflow-hidden mb-3"
+                <div x-show="results.length > 0 && !selected" data-tour="prop-contacts-results" class="rounded-md overflow-hidden mb-3"
                      style="border:1px solid var(--border);">
                     <template x-for="r in results" :key="r.id">
                         <button type="button" @click="select(r)"
@@ -5171,7 +5172,7 @@
                 </div>
 
                 {{-- Confirm step: pick the role, THEN link (commits only on "Link") --}}
-                <div x-show="selected" x-cloak class="rounded-md p-4 mb-1"
+                <div x-show="selected" x-cloak data-tour="prop-contacts-confirm" class="rounded-md p-4 mb-1"
                      style="background:var(--surface); border:1px solid var(--brand-icon,#0ea5e9);">
                     <div class="flex items-center justify-between gap-3 mb-3">
                         <div class="min-w-0">
@@ -5184,7 +5185,7 @@
                         <button type="button" @click="selected = null" class="text-xs font-semibold flex-shrink-0" style="color:var(--text-muted);">Change</button>
                     </div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Link as <span class="prop-required">*</span></label>
-                    <select x-model="linkRole"
+                    <select x-model="linkRole" data-tour="prop-contacts-role"
                             class="w-full rounded-md px-3 py-2 text-sm mb-1"
                             style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         @foreach($linkRoleOptions as $value => $label)
@@ -5193,7 +5194,7 @@
                     </select>
                     <p class="mb-3 text-[11px]" style="color:var(--text-muted);">Sellers/owners/landlords drive compliance &amp; FICA.</p>
                     <div class="flex items-center gap-2">
-                        <button type="button" @click="confirmLink()" :disabled="submitting"
+                        <button type="button" @click="confirmLink()" data-tour="prop-contacts-link-btn" :disabled="submitting"
                                 class="px-4 py-2 rounded-md text-sm font-semibold text-white"
                                 style="background:var(--brand-button,#0ea5e9);">
                             <span x-text="submitting ? 'Linking…' : 'Link'"></span>

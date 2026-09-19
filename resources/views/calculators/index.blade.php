@@ -83,7 +83,7 @@
 
                 <div>
                     <label class="ds-label block mb-1">Commission Rate <span class="text-xs font-normal" style="color: var(--text-muted);">(excl. VAT)</span></label>
-                    <div class="flex items-center gap-2 flex-wrap">
+                    <div class="flex items-center gap-2 flex-wrap" data-tour="calc-hub-comm-rate">
                         <button type="button" @click="comm.rate = 7.5; comm.customRate = ''"
                                 :class="comm.rate == 7.5 && comm.customRate === '' ? 'calc-rate-active' : 'calc-rate'"
                                 class="px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-300">
@@ -99,13 +99,13 @@
                     </div>
                 </div>
 
-                <button type="button" @click="calcCommission()" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-md">
+                <button type="button" @click="calcCommission()" data-tour="calc-hub-comm-calc" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-md">
                     Calculate
                 </button>
             </div>
 
             {{-- Results --}}
-            <div x-show="comm.result" x-transition class="mt-4 pt-4 space-y-2" style="border-top: 1px solid var(--border);">
+            <div x-show="comm.result" x-transition data-tour="calc-hub-comm-result" class="mt-4 pt-4 space-y-2" style="border-top: 1px solid var(--border);">
                 <div class="flex justify-between"><span class="ds-label">Commission exc VAT</span><span class="ds-value" x-text="'R ' + fmt(comm.result?.commission_exc_vat)"></span></div>
                 <div class="flex justify-between"><span class="ds-label">VAT (15%)</span><span class="ds-value" x-text="'R ' + fmt(comm.result?.vat)"></span></div>
                 <div class="flex justify-between"><span class="ds-label">Commission inc VAT</span><span class="ds-value font-bold" x-text="'R ' + fmt(comm.result?.commission_inc_vat)"></span></div>
@@ -131,14 +131,14 @@
                     </div>
                 </div>
 
-                <div>
+                <div data-tour="calc-hub-bond-rate">
                     <label class="ds-label block mb-1">Interest Rate (%)</label>
                     <input type="text" x-model="bond.interestRate" placeholder="e.g. 11.75"
                            class="calc-input w-full" />
                     <div class="text-xs mt-1" style="color: var(--text-muted);">Current prime: {{ $primeRate }}%</div>
                 </div>
 
-                <div>
+                <div data-tour="calc-hub-bond-term">
                     <label class="ds-label block mb-1">Loan Term</label>
                     <select x-model="bond.termYears" class="calc-input w-full">
                         <template x-for="y in [10, 15, 20, 25, 30]" :key="y">
@@ -147,13 +147,13 @@
                     </select>
                 </div>
 
-                <button type="button" @click="calcBond()" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-md">
+                <button type="button" @click="calcBond()" data-tour="calc-hub-bond-calc" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-md">
                     Calculate
                 </button>
             </div>
 
             {{-- Results --}}
-            <div x-show="bond.result" x-transition class="mt-4 pt-4 space-y-2" style="border-top: 1px solid var(--border);">
+            <div x-show="bond.result" x-transition data-tour="calc-hub-bond-result" class="mt-4 pt-4 space-y-2" style="border-top: 1px solid var(--border);">
                 <div class="flex justify-between items-baseline">
                     <span class="ds-label">Monthly repayment</span>
                     <span class="ds-value-lg" x-text="'R ' + fmt(bond.result?.monthly_repayment)"></span>
@@ -182,7 +182,7 @@
                     </div>
                 </div>
 
-                <div>
+                <div data-tour="calc-hub-transfer-needs-bond">
                     <label class="ds-label block mb-1">Buyer needs bond?</label>
                     <label class="inline-flex items-center gap-2 cursor-pointer">
                         <input type="checkbox" x-model="costs.needsBond" class="rounded-md" style="accent-color: var(--brand-icon, #0ea5e9);" />
@@ -190,7 +190,7 @@
                     </label>
                 </div>
 
-                <div x-show="costs.needsBond" x-transition>
+                <div x-show="costs.needsBond" x-transition data-tour="calc-hub-transfer-bond-amount">
                     <label class="ds-label block mb-1">Bond Amount</label>
                     <div class="flex items-center gap-2">
                         <span class="text-sm font-semibold" style="color: var(--text-muted);">R</span>
@@ -199,13 +199,13 @@
                     </div>
                 </div>
 
-                <button type="button" @click="calcTransferCosts()" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-md">
+                <button type="button" @click="calcTransferCosts()" data-tour="calc-hub-transfer-calc" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-md">
                     Calculate
                 </button>
             </div>
 
             {{-- Results --}}
-            <div x-show="costs.result" x-transition class="mt-4 pt-4 space-y-1" style="border-top: 1px solid var(--border);">
+            <div x-show="costs.result" x-transition data-tour="calc-hub-transfer-result" class="mt-4 pt-4 space-y-1" style="border-top: 1px solid var(--border);">
                 {{-- Transfer section --}}
                 <div class="text-xs font-bold uppercase tracking-wide mb-1" style="color: var(--text-muted);">Transfer Costs</div>
                 <div class="flex justify-between"><span class="ds-label">Conveyancing fee</span><span class="ds-value" x-text="'R ' + fmt(costs.result?.transfer?.conveyancing_fee)"></span></div>
@@ -269,14 +269,14 @@
                 </div>
             </div>
 
-            <div>
+            <div data-tour="calc-hub-overpay-rate">
                 <label class="ds-label block mb-1">Interest Rate (%)</label>
                 <input type="text" x-model="overpay.interestRate" placeholder="e.g. 11.75"
                        class="calc-input w-full" />
                 <div class="text-xs mt-1" style="color: var(--text-muted);">Current prime: {{ $primeRate }}%</div>
             </div>
 
-            <div>
+            <div data-tour="calc-hub-overpay-term">
                 <label class="ds-label block mb-1">Loan Term</label>
                 <select x-model="overpay.termYears" class="calc-input w-full">
                     <template x-for="y in [10, 15, 20, 25, 30]" :key="y">
@@ -285,7 +285,7 @@
                 </select>
             </div>
 
-            <div>
+            <div data-tour="calc-hub-overpay-extra">
                 <label class="ds-label block mb-1">Extra Monthly Payment</label>
                 <div class="flex items-center gap-2">
                     <span class="text-sm font-semibold" style="color: var(--text-muted);">R</span>
@@ -304,13 +304,13 @@
         </div>
 
         <div class="mt-4">
-            <button type="button" @click="calcOverpayment()" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-md">
+            <button type="button" @click="calcOverpayment()" data-tour="calc-hub-overpay-calc" class="corex-btn-primary px-6 py-2 text-sm font-semibold rounded-md">
                 Calculate Savings
             </button>
         </div>
 
         {{-- Results --}}
-        <div x-show="overpay.result" x-transition class="mt-6">
+        <div x-show="overpay.result" x-transition class="mt-6" data-tour="calc-hub-overpay-result">
             {{-- Two-column comparison --}}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {{-- LEFT: Normal Bond --}}
@@ -352,12 +352,12 @@
 
             {{-- Comparison Table Toggle --}}
             <div class="mt-4">
-                <button type="button" @click="overpay.showTable = !overpay.showTable"
+                <button type="button" @click="overpay.showTable = !overpay.showTable" data-tour="calc-hub-overpay-table-toggle"
                         class="text-sm font-semibold transition-all duration-300" style="color: var(--brand-icon, #0ea5e9);">
                     <span x-text="overpay.showTable ? '▼ Hide' : '▶ Show'"></span> year-by-year comparison table
                 </button>
 
-                <div x-show="overpay.showTable" x-transition class="mt-3 overflow-x-auto">
+                <div x-show="overpay.showTable" x-transition class="mt-3 overflow-x-auto" data-tour="calc-hub-overpay-table">
                     <table class="ds-table w-full text-sm">
                         <thead>
                             <tr>

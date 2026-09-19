@@ -176,6 +176,8 @@ class EllieController extends Controller
             'ok' => true,
             'conversation_id' => $conversation->id,
             'reply' => $reply,
+            // Advanced Guiding — buttons that start a hands-on guide (spec: advanced-guiding.md §3.2).
+            'guides' => $answer['guides'] ?? [],
         ]);
     }
 

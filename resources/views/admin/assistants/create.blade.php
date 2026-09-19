@@ -81,14 +81,14 @@
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Surname <span class="text-red-500">*</span></label>
-                            <input type="text" name="surname" value="{{ old('surname') }}" required
+                            <input type="text" name="surname" value="{{ old('surname') }}" required data-tour="assist-create-surname"
                                    class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                         </div>
                         <div class="sm:col-span-2">
                             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Email <span class="text-red-500">*</span></label>
-                            <input type="email" name="email" value="{{ old('email') }}" required
+                            <input type="email" name="email" value="{{ old('email') }}" required data-tour="assist-create-email"
                                    class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
@@ -98,7 +98,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Cell <span class="text-red-500">*</span></label>
-                            <input type="text" name="cell" value="{{ old('cell') }}" required placeholder="083 555 0142"
+                            <input type="text" name="cell" value="{{ old('cell') }}" required placeholder="083 555 0142" data-tour="assist-create-cell"
                                    class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">

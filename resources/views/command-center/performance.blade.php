@@ -212,7 +212,7 @@
                             </div>
                             <div class="flex-1 min-w-0">
                                 @if($prop)
-                                    <a href="{{ route('corex.properties.show', $prop) }}"
+                                    <a href="{{ route('corex.properties.show', $prop) }}" data-tour="cc-performance-prop-link"
                                        class="text-sm font-medium truncate block hover:underline"
                                        style="color: var(--text-primary);">
                                         {{ $prop->buildDisplayAddress() ?: ($prop->title ?: 'Property #'.$prop->id) }}

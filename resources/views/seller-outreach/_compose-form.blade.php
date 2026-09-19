@@ -49,7 +49,7 @@
     </div>
     @else
     {{-- Property picker --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="oc-property"
          x-data="propertyPickerCollision({
             statuses: @js(collect($statuses)->map(fn ($s) => $s['status'] ?? 'available')),
             agentNames: @js(collect($statuses)->map(fn ($s) => $s['agent_name'] ?? null)),
@@ -115,7 +115,7 @@
 
     {{-- Template selector --}}
     @if($availableTemplates->isNotEmpty())
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="oc-template">
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
             Template
         </label>

@@ -406,11 +406,11 @@
       <div class="inlineRow">
         <div class="field" style="flex:2">
           <label>Property Address</label>
-          <input id="propAddress" type="text" value="" placeholder="e.g. 12 Smith Street, Shelly Beach"/>
+          <input id="propAddress" data-tour="tools-commission-address" type="text" value="" placeholder="e.g. 12 Smith Street, Shelly Beach"/>
         </div>
         <div class="field small">
           <label>Property Type</label>
-          <select id="propType">
+          <select id="propType" data-tour="tools-commission-type">
             <option value="res">Residential (7.5%)</option>
             <option value="land">Vacant land (10%)</option>
             <option value="comm">Commercial (10%)</option>
@@ -432,7 +432,7 @@
           <label>VAT %</label>
           <input id="vatRate" type="number" value="15" min="0" step="0.5"/>
         </div>
-        <div class="field small">
+        <div class="field small" data-tour="tools-commission-vat">
           <label>VAT Mode</label>
           <div class="pill-group">
             <label class="pill" style="margin:0;"><input type="checkbox" id="vatIncl" style="margin-right:8px">VAT included in comm</label>
@@ -542,7 +542,7 @@
       <div class="inlineRow">
         <div class="field" style="flex:2; position:relative;">
           <label>Find a property (optional — or capture manually below)</label>
-          <input type="text" x-model="propQuery" @input.debounce.300ms="searchProperties()" @focus="searchProperties()"
+          <input type="text" data-tour="tools-cma-find" x-model="propQuery" @input.debounce.300ms="searchProperties()" @focus="searchProperties()"
                  placeholder="Search your listings by address or ref…" autocomplete="off">
           <div x-show="propResults.length" @click.outside="propResults=[]" x-cloak
                style="position:absolute; z-index:30; left:0; right:0; top:100%; background:var(--surface-2, var(--surface)); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.12); max-height:260px; overflow:auto;">
@@ -559,7 +559,7 @@
           </div>
         </div>
         <div class="field small" style="display:flex; align-items:flex-end;">
-          <span class="agent-tag" x-show="propertyId" x-cloak style="background:#0b2a4a;color:#fff;">
+          <span class="agent-tag" data-tour="tools-cma-linked" x-show="propertyId" x-cloak style="background:#0b2a4a;color:#fff;">
             Linked <a href="#" @click.prevent="unlinkProperty()" style="color:#fff; margin-left:6px; text-decoration:underline;">clear</a>
           </span>
         </div>
@@ -568,11 +568,11 @@
       <div class="inlineRow">
         <div class="field" style="flex:2">
           <label>Property Address</label>
-          <input type="text" x-model="form.address" placeholder="e.g. 12 Smith Street, Shelly Beach">
+          <input type="text" data-tour="tools-cma-address" x-model="form.address" placeholder="e.g. 12 Smith Street, Shelly Beach">
         </div>
         <div class="field small">
           <label>Property Type</label>
-          <select x-model="form.property_type">
+          <select x-model="form.property_type" data-tour="tools-cma-type">
             <option value="">—</option>
             <option>House</option><option>Townhouse</option><option>Apartment</option>
             <option>Vacant Land</option><option>Commercial</option><option>Farm</option>
@@ -603,10 +603,10 @@
 
       {{-- Contact link — reuses the same match-or-create search the property page + DR2 use --}}
       <div class="inlineRow">
-        <div class="field" style="flex:2; position:relative;">
+        <div class="field" style="flex:2; position:relative;" data-tour="tools-cma-contact">
           <label>Client / contact (optional)</label>
           <template x-if="contact">
-            <div class="pill" style="display:flex; align-items:center; justify-content:space-between;">
+            <div class="pill" data-tour="tools-cma-contact-picked" style="display:flex; align-items:center; justify-content:space-between;">
               <span><b x-text="contact.name"></b> <span style="color:var(--text-secondary)" x-text="contact.phone ? ('• ' + contact.phone) : ''"></span></span>
               <a href="#" @click.prevent="clearContact()" style="text-decoration:underline;">change</a>
             </div>
@@ -646,13 +646,13 @@
           <span class="agent-tag" x-text="statusLabel(status)" :style="'color:#fff;background:' + statusColour(status)"></span>
         </template>
 
-        <button class="corex-btn-primary" x-show="!formLocked" @click="save()" :disabled="saving || !form.address">
+        <button class="corex-btn-primary" data-tour="tools-cma-save" x-show="!formLocked" @click="save()" :disabled="saving || !form.address">
           <span x-show="!saving" x-text="certId ? 'Save changes' : 'Save evaluation'"></span>
           <span x-show="saving" x-cloak>Saving…</span>
         </button>
 
         <button class="corex-btn-outline" x-show="certId" x-cloak @click="download()">Download</button>
-        <button class="corex-btn-outline" x-show="certId" x-cloak @click="printCert()">Print</button>
+        <button class="corex-btn-outline" data-tour="tools-cma-print-btn" x-show="certId" x-cloak @click="printCert()">Print</button>
 
         {{-- Candidate: sign their part + submit for authorisation (draft or after a rejection) --}}
         <template x-if="certId && isCandidate && (status === 'draft' || status === 'rejected')">

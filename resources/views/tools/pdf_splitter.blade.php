@@ -142,6 +142,9 @@
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">PDF Pack Splitter</h1>
                 <p class="text-xs" style="color: var(--text-muted);">OCR-driven splitting of multi-document PDF packs into labelled files.</p>
             </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            </div>
         </div>
     </div>
 
@@ -256,7 +259,7 @@
                         <div class="field-error">{{ $message }}</div>
                     @enderror
 
-                    <ul class="file-list" x-show="files.length > 0" x-cloak>
+                    <ul class="file-list" x-show="files.length > 0" x-cloak data-tour="splitter-file-list">
                         <template x-for="(f, i) in files" :key="i">
                             <li x-text="f.name"></li>
                         </template>

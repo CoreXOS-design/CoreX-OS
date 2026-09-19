@@ -43,7 +43,7 @@
         </div>
 
         {{-- Map tab pills --}}
-        <div x-show="mode==='map'" class="flex items-center gap-1 flex-shrink-0">
+        <div x-show="mode==='map'" class="flex items-center gap-1 flex-shrink-0" data-tour="misc-evaluation-map-tabs">
             @foreach(['Suburb / Province','Sales & Transfers','Prospecting','Documents'] as $t)
             <button @click="mapTab='{{ $t }}'"
                 :class="mapTab==='{{ $t }}' ? 'is-active' : ''"
@@ -56,7 +56,7 @@
     <div class="flex flex-1 overflow-hidden eval-body">
 
         {{-- ── SEARCH MODE ── --}}
-        <div x-show="mode==='search'" class="flex flex-col flex-1 overflow-hidden">
+        <div x-show="mode==='search'" class="flex flex-col flex-1 overflow-hidden" data-tour="misc-evaluation-body">
 
             {{-- Empty state --}}
             <div x-show="!searchQuery" class="flex flex-col items-center justify-center flex-1 gap-4">
@@ -79,13 +79,13 @@
             </div>
 
             {{-- Results --}}
-            <div x-show="searchQuery && !loading && results.length > 0" class="flex-1 overflow-y-auto p-3">
+            <div x-show="searchQuery && !loading && results.length > 0" class="flex-1 overflow-y-auto p-3" data-tour="misc-evaluation-results">
                 <div class="flex items-center justify-between mb-2 px-1">
                     <span class="eval-result-meta" x-text="results.length + ' properties found'"></span>
                     <span class="eval-result-meta">KZN South Coast</span>
                 </div>
                 <template x-for="(r,i) in results" :key="i">
-                    <div @click="selectedProperty=r"
+                    <div @click="selectedProperty=r" data-tour="misc-evaluation-result"
                         :class="selectedProperty && selectedProperty.id===r.id ? 'is-selected' : ''"
                         class="eval-result-card">
                         <div class="eval-result-head">
@@ -108,14 +108,14 @@
             </div>
 
             {{-- No results --}}
-            <div x-show="searchQuery && !loading && results.length===0" class="flex flex-col items-center justify-center flex-1 gap-2">
+            <div x-show="searchQuery && !loading && results.length===0" class="flex flex-col items-center justify-center flex-1 gap-2" data-tour="misc-evaluation-noresults">
                 <div class="eval-noresult-title">No properties found</div>
                 <div class="eval-noresult-sub" x-text="'Searched for: '+searchQuery"></div>
             </div>
         </div>
 
         {{-- ── MAP / PROSPECTING MODE ── --}}
-        <div x-show="mode==='map'" class="relative flex-1 eval-map-wrap">
+        <div x-show="mode==='map'" class="relative flex-1 eval-map-wrap" data-tour="misc-evaluation-map">
             <div id="evaluation-map" class="w-full h-full"></div>
 
             {{-- Left toolbar --}}
@@ -185,7 +185,7 @@
             </div>
 
             {{-- Map layer toggles --}}
-            <div x-data="{s:true,l:true,v:false,t:false}" class="eval-map-legend">
+            <div x-data="{s:true,l:true,v:false,t:false}" class="eval-map-legend" data-tour="misc-evaluation-legend">
                 <div class="eval-tool-section-label">Map Layers</div>
                 @foreach([
                     ['s','Recent Sales','#3b82f6','sales','17'],
@@ -212,7 +212,7 @@
             </div>
 
             {{-- Property detail --}}
-            <div x-show="selectedProperty" class="flex flex-col h-full overflow-hidden">
+            <div x-show="selectedProperty" class="flex flex-col h-full overflow-hidden" data-tour="misc-evaluation-detail">
 
                 {{-- Title bar --}}
                 <div class="eval-detail-title">
@@ -248,7 +248,7 @@
                 </div>
 
                 {{-- Accordion --}}
-                <div class="flex-1 overflow-y-auto" x-data="{open:'property'}">
+                <div class="flex-1 overflow-y-auto" x-data="{open:'property'}" data-tour="misc-evaluation-sections">
                     @php
                     $secs=[
                         ['property','Property Information',[['Province','KwaZulu-Natal'],['Suburb','Newlands East'],['Street','198 John Dory Drive'],['ERF','1438'],['Stand Size','363 m²'],['Extension','Newlands Ext 16'],['Portion','0']]],

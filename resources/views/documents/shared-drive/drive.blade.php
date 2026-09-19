@@ -32,12 +32,12 @@
                     </button>
                 @endif
                 @if($can['createFolder'])
-                    <button type="button" @click="showFolderModal = true" class="corex-btn-outline text-xs">
+                    <button type="button" @click="showFolderModal = true" class="corex-btn-outline text-xs" data-tour="docs-shared-drive-new-folder">
                         + New Folder
                     </button>
                 @endif
                 @if($can['upload'])
-                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary text-xs" :disabled="uploading" :style="uploading ? 'opacity:.6;' : ''">
+                    <button type="button" @click="$refs.fileInput.click()" class="corex-btn-primary text-xs" :disabled="uploading" :style="uploading ? 'opacity:.6;' : ''" data-tour="docs-shared-drive-upload">
                         <span x-show="!uploading">Upload Files</span>
                         <span x-show="uploading" x-cloak>Uploading…</span>
                     </button>
@@ -47,7 +47,7 @@
     </div>
 
     {{-- Breadcrumb --}}
-    <nav class="flex items-center flex-wrap gap-1 text-sm mb-4" style="color: var(--text-secondary);">
+    <nav class="flex items-center flex-wrap gap-1 text-sm mb-4" style="color: var(--text-secondary);" data-tour="docs-shared-drive-breadcrumb">
         <a href="{{ route('documents.shared-drive.index') }}" class="hover:underline">Shared Drive</a>
         <span style="opacity:.5;">/</span>
         <a href="{{ route('documents.shared-drive.drive', $drive->id) }}" class="hover:underline {{ $currentId ? '' : 'font-semibold' }}" style="color: {{ $currentId ? 'var(--text-secondary)' : 'var(--text-primary)' }};">{{ $drive->name }}</a>
@@ -67,7 +67,7 @@
                @change="onFilesPicked($event)">
 
         {{-- Upload progress / results panel --}}
-        <div x-show="queue.length" x-cloak class="rounded-md mb-4 overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+        <div x-show="queue.length" x-cloak class="rounded-md mb-4 overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);" data-tour="docs-shared-drive-upload-progress">
             <div class="flex items-center justify-between px-4 py-2" style="border-bottom: 1px solid var(--border);">
                 <span class="text-sm font-medium" style="color: var(--text-primary);" x-text="uploading ? 'Uploading…' : 'Upload complete'"></span>
                 <button type="button" x-show="!uploading" @click="queue = []" class="text-xs" style="color: var(--text-secondary);">Dismiss</button>
@@ -87,6 +87,7 @@
 
     {{-- Drop zone wrapper --}}
     <div @if($can['upload']) @dragover.prevent="dragging = true" @dragleave.prevent="dragging = false" @drop.prevent="onDrop($event)" @endif
+         data-tour="docs-shared-drive-files"
          class="rounded-md transition-all"
          :class="dragging ? 'ring-2' : ''"
          :style="dragging ? 'outline: 2px dashed var(--brand-icon); outline-offset: 4px;' : ''">
@@ -226,7 +227,7 @@
     {{-- New Folder Modal --}}
     @if($can['createFolder'])
         <div x-show="showFolderModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,.5);" @keydown.escape.window="showFolderModal = false">
-            <div class="rounded-md w-full max-w-sm p-5" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="showFolderModal = false">
+            <div class="rounded-md w-full max-w-sm p-5" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="showFolderModal = false" data-tour="docs-shared-drive-folder-form">
                 <h3 class="text-base font-semibold mb-3" style="color: var(--text-primary);">New Folder</h3>
                 <form method="POST" action="{{ route('documents.shared-drive.folders.store') }}">
                     @csrf

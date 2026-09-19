@@ -138,17 +138,17 @@
     </div>
 
     {{-- ════════ STEP 2 — CHOOSE TEMPLATE ════════ --}}
-    <div x-show="step==='template'" x-cloak class="space-y-4">
+    <div x-show="step==='template'" x-cloak class="space-y-4" data-tour="tools-ad-manager-template-step">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <button type="button" @click="step='select'" class="corex-btn-outline text-xs">← Back to properties</button>
-            <label class="flex items-center gap-2 cursor-pointer select-none">
+            <label class="flex items-center gap-2 cursor-pointer select-none" data-tour="tools-ad-manager-emojis">
                 <input type="checkbox" x-model="emojis" class="rounded" style="accent-color:var(--brand-button,#0ea5e9);">
                 <span class="text-sm" style="color:var(--text-secondary);">Include emojis ✨ <span style="color:var(--text-muted);">in the descriptions</span></span>
             </label>
         </div>
 
         <div class="text-sm font-semibold" style="color:var(--text-primary);">Pre-built templates <span class="font-normal" style="color:var(--text-muted);">— previewed with your first selected property</span></div>
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" data-tour="tools-ad-manager-templates">
             <template x-for="t in prebuilt" :key="t.key">
                 <button type="button" @click="template = t.key"
                         class="rounded-md overflow-hidden text-left transition-all duration-300" style="background:var(--surface);"
@@ -188,7 +188,7 @@
         </template>
 
         <div class="sticky bottom-0 z-20 py-3 flex items-center justify-end gap-3" style="background:var(--bg,#0d0f14);">
-            <button type="button" @click="generate()" :disabled="!template || !selected.length || generating"
+            <button type="button" data-tour="tools-ad-manager-generate" @click="generate()" :disabled="!template || !selected.length || generating"
                     class="corex-btn-primary text-base px-5 py-2.5 disabled:opacity-40 disabled:cursor-not-allowed">
                 <span x-show="!generating">Generate <span x-text="selected.length"></span> ad<span x-text="selected.length===1?'':'s'"></span></span>
                 <span x-show="generating">Generating…</span>
@@ -197,7 +197,7 @@
     </div>
 
     {{-- ════════ STEP 3 — RESULTS ════════ --}}
-    <div x-show="step==='results'" x-cloak class="space-y-4">
+    <div x-show="step==='results'" x-cloak class="space-y-4" data-tour="tools-ad-manager-results">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <div class="text-sm font-semibold" style="color:var(--text-primary);"><span x-text="filteredResults.length"></span> ad<span x-text="filteredResults.length===1?'':'s'"></span> ready</div>
             <div class="flex items-center gap-2 flex-wrap">

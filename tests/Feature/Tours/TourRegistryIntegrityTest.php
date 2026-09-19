@@ -95,12 +95,22 @@ class TourRegistryIntegrityTest extends TestCase
             }
         }
 
+        // Anchors built in a Blade loop (data-tour="prop-tab-{{ $tab['key'] }}")
+        // match any concrete value in the interpolated slot.
+        preg_match_all('/data-tour="([^"]*\{\{[^"]*)"/', $blob, $loops);
+        $patterns = array_map(function ($value) {
+            $parts = preg_split('/\{\{.*?\}\}/', $value);
+
+            return '/^'.implode('[A-Za-z0-9_-]+', array_map(fn ($p) => preg_quote($p, '/'), $parts)).'$/';
+        }, array_unique($loops[1]));
+
         foreach (TourRegistry::all() as $key => $tour) {
             foreach ($tour['steps'] ?? [] as $step) {
                 if (preg_match('/^\[data-tour="([^"]+)"\]$/', $step['element'], $m)) {
-                    $this->assertStringContainsString(
-                        'data-tour="'.$m[1].'"',
-                        $blob,
+                    $declared = str_contains($blob, 'data-tour="'.$m[1].'"')
+                        || collect($patterns)->contains(fn ($p) => preg_match($p, $m[1]) === 1);
+                    $this->assertTrue(
+                        $declared,
                         "Tour '$key' anchors [data-tour=\"{$m[1]}\"] but no view declares it"
                     );
                 }

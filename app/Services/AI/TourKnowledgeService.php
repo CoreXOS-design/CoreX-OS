@@ -173,6 +173,96 @@ class TourKnowledgeService
     }
 
     /**
+     * Guide buttons for Ellie's reply — built from the real catalogue, never from
+     * the model's wording, so Ellie can't offer a guide that doesn't exist or one
+     * for a screen this user can't open (TourRegistry::canOpen).
+     *
+     * For each matching tour written for hands-on guiding: an Advanced Guide
+     * button, plus a Spot Help button when the question is about one section.
+     * Spec: .ai/specs/advanced-guiding.md §3.2.
+     *
+     * @return array<int, array{key:string, mode:string, section:?string, label:string, url:string, pick:bool}>
+     */
+    public function guideButtons(string $query, ?User $user, int $limit = 1): array
+    {
+        if (! $user || ! app(\App\Services\Features\AgencyFeatureService::class)->enabled('guided-tours')) {
+            return [];
+        }
+
+        $buttons = [];
+        foreach ($this->search($query, $user, $limit) as $match) {
+            $tour = TourRegistry::find($match['key']);
+            if (! $tour || ! TourRegistry::supportsAdvanced($tour) || ! TourRegistry::canOpen($tour, $user)) {
+                continue;
+            }
+
+            $section = TourRegistry::supportsSpotHelp($tour) ? $this->bestSection($query, $tour) : null;
+            if ($section !== null && ($target = TourRegistry::launchTarget($tour, 'spot', $section))) {
+                $buttons[] = [
+                    'key' => $tour['key'], 'mode' => 'spot', 'section' => $section,
+                    'label' => 'Spot Help: ' . $section,
+                    'url' => $target['url'], 'pick' => $target['pick'],
+                ];
+            }
+
+            if ($target = TourRegistry::launchTarget($tour, 'advanced')) {
+                $buttons[] = [
+                    'key' => $tour['key'], 'mode' => 'advanced', 'section' => null,
+                    'label' => 'Guide me through it: ' . ($tour['title'] ?? $tour['key']),
+                    'url' => $target['url'], 'pick' => $target['pick'],
+                ];
+            }
+        }
+
+        return $buttons;
+    }
+
+    /**
+     * The section of a tour the question is really about, or null when it's
+     * about the whole job. A section-name hit is worth far more than a mention
+     * in one of its steps; a single stray step-body word never picks a section.
+     */
+    public function bestSection(string $query, array $tour): ?string
+    {
+        $words = $this->tokenize($query);
+        if (empty($words)) {
+            return null;
+        }
+
+        $text = [];
+        foreach (TourRegistry::resolvedSteps($tour) as $step) {
+            $name = $step['section'] ?? null;
+            if ($name === null) {
+                continue;
+            }
+            $text[$name] = ($text[$name] ?? '') . ' ' . mb_strtolower(
+                ($step['title'] ?? '') . ' ' . ($step['body'] ?? '') . ' ' . ($step['do']['say'] ?? '')
+            );
+        }
+
+        $best = null;
+        $bestScore = 0.0;
+        foreach ($text as $name => $body) {
+            $nameText = mb_strtolower($name);
+            $score = 0.0;
+            foreach ($words as $word) {
+                $stem = rtrim($word, 's');
+                if ($this->mentions($nameText, $stem)) {
+                    $score += 2.0;
+                } elseif ($this->mentions($body, $stem)) {
+                    $score += 0.5;
+                }
+            }
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $best = $name;
+            }
+        }
+
+        return $bestScore >= 1.5 ? $best : null;
+    }
+
+    /**
      * Normalised relevance: how much of the QUESTION this tour accounts for,
      * on a 0..1 scale, rather than how many points it can accumulate.
      *

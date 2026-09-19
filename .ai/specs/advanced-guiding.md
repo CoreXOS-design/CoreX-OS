@@ -1,6 +1,6 @@
 # Spec: Advanced Guiding + Spot Help (Ellie-driven, hands-on guides)
 
-**Status:** DRAFT — awaiting approval · Lane: QA2 · Drafted 2026-09-19
+**Status:** APPROVED 2026-09-19 (scope widened: every page now) · Lane: QA2 · Built on branch `qa2-advanced-guiding`
 **Related:** `.ai/specs/ellie-tour-knowledge.md`, `.ai/specs/ellie-navigation-atlas.md`,
 `.ai/specs/ellie.md`, `app/Support/Tours/TourRegistry.php`
 
@@ -74,8 +74,14 @@ opens a small menu:
     property you want to work on and I'll pick up from there." The guide starts as
     soon as they open a property. If they wander off for more than 30 minutes, the
     pending guide lapses quietly.
-- Ellie's panel stays open beside the guide. While a guide is running, the step card
-  shows next to the highlighted box and never covers it.
+- When a guide starts, Ellie's panel closes itself so it can never sit on top of the box
+  being highlighted. Her conversation (and the buttons) are still there when she is
+  reopened.
+
+### 3.3 The Guided Tours page
+Every card offers all three: **Guided Tour**, **Advanced Guide**, and a **Spot Help**
+drop-down listing that page's sections. Cards for record pages (e.g. the property page)
+go via the list first, with the same "open the one you want" note.
 
 ## 4. How a hands-on step behaves
 
@@ -101,9 +107,10 @@ Rules for every hands-on step:
 5. **The guide never does the work.** It never types, picks, uploads or saves for
    the agent. The one exception is opening a collapsed panel so the highlighted box can
    be seen. Existing tours already do this.
-6. **Asked for means shown.** A Guided Tour hides steps the agent has already seen (so
-   it doesn't nag). An Advanced Guide or Spot Help that the agent **asked for** always
-   runs every step of the job.
+6. **Asked for means shown.** Only the automatic first-visit Guided Tour hides steps the
+   agent has already seen (so it doesn't nag). Anything the agent **asks for** (the "?"
+   menu, the Guided Tours page, Ellie) runs every step. Before this release, re-opening a
+   tour you had already seen from "?" or the Guided Tours page showed nothing at all.
 7. Advanced Guide and Spot Help **never start on their own**. Only the agent starts
    them, from the "?" menu or from Ellie. The existing auto-start of Guided Tours on a
    first visit is unchanged.
@@ -122,13 +129,18 @@ Advanced Guide). A tour without these extras keeps working exactly as it does to
 | Property page — **Spaces & Features** (new guide; this page has none today) | ✓ | Adding spaces · Room features · Property features · AI photo scan |
 | Capture a contact | ✓ | Required details · Contact type · Finding contacts |
 
-The property page also gets a normal **Guided Tour** built from the same steps, so its
-"?" icon appears. Like every tour, it auto-starts once per agent on their first visit to
-a property page.
+**Scope widened on approval (2026-09-19): every page with a tour gets hands-on steps in
+this release**, not just the three above. Every tour gets Spot Help sections and
+"moves on when" rules, plus the extra hands-on steps needed to walk the whole job the
+page is for (e.g. "click Save", the later screens of a wizard).
 
-The other 87 tours keep working as Guided Tours. They gain Advanced Guide and Spot Help
-one module at a time as their hands-on steps are written. Each one is a content-only
-change (§8) that adds nothing to the engine.
+The property page (where "Edit property" lands) also gets a normal **Guided Tour** built
+from the same steps, and its "?" icon. Like every tour, it auto-starts once per agent on
+their first visit to a property page. Every page with a tour is checked for the "?" icon
+and has it added where it was missing.
+
+A tour can also name extra screens that show the same page (e.g. a calculator's result
+page), so the "?" and a running guide carry on there.
 
 ## 6. Data model / migrations
 
@@ -169,7 +181,7 @@ the screens they describe, like the existing tours.
 | File | Change |
 |------|--------|
 | `app/Support/Tours/TourRegistry.php` | Document + support the optional `section` / advance-rule step fields; helpers to list a tour's sections and whether it supports Advanced/Spot Help; property-capture + contact-capture gain hands-on metadata |
-| `app/Support/Tours/defs/property-spaces.php` (new) | Property page Spaces & Features guide |
+| `app/Support/Tours/defs/property-page.php` (new) | Property page guide (details, spaces, features, AI scan, mandate, photos, owner) + its "?" |
 | `resources/views/layouts/partials/tour-engine.blade.php` | "?" menu; Advanced / Spot Help run modes; wait-for-action; follow screen changes; pending-guide pickup |
 | `resources/views/layouts/partials/tour-header-launcher.blade.php` | Menu host (only if needed) |
 | `resources/views/corex/properties/show.blade.php` | `data-tour` anchors on Spaces & Features + header "?" slot |
@@ -201,13 +213,20 @@ the screens they describe, like the existing tours.
       the Advanced Guide running.
 - [ ] An agent without access to a page gets no button for it from Ellie and no menu option.
 - [ ] With the `guided-tours` feature off: no menu options, no Ellie guide buttons.
-- [ ] All 87 untouched tours still run exactly as before (Guided Tour only in their menu).
+- [ ] Every tour's Guided Tour still explains the page exactly as before (text unchanged).
+- [ ] Every page with a tour shows the "?" and offers all three modes; the Guided Tours page
+      shows all three buttons on every card.
+- [ ] A filter that reloads the page mid-step resumes on the NEXT step, not the same one.
 - [ ] Works in light and dark theme; the step card never covers the box it points at; usable
       at phone width.
 - [ ] Verified by hand on QA2 in the browser; `AdvancedGuidingTest` + `TourKnowledgeServiceTest` green.
 
 ## 11. Deliberately NOT in this release
 
-- Hands-on steps for the other 87 tours (engine-ready; content added module by module per §8).
+- Guides on pages that have no tour yet (e.g. the deal-log remark page, New Rental,
+  Upload & Send). A guide that reaches a link to one of those ends there.
+- The two Deal Register V2 tours (create, detail): their pages were retired and now
+  redirect to the DR2 register, so no guide can run on them. Retire or rebuild is a
+  product decision, recorded in `AdvancedGuidingTest::RETIRED_SCREENS`.
 - Manager reporting on who used which guide.
 - The guide filling anything in for the agent (by design, per Principle #5).

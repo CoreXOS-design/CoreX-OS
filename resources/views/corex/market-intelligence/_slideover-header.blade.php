@@ -99,6 +99,7 @@
         @if($canPitch)
             @if($h['in_stock'])
                 <a href="{{ route('seller-outreach.entry.from-property', $h['matched_property_id']) }}"
+                   data-tour="mic-pitch"
                    style="{{ $actionPrimary }}">
                     Pitch
                 </a>
@@ -108,6 +109,7 @@
                      the resulting (clean) URL will not carry this param, so it won't
                      re-run and silently eject the agent mid-review. --}}
                 <a href="{{ route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listing->id, 'fresh' => 1]) }}"
+                   data-tour="mic-pitch"
                    style="{{ $actionPrimary }}">
                     Pitch
                 </a>

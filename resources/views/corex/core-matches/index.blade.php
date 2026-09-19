@@ -74,13 +74,13 @@
 
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium" style="color:var(--text-secondary);">Search</label>
-                <input type="text" name="q" value="{{ $search }}" placeholder="Name, phone or email"
+                <input type="text" name="q" value="{{ $search }}" placeholder="Name, phone or email" data-tour="re-core-matches-search"
                        class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:200px;">
             </div>
 
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium" style="color:var(--text-secondary);">Status</label>
-                <select name="status" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
+                <select name="status" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" data-tour="re-core-matches-status"
                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:130px;">
                     <option value="" @selected($statusFilter === '')>Any status</option>
                     @foreach(['active' => 'Active', 'paused' => 'Paused', 'fulfilled' => 'Fulfilled', 'expired' => 'Expired'] as $val => $label)
@@ -123,7 +123,7 @@
                 </select>
             </div>
 
-            <button type="submit" class="corex-btn-primary text-sm">Apply</button>
+            <button type="submit" class="corex-btn-primary text-sm" data-tour="re-core-matches-apply">Apply</button>
             @if($search !== '' || $statusFilter !== '' || $savedFrom !== '' || $savedTo !== '' || $agentId !== null || $sort !== 'priority')
             <a href="{{ request()->url() }}{{ $isRentalEntry ? '?listing_type=rental' : '' }}" class="corex-btn-outline text-sm">Clear</a>
             @endif

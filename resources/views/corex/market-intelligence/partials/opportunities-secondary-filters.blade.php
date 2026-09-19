@@ -11,7 +11,7 @@
         'duplicate'=> 'Duplicate',
     ];
 @endphp
-<form method="GET" action="{{ route('market-intelligence.opportunities') }}"
+<form method="GET" action="{{ route('market-intelligence.opportunities') }}" data-tour="mic-opportunities-filters"
       style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
              margin-bottom: 16px; padding: 10px 12px;
              background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
@@ -53,13 +53,13 @@
         @endforeach
     </select>
 
-    <input type="search" name="search" placeholder="Search address, erf, ref…"
+    <input type="search" name="search" placeholder="Search address, erf, ref…" data-tour="mic-opportunities-search"
            value="{{ $activeSearch ?? '' }}"
            style="flex: 1; min-width: 180px; padding: 5px 10px; font-size: 0.8125rem;
                   background: var(--surface-2); color: var(--text-primary);
                   border: 1px solid var(--border); border-radius: 6px;">
 
-    <button type="submit" class="corex-btn-primary">
+    <button type="submit" class="corex-btn-primary" data-tour="mic-opportunities-apply">
         Apply
     </button>
     @if(($activeSuburb ?? '') !== '' || ($activeSource ?? '') !== '' || ($activeStatus ?? '') !== '' || ($activeSearch ?? '') !== '')

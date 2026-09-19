@@ -116,7 +116,7 @@
                 </div>
                 <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">Your queue is empty</h3>
                 <p class="text-sm mb-4" style="color: var(--text-muted);">Prepare a message from a contact or the Core-Matches share and tap "Add to queue" — it will appear here ready to send.</p>
-                <a href="{{ route('corex.contacts.index') }}" class="corex-btn-primary text-sm">Go to Contacts</a>
+                <a href="{{ route('corex.contacts.index') }}" class="corex-btn-primary text-sm" data-tour="oq-empty-contacts">Go to Contacts</a>
             </div>
         @endforelse
     </section>

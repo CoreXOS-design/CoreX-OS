@@ -116,11 +116,11 @@
     </div>
 
     {{-- ══════ FILTER BAR ══════ --}}
-    <div class="rounded-md p-3 flex flex-wrap items-center gap-2"
+    <div class="rounded-md p-3 flex flex-wrap items-center gap-2" data-tour="task-filters"
          style="background: var(--surface); border: 1px solid var(--border);">
         {{-- Search --}}
         <div class="relative">
-            <input type="text" x-model="search" placeholder="Search tasks…"
+            <input type="text" x-model="search" placeholder="Search tasks…" data-tour="task-search"
                    class="pl-8 pr-3 py-1.5 rounded-md text-xs w-56"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             <svg class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2" style="color: var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
@@ -473,7 +473,7 @@
         <div class="w-full max-w-lg rounded-md overflow-hidden"
              style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 10px 30px rgba(0,0,0,0.18);"
              @click.outside="showCreateTask = false">
-            <form method="POST" action="{{ route('command-center.tasks.store') }}">
+            <form method="POST" action="{{ route('command-center.tasks.store') }}" data-tour="task-form">
                 @csrf
                 <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border);">
                     <h3 class="text-lg font-semibold" style="color: var(--text-primary);">Create Task</h3>
@@ -488,14 +488,14 @@
                 <div class="px-6 py-5 space-y-4">
                     <div>
                         <label for="task-title" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title <span class="text-red-500">*</span></label>
-                        <input id="task-title" type="text" name="title" required
+                        <input id="task-title" type="text" name="title" required data-tour="task-title"
                                class="w-full rounded-md px-3 py-2 text-sm transition-colors"
                                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label for="task-priority" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Priority</label>
-                            <select id="task-priority" name="priority"
+                            <select id="task-priority" name="priority" data-tour="task-priority"
                                     class="w-full rounded-md px-3 py-2 text-sm"
                                     style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                                 <option value="normal">Normal</option>
@@ -506,7 +506,7 @@
                         </div>
                         <div>
                             <label for="task-due" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Due Date</label>
-                            <input id="task-due" type="date" name="due_date"
+                            <input id="task-due" type="date" name="due_date" data-tour="task-due"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         </div>
@@ -540,7 +540,7 @@
                 </div>
                 <div class="px-6 py-4 flex justify-end gap-2" style="border-top: 1px solid var(--border); background: var(--surface-2);">
                     <button type="button" @click="showCreateTask = false" class="corex-btn-outline">Cancel</button>
-                    <button type="submit" class="corex-btn-primary">Create Task</button>
+                    <button type="submit" class="corex-btn-primary" data-tour="task-save">Create Task</button>
                 </div>
             </form>
         </div>

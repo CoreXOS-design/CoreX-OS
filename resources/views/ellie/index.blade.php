@@ -125,8 +125,8 @@
                 @csrf
                 <input type="hidden" name="conversation_id" value="{{ $conversation_id }}">
                 <input type="hidden" name="return_archived" value="{{ $archived ? '1' : '' }}">
-                <input type="text" name="title" value="{{ $conversation->title ?? '' }}" placeholder="Rename…" class="ellie-input ellie-rename-input">
-                <button type="submit" class="corex-btn-outline">Rename</button>
+                <input type="text" name="title" value="{{ $conversation->title ?? '' }}" placeholder="Rename…" class="ellie-input ellie-rename-input" data-tour="ai-ellie-rename">
+                <button type="submit" class="corex-btn-outline" data-tour="ai-ellie-rename-btn">Rename</button>
               </form>
 
               @if(($conversation->status ?? '') === 'archived')
@@ -148,7 +148,7 @@
         </div>
 
         <div id="ellieScroll" class="ellie-scroll">
-          <div class="ellie-messages" id="ellieMsgs">
+          <div class="ellie-messages" id="ellieMsgs" data-tour="ai-ellie-messages">
             @forelse($messages as $m)
               @php $isUser = ($m->role ?? '') === 'user'; @endphp
               <div class="bubble {{ $isUser ? 'user' : 'assistant' }}">

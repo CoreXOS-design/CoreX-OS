@@ -132,13 +132,13 @@
 
     {{-- Add a mailbox. --}}
     <div>
-        <button type="button" class="text-xs font-semibold" style="color: var(--brand-icon, #00b4d8);" x-show="!adding" @click="adding = true">+ Link a mailbox</button>
+        <button type="button" class="text-xs font-semibold" style="color: var(--brand-icon, #00b4d8);" x-show="!adding" @click="adding = true" data-tour="user-mailbox-add">+ Link a mailbox</button>
         <div x-show="adding" x-cloak class="rounded-md p-3 mt-1" style="background: var(--surface-2, #f8fafc); border: 1px solid var(--border, #e5e7eb);">
-            <form method="POST" action="{{ $storeUrl }}" class="space-y-3">
+            <form method="POST" action="{{ $storeUrl }}" class="space-y-3" data-tour="user-mailbox-add-form">
                 @csrf
                 @include('settings.email-setup._mailbox-fields', ['mbx' => null, 'isEdit' => false])
                 <div class="flex items-center gap-3">
-                    <button type="submit" class="corex-btn-primary">Link mailbox</button>
+                    <button type="submit" class="corex-btn-primary" data-tour="user-mailbox-add-submit">Link mailbox</button>
                     <button type="button" class="text-sm" style="color: var(--text-muted, #6b7280);" @click="adding = false">Cancel</button>
                 </div>
             </form>

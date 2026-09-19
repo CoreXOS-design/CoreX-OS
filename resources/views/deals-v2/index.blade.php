@@ -58,7 +58,7 @@
                 <option value="sale_of_2nd" {{ request('deal_type') === 'sale_of_2nd' ? 'selected' : '' }}>Sale of 2nd</option>
             </select>
 
-            <select name="status" onchange="this.form.submit()" class="list-header-filter">
+            <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="deals-status">
                 <option value="">All Statuses</option>
                 <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Active</option>
                 <option value="completed" {{ request('status') === 'completed' ? 'selected' : '' }}>Completed</option>
@@ -79,7 +79,7 @@
     {{-- Deals table --}}
     <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
         <div class="overflow-x-auto">
-            <table class="min-w-full text-sm ds-table">
+            <table class="min-w-full text-sm ds-table" data-tour="deals-table">
                 <thead>
                     <tr style="background: var(--surface-2);">
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Ref</th>

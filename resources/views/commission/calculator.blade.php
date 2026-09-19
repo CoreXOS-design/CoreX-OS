@@ -46,7 +46,7 @@
             </div>
 
             {{-- Slider 2: Deals per month --}}
-            <div>
+            <div data-tour="calc-revenue-share-deals">
                 <div class="flex items-center justify-between mb-2">
                     <label for="rs-deals-per-month" class="block text-xs font-medium" style="color: var(--text-secondary);">Avg deals per agent / month</label>
                     <div class="flex items-center gap-2">

@@ -18,7 +18,7 @@
      style="position: fixed; top: 0; right: 0; bottom: 0; left: 0;
             background: rgba(0,0,0,0.40); z-index: 60;
             display: flex; justify-content: flex-end;">
-    <aside class="mi-slideover-panel"
+    <aside class="mi-slideover-panel" data-tour="mic-slideover"
            @click.stop
            x-transition:enter="transition transform duration-200"
            x-transition:enter-start="translate-x-full"

@@ -362,7 +362,7 @@
                 <span x-show="hiddenCount>0" x-cloak class="text-[10px] px-1.5 rounded-full font-semibold"
                       style="background: var(--brand-button); color:#fff;" x-text="hiddenCount + ' off'"></span>
             </button>
-            <div x-show="open" x-cloak
+            <div x-show="open" x-cloak data-tour="cal-layers-menu"
                  class="absolute right-0 mt-1 w-52 rounded-md py-1"
                  style="z-index:30; background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,0.35);">
                 <template x-for="l in catalog" :key="l.key">
@@ -1740,7 +1740,7 @@
         </div>
     </div>
         {{-- AT-164 cockpit — create/detail/color-by render INSIDE the panel --}}
-<aside x-show="showCreateEvent" x-cloak
+<aside x-show="showCreateEvent" x-cloak data-tour="cal-event-form"
        x-transition:enter="transform transition ease-out duration-200"
        x-transition:enter-start="translate-x-full opacity-0"
        x-transition:enter-end="translate-x-0 opacity-100"
@@ -1776,7 +1776,7 @@
         {{-- Title --}}
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Title <span style="color:var(--ds-crimson)">*</span></label>
-            <input type="text" name="title" x-model="form.title" required
+            <input type="text" name="title" x-model="form.title" required data-tour="cal-event-title"
                    class="w-full rounded-md px-3 py-2 text-sm"
                    style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
@@ -1784,7 +1784,7 @@
         {{-- Category --}}
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type <span style="color:var(--ds-crimson)">*</span></label>
-            <select name="category" x-model="form.category" required @change="applyCategoryNatureDefault()"
+            <select name="category" x-model="form.category" required @change="applyCategoryNatureDefault()" data-tour="cal-event-type"
                     class="w-full rounded-md px-3 py-2 text-sm"
                     style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 <option value="">Select type…</option>
@@ -1851,7 +1851,7 @@
         {{-- Start date + time --}}
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Start <span style="color:var(--ds-crimson)">*</span></label>
-            <div class="grid gap-2" :class="form.allDay ? 'grid-cols-1' : 'grid-cols-2'">
+            <div class="grid gap-2" :class="form.allDay ? 'grid-cols-1' : 'grid-cols-2'" data-tour="cal-event-start">
                 <input type="date" x-model="form.startDate" @change="onStartDateChange()" required
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
@@ -1964,11 +1964,11 @@
         </div>
 
         {{-- Property multi-select --}}
-        <div x-data="propertySearch()">
+        <div x-data="propertySearch()" data-tour="cal-event-properties">
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Properties</label>
             <div class="flex flex-wrap gap-1 mb-1.5" x-show="chosen.length > 0">
                 <template x-for="p in chosen" :key="p.id">
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs" data-tour="cal-event-property-chip"
                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <span x-text="p.address" class="truncate max-w-[180px]"></span>
                         <button type="button" @click="remove(p)" class="opacity-60 hover:opacity-100">&times;</button>
@@ -2004,11 +2004,11 @@
         </div>
 
         {{-- Attendees multi-select --}}
-        <div x-data="contactSearch()" x-ref="attendeePicker">
+        <div x-data="contactSearch()" x-ref="attendeePicker" data-tour="cal-event-attendees">
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Attendees</label>
             <div class="flex flex-wrap gap-1 mb-1.5">
                 <template x-for="c in chosen" :key="(c.type||'contact') + ':' + c.id">
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs" data-tour="cal-event-attendee-chip"
                           :style="c.conflict ? 'background: var(--surface-2); border: 2px solid #f59e0b; color: var(--text-primary);' : 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);'"
                           :title="c.conflictLabel ? '⚠  Conflict: ' + c.conflictLabel : ''">
                         {{-- CAL-4 — chip text prefers the server-supplied
@@ -2153,7 +2153,7 @@
     {{-- Footer --}}
     <div class="px-6 py-4 flex items-center justify-end gap-2 flex-shrink-0" style="border-top: 1px solid var(--border);">
         <button type="button" @click="showCreateEvent = false" class="corex-btn-outline">Cancel</button>
-        <button type="submit" form="createEventFormV2" :disabled="submitting"
+        <button type="submit" form="createEventFormV2" :disabled="submitting" data-tour="cal-event-save"
                 class="corex-btn-primary disabled:opacity-50">
             <span x-show="!submitting" x-text="editMode ? 'Save Changes' : 'Create Event'"></span>
             <span x-show="submitting" x-cloak x-text="editMode ? 'Saving…' : 'Creating…'"></span>
@@ -2830,7 +2830,7 @@
                         </template>
                     </div>
                 </div>
-                <button type="button" @click="toggleEdit()" class="corex-btn-outline text-[11px] py-0.5 inline-flex items-center gap-1" :style="editing ? 'background: var(--brand-button); color:#fff;' : ''">
+                <button type="button" @click="toggleEdit()" data-tour="cal-deck-edit" class="corex-btn-outline text-[11px] py-0.5 inline-flex items-center gap-1" :style="editing ? 'background: var(--brand-button); color:#fff;' : ''">
                     <span x-text="editing ? 'Done' : 'Edit Deck'"></span>
                 </button>
             </div>

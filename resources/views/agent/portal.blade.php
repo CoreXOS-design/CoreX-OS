@@ -132,6 +132,7 @@
             @endphp
             @foreach($portalTabs as $key => $label)
             <button type="button"
+                    @if($key === 'overview' || $key === 'compliance') data-tour="portal-home-tab-{{ $key }}" @endif
                     @click="setTab('{{ $key }}')"
                     class="whitespace-nowrap px-4 py-3 text-sm border-b-2 transition-colors"
                     :style="tab === '{{ $key }}'
@@ -1210,7 +1211,7 @@
     {{-- ═══════════════════════════════════════════
          TAB: COMPLIANCE
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'compliance'" x-cloak>
+    <div x-show="tab === 'compliance'" x-cloak data-tour="portal-home-compliance-tab">
 
         {{-- Overall status card --}}
         @php
@@ -1235,7 +1236,7 @@
         </div>
 
         {{-- Breakdown list --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="portal-home-compliance-breakdown">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Compliance Breakdown</h3>
             </div>

@@ -160,7 +160,7 @@
         <div>
             {{-- View toggle --}}
             <div x-cloak class="flex items-center justify-end gap-2">
-                <div class="flex items-center gap-0.5 rounded-md" style="height: 2.25rem; padding: 0.125rem; background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="flex items-center gap-0.5 rounded-md" data-tour="dp-templates-view-toggle" style="height: 2.25rem; padding: 0.125rem; background: var(--surface-2); border: 1px solid var(--border);">
                     <button @click="viewMode = 'grid'; localStorage.setItem('docuperfect_tpl_view', 'grid')"
                             :style="viewMode === 'grid' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: var(--text-muted);'"
                             class="h-full px-2 rounded inline-flex items-center justify-center transition-all duration-300" title="Grid view">

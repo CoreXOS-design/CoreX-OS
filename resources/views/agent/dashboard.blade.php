@@ -90,9 +90,9 @@
             <div class="flex flex-wrap items-center gap-2">
                 <form method="GET" action="{{ route('agent.dashboard') }}" class="flex flex-wrap items-center gap-2">
                     <label for="period" class="text-xs font-semibold" style="color: var(--text-muted);">Period</label>
-                    <input id="period" type="month" name="period" value="{{ $snapshot['period'] ?? '' }}"
+                    <input id="period" data-tour="at-agent-dashboard-period" type="month" name="period" value="{{ $snapshot['period'] ?? '' }}"
                            class="list-header-filter" />
-                    <button type="submit" class="corex-btn-outline text-xs">
+                    <button type="submit" class="corex-btn-outline text-xs" data-tour="at-agent-dashboard-go">
                         Go
                     </button>
                 </form>
