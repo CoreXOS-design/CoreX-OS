@@ -1,15 +1,54 @@
 # Rental Work Orders
 
 **Status:** Spec — not yet built. NO CODE has been written against this spec.
-**Date:** 2026-09-14
+**Date:** 2026-09-14 (amended 2026-09-22 — see below)
 **Author:** cc4
 **Pillar:** Property (`Property`) — every work order anchors to a property; Contact (owner, tenant,
 supplier's own contact person) is who is notified and who reported it; touches Lease (`.ai/specs/
-leases.md`, branch `cc5-leases-spec`) and Rental Inspections (`.ai/specs/rental-inspections.md`, base
-branch `cc5-rental-inspections-spec` @ `9e9be1e7f`, plus the follow-up lease-id amendment on branch
-`cc5-rental-inspections-lease-amendment` @ `3b1e57bb7`) as its two structural dependencies.
+leases.md`) and Rental Inspections (`.ai/specs/rental-inspections.md`, both now landed and built) as
+its two structural dependencies.
 **Sequencing:** Johan's ruling — core matches/pipeline → inspections → **work orders (this spec)**.
 Both dependencies are read, coordinated on directly, and cited below; neither is re-designed here.
+
+**Amendment, 2026-09-22 — Johan has ruled work orders IN SCOPE.** This revision settles what he
+settled, adds an owner-approval gate his new ruling requires, corrects one factual claim (§4, the
+WhatsApp send capability), and names four questions he has been asked but has not yet ruled on —
+these are argued honestly and left open, not decided here (§1a, §3.2a, §3.4a, §3.4b). See §0a for
+exactly what changed and why, and §13 for the mobile-foundation constraint this amendment also adds.
+
+---
+
+## 0a. What this amendment settles, adds, and leaves open
+
+**Settled by Johan's new ruling, built into this revision:**
+- Contractors live in the existing supplier list (`AgencyServiceProvider`) — already this spec's
+  design (§2), now confirmed as the ONLY directory; no second one is ever created.
+- Owner approval **gates** commissioning work — an agent may not instruct a supplier on an owner's
+  property without it. New: `owner_approval_status` on `rental_work_orders` (§3.4a).
+- Work orders can arise from inspections — already this spec's design (§3.2, `reported_by_type
+  ='inspection'`), confirmed as one of the valid origins alongside a direct tenant/agent report.
+- Finances are OUT. `cost_amount`/`paid_by` remain evidence-trail fields only (§5.1) — REOS keeps
+  doing the money until rentals is bug-free and there's time to build a real financial layer. This
+  spec is designed so that layer can attach to `rental_work_orders` later (a `financial_transaction_id`
+  FK slotting in, for instance) without restructuring anything built here — but nothing financial is
+  built now.
+- Deposits are OUT except advertising deposits — named as a real, current gap (§5.1a), not solved:
+  damage found at move-out has no financial home in CoreX today.
+
+**Four things Johan has been asked and has not yet ruled on — argued honestly, left open:**
+1. §1a — is a tenant fault report an inspection, or a separate thing? (The conductor's own live
+   argument with Johan; ad_hoc is examined and, argued here, does not solve it.)
+2. §3.2a — how does a tenant, who has no CoreX login, actually report a fault?
+3. §3.4a — how is the owner's approval captured and retained as evidence, not just obtained?
+4. §3.4b — the agency-configurable spend threshold below which no approval is required.
+
+**Corrected:** §4's notification section overstated WhatsApp — confirmed directly against the code,
+there is no automated WhatsApp send anywhere in CoreX, only a `wa.me` link an agent opens and sends
+from their own phone. Said plainly now instead of implying parity with the automated email path.
+
+**New:** §13 — the mobile-foundation constraint, per the same ruling that now applies to
+`rental-inspections.md` §14: an agent raises a work order standing in the property, so the logic
+behind every action here lives in a service Andre's app can call, not in a controller or a Blade.
 
 ---
 
@@ -47,6 +86,25 @@ That's the operational surface. The ruling that actually defines the schema is t
 > in inspection, and out inspection. but having the comprehensive log of what damages were reported
 > when and what was actioned is the evidence assisting the out inspection to be more fair."
 
+**2026-09-22 — the ruling that brings this spec into scope**, given directly to the conductor:
+
+> "tenant report a fault that at this stage should be logged under inspections? ... So now we have
+> fault reports and the agent now has the option to send to the owner? mr owner this is the issues
+> with the in inspection of your property. on owner approval the agent can assign the work to a
+> contractor and the receive and email / and or whatsapp? we have the supplier list so adding
+> contractors in there can be the same place to keep suppliers, and in rentals we can at whatever
+> stage tap into inspections to create work orders?"
+
+What is settled from this and built into the amendment below: contractors live in the existing
+supplier list (§2, already this spec's design); owner approval gates the work (§3.4/§3.4a); work
+orders can arise from inspections (§3.2, already this spec's design). What is raised but not yet
+answered: whether a fault report IS an inspection record (§1a) and how the owner's approval is
+actually captured (§3.4a) are both open. **On "email / and or whatsapp": checked directly against the
+code — there is no automated WhatsApp send anywhere in CoreX, only a `wa.me` link an agent opens and
+sends from their own phone (`SigningWhatsAppLinkService` is the pattern; nothing resembling a
+WhatsApp Business API or equivalent send client exists). §4 below builds the email path as automated
+and names WhatsApp as manual-only, plainly, rather than implying the two are equivalent.**
+
 **A work order is not an operational ticket that closes and is forgotten. It is evidence, permanently,
 and the out-inspection reads it.** Concretely, this spec must let an out-inspection distinguish four
 situations that a bare in/out condition comparison cannot, on its own, tell apart — the same damage,
@@ -67,6 +125,64 @@ to make a subjective legal judgment at data-entry time; the evidence-reconstruct
 for objective facts and lets the out-inspection screen (and, ultimately, a human resolving a deposit
 dispute) draw the conclusion from the timeline. This is the test the rest of this spec is built to
 pass — see §7 for each of the four rows walked through against the actual schema.
+
+---
+
+## 1a. Is a tenant fault report an inspection? (open — the conductor's live argument with Johan)
+
+Johan's words, as put to me: *"tenant report a fault that at this stage should be logged under
+inspections?"* The conductor's own view, argued against that: *"An inspection is a scheduled event
+with a checklist at a point in time — in and out. A tenant reporting a burst geyser on a Tuesday is
+unscheduled and has no checklist. Forcing it into the inspection record means mid-tenancy faults
+pollute the in-versus-out comparison, which is the whole evidentiary point of inspections."* Her
+proposal: a fault report is its own record that CAN link to an inspection but need not, and both a
+fault report and an inspection can raise a work order.
+
+**Checked directly against the actual, already-built `rental-inspections.md` schema and the live
+Stage 3 code, not argued in the abstract — does `type='ad_hoc'` solve this? No, argued below, on three
+separate grounds:**
+
+1. **`ad_hoc` is still an inspection EVENT, and the mismatch is structural, not cosmetic.** Every
+   `RentalInspection` — in, out, or ad_hoc — requires an active lease
+   (`RentalInspection::start()`, already built) and exists to hold a WALKTHROUGH of items: the
+   Stage 3 tab UI renders every active item with a condition-recording row regardless of type. An
+   ad_hoc inspection is "the agent walks the property right now and records what they see," the exact
+   same shape as in/out, just untied to move-in/move-out. A tenant phoning in one specific complaint
+   is not a walkthrough of anything — there is no checklist being worked, no set of items being
+   reviewed, often not even an agent on-site (§3.2a). Making a tenant use the same mechanism an agent
+   uses to inspect a whole property is the wrong shape wearing the right spec's clothes, exactly as
+   the conductor put it.
+2. **The "pollution" concern is real but only partly mitigated by what already exists — worth being
+   precise about, since it would be dishonest to overstate the risk.** Discrepancy detection
+   (`RentalInspectionDiscrepancy::detectFor()`) is already scoped to "same item, same inspection" —
+   observations across different inspections never conflict, confirmed by an existing passing test
+   (`test_matching_observations_across_different_inspections_do_not_conflict`). So a tenant's fault
+   report sitting in its own `ad_hoc` inspection would NOT, mechanically, create a false conflict
+   against a later in/out inspection. What IS lost: an item's `fullHistory()` interleaves every
+   observation regardless of source, so reading "the story of this item" means filtering by the
+   existing `source` column (`in_inspection`/`out_inspection`/`tenant_fault_report`/`ad_hoc`) to tell a
+   scheduled finding from a phoned-in complaint — doable, but it means the TABLE doesn't reflect the
+   real distinction the conductor is naming; a filter has to reconstruct it every time.
+3. **The natural shape of a fault report is much closer to a work order than to an inspection —
+   checked against both schemas side by side.** A tenant fault report needs: what's wrong (free text),
+   who reported it, when, optionally a photo, optionally which space it concerns. That is not an
+   inspection's shape (items + per-item conditions + discrepancies + signatures) — it is almost
+   exactly `rental_work_orders`' own `title`/`description`/`reported_by_type`/`reported_by_contact_id`/
+   `reported_at`, which THIS spec already has, for other reasons, before this amendment ever raised the
+   question.
+
+**My argued position, offered as a recommendation, not decided here:** a tenant fault report does not
+need to be a third record type at all. It can simply be the FIRST STATUS of a `rental_work_orders`
+row — `reported_by_type='tenant'` already exists in this spec's own schema (§3.2) for exactly this.
+"Logged under inspections" and "logged as a work order, optionally bridged to an inspection via
+`reported_inspection_observation_id`" describe the same underlying need from two directions — Johan's
+instinct that it should connect to inspections is already satisfied by that nullable FK, without
+needing the fault report itself to BE an inspection. This is a different resolution shape than the
+conductor's own proposal (hers: two linked record types; mine: one record, the work order, already
+capable of standing alone via `reported_by_type='tenant'` or bridging via
+`reported_inspection_observation_id`) — both are laid out here honestly because this is Johan's
+decision, not mine. What is NOT in question, on either resolution: `type='ad_hoc'` is not the answer,
+for the three reasons above.
 
 ---
 
@@ -150,6 +266,17 @@ rental_work_orders
                                 --   engaged yet (an agent may fix something themselves, or an
                                 --   owner may self-handle it, per situation 2 above — "owner
                                 --   already paid" does not require a formal supplier record).
+  owner_approval_status          -- enum: 'not_required' | 'pending' | 'approved' | 'declined'.
+                                --   NEW, 2026-09-22 amendment — Johan's ruling: owner approval
+                                --   GATES commissioning work; an agent may not move a work order
+                                --   to 'ordered' while this is 'pending' or 'declined'. Defaults
+                                --   to 'not_required' at creation — becomes 'pending' the moment
+                                --   an agent requests approval, per whichever mechanism §3.4a
+                                --   settles on, or stays 'not_required' if the cost is under the
+                                --   agency's approval threshold (§3.4b, also not yet settled). The
+                                --   GATE is settled; the fields recording HOW an approval was
+                                --   actually captured are deliberately NOT added to this table yet
+                                --   — see §3.4a, open.
   trade_type                    -- NULLABLE, references agency_service_types.code (§2) — used to
                                 --   filter the supplier picker by trade, same mechanism the
                                 --   existing COC work-order feature already uses. Nullable
@@ -283,6 +410,48 @@ considered answer to the edge case, not left implicit.
   `reported_inspection_observation_id` links directly to that observation, so the work order and the
   inspection evidence are provably the same event, not two separately-typed accounts of it.
 
+### 3.2a How does the tenant actually report? (open — a real front door does not exist yet)
+
+**Checked directly against the code, not assumed:** a tenant is a `Contact` row
+(`lease_tenants.contact_id` → `contacts.id`), and `Contact extends Model` — not
+`Illuminate\Foundation\Auth\User as Authenticatable`, no password column, no auth guard. **A tenant
+has no CoreX login today, anywhere in the system.** `reported_by_type='tenant'`'s own wording above —
+"a portal report if one exists" — was already an honest placeholder; there is no such portal. Without
+one of the options below, `reported_by_type='tenant'` can only ever mean "the agent typed this in on
+the tenant's behalf" — which may be exactly right for now, but should be a decision, not a default
+nobody noticed.
+
+Three real options, each costed against what already exists in this codebase rather than invented
+fresh:
+
+1. **A tokened link, mailed to the tenant** — the proven pattern already live for rental applications
+   (`RentalApplicationSigningController`, its own docblock: *"modelled on the existing `/sign/{token}`
+   mechanism... same token shape, same 14-day expiry... the token itself IS the identity here"*), and
+   for DR2's external parties (`DealSecureLinkMail`, already cited in §4 below as the supplier
+   reply-link precedent). Cost: a new token column + expiry on whatever record the tenant lands on
+   (either directly on a new fault-report entry point, or — if §1a resolves toward "a fault report IS
+   a work order" — a public, token-gated `POST` onto `rental_work_orders`), a public route, and a
+   minimal form (what's wrong, optional photo, optional space). Highest cost of the three, but the
+   only one that gives the tenant their own, independently-timestamped record of having reported it —
+   which matters directly to situation 3 in §1's table (the tenant needs to be ABLE to prove they
+   reported it, not just trust the agent's word for it).
+2. **An email address that files itself** — a dedicated inbound address per agency (or one CoreX-wide
+   address with agency/property resolution from the sender or a reply-to token) that creates a
+   `reported_by_type='tenant'` work order automatically from an inbound email. Cost: this is a NEW
+   capability — nothing in the codebase today parses inbound mail into a record (the WhatsApp capture
+   pipeline referenced in §4 does something structurally similar for WA messages, but there is no
+   inbound-email equivalent to copy). Real build cost, not a reuse.
+3. **The agent captures it on the tenant's behalf** — a call or message comes in, the agent opens the
+   work-order form and fills it in as `reported_by_type='tenant'`, `reported_by_contact_id` set to the
+   tenant's own contact row. Zero new mechanism — this is what §3.2's existing wording already
+   describes and is what this spec builds by default absent a ruling otherwise. Honest cost: the
+   "evidence the tenant reported it" is only ever the agent's own word plus whatever internal
+   timestamp CoreX puts on it — weaker than option 1 for situation 3's dispute purpose, but real today.
+
+**Not decided here.** Option 3 is what the rest of this spec assumes is available on day one, since it
+requires nothing new; options 1 and 2 are named with their real cost so a future decision to build
+either is informed, not a surprise.
+
 ### 3.3 Who paid — the field the task explicitly warns is easiest to leave out
 
 `paid_by`: `owner` | `tenant` | `deposit_deduction` | `not_yet_paid`. Nullable only in the sense that a
@@ -301,7 +470,10 @@ other single column here.
 - **`ordered`** — a supplier has been assigned/instructed (`agency_service_provider_id` set,
   `ordered_at` stamped). Not required for every work order (an agent or owner may self-handle a fix with
   no formal supplier) — a work order can move straight from `reported` to `in_progress`/`completed`
-  without ever passing through `ordered` if no supplier was engaged.
+  without ever passing through `ordered` if no supplier was engaged. **Gated, 2026-09-22 amendment:**
+  cannot move to `ordered` while `owner_approval_status` is `pending` or `declined` — an agent does not
+  commission work on an owner's property without their approval. See §3.4a/§3.4b for what is and isn't
+  settled about how that approval is captured and when it's required at all.
 - **`in_progress`** — work has started but isn't finished. Optional stage — a quick fix may skip
   straight to `completed`.
 - **`completed`** — **requires, per Johan's ruling ("photos of the work conducted"): at least one
@@ -320,6 +492,62 @@ Every status transition writes a `rental_work_order_updates` row (`update_type='
 `from_status`/`to_status` populated) — this, together with `reported_at`/`ordered_at`/`completed_at`
 timestamps directly on the work order itself, is what lets the out-inspection screen show a full
 timeline, not just a final state.
+
+### 3.4a Owner approval — captured as evidence, not just obtained (open)
+
+**Settled:** the gate exists (§3.4). **Open:** how an approval is actually captured and retained, so
+that if an owner later disputes a bill, "the agent said they approved" is worth something more than
+that. Same evidentiary thinking §3.4 already applies to completion (photo + payer, not a checkbox) —
+an approval needs the same treatment: what was sent, what came back, when.
+
+Three real options, each grounded in a mechanism already proven in this codebase, not invented fresh:
+
+1. **A secure tokened link the owner clicks — Approve / Decline.** The same shape as
+   `RentalInspectionSignature::capture()` (already built, this codebase, this session): a lightweight,
+   evidentiary capture — signer identity, a timestamp, and (for a decline or an agent-side override) a
+   required note — without the full DocuPerfect e-sign ceremony. Concretely: a
+   `rental_work_order_approvals` row per request, `token`/`expires_at` matching the rental-application
+   pattern (§3.2a), `decision` (`approved`/`declined`), `decided_at`, and the request/response mail
+   content retained (or at minimum referenced) the way `DealSecureLinkMail`'s pattern already
+   preserves what was sent. This is the strongest evidence of the three, and the most build cost.
+2. **An internal record only — the agent marks it, with a note.** Mirrors
+   `RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF` — a sanctioned "the other party didn't formally
+   engage through the system" path, already accepted elsewhere in this codebase as real evidence
+   (Johan's own required phrase for that case: *"tenant refused to sign out inspection"*). Here it
+   would be an agent recording "spoke to the owner on [date], they approved by phone/WhatsApp — note:
+   [free text]." Cheapest to build (no new mail, no token), weakest evidence of the three — it's the
+   agent's word, timestamped, nothing more.
+3. **Email reply, read by a human, recorded manually.** The owner replies to the creation notice
+   (§4) saying "go ahead" — an agent reads that reply and marks the work order approved, same weight
+   as option 2 since CoreX does not parse inbound email into a structured decision (no such capability
+   exists anywhere in this codebase, confirmed — see §3.2a's identical finding for tenant reports).
+   Functionally option 2 with an email as the paper trail sitting outside CoreX rather than a note
+   inside it.
+
+**Not decided here.** Whichever is chosen governs what `rental_work_order_approvals` (or the
+equivalent structure) actually needs to store — deliberately not added to §3.1's settled schema yet,
+since committing to option 1's shape before Johan rules would foreclose options 2/3 for no reason.
+
+### 3.4b The spend threshold below which no approval is needed (open)
+
+Not requested by Johan as a specific number — raised by the conductor, argued for here, not decided.
+Most mandates let an agent spend up to a limit without asking; without one, "email the owner about a
+tap washer" is how a system gets ignored and the gate in §3.4 stops being respected in practice.
+
+**Proposed shape, matching this spec's own `rental_work_order_settings` pattern (§3.1) and Johan's
+standing rule that nothing is hardcoded:** a new nullable decimal,
+`rental_work_order_settings.no_approval_spend_threshold`, agency-configurable, defaulting to a
+genuinely low, conservative number — **proposed default R500** — so that out of the box every agency
+requires approval for anything beyond a trivial expense, and can raise the number for their own
+mandate/comfort level rather than CoreX guessing at what's appropriate for a given owner relationship.
+When an agent creates or estimates a work order at or under the threshold,
+`owner_approval_status` defaults to `not_required` and the `ordered` gate (§3.4) does not block; above
+it, the gate applies and §3.4a's (also open) capture mechanism is needed before `ordered`.
+
+**Not decided here**: whether R500 is the right default, whether the threshold should vary by trade
+type rather than being a single agency-wide number, and whether an agent can override the gate with a
+reason (mirroring how `owner_approval_status='declined'` might still need an escape hatch for an
+emergency repair) are all real follow-on questions this proposal surfaces but does not answer.
 
 ---
 
@@ -358,7 +586,13 @@ External mail, one Mailable class per recipient (plain `Mail::to(...)->send(...)
   the supplier," an optional step per Johan's own wording) — the job details: property address,
   description, trade type, and who to contact back. Sent to the specific `AgencyServiceProviderContact`
   email if one exists for that provider, the provider's own `email` otherwise — same resolution the
-  existing COC-work-order supplier picker already uses. **Not built here, flagged as a future
+  existing COC-work-order supplier picker already uses. **This email is automated — CoreX sends it.**
+  **WhatsApp is NOT automated, said plainly rather than left to imply parity with email:** the only
+  WhatsApp capability anywhere in CoreX is a `wa.me` link (`SigningWhatsAppLinkService`'s pattern) that
+  opens the AGENT's own WhatsApp with a pre-filled message they send themselves — there is no server-
+  side WhatsApp send. If an agent wants to also notify a supplier over WhatsApp, the work-order screen
+  can offer the same "open a pre-filled wa.me link" button already proven elsewhere, but that is a
+  manual action the agent takes, not a second automated channel. **Not built here, flagged as a future
   enhancement only**: a secure-link reply mechanism (DR2 already has one — `DealSecureLinkMail`,
   `DealDistributionService.php:236` — that lets an external party act without a CoreX login) that would
   let a supplier mark their own job complete without an agent doing it manually. Johan asked only for
@@ -369,20 +603,29 @@ External mail, one Mailable class per recipient (plain `Mail::to(...)->send(...)
 
 ## 5. What must be settled (per the task's own checklist) — remaining items
 
-### 5.1 Cost — a field, flagged the moment it would grow
+### 5.1 Cost — a field, deliberately not a financial feature
 
 `cost_amount` is a plain nullable decimal, matching `paid_by`'s evidentiary purpose ("the owner paid X
-to fix this"). This spec does **not** build: invoicing, a trust-ledger reconciliation against the
-deposit, or multi-line-item costing. Same flag, same reasoning, as `leases.md` §3.3's deposit-tracking
-flag — if this needs to become a real accounting feature, that is a materially bigger, separate piece of
-work, not an extension of this column.
+to fix this"). **Settled, 2026-09-22: finances are OUT of this spec, full stop — REOS keeps handling
+the money until rentals is bug-free and there is time to build a real financial layer.** This spec does
+**not** build, and this amendment does not change that: invoicing, a trust-ledger reconciliation, or
+multi-line-item costing. `cost_amount`/`paid_by` record what was authorised and what happened — they
+never compute, reconcile, or trigger a payment. Designed so a financial layer can attach later without
+rewriting this table (a future `financial_transaction_id` FK, for instance, slots on rather than
+replacing anything here) — but nothing financial is built now, and nothing here should be read as a
+promise that one is coming on any timeline.
 
-### 5.2 Approval / spending threshold
+### 5.1a Deposits — out of scope except advertising deposits, named as a real gap
 
-Not requested by Johan, not built. **Raised, not decided**: does an owner need to approve a work order
-above some cost before a supplier is instructed? This spec deliberately does not invent that gate —
-flagging it as a plausible future question rather than silently building or silently omitting a decision
-point that wasn't asked for.
+**Settled, 2026-09-22: deposits are OUT of scope except advertising deposits.** This has a direct,
+honest consequence for this spec that should be named rather than papered over: **damage found at
+move-out has no financial home in CoreX today.** `paid_by='deposit_deduction'` remains in §3's enum as
+a description of INTENT — an agent can record "this should come out of the deposit" as a fact about
+the decision that was made — but CoreX does not hold a deposit ledger, does not calculate a deduction,
+and does not move any money when that value is set. It is a label, not a transaction. This is named
+here as a known, current limitation of the whole rentals feature set, not something this spec invents
+or is expected to solve — the same "flag it, don't fake it" treatment `leases.md` §3.3 already gives
+its own deposit-tracking gap.
 
 ---
 
@@ -458,6 +701,12 @@ flagged for Johan to confirm or adjust at build time, same treatment `lease_sett
 window_days` gets for its own unconfirmed number in `leases.md` §5.2, though that one is pending legal
 confirmation and this one is pending only an operational preference).
 
+**Proposed, not yet settled (§3.4b):** `no_approval_spend_threshold`, agency-configurable, proposed
+default **R500**. Not added to the table above because the whole mechanism is still open — this row
+exists here only so the settings screen this spec eventually ships (§6) is designed with a slot for it
+from the start, per the standing "every new setting reaches the wizard, designed in, not requested
+later" rule, rather than bolting it on after Johan rules.
+
 ---
 
 ## 9. Raised, not decided — the tenant-link reminder question
@@ -487,6 +736,13 @@ convention already established by the two sibling specs:
   complete is the point where evidence (photo + payer) becomes final, arguably warranting a tighter
   grant than "anyone who can log a fault." Collapsing it into `.create` at build time is a one-line
   change if this distinction is unwanted.
+- `rental_work_orders.record_approval` — **new, 2026-09-22**, `[cc4 design call, flagged for Johan]`:
+  whoever records that an owner approved (whichever mechanism §3.4a settles on) is making the same
+  weight of call as resolving a discrepancy or completing a job — separate from `.create` for the same
+  reason those two already are. If §3.4a resolves toward the tokened-link option, this permission
+  governs who may manually override/record a decision on the owner's behalf (e.g. a phoned-in
+  approval); if it resolves toward the internal-note-only option, this is the ONLY gate on recording
+  an approval at all, and matters more, not less.
 - `rental_work_orders.cancel`
 
 ---
@@ -501,17 +757,30 @@ convention already established by the two sibling specs:
 - `app/Models/RentalWorkOrder.php`, `RentalWorkOrderUpdate.php`, `RentalWorkOrderPhoto.php`,
   `RentalWorkOrderSetting.php` — all `use BelongsToAgency`.
 - `app/Services/Rentals/RentalWorkOrderService.php` — status transitions, the completion gate (§3.4),
-  the update-log writer.
-- `app/Http/Controllers/CoreX/RentalWorkOrderController.php` — CRUD, status actions, photo upload.
+  the approval gate (§3.4/§3.4a), the update-log writer. **Already named this way since the original
+  draft, before the mobile-foundation ruling existed for this spec — the discipline that ruling asks
+  for (§13: logic in a service, not a controller or a Blade) was already this spec's design from day
+  one, not something added in this amendment.**
+- `app/Http/Controllers/CoreX/RentalWorkOrderController.php` — thin: validates the request shape, calls
+  `RentalWorkOrderService`. CRUD, status actions, photo upload.
 - `app/Mail/Rentals/RentalWorkOrderOwnerMail.php`, `RentalWorkOrderTenantMail.php`,
   `RentalWorkOrderSupplierMail.php` — the three external notifications (§4).
+- **Conditional on §3.4a's resolution, not written now**: if the tokened-link option is chosen,
+  `database/migrations/xxxx_create_rental_work_order_approvals_table.php`,
+  `app/Models/RentalWorkOrderApproval.php`, `app/Mail/Rentals/RentalWorkOrderOwnerApprovalMail.php`,
+  and the public token-gated route/controller pair (mirroring
+  `RentalApplicationSigningController`'s shape). If the internal-note option is chosen instead, no new
+  files — `owner_approval_status` plus a `rental_work_order_updates` note-type entry already covers it.
 - `resources/views/corex/rental-work-orders/index.blade.php` — the new list screen (§6).
 - `resources/views/corex/properties/partials/rental-tab-work-orders.blade.php` — the property-level
   button + history (§6).
 - `config/corex-permissions.php` — new permission keys (§10).
 - Sidebar entry for the new list screen (same-day, non-negotiable #2).
+- Setup Wizard entry for `no_approval_spend_threshold` (§3.4b) if and once that setting is built —
+  same "designed in, not requested later" rule as every other agency setting (non-negotiable #10a).
 - `tests/Feature/RentalWorkOrders/*` — the four-situation test in §7 as real fixtures at minimum, plus
-  completion-gate enforcement, agency scoping, and notification dispatch (internal vs external split).
+  completion-gate enforcement, the approval gate refusing `ordered` while pending/declined, agency
+  scoping, and notification dispatch (internal vs external split).
 - Re-run `php artisan schema:dump`, commit refreshed `database/schema/mysql-schema.sql`
   (non-negotiable #12a).
 
@@ -519,12 +788,57 @@ convention already established by the two sibling specs:
 
 ## 12. Out of scope (this spec)
 
-- Cost/invoicing/trust-ledger reconciliation (§5.1) — flagged as a question, not built.
-- An owner-approval/spending-threshold gate before instructing a supplier (§5.2) — raised, not decided.
+- Invoicing, trust-ledger reconciliation, or any real financial/accounting layer (§5.1) — settled OUT,
+  not a future-question flag any more. REOS handles the money.
+- A deposit ledger or deposit-deduction processing (§5.1a) — settled OUT except advertising deposits;
+  named as a real, current gap, not solved here.
+- The EXACT mechanism for capturing owner approval (§3.4a) and the spend threshold below which it
+  isn't required (§3.4b) — the GATE is settled and built into §3's schema; how it's satisfied is not.
+- Whether a tenant fault report is its own record type or simply a `rental_work_orders` row at
+  `reported_by_type='tenant'` (§1a) — argued, not decided; this spec builds to the latter by default
+  since it requires nothing new, but does not foreclose the former.
 - A supplier-facing reply/secure-link mechanism to self-report completion (§4) — named as a future
   upgrade path (DR2's `DealSecureLinkMail` is the existing pattern to copy when wanted), not built here.
+- Automated WhatsApp notification of anyone (§4) — does not exist in CoreX and is not built here; a
+  manual `wa.me` link is the ceiling of what's possible without building a WhatsApp send capability
+  from scratch, which is not this spec's job either.
 - The tenant-link-outstanding reminder (§9) — raised for Johan's ruling, not decided or built.
 - Any change to `leases.md` or `rental-inspections.md` themselves — both are read and depended on,
   neither is edited by this spec.
-- Mobile — per the same convention both sibling specs use, this defines the server-side data model and
-  web surface only.
+- Building the mobile app itself — Andre's job, per §13. This spec's job is only to make sure nothing
+  built here makes that job harder later.
+
+---
+
+## 13. Mobile foundation — the same constraint rental-inspections.md §14 now carries
+
+**Per the same ruling that added this constraint to `rental-inspections.md`**: an agent raising a work
+order is very often standing in the property at the moment they notice or are told about the problem —
+the mobile case is not an afterthought here either. The three-part discipline that spec's §14 sets out
+applies identically:
+
+**Logic in services, not controllers or Blades.** Already this spec's design before the ruling existed
+— `app/Services/Rentals/RentalWorkOrderService.php` (§11) is where status transitions, the completion
+gate, and the approval gate live; `RentalWorkOrderController` is a thin caller. No audit-fix is needed
+here the way `rental-inspections.md` §14.1 needed one for two things built before the constraint
+existed — this spec named the service layer from its very first draft.
+
+**The API seam, sketched now rather than retrofitted later** (not built this pass — spec only, same as
+everything else here): mirroring `rental-inspections.md` §14.2's shape and reusing its established
+conventions (Sanctum bearer auth, the same `{"message": ...}` error convention, `/api/v1/mobile/...`
+namespace):
+
+| Method | Route | Calls |
+|---|---|---|
+| `POST` | `/api/v1/mobile/properties/{property}/work-orders` | `RentalWorkOrderService::report()` |
+| `POST` | `/api/v1/mobile/work-orders/{workOrder}/photos` | Reuses `PropertyImageStorer` directly — same reasoning as `rental-inspections.md` §14.5, one photo pipeline, not two. |
+| `POST` | `/api/v1/mobile/work-orders/{workOrder}/assign-supplier` | `RentalWorkOrderService::assignSupplier()` — refuses per the approval gate exactly like the web path does, same method, not a second implementation of the gate. |
+| `POST` | `/api/v1/mobile/work-orders/{workOrder}/complete` | `RentalWorkOrderService::complete()` — the photo/payer completion gate (§3.4) enforced once, in the service, not duplicated in a controller. |
+
+**Offline**: `rental_work_order_photos.client_idempotency_key` (§3.1) already exists for the same
+reason `rental_inspection_photos`' own column does — a retried upload on a bad connection must never
+create a duplicate. The same four arrival cases `rental-inspections.md` §14.4 works through (late,
+out-of-order, a genuine app-side duplicate, and data that's gone stale by the time it arrives — here,
+most concretely, a work order reported against a lease that's since ended) apply identically and are
+not re-argued in full here; the server-side answer is the same: never discard real evidence because
+something moved on, tell the app plainly what changed.
