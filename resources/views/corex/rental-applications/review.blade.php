@@ -743,29 +743,94 @@
                     <span class="text-xs" style="color: var(--ds-blue, #2563eb);" x-text="summaryOpen ? 'Hide' : 'Show'"></span>
                 </button>
                 <div x-show="summaryOpen" x-cloak class="mt-3">
+                    {{--
+                        .ai/specs/rental-application-field-config.md, staff-
+                        facing follow-up 2026-09-20 — every row below now
+                        resolves its label and order from $fieldConfig
+                        (RentalApplication::displayFieldConfig() — the
+                        frozen snapshot for a submitted application, live
+                        settings otherwise). The rule this build settled:
+                        hidden governs whether an EMPTY field clutters this
+                        glance-box; it never suppresses a real answer
+                        already on file — a field hidden today may still
+                        carry a genuine answer from before it was hidden
+                        (or from before the applicant's most recent
+                        resubmit), and that answer is part of the record.
+                        $hideWhenEmpty=true on "In their own words" only
+                        preserves this row's own pre-existing behaviour
+                        (free text — never shown as a bare "—" placeholder),
+                        unrelated to the config-driven hide rule.
+                    --}}
+                    @php
+                        $summaryRows = [];
+                        $addSummaryField = function (string $key, $value, ?string $display = null, bool $hideWhenEmpty = false) use (&$summaryRows, $fieldConfig) {
+                            $cfg = $fieldConfig[$key] ?? null;
+                            $hasValue = $value !== null && $value !== '';
+                            $configHidden = $cfg && ! $cfg['shown'];
+                            if (! $hasValue && ($hideWhenEmpty || $configHidden)) {
+                                return;
+                            }
+                            $summaryRows[] = [
+                                'order' => $cfg['order'] ?? 999,
+                                'label' => $cfg['label'] ?? \Illuminate\Support\Str::headline($key),
+                                'display' => $display ?? ($hasValue ? $value : '—'),
+                            ];
+                        };
+
+                        $addSummaryField('employer_name', $rentalApplication->employer_name);
+                        $addSummaryField('employer_position', $rentalApplication->employer_position);
+                        $addSummaryField('monthly_salary', $rentalApplication->monthly_salary,
+                            $rentalApplication->monthly_salary !== null ? 'R ' . number_format($rentalApplication->monthly_salary, 2) : null);
+                        $addSummaryField('current_rental_amount', $rentalApplication->current_rental_amount,
+                            $rentalApplication->current_rental_amount !== null ? 'R ' . number_format($rentalApplication->current_rental_amount, 2) : null);
+                        // "Dates on entries" (Johan, 2026-09-10) — once submitted, this
+                        // screen is the agent's only way to VERIFY the rent-due-day the
+                        // applicant answered (the edit form above locks after submission,
+                        // same as every other applicant-facing field on this summary).
+                        $addSummaryField('current_rental_due_day', $rentalApplication->current_rental_due_day);
+                        $addSummaryField('current_landlord_name', $rentalApplication->current_landlord_name);
+                        // "Current living situation" (2026-09-11) — the old form
+                        // assumed a landlord always exists; not every applicant is
+                        // currently renting. Kept alongside "Current landlord" above
+                        // rather than folded together — different facts (who they
+                        // rent from vs. whether they're renting at all). Fallback
+                        // covers pre-existing applications that have landlord data
+                        // but never answered this newer field.
+                        $addSummaryField(
+                            'current_living_situation',
+                            $rentalApplication->current_living_situation ?: $rentalApplication->current_landlord_name,
+                            \App\Models\RentalApplication::currentLivingSituationLabel($rentalApplication->current_living_situation)
+                                ?? ($rentalApplication->current_landlord_name ? 'Currently renting' : null)
+                        );
+                        $addSummaryField('current_living_situation_notes', $rentalApplication->current_living_situation_notes, null, true);
+
+                        // Adults / Children — a single combined row by original design
+                        // (Johan's own screen-space rulings on this summary); the label
+                        // itself stays fixed rather than merging two independently-
+                        // overridable labels into one line. Each subfield still
+                        // independently honours hidden-when-empty.
+                        $adultsCfg = $fieldConfig['adults'] ?? null;
+                        $childrenCfg = $fieldConfig['children'] ?? null;
+                        $adultsHasValue = $rentalApplication->adults !== null;
+                        $childrenHasValue = $rentalApplication->children !== null;
+                        $adultsSuppressed = $adultsCfg && ! $adultsCfg['shown'] && ! $adultsHasValue;
+                        $childrenSuppressed = $childrenCfg && ! $childrenCfg['shown'] && ! $childrenHasValue;
+                        if (! ($adultsSuppressed && $childrenSuppressed)) {
+                            $summaryRows[] = [
+                                'order' => min($adultsCfg['order'] ?? 999, $childrenCfg['order'] ?? 999),
+                                'label' => 'Adults / Children',
+                                'display' => ($adultsSuppressed ? '—' : ($rentalApplication->adults ?? '—'))
+                                    . ' / '
+                                    . ($childrenSuppressed ? '—' : ($rentalApplication->children ?? '—')),
+                            ];
+                        }
+
+                        usort($summaryRows, fn ($a, $b) => $a['order'] <=> $b['order']);
+                    @endphp
                     <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                        <dt style="color: var(--text-muted);">Employer</dt><dd>{{ $rentalApplication->employer_name ?? '—' }}</dd>
-                        <dt style="color: var(--text-muted);">Position</dt><dd>{{ $rentalApplication->employer_position ?? '—' }}</dd>
-                        <dt style="color: var(--text-muted);">Monthly salary (self-reported)</dt><dd>{{ $rentalApplication->monthly_salary !== null ? 'R ' . number_format($rentalApplication->monthly_salary, 2) : '—' }}</dd>
-                        <dt style="color: var(--text-muted);">Current rental amount</dt><dd>{{ $rentalApplication->current_rental_amount !== null ? 'R ' . number_format($rentalApplication->current_rental_amount, 2) : '—' }}</dd>
-                        {{-- "Dates on entries" (Johan, 2026-09-10) — once submitted, this
-                             screen is the agent's only way to VERIFY the rent-due-day the
-                             applicant answered (the edit form above locks after submission,
-                             same as every other applicant-facing field on this summary). --}}
-                        <dt style="color: var(--text-muted);">Current rent due day</dt><dd>{{ $rentalApplication->current_rental_due_day ?? '—' }}</dd>
-                        <dt style="color: var(--text-muted);">Current landlord</dt><dd>{{ $rentalApplication->current_landlord_name ?? '—' }}</dd>
-                        {{-- "Current living situation" (2026-09-11) — the old form
-                             assumed a landlord always exists; not every applicant is
-                             currently renting. Kept alongside "Current landlord" above
-                             rather than folded together — different facts (who they
-                             rent from vs. whether they're renting at all). Fallback
-                             covers pre-existing applications that have landlord data
-                             but never answered this newer field. --}}
-                        <dt style="color: var(--text-muted);">Current living situation</dt><dd>{{ \App\Models\RentalApplication::currentLivingSituationLabel($rentalApplication->current_living_situation) ?? ($rentalApplication->current_landlord_name ? 'Currently renting' : '—') }}</dd>
-                        @if($rentalApplication->current_living_situation_notes)
-                            <dt style="color: var(--text-muted);">In their own words</dt><dd>{{ $rentalApplication->current_living_situation_notes }}</dd>
-                        @endif
-                        <dt style="color: var(--text-muted);">Adults / Children</dt><dd>{{ $rentalApplication->adults ?? '—' }} / {{ $rentalApplication->children ?? '—' }}</dd>
+                        @foreach($summaryRows as $row)
+                            <dt style="color: var(--text-muted);">{{ $row['label'] }}</dt><dd>{{ $row['display'] }}</dd>
+                        @endforeach
                     </dl>
                     @if($viewerRole === 'agent')
                         <a href="{{ route('corex.rental-applications.show', $rentalApplication) }}" class="text-xs inline-block mt-3" style="color: var(--ds-blue, #2563eb);">View submitted application &rarr;</a>

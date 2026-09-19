@@ -1,4 +1,14 @@
-@props(['name', 'label', 'value' => null, 'type' => 'text', 'hint' => null, 'inputmode' => null, 'min' => null, 'max' => null, 'required' => false, 'requiredExpr' => null])
+@props(['name', 'label', 'value' => null, 'type' => 'text', 'hint' => null, 'inputmode' => null, 'min' => null, 'max' => null, 'required' => false, 'requiredExpr' => null, 'order' => null])
+{{--
+    .ai/specs/rental-application-field-config.md — $order (nullable int)
+    sets a CSS `order` on this component's own root div. CSS order works
+    in both the flex AND grid containers this component is used inside,
+    and applies WITHIN whatever container the field currently sits in —
+    deliberately not a DOM move, so it can never disturb a parent
+    conditional group's own x-show/x-data wiring (spouse/landlord/
+    employer). Omitted (null) = no inline style at all, i.e. today's
+    unchanged source-order behaviour.
+--}}
 {{--
     Submission hard floor, AT-392 round 5, 2026-09-13 — $required is a
     static courtesy attribute for a field that's ALWAYS relevant when
@@ -27,7 +37,7 @@
     word. A short hint directly under the field, not just a stricter
     label, is the more robust fix for exactly the error he described.
 --}}
-<div>
+<div @if($order !== null) style="order: {{ (int) $order }}" @endif>
     <label class="block text-xs text-slate-500 mb-1">{{ $label }}@if($requiredExpr)<span x-show="{{ $requiredExpr }}" x-cloak> *</span>@elseif($required) *@endif</label>
     <input type="{{ $type }}" name="{{ $name }}" value="{{ old($name, $value) }}"
            @if($inputmode) inputmode="{{ $inputmode }}" @endif

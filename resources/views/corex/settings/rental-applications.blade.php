@@ -399,6 +399,69 @@
     </div>
 
     {{--
+        .ai/specs/rental-application-field-config.md — SHOWN/HIDDEN, label
+        and help-text overrides, and within-section ordering. Johan,
+        2026-09-19: "everything is tick / untick for optional / compulsory"
+        closed the locked-fields question — nothing here is exempt either;
+        every field, including the two signatures, can be hidden the same
+        as any other. Grouped by FORM SECTION (matches show.blade.php's own
+        <section> boundaries) because ordering is scoped within a section,
+        never across one.
+    --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Field Display</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Untick anything you don't want on your application form at all — the applicant never sees a
+            field you've hidden here, and it is never asked for at submission either, whatever the
+            Compulsory Fields setting above says. Override a label or add a hint if your own wording fits
+            your process better. Position controls the order fields appear WITHIN their section below —
+            leave it blank to keep the default order; lower numbers show first.
+        </p>
+
+        @php
+            $fieldByKey = collect($fieldRegistry)->keyBy('key');
+        @endphp
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.field-display') }}">
+            @csrf
+            <input type="hidden" name="field_display_submitted" value="1">
+
+            @foreach($fieldSections as $sectionName => $sectionKeys)
+                <div class="mb-4 pb-3" style="border-bottom: 1px solid var(--border);">
+                    <p class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">{{ $sectionName }}</p>
+                    <div class="space-y-2">
+                        @foreach($sectionKeys as $key)
+                            @continue(! $fieldByKey->has($key))
+                            @php $field = $fieldByKey[$key]; @endphp
+                            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center text-xs">
+                                <label class="sm:col-span-4 flex items-center gap-2" style="color: var(--text-secondary);">
+                                    <input type="checkbox" name="shown_field_keys[]" value="{{ $key }}"
+                                           @checked(in_array($key, old('shown_field_keys', array_values(array_diff(collect($fieldRegistry)->pluck('key')->all(), $hiddenFieldKeys))), true))>
+                                    {{ $field['label'] }}
+                                </label>
+                                <input type="text" name="field_labels[{{ $key }}]"
+                                       value="{{ old('field_labels.' . $key, $fieldLabelOverrides[$key] ?? '') }}"
+                                       placeholder="Label override"
+                                       class="sm:col-span-3 corex-input text-xs">
+                                <input type="text" name="field_help_text[{{ $key }}]"
+                                       value="{{ old('field_help_text.' . $key, $fieldHelpTextOverrides[$key] ?? '') }}"
+                                       placeholder="Help text"
+                                       class="sm:col-span-4 corex-input text-xs">
+                                <input type="number" name="field_order[{{ $key }}]"
+                                       value="{{ old('field_order.' . $key, array_search($key, $fieldOrder, true) !== false ? array_search($key, $fieldOrder, true) : '') }}"
+                                       placeholder="Position"
+                                       class="sm:col-span-1 corex-input text-xs">
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endforeach
+
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
+    {{--
         Ruling 1, AT-392 round 5, 2026-09-13 — Johan: marital_status
         converts from free text to a real select so the spouse-fields
         condition above can actually fire. Option list is agency-

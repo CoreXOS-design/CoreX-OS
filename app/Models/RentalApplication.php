@@ -482,6 +482,145 @@ class RentalApplication extends Model
     }
 
     /**
+     * .ai/specs/rental-application-field-config.md — the FORM SECTION a
+     * field lives in (matches show.blade.php's own <section
+     * data-progress-section="..."> boundaries exactly), never confused
+     * with submissionFieldGroupOf()'s conditional-requirement GROUP
+     * (employed/renting/married) above, which is a different axis. Section
+     * is the boundary within-section ordering (§ below) respects — moving
+     * a field between sections is deliberately out of scope for this
+     * build, see the migration's own docblock.
+     */
+    public const SUBMISSION_FIELD_SECTIONS = [
+        'Personal Details' => [
+            'full_name', 'id_number', 'marital_status', 'spouse_name', 'spouse_id', 'citizenship',
+            'contact_method', 'email', 'cell', 'work_number', 'current_residential_address',
+        ],
+        'Emergency Contact' => [
+            'emergency_contact_name', 'emergency_contact_cell', 'emergency_contact_work',
+        ],
+        'Current Living Situation' => [
+            'current_living_situation', 'current_landlord_name', 'current_landlord_tel',
+            'current_rental_amount', 'current_rental_due_day', 'current_rental_from',
+            'current_living_situation_notes',
+        ],
+        'Employment' => [
+            'employment_type', 'employer_name', 'employer_position', 'employer_tel',
+            'monthly_salary', 'employer_address',
+        ],
+        'Lease Requirement' => [
+            'occupation_date', 'rental_term_months', 'adults', 'children', 'special_conditions',
+        ],
+        'Declaration' => ['declaration_signature'],
+        'Tenant Profile Network Consent' => ['tpn_consent_signature'],
+    ];
+
+    public static function submissionFieldSectionOf(string $key): ?string
+    {
+        foreach (self::SUBMISSION_FIELD_SECTIONS as $section => $keys) {
+            if (in_array($key, $keys, true)) {
+                return $section;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * THE one canonical resolver — .ai/specs/rental-application-field-config.md
+     * §6: "there is exactly ONE resolver every consumer goes through. No
+     * consumer is ever allowed its own field-iteration logic." Every
+     * registry field, decorated with its resolved label/help text/shown/
+     * required/within-section order for this agency. Built directly on
+     * submissionFieldRegistry() (existence/default label/group) and
+     * RentalApplicationQualifyingSetting's four new columns (this build)
+     * plus its existing required_field_keys (unchanged, untouched).
+     *
+     * Within-section order resolution for a partial field_order: named
+     * keys (that belong to this section) come first, in the given order;
+     * every unnamed key in the section keeps its shipped registry order,
+     * appended after.
+     *
+     * @return array<string, array{key: string, label: string, help_text: ?string, shown: bool, required: bool, order: int, group: ?string, section: ?string}>
+     */
+    public static function resolvedFieldConfigFor(?int $agencyId): array
+    {
+        $hiddenKeys = \App\Models\RentalApplicationQualifyingSetting::hiddenFieldKeysFor($agencyId);
+        $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::requiredFieldKeysFor($agencyId);
+        $labelOverrides = \App\Models\RentalApplicationQualifyingSetting::fieldLabelOverridesFor($agencyId);
+        $helpOverrides = \App\Models\RentalApplicationQualifyingSetting::fieldHelpTextOverridesFor($agencyId);
+        $orderedKeys = \App\Models\RentalApplicationQualifyingSetting::fieldOrderFor($agencyId);
+
+        // Within-section order, computed once, per §6's own docblock above.
+        $orderIndex = [];
+        foreach (self::SUBMISSION_FIELD_SECTIONS as $section => $sectionKeys) {
+            $named = array_values(array_intersect($orderedKeys, $sectionKeys));
+            $unnamed = array_values(array_diff($sectionKeys, $named));
+            $resolvedSectionOrder = array_merge($named, $unnamed);
+            foreach ($resolvedSectionOrder as $i => $key) {
+                $orderIndex[$key] = $i;
+            }
+        }
+
+        $config = [];
+        foreach (self::submissionFieldRegistry() as $field) {
+            $key = $field['key'];
+            $config[$key] = [
+                'key' => $key,
+                'label' => $labelOverrides[$key] ?? $field['label'],
+                'help_text' => $helpOverrides[$key] ?? null,
+                'shown' => ! in_array($key, $hiddenKeys, true),
+                'required' => in_array($key, $requiredKeys, true),
+                'order' => $orderIndex[$key] ?? 999,
+                'group' => $field['group'],
+                'section' => self::submissionFieldSectionOf($key),
+            ];
+        }
+
+        return $config;
+    }
+
+    /**
+     * §3 — historical integrity. Called exactly once, at the moment of
+     * submission (never at creation, never on every autosave) — see the
+     * migration's own docblock for the argument on why submission, not
+     * creation, is the right freeze point.
+     */
+    public function snapshotFieldConfig(): void
+    {
+        $this->field_config_snapshot = self::resolvedFieldConfigFor($this->agency_id);
+    }
+
+    /**
+     * .ai/specs/rental-application-field-config.md, staff-facing follow-up
+     * 2026-09-20 — the ONE resolver every AGENT-facing consumer of THIS
+     * application's own answers goes through (review.blade.php's summary,
+     * the editable pre-submission capture form) — parallel to
+     * resolvedFieldConfigFor() for the applicant-facing form, but aware of
+     * whether THIS specific record has actually been submitted:
+     *
+     * - Submitted, with a frozen snapshot: the snapshot, always — never
+     *   today's live settings. A config change after submission must never
+     *   silently reach backward into an already-signed record.
+     * - Submitted, but no snapshot (a record from before this column
+     *   existed): registry defaults (resolvedFieldConfigFor(null)), not
+     *   today's live agency settings either — a legacy record is rendered
+     *   as it always was (no hide/label/order applied), never retroactively
+     *   reshaped by config that didn't exist yet at its own submission.
+     * - Not yet submitted: today's live settings — nothing is historical
+     *   yet, so an agent capturing/viewing a draft sees exactly what the
+     *   applicant would see right now.
+     */
+    public function displayFieldConfig(): array
+    {
+        if ($this->isSubmitted()) {
+            return $this->field_config_snapshot ?? self::resolvedFieldConfigFor(null);
+        }
+
+        return self::resolvedFieldConfigFor($this->agency_id);
+    }
+
+    /**
      * Builds submit()'s full validation rule set from the agency's saved
      * $requiredKeys (RentalApplicationQualifyingSetting::requiredFieldKeysFor()).
      * A ticked field belonging to a conditional group is only enforced when
@@ -650,6 +789,7 @@ class RentalApplication extends Model
         'employer_name', 'employer_position', 'employer_address', 'employer_tel',
         'monthly_salary', 'employment_type',
         'occupation_date', 'rental_terms', 'rental_term_months', 'special_conditions', 'adults', 'children',
+        'field_config_snapshot',
     ];
 
     protected $casts = [
@@ -673,6 +813,7 @@ class RentalApplication extends Model
         'rental_term_months' => 'integer',
         'adults' => 'integer',
         'children' => 'integer',
+        'field_config_snapshot' => 'array',
     ];
 
     /**

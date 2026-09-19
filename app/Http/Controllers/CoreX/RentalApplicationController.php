@@ -785,7 +785,15 @@ class RentalApplicationController extends Controller
             return view('corex.rental-applications.view-readonly', compact('rentalApplication'));
         }
 
-        return view('corex.rental-applications.show', compact('rentalApplication'));
+        // .ai/specs/rental-application-field-config.md, staff-facing
+        // follow-up 2026-09-20 — an agent capturing/viewing an application
+        // that hasn't been submitted yet sees the SAME configured field
+        // set the applicant would (nothing is historical yet, so this
+        // always resolves to today's live settings — see
+        // RentalApplication::displayFieldConfig()'s own docblock).
+        $fieldConfig = $rentalApplication->displayFieldConfig();
+
+        return view('corex.rental-applications.show', compact('rentalApplication', 'fieldConfig'));
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
+use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
 /**
@@ -323,27 +324,52 @@ return [
         ],
     ],
 
-    // .ai/specs/leases.md §5.2 — conductor ruling 2026-09-15. Johan's standing
-    // rule: any threshold is agency-configurable with a sensible default from
-    // day one, never hardcoded. A compliance-confirmed number later only
-    // changes what the default starts at, not whether the control exists.
+    // .ai/specs/agency-onboarding-rentals-step.md — Johan's ruling 2026-09-19:
+    // "we will have to set up a rental in the take on wizard with all things
+    // rental related." One home for every rental setting, not settings
+    // scattered across the wizard. This step's KEY stays 'leases' deliberately
+    // (§3.2 of that spec) — AgencyOnboardingSetup::completed_steps persists
+    // step keys as literal strings per agency, so renaming the key would
+    // silently regress an existing agency's progress for a step they already
+    // completed under the old name. Only the TITLE/content changed to match
+    // the new scope. Each saver below is deliberately narrow — validates and
+    // writes ONLY its own columns — so this step can carry multiple domains'
+    // settings without risking the saver-precondition incident named in that
+    // spec's §4 (agency-onboarding-setup.md §6.1: a shared multi-field saver
+    // silently wiping fields a step didn't render). Regression coverage:
+    // tests/Feature/Onboarding/RentalsStepSaverIndependenceTest.php.
     'leases' => [
-        'title' => 'Leases',
-        'intro' => 'How CoreX warns your agents before a tenant\'s lease expires.',
+        'title' => 'Rentals',
+        'intro' => 'How CoreX handles lease expiry and inspection windows for your rental portfolio.',
         'what' => [
             'title' => 'What this covers',
-            'body'  => 'Every lease CoreX tracks has a start and end date. This setting controls how many '
-                . 'days before that end date your agents get warned that a lease is coming up for renewal '
-                . 'or expiry — it does not change anything about the lease itself.',
+            'body'  => 'Everything here is a timing rule CoreX uses across your rental properties: how '
+                . 'far ahead agents get warned of a lease expiring, how long a tenant has to report a '
+                . 'fault after moving in, and how long they have to sign an out-inspection.',
         ],
         'savers' => [
             ['controller' => LeaseSettingsController::class, 'method' => 'update'],
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'update'],
+            // Reserved for rental-work-orders.md's settings (completion_requires_photo,
+            // overdue_reminder_days) once that spec is built — add its own narrow saver
+            // here, alongside these, never merged into either existing one. Not built yet:
+            // the table (rental_work_order_settings) doesn't exist, per that spec's §8.
         ],
         'controls' => [
             ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
              'label' => 'Warn me this many days before a lease expires',
              'explain' => 'The number of days before a lease\'s end date that CoreX should treat it as approaching expiry.',
              'affects' => 'When a lease starts showing as due for attention. 60 days suits most agencies — change it to match your own notice practice.'],
+            ['key' => 'fault_report_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
+             'label' => 'Days a tenant has to report a fault after moving in',
+             'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',
+             'affects' => 'How long the "report a fault" window stays open on a new tenancy. 7 days suits most agencies — a report after this window still reaches the agent, it is just their call whether to accept it.'],
+            ['key' => 'out_inspection_signing_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 60,
+             'label' => 'Days a tenant has to sign the out-inspection',
+             'explain' => 'Once an out-inspection is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
+             'affects' => 'How long CoreX waits for the tenant\'s own signature before allowing an agent to close it out on their behalf. 7 days suits most agencies.'],
+            // Reserved for rental-work-orders.md's two settings — same pattern as above,
+            // added here once that spec is built, not before.
         ],
     ],
 
