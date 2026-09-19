@@ -24,6 +24,13 @@ These override everything else. Violating scope is worse than doing nothing. Whe
 
 8. FULL CRUD, LIST-SCREEN COMPLETENESS, AND OWN/BRANCH/AGENCY SCOPING ARE THE FLOOR — DESIGNED IN, NOT REQUESTED. Johan's words: "we always need proper crud? search / sort / own / branch / agency levels. that should be the design standard. not me asking for it once we get to that stage." Every entity ships with Create, Read, Update, Archive (soft delete only — never hard delete) and Restore from the first build, not as a later ask. Every list screen ships with search (named fields), sort (every sensible column + a stated default), filter (status + date range minimum), pagination, and a real empty state. Every list, detail view, export, download, and API endpoint enforces OWN / BRANCH / AGENCY visibility scoping at the query layer (BelongsToAgency / AgencyScope, never a hidden UI link) — direct-URL access by ID is blocked, not just unlinked. The spec for any new feature states search fields, sort/default, filters, and per-screen scoping BEFORE code is written; a spec missing these is not ready to build. Full detail: BUILD_STANDARD.md §1a.
 
+9. MULTI-AGENCY ALWAYS, NEVER SINGLE. Johan, 2026-09-19, verbatim: "the important part is that whatever we do is multi agency. not single. never." A second real agency — Cape Town, mainly rentals, signed to start October 2026 — is about to run on the same rentals code that has so far only ever been built and tested against agency 1 (HFC). Every place something is HFC's by assumption instead of genuinely per-agency is a place that new agency will find, in front of a paying customer.
+   • No feature, screen, template, document, email, default, or setting may assume one agency.
+   • No hardcoded agency IDs, no agency-1 defaults, no HFC-specific wording, branding, addresses, or signatures anywhere in shipped code.
+   • Every default must be neutral and sensible for an agency that is not HFC.
+   • Anything an agency would reasonably want different about its own operation is a configurable setting, not a code constant — this extends the existing no-hardcoding rule beyond thresholds and time windows to cover wording, documents, and branding too.
+   • The test, every time you build or review anything: what does this look like for the SECOND agency? If the answer is "wrong" or "HFC's," it is not done.
+
 This applies to the conductor too.
 
 # CoreX OS — Claude Instructions
