@@ -14,10 +14,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * .ai/specs/rental-inspections.md §4/§14 — Stage 3 UI, slice 2 (item
- * management). Proves the property show page actually renders with the new
- * Blade/Alpine additions, not just that php -l is silent (which can't catch
- * broken @if/@endif pairing or an undefined Blade variable).
+ * .ai/specs/rental-inspections.md §4/§14 — Stage 3 UI, slices 2 (item
+ * management) and 3 (observation recording). Proves the property show page
+ * actually renders with the new Blade/Alpine additions, not just that
+ * php -l is silent (which can't catch broken @if/@endif pairing, a stray
+ * leftover bracket from an edit, or an undefined Blade variable).
  */
 final class RentalImagesTabRendersTest extends TestCase
 {
@@ -36,7 +37,9 @@ final class RentalImagesTabRendersTest extends TestCase
         $this->actingAs($agent)
             ->get(route('corex.properties.show', $property->id))
             ->assertOk()
-            ->assertSee('Inspection Items');
+            ->assertSee('Inspection Items')
+            ->assertSee('Start In-Inspection')
+            ->assertSee('Start Out-Inspection');
     }
 
     public function test_rental_images_tab_renders_with_items_and_an_active_lease(): void
@@ -60,6 +63,7 @@ final class RentalImagesTabRendersTest extends TestCase
         $this->actingAs($agent)
             ->get(route('corex.properties.show', $property->id))
             ->assertOk()
-            ->assertSee('Inspection Items');
+            ->assertSee('Inspection Items')
+            ->assertSee('Record…');
     }
 }

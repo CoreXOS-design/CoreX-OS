@@ -4421,7 +4421,12 @@
                 },
                 data: {{ Js::from($property->rentalImagesStructure()) }},
                 inspectionUrls: {
-                    itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}'
+                    itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
+                    startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
+                    // Base for the inspection-scoped actions below — each one appends
+                    // /{id}/... itself, since which inspection is "current" changes at
+                    // runtime (a new one can be started without a page reload).
+                    inspectionsBase: '{{ url('/corex/rental-inspections') }}'
                 },
                 inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }}
              })">
@@ -4519,39 +4524,34 @@
                 </div>
             </div>
 
-            {{-- In Inspection --}}
+            {{-- In Inspection — rebuilt per rental-inspections.md §4/§14: item-based
+                 recording, not a flat photo gallery. --}}
                 <div class="prop-section">
                     <button type="button" class="prop-section-toggle" @click="toggle('in_inspection')">
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text">In Inspection</span>
-                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="'(' + data.in_inspection.images.length + ')'"></span>
+                            <span x-show="currentInspection('in')" class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="currentInspection('in')?.status.replace('_',' ')"></span>
                         </h3>
                         <svg class="prop-section-chevron" :class="open['in_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
-                    <div x-show="open['in_inspection']" x-collapse class="prop-section-body space-y-4">
-                        @include('corex.properties.partials.rental-section-body', [
-                            'section' => "'in_inspection'", 'cid' => 'null', 'key' => "'in_inspection'",
-                            'images' => 'data.in_inspection.images', 'date' => 'data.in_inspection.date',
-                        ])
+                    <div x-show="open['in_inspection']" x-collapse class="prop-section-body">
+                        @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in'])
                     </div>
                 </div>
 
-            {{-- Out Inspection --}}
+            {{-- Out Inspection — rebuilt per rental-inspections.md §4/§14. --}}
                 <div class="prop-section">
                     <button type="button" class="prop-section-toggle" @click="toggle('out_inspection')">
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text">Out Inspection</span>
-                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="'(' + data.out_inspection.images.length + ')'"></span>
+                            <span x-show="currentInspection('out')" class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="currentInspection('out')?.status.replace('_',' ')"></span>
                         </h3>
                         <svg class="prop-section-chevron" :class="open['out_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
-                    <div x-show="open['out_inspection']" x-collapse class="prop-section-body space-y-4">
-                        @include('corex.properties.partials.rental-section-body', [
-                            'section' => "'out_inspection'", 'cid' => 'null', 'key' => "'out_inspection'",
-                            'images' => 'data.out_inspection.images', 'date' => 'data.out_inspection.date',
-                        ])
+                    <div x-show="open['out_inspection']" x-collapse class="prop-section-body">
+                        @include('corex.properties.partials.rental-inspection-recording', ['section' => 'out'])
                     </div>
                 </div>
 
@@ -4705,6 +4705,98 @@
                         item.is_retired = true;
                     } catch (e) { this.itemError = e.message; }
                     finally { this.itemBusy = false; }
+                },
+
+                // ── In/out inspections — recording (§14.1/§14.2, same endpoints a
+                // mobile client calls) ──────────────────────────────────────────
+                currentInspection(section) { return section === 'in' ? this.inInspection : this.outInspection; },
+
+                startBusy: {},
+                startError: {},
+
+                async startInspection(section) {
+                    this.startBusy[section] = true;
+                    this.startError[section] = '';
+                    try {
+                        const inspection = await this._post(this.inspectionUrls.startInspection, { type: section });
+                        inspection.observations = [];
+                        inspection.discrepancies = [];
+                        inspection.signatures = [];
+                        if (section === 'in') this.inInspection = inspection; else this.outInspection = inspection;
+                    } catch (e) { this.startError[section] = e.message; }
+                    finally { this.startBusy[section] = false; }
+                },
+
+                // Latest observation recorded for this item WITHIN this inspection —
+                // null means nothing recorded yet on this event.
+                conditionFor(section, itemId) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return null;
+                    const mine = insp.observations.filter(o => o.rental_inspection_item_id === itemId);
+                    if (!mine.length) return null;
+                    return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+                },
+
+                obsForm: {},
+                obsBusy: {},
+                obsError: {},
+                _obsKey(section, itemId) { return section + '_' + itemId; },
+                obsField(section, itemId) {
+                    const key = this._obsKey(section, itemId);
+                    return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '', photo: null });
+                },
+
+                async recordObservation(section, item) {
+                    const key = this._obsKey(section, item.id);
+                    const form = this.obsField(section, item.id);
+                    if (!form.condition) return;
+                    if (form.condition !== 'good' && !form.notes.trim()) {
+                        this.obsError[key] = 'Notes are required when the condition isn\'t "good".';
+                        return;
+                    }
+                    const insp = this.currentInspection(section);
+                    this.obsBusy[key] = true;
+                    this.obsError[key] = '';
+                    try {
+                        const observation = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/observations`, {
+                            rental_inspection_item_id: item.id,
+                            condition: form.condition,
+                            notes: form.notes || null,
+                            source: section === 'in' ? 'in_inspection' : 'out_inspection',
+                        });
+                        const photoFile = form.photo;
+                        this.obsForm[key] = { condition: '', notes: '', photo: null };
+                        if (photoFile) {
+                            observation.photos = [await this._uploadObservationPhoto(insp.id, observation.id, photoFile)];
+                        } else {
+                            observation.photos = [];
+                        }
+                        insp.observations.push(observation);
+                    } catch (e) { this.obsError[key] = e.message; }
+                    finally { this.obsBusy[key] = false; }
+                },
+
+                _uploadObservationPhoto(inspectionId, observationId, file) {
+                    return new Promise((resolve, reject) => {
+                        const fd = new FormData();
+                        fd.append('photo', file);
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', `${this.inspectionUrls.inspectionsBase}/${inspectionId}/observations/${observationId}/photos`);
+                        xhr.setRequestHeader('X-CSRF-TOKEN', this.csrf);
+                        xhr.setRequestHeader('Accept', 'application/json');
+                        xhr.onload = () => {
+                            if (xhr.status >= 200 && xhr.status < 400) {
+                                try { resolve(JSON.parse(xhr.responseText || '{}')); }
+                                catch (_) { resolve({}); }
+                            } else {
+                                let msg = 'Photo upload failed (HTTP ' + xhr.status + '). The observation itself was saved — retry just the photo.';
+                                try { const j = JSON.parse(xhr.responseText); if (j && j.message) msg = j.message; } catch (_) {}
+                                reject(new Error(msg));
+                            }
+                        };
+                        xhr.onerror = () => reject(new Error('Network error uploading the photo. The observation itself was saved — retry just the photo.'));
+                        xhr.send(fd);
+                    });
                 },
 
                 toggle(key) { this.open[key] = !this.open[key]; },
