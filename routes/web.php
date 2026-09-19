@@ -2843,6 +2843,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.edit');
     Route::post('/settings/leases', [\App\Http\Controllers\CoreX\LeaseSettingsController::class, 'update'])
         ->middleware('permission:leases.manage_settings')->name('corex.settings.leases.update');
+    // .ai/specs/agency-onboarding-rentals-step.md §8 — fault-report and out-inspection
+    // signing windows, agency-configurable, both default 7 days.
+    Route::get('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'edit'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.edit');
+    Route::post('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'update'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.update');
     // AT-392 Phase 2 — qualifying-formula threshold, same settings screen, separate
     // form/route so it can never interfere with the existing checklist save above.
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
