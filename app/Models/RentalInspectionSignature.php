@@ -64,8 +64,7 @@ class RentalInspectionSignature extends Model
     /**
      * §0.7/§11 — record a signature on an inspection. An agent_on_behalf
      * signature is rejected outright unless refused_note carries Johan's
-     * exact required phrase — this is the only gate here; capturing the
-     * canvas image itself (storage_path) is a Stage 3/controller concern.
+     * exact required phrase.
      */
     public static function capture(RentalInspection $inspection, string $signerRole, array $attributes = []): self
     {
@@ -81,5 +80,29 @@ class RentalInspectionSignature extends Model
             'signer_role' => $signerRole,
             'signed_at' => $attributes['signed_at'] ?? now(),
         ]));
+    }
+
+    /**
+     * §3.6/§14.1 — decode a canvas-captured signature (base64 PNG) and store
+     * it, returning the public URL to save as signature_path. Same
+     * lightweight pattern already proven for compliance sign-off
+     * (resources/views/compliance/policy-ack/sign.blade.php) — not a second
+     * pipeline. Pulled out of the controller deliberately: the canvas is a
+     * thin client, this is the one place the decode-and-store logic lives,
+     * so a future mobile API controller calls this exact method instead of
+     * re-implementing it — the conductor's own instruction, since signing
+     * is the action Andre's app will most want to call directly.
+     */
+    public static function storeCanvasImage(string $base64, int $propertyId): string
+    {
+        $data = str_contains($base64, ',') ? explode(',', $base64, 2)[1] : $base64;
+        $binary = base64_decode($data, true) ?: '';
+
+        // No EXIF-orientation step — unlike a phone camera photo, a
+        // canvas-drawn signature has no camera orientation to correct.
+        $path = "properties/{$propertyId}/rental-inspection-signatures/" . uniqid('sig_', true) . '.png';
+        \Illuminate\Support\Facades\Storage::disk('public')->put($path, $binary);
+
+        return \Illuminate\Support\Facades\Storage::url($path);
     }
 }

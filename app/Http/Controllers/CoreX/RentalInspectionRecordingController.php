@@ -13,7 +13,6 @@ use App\Models\RentalInspectionSignature;
 use App\Services\Images\PropertyImageStorer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 /**
  * .ai/specs/rental-inspections.md §14.1/§14.2 — where an inspection is
@@ -208,7 +207,7 @@ class RentalInspectionRecordingController extends Controller
         }
 
         if (!empty($validated['signature_image'])) {
-            $attributes['signature_path'] = $this->storeSignatureImage($validated['signature_image'], $rentalInspection->property_id);
+            $attributes['signature_path'] = RentalInspectionSignature::storeCanvasImage($validated['signature_image'], $rentalInspection->property_id);
         }
 
         try {
@@ -242,19 +241,5 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json($rentalInspection->fresh());
-    }
-
-    /** Decodes a base64 canvas signature and stores it exactly like the RMCP policy-ack pattern (§3.6) — path only in the DB. */
-    private function storeSignatureImage(string $base64, int $propertyId): string
-    {
-        $data = str_contains($base64, ',') ? explode(',', $base64, 2)[1] : $base64;
-        $binary = base64_decode($data, true) ?: '';
-
-        // No EXIF-orientation step here — unlike a phone camera photo, a
-        // canvas-drawn signature has no camera orientation to correct.
-        $path = "properties/{$propertyId}/rental-inspection-signatures/" . uniqid('sig_', true) . '.png';
-        Storage::disk('public')->put($path, $binary);
-
-        return Storage::url($path);
     }
 }

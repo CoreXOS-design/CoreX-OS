@@ -4431,14 +4431,7 @@
                 inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }}
              })">
 
-            <div class="flex items-start justify-between gap-4">
-                <p class="text-xs" style="color:var(--text-muted);max-width:42rem;">
-                    Inspection evidence for this rental. Each section is collapsed until you open it,
-                    carries its own date, and holds its own set of photos. Add as many extra sections
-                    as you need for handovers, snags or damage.
-                </p>
-                <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
-            </div>
+            <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
 
             {{-- Delete ALL rental images — destructive; behind a type-to-confirm modal.
                  AT-267 — same assistant gate as the per-image delete in
@@ -4652,6 +4645,12 @@
             </div>
         </div>
 
+        {{-- Same lightweight canvas-capture library already proven for compliance
+             sign-off (resources/views/compliance/policy-ack/sign.blade.php) — not a
+             second signature pipeline. Scoped inside this rental-only block so
+             non-rental property pages never load it. --}}
+        <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+
         <script>
         function rentalImages(config) {
             return {
@@ -4710,6 +4709,10 @@
                 // ── In/out inspections — recording (§14.1/§14.2, same endpoints a
                 // mobile client calls) ──────────────────────────────────────────
                 currentInspection(section) { return section === 'in' ? this.inInspection : this.outInspection; },
+                hasUnresolvedDiscrepancy(section) {
+                    const insp = this.currentInspection(section);
+                    return !!insp && (insp.discrepancies || []).some(d => !d.resolved_at);
+                },
 
                 startBusy: {},
                 startError: {},
@@ -4797,6 +4800,88 @@
                         xhr.onerror = () => reject(new Error('Network error uploading the photo. The observation itself was saved — retry just the photo.'));
                         xhr.send(fd);
                     });
+                },
+
+                // ── Discrepancies, signatures, lifecycle (§0.4/§0.7/§11) ────────
+                lifecycleError: '',
+                discForm: {},
+                discBusy: {},
+                discField(discrepancyId) {
+                    return this.discForm[discrepancyId] || (this.discForm[discrepancyId] = { accepted_observation_id: null, resolution_note: '' });
+                },
+
+                async resolveDiscrepancy(section, discrepancy) {
+                    const form = this.discField(discrepancy.id);
+                    if (!form.accepted_observation_id) return;
+                    const insp = this.currentInspection(section);
+                    this.discBusy[discrepancy.id] = true;
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/discrepancies/${discrepancy.id}/resolve`, {
+                            accepted_observation_id: form.accepted_observation_id,
+                            resolution_note: form.resolution_note || null,
+                        });
+                        Object.assign(discrepancy, updated);
+                    } catch (e) { this.lifecycleError = e.message; }
+                    finally { this.discBusy[discrepancy.id] = false; }
+                },
+
+                async completeInspection(section) {
+                    const insp = this.currentInspection(section);
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/complete`, {});
+                        Object.assign(insp, updated);
+                    } catch (e) { this.lifecycleError = e.message; }
+                },
+
+                async startAwaitingSignature() {
+                    const insp = this.outInspection;
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/start-awaiting-signature`, {});
+                        Object.assign(insp, updated);
+                    } catch (e) { this.lifecycleError = e.message; }
+                },
+
+                signaturePad: null,
+                signingOnBehalf: false,
+                refusedNote: '',
+
+                initSignaturePad() {
+                    const canvas = this.$refs.sigCanvas;
+                    if (!canvas || typeof SignaturePad === 'undefined') return;
+                    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+                    canvas.width = canvas.offsetWidth * ratio;
+                    canvas.height = 180 * ratio;
+                    canvas.getContext('2d').scale(ratio, ratio);
+                    this.signaturePad = new SignaturePad(canvas, { backgroundColor: '#fff' });
+                },
+                clearSignature() { this.signaturePad && this.signaturePad.clear(); },
+
+                async saveTenantSignature() {
+                    if (!this.signaturePad || this.signaturePad.isEmpty()) {
+                        this.lifecycleError = 'Draw a signature first.';
+                        return;
+                    }
+                    await this._saveSignature('tenant', this.signaturePad.toDataURL('image/png'), null);
+                },
+
+                async saveAgentOnBehalfSignature() {
+                    await this._saveSignature('agent_on_behalf', null, this.refusedNote);
+                },
+
+                async _saveSignature(signerRole, signatureImage, refusedNote) {
+                    const insp = this.outInspection;
+                    this.lifecycleError = '';
+                    try {
+                        const signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, {
+                            signer_role: signerRole, signature_image: signatureImage, refused_note: refusedNote,
+                        });
+                        insp.signatures.push(signature);
+                        this.signingOnBehalf = false;
+                        this.refusedNote = '';
+                    } catch (e) { this.lifecycleError = e.message; }
                 },
 
                 toggle(key) { this.open[key] = !this.open[key]; },
