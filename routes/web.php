@@ -2927,6 +2927,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.highlighters.restore');
     Route::post('/settings/rental-applications/highlighters/reorder', [\App\Http\Controllers\CoreX\RentalApplicationHighlighterController::class, 'reorder'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.highlighters.reorder');
+    // .ai/specs/rental-application-field-config.md §7, piece (c)(1) — custom
+    // fields, the definition side. Full CRUD, same settings screen, same
+    // permission gate, same route shape as highlighters above.
+    Route::post('/settings/rental-applications/custom-fields', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'store'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.store');
+    Route::put('/settings/rental-applications/custom-fields/{customField}', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'update'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.update');
+    Route::post('/settings/rental-applications/custom-fields/{customField}/archive', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'archive'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.archive');
+    Route::post('/settings/rental-applications/custom-fields/{customField}/restore', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'restore'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.restore');
+    Route::post('/settings/rental-applications/custom-fields/reorder', [\App\Http\Controllers\CoreX\RentalApplicationCustomFieldController::class, 'reorder'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.custom-fields.reorder');
     // Decline reason templates, 2026-09-15 — Johan: "a decline that tells
     // an applicant how to fix it." Full CRUD, dedicated list screen (search/
     // sort/filter/pagination/empty state), same permission gate as every

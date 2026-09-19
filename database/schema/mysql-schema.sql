@@ -12167,6 +12167,31 @@ CREATE TABLE `rental_application_checklist_configs` (
   CONSTRAINT `rental_application_checklist_configs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_custom_fields`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_custom_fields` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `key` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(150) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `help_text` text COLLATE utf8mb4_unicode_ci,
+  `field_type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `options` json DEFAULT NULL,
+  `required` tinyint(1) NOT NULL DEFAULT '0',
+  `shown` tinyint(1) NOT NULL DEFAULT '1',
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `created_by` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_application_custom_fields_created_by_foreign` (`created_by`),
+  KEY `rental_application_custom_fields_agency_id_key_index` (`agency_id`,`key`),
+  CONSTRAINT `rental_application_custom_fields_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_application_custom_fields_created_by_foreign` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_decline_email_settings`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12549,6 +12574,7 @@ CREATE TABLE `rental_applications` (
   `approved_rental_amount` decimal(12,2) DEFAULT NULL,
   `approved_subject_to_fica_at` timestamp NULL DEFAULT NULL,
   `field_config_snapshot` json DEFAULT NULL,
+  `custom_field_values` json DEFAULT NULL,
   `applicant_notified_at` timestamp NULL DEFAULT NULL,
   `decline_reason_template_id` bigint unsigned DEFAULT NULL,
   `decline_email_subject` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -16962,3 +16988,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1372,'2026_09_17_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1373,'2026_09_19_090000_add_field_display_config_to_rental_application_qualifying_settings',324);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1374,'2026_09_19_090100_add_field_config_snapshot_to_rental_applications',324);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1375,'2026_09_20_090000_add_field_config_snapshot_to_rental_application_generations',325);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1376,'2026_09_20_100000_create_rental_application_custom_fields_table',326);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1377,'2026_09_20_100100_add_custom_field_values_to_rental_applications',326);

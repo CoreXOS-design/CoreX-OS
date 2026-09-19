@@ -789,7 +789,7 @@ class RentalApplication extends Model
         'employer_name', 'employer_position', 'employer_address', 'employer_tel',
         'monthly_salary', 'employment_type',
         'occupation_date', 'rental_terms', 'rental_term_months', 'special_conditions', 'adults', 'children',
-        'field_config_snapshot',
+        'field_config_snapshot', 'custom_field_values',
     ];
 
     protected $casts = [
@@ -814,6 +814,7 @@ class RentalApplication extends Model
         'adults' => 'integer',
         'children' => 'integer',
         'field_config_snapshot' => 'array',
+        'custom_field_values' => 'array',
     ];
 
     /**

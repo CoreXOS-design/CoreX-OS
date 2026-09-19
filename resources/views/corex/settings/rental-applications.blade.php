@@ -462,6 +462,144 @@
     </div>
 
     {{--
+        .ai/specs/rental-application-field-config.md §7, piece (c)(1) —
+        custom fields an agency defines itself, beyond what CoreX ships.
+        Definition only here — capture/consumption land in later pieces.
+        Retiring keeps an already-captured answer intact on whatever
+        application has one; it just stops offering the field to new ones.
+    --}}
+    <div id="custom-fields" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Custom Fields</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">Questions of your own, beyond what CoreX ships.</p>
+
+        @php $activeCustomFieldIds = $activeCustomFields->pluck('id')->all(); @endphp
+
+        <div class="space-y-3 mb-4">
+            @forelse($activeCustomFields as $i => $customField)
+                <div x-data="{ type: {{ \Illuminate\Support\Js::from($customField->field_type) }} }" class="rounded-md p-2" style="border: 1px solid var(--border);">
+                    <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.update', $customField) }}" class="flex flex-wrap items-end gap-2">
+                        @csrf
+                        @method('PUT')
+                        <span class="flex flex-col" style="line-height: 1;">
+                            <button type="submit" form="cf-reorder-up-{{ $customField->id }}" @disabled($i === 0) title="Move up" class="text-xs" style="opacity: {{ $i === 0 ? '0.3' : '1' }};">&#9650;</button>
+                            <button type="submit" form="cf-reorder-down-{{ $customField->id }}" @disabled($i === count($activeCustomFieldIds) - 1) title="Move down" class="text-xs" style="opacity: {{ $i === count($activeCustomFieldIds) - 1 ? '0.3' : '1' }};">&#9660;</button>
+                        </span>
+                        <div>
+                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Label</label>
+                            <input type="text" name="label" value="{{ old('label', $customField->label) }}" maxlength="150" required class="corex-input text-xs" style="width: 160px;">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Type</label>
+                            <select name="field_type" x-model="type" class="corex-input text-xs" style="width: 110px;">
+                                @foreach(\App\Models\RentalApplicationCustomField::FIELD_TYPES as $type)
+                                    <option value="{{ $type }}">{{ str_replace('_', ' ', ucfirst($type)) }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div x-show="type === 'choice_list'" x-cloak>
+                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Options (comma-separated)</label>
+                            <input type="text" name="options_text" value="{{ old('options_text', $customField->options ? implode(', ', $customField->options) : '') }}" maxlength="1000" class="corex-input text-xs" style="width: 200px;">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Help text</label>
+                            <input type="text" name="help_text" value="{{ old('help_text', $customField->help_text) }}" maxlength="1000" class="corex-input text-xs" style="width: 200px;">
+                        </div>
+                        <label class="flex items-center gap-1 text-xs" style="color: var(--text-secondary);">
+                            <input type="checkbox" name="required" value="1" @checked(old('required', $customField->required))>
+                            Compulsory
+                        </label>
+                        <label class="flex items-center gap-1 text-xs" style="color: var(--text-secondary);">
+                            <input type="checkbox" name="shown" value="1" @checked(old('shown', $customField->shown))>
+                            Shown
+                        </label>
+                        <button type="submit" class="text-xs" style="color: var(--ds-blue, #2563eb);">Save</button>
+                    </form>
+                    @if($i > 0)
+                        @php $cfSwappedUp = $activeCustomFieldIds; [$cfSwappedUp[$i - 1], $cfSwappedUp[$i]] = [$cfSwappedUp[$i], $cfSwappedUp[$i - 1]]; @endphp
+                        <form id="cf-reorder-up-{{ $customField->id }}" method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.reorder') }}" style="display:none;">
+                            @csrf
+                            @foreach($cfSwappedUp as $orderedId)
+                                <input type="hidden" name="order[]" value="{{ $orderedId }}">
+                            @endforeach
+                        </form>
+                    @endif
+                    @if($i < count($activeCustomFieldIds) - 1)
+                        @php $cfSwappedDown = $activeCustomFieldIds; [$cfSwappedDown[$i], $cfSwappedDown[$i + 1]] = [$cfSwappedDown[$i + 1], $cfSwappedDown[$i]]; @endphp
+                        <form id="cf-reorder-down-{{ $customField->id }}" method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.reorder') }}" style="display:none;">
+                            @csrf
+                            @foreach($cfSwappedDown as $orderedId)
+                                <input type="hidden" name="order[]" value="{{ $orderedId }}">
+                            @endforeach
+                        </form>
+                    @endif
+                    <div class="text-[11px] mt-1" style="color: var(--text-muted);">
+                        {{ $customField->key }} &middot; {{ $customField->creator ? 'Added by ' . $customField->creator->name : 'Creator not recorded' }}
+                        <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.archive', $customField) }}" style="display:inline;" onsubmit="return confirm('Retire this custom field? Applications that already answered it keep that answer; it just won\'t be on new ones.');">
+                            @csrf
+                            <button type="submit" style="color: var(--text-muted); margin-left: 6px;">Retire</button>
+                        </form>
+                    </div>
+                </div>
+            @empty
+                <p class="text-xs" style="color: var(--text-muted);">No custom fields yet.</p>
+            @endforelse
+        </div>
+
+        <div class="pt-2 mb-4" style="border-top: 1px solid var(--border);" x-data="{ type: 'text' }">
+            <h3 class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Add a custom field</h3>
+            <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.store') }}" class="flex flex-wrap items-end gap-2">
+                @csrf
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Label</label>
+                    <input type="text" name="label" value="{{ old('label') }}" maxlength="150" placeholder="e.g. Pet deposit" required class="corex-input text-xs" style="width: 160px;">
+                </div>
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Type</label>
+                    <select name="field_type" x-model="type" class="corex-input text-xs" style="width: 110px;">
+                        @foreach(\App\Models\RentalApplicationCustomField::FIELD_TYPES as $type)
+                            <option value="{{ $type }}">{{ str_replace('_', ' ', ucfirst($type)) }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div x-show="type === 'choice_list'" x-cloak>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Options (comma-separated)</label>
+                    <input type="text" name="options_text" value="{{ old('options_text') }}" maxlength="1000" placeholder="Small, Medium, Large" class="corex-input text-xs" style="width: 200px;">
+                </div>
+                <div>
+                    <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Help text</label>
+                    <input type="text" name="help_text" value="{{ old('help_text') }}" maxlength="1000" class="corex-input text-xs" style="width: 200px;">
+                </div>
+                <label class="flex items-center gap-1 text-xs" style="color: var(--text-secondary);">
+                    <input type="checkbox" name="required" value="1" @checked(old('required'))>
+                    Compulsory
+                </label>
+                <button type="submit" class="corex-btn-primary text-xs">Add</button>
+            </form>
+        </div>
+
+        <div class="pt-2" style="border-top: 1px solid var(--border);">
+            <h3 class="text-xs font-semibold mb-2" style="color: var(--text-secondary);">Retired</h3>
+            @if($retiredCustomFields->isEmpty())
+                <p class="text-xs" style="color: var(--text-muted);">Nothing retired.</p>
+            @else
+                <div class="space-y-1">
+                    @foreach($retiredCustomFields as $customField)
+                        <div class="flex items-center gap-2 text-xs" style="opacity: 0.7;">
+                            <span style="color: var(--text-secondary);">{{ $customField->label }}</span>
+                            <span style="color: var(--text-muted);">({{ str_replace('_', ' ', ucfirst($customField->field_type)) }})</span>
+                            <span style="color: var(--text-muted);">&middot; {{ $customField->creator ? 'Added by ' . $customField->creator->name : 'Creator not recorded' }}</span>
+                            <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.restore', $customField->id) }}">
+                                @csrf
+                                <button type="submit" style="color: var(--ds-blue, #2563eb);">Restore</button>
+                            </form>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+        </div>
+    </div>
+
+    {{--
         Ruling 1, AT-392 round 5, 2026-09-13 — Johan: marital_status
         converts from free text to a real select so the spouse-fields
         condition above can actually fire. Option list is agency-

@@ -207,6 +207,22 @@ class RentalApplicationSettingsController extends Controller
         );
         $archivedHighlighters = $archivedHighlightersQuery->paginate(10, ['*'], 'highlighter_archived_page')->withQueryString();
 
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(1) —
+        // custom fields, the definition side. Small, settings-embedded
+        // list (same class of screen as "Field Display"/"Compulsory
+        // Fields" above, not a dedicated index page) — no search/
+        // pagination needed at this scale, same call CLAUDE.md's own
+        // floor leaves room for on a config list this size.
+        $activeCustomFields = \App\Models\RentalApplicationCustomField::where('agency_id', $agencyId)
+            ->with('creator')
+            ->orderBy('sort_order')
+            ->get();
+        $retiredCustomFields = \App\Models\RentalApplicationCustomField::onlyTrashed()
+            ->where('agency_id', $agencyId)
+            ->with('creator')
+            ->orderByDesc('deleted_at')
+            ->get();
+
         // AT-392 — Johan: "validity windows are per document type PER
         // PURPOSE, agency-configurable — 2 months for the rental
         // application, 3 months for FICA including the ID copy." The
@@ -224,7 +240,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides'
         ));
     }
 
