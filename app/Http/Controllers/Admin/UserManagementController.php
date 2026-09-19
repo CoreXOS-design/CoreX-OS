@@ -36,14 +36,7 @@ class UserManagementController extends Controller
         // (Company → Assistants), not here. They are an extension of an agent,
         // not a standalone staff member, so they never appear in the user
         // directory. (Johan, 2026-07-22.)
-        $users = User::agencyMembers()
-            ->where('is_assistant', 0)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where(function ($q2) use ($agencyId) {
-                    $q2->where('agency_id', $agencyId)
-                        ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
-                });
-            })
+        $users = $this->agencyDirectoryQuery()
             ->orderBy('name')
             ->get();
 
@@ -88,9 +81,44 @@ class UserManagementController extends Controller
         // up on that page at all.
         $canOverride = (bool) auth()->user()?->isOwnerRole();
 
+        // AT-422 (Ledger) — the two columns the table adds: one grouped query each, never one
+        // per row. Listings = the agent's ON-MARKET properties; last seen = latest login.
+        $userIds = $users->pluck('id');
+        $listingCounts = \App\Models\Property::query()->onMarket()
+            ->whereIn('agent_id', $userIds)
+            ->selectRaw('agent_id, COUNT(*) as c')->groupBy('agent_id')
+            ->pluck('c', 'agent_id');
+        $lastSeen = DB::table('login_histories')
+            ->where('event', 'login')->whereIn('user_id', $userIds)
+            ->selectRaw('user_id, MAX(created_at) as last_at')->groupBy('user_id')
+            ->pluck('last_at', 'user_id');
+        // Shown in the bulk-deactivate confirmation (platform-wide, from the seat-lock service).
+        $holdDays = app(AgentSeatLockService::class)->lockDays();
+
         return view('admin.users.index', compact(
-            'users','branches','designations','p24AgentMap','ppraDueCount','archivedCount','seatHolds','canOverride'
+            'users','branches','designations','p24AgentMap','ppraDueCount','archivedCount','seatHolds','canOverride',
+            'listingCounts','lastSeen','holdDays'
         ));
+    }
+
+    /**
+     * AT-422 — who counts as a user in the acting admin's agency. The ONE definition shared by the
+     * Users list and the bulk actions, so a bulk request can never reach further than the list shows:
+     * the agency's own members (or anyone on one of its branches), assistants excluded (they are
+     * managed on Company → Assistants).
+     */
+    private function agencyDirectoryQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        $agencyId = auth()->user()?->effectiveAgencyId();
+
+        return User::agencyMembers()
+            ->where('is_assistant', 0)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where(function ($q2) use ($agencyId) {
+                    $q2->where('agency_id', $agencyId)
+                        ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+                });
+            });
     }
 
     /**
@@ -966,40 +994,124 @@ class UserManagementController extends Controller
             }
         }
 
+        // AT-422 — deactivating is ONE shared implementation (also used by the Users-list bulk action).
+        if (! $reactivating) {
+            $done = $this->deactivateAgent($user, $seatLock);
+
+            return $this->withActiveTab(back(), $request)->with('status', "{$user->name} deactivated.{$done['holdNote']}{$done['p24Note']}");
+        }
+
         // The gate above is the authority; suspend the observer backstop so it
         // does not re-refuse the write the gate just authorised.
-        AgentSeatLockService::bypass(fn () => $user->update([
-            'is_active' => ! $user->is_active,
-        ]));
-
-        if ($reactivating) {
-            $seatLock->reinstate($user, auth()->user(), $overrideReason);
-        } else {
-            $seatLock->release($user, AgentSeatRelease::REASON_DEACTIVATED, (int) auth()->id());
-            $this->revokeAccess($user);
-        }
+        AgentSeatLockService::bypass(fn () => $user->update(['is_active' => true]));
+        $seatLock->reinstate($user, auth()->user(), $overrideReason);
 
         $fresh = $user->fresh();
         $p24Note = $this->pushUserToP24($fresh);
-        $state = $fresh->is_active ? 'activated' : 'deactivated';
 
         // Domain events — spec .ai/specs/corex-domain-events-spec.md
-        if ($fresh->is_active) {
-            event(new \App\Events\Agent\AgentActivated($fresh, auth()->id()));
-        } else {
-            event(new \App\Events\Agent\AgentDeactivated($fresh, auth()->id()));
-        }
+        event(new \App\Events\Agent\AgentActivated($fresh, auth()->id()));
 
-        // Tell the admin about the hold UP FRONT rather than letting them
-        // discover it when they try to undo the click (STANDARDS: no silent locks).
+        $holdNote = $overrideReason ? ' The hold was lifted early and the reason recorded.' : '';
+
+        return $this->withActiveTab(back(), $request)->with('status', "{$user->name} activated.{$holdNote}{$p24Note}");
+    }
+
+    /**
+     * AT-422 — the ONE implementation of "deactivate a user", shared by the single Deactivate
+     * (toggle) and the Users-list bulk Deactivate so the two can never drift: the billable seat is
+     * released and its hold started, access is revoked, Property24 is updated and AgentDeactivated
+     * fires. The caller has already checked permission and that this is not the acting admin.
+     *
+     * @return array{fresh:User, p24Note:string, holdNote:string}
+     */
+    private function deactivateAgent(User $user, AgentSeatLockService $seatLock): array
+    {
+        // Deactivating frees a billable seat (billing spec §3 D1); the observer backstop must not
+        // re-refuse the write this method is authorising.
+        AgentSeatLockService::bypass(fn () => $user->update(['is_active' => false]));
+        $seatLock->release($user, AgentSeatRelease::REASON_DEACTIVATED, (int) auth()->id());
+        $this->revokeAccess($user);
+
+        $fresh = $user->fresh();
+        $p24Note = $this->pushUserToP24($fresh);
+
+        // Domain events — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Agent\AgentDeactivated($fresh, auth()->id()));
+
+        // Tell the admin about the hold UP FRONT rather than letting them discover it when they
+        // try to undo the click (STANDARDS: no silent locks).
         $holdNote = '';
-        if (! $fresh->is_active && ($until = $seatLock->lockedUntil($fresh))) {
+        if ($until = $seatLock->lockedUntil($fresh)) {
             $holdNote = " They are no longer billed. They cannot be reactivated until {$until->format('j F Y')}.";
-        } elseif ($reactivating && $overrideReason) {
-            $holdNote = ' The hold was lifted early and the reason recorded.';
         }
 
-        return $this->withActiveTab(back(), $request)->with('status', "{$user->name} {$state}.{$holdNote}{$p24Note}");
+        return ['fresh' => $fresh, 'p24Note' => $p24Note, 'holdNote' => $holdNote];
+    }
+
+    /**
+     * AT-422 — Users list bulk actions: Resend invitation / Deactivate for the ticked people. Spec:
+     * .ai/specs/users-pages-restyle.md §2.1. Each person goes through the same rules and the same code
+     * as the single action; anyone ineligible is SKIPPED with a stated reason, never silently.
+     */
+    public function bulk(Request $request, AgentSeatLockService $seatLock)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $data = $request->validate([
+            'action'     => ['required', Rule::in(['resend_invite', 'deactivate'])],
+            'user_ids'   => ['required', 'array', 'min:1', 'max:200'],
+            'user_ids.*' => ['integer'],
+        ]);
+        $ids = array_values(array_unique(array_map('intval', $data['user_ids'])));
+
+        // The SAME agency-scoped query as the list: another agency's id is simply not found here.
+        $users = $this->agencyDirectoryQuery()->whereIn('id', $ids)->orderBy('name')->get();
+
+        $done = [];
+        $skipped = [];
+        if (($missing = count($ids) - $users->count()) > 0) {
+            $skipped[] = $missing . ($missing === 1 ? ' selected person' : ' selected people') . ' could not be found.';
+        }
+
+        foreach ($users as $u) {
+            if ($data['action'] === 'resend_invite') {
+                if (! $u->is_active) { $skipped[] = "{$u->name} — is inactive"; continue; }
+                if ($u->email_verified_at) { $skipped[] = "{$u->name} — has already set up their account"; continue; }
+                try {
+                    Mail::to($u->email)->send(new UserInviteMail($u));
+                    $done[] = $u->name;
+                } catch (\Throwable $e) {
+                    report($e);
+                    $skipped[] = "{$u->name} — the email could not be sent";
+                }
+                continue;
+            }
+
+            // deactivate
+            if ($u->id === auth()->id()) { $skipped[] = "{$u->name} — you cannot deactivate yourself"; continue; }
+            if (! $u->is_active) { $skipped[] = "{$u->name} — is already inactive"; continue; }
+            try {
+                $this->deactivateAgent($u, $seatLock);
+                $done[] = $u->name;
+            } catch (\Throwable $e) {
+                report($e);
+                $skipped[] = "{$u->name} — something went wrong, nothing further was changed for them";
+            }
+        }
+
+        $n = count($done);
+        $people = $n === 1 ? 'person' : 'people';
+        $verb = $data['action'] === 'resend_invite' ? "Invitation resent to {$n} {$people}." : "Deactivated {$n} {$people}.";
+        if ($data['action'] === 'deactivate' && $n > 0) {
+            $verb .= ' They are no longer billed and cannot be reactivated for ' . $seatLock->lockDays() . ' days.';
+        }
+
+        $redirect = redirect()->route('admin.users')->with('bulk_skipped', $skipped);
+
+        return $n > 0
+            ? $redirect->with('status', $verb)
+            : $redirect->withErrors(['bulk' => 'Nobody was changed.']);
     }
 
     /**
