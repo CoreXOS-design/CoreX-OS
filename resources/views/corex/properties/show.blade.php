@@ -4419,7 +4419,11 @@
                     delete: '{{ route('corex.properties.rental-images.delete', $property) }}',
                     deleteBulk: '{{ route('corex.properties.rental-images.delete-bulk', $property) }}'
                 },
-                data: {{ Js::from($property->rentalImagesStructure()) }}
+                data: {{ Js::from($property->rentalImagesStructure()) }},
+                inspectionUrls: {
+                    itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}'
+                },
+                inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }}
              })">
 
             <div class="flex items-start justify-between gap-4">
@@ -4473,6 +4477,45 @@
                             </button>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            {{-- Inspection items — §0.6, the agent adds spaces/meters per property;
+                 never the advertised marketing room list above. --}}
+            <div class="prop-section">
+                <button type="button" class="prop-section-toggle" @click="toggle('items')">
+                    <h3 class="prop-section-heading">
+                        <span class="prop-section-heading-text">Inspection Items</span>
+                        <span class="ml-2 text-xs" style="color:var(--text-muted);" x-text="'(' + activeItems().length + ')'"></span>
+                    </h3>
+                    <svg class="prop-section-chevron" :class="open['items'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                </button>
+                <div x-show="open['items']" x-collapse class="prop-section-body space-y-3">
+                    <div x-show="itemError" x-cloak class="text-xs" style="color:#ef4444;" x-text="itemError"></div>
+
+                    <template x-for="item in activeItems()" :key="item.id">
+                        <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
+                            <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                            <div class="flex items-center gap-3">
+                                <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
+                                <button type="button" :disabled="itemBusy" @click="retireItem(item)"
+                                        class="text-xs font-semibold" style="color:var(--ds-crimson);">Retire</button>
+                            </div>
+                        </div>
+                    </template>
+
+                    <form @submit.prevent="addItem()" class="flex items-end gap-2 pt-2">
+                        <select x-model="newItem.kind" class="prop-input" style="max-width:8rem;">
+                            <option value="space">Space</option>
+                            <option value="meter">Meter</option>
+                        </select>
+                        <input type="text" x-model="newItem.label" placeholder="e.g. Bedroom 2, Water meter" maxlength="191"
+                               class="prop-input flex-1" @keydown.enter.prevent="addItem()">
+                        <button type="submit" :disabled="itemBusy || !newItem.label.trim()"
+                                class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">
+                            Add
+                        </button>
+                    </form>
                 </div>
             </div>
 
@@ -4624,6 +4667,45 @@
                 viewer: { open: false, images: [], index: 0 },
                 selecting: {},
                 sel: {},
+
+                // ── Inspection items (§14.1/§14.2 — same endpoints a mobile
+                // client calls; this is a thin caller, not a second
+                // implementation) ──────────────────────────────────────────
+                inspectionUrls: config.inspectionUrls,
+                items: config.inspectionData.items,
+                inInspection: config.inspectionData.in_inspection,
+                outInspection: config.inspectionData.out_inspection,
+                itemError: '',
+                itemBusy: false,
+                newItem: { kind: 'space', label: '' },
+
+                activeItems() { return this.items.filter(i => !i.is_retired); },
+
+                async addItem() {
+                    const label = this.newItem.label.trim();
+                    if (!label) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const item = await this._post(this.inspectionUrls.itemStore, {
+                            kind: this.newItem.kind, label,
+                        });
+                        this.items.push(item);
+                        this.newItem.label = '';
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                async retireItem(item) {
+                    if (!window.confirm(`Retire "${item.label}"? It stops appearing for new observations — its history stays exactly as it is.`)) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        await this._post(`${this.inspectionUrls.itemStore}/${item.id}/retire`, {});
+                        item.is_retired = true;
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
 
                 toggle(key) { this.open[key] = !this.open[key]; },
 

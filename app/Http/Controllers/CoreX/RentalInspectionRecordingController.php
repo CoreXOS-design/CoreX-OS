@@ -40,18 +40,7 @@ class RentalInspectionRecordingController extends Controller
      */
     public function tabData(Request $request, Property $property): JsonResponse
     {
-        $items = RentalInspectionItem::where('property_id', $property->id)
-            ->with(['observations' => fn ($q) => $q->latest('created_at')])
-            ->get();
-
-        $withDetail = fn (string $type) => RentalInspection::currentFor($property, $type)
-            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures']);
-
-        return response()->json([
-            'items' => $items,
-            'in_inspection' => $withDetail(RentalInspection::TYPE_IN),
-            'out_inspection' => $withDetail(RentalInspection::TYPE_OUT),
-        ]);
+        return response()->json(RentalInspection::tabPayloadFor($property));
     }
 
     /** POST /corex/properties/{property}/rental-inspections/start — §0.5, the deliberate action that begins one. */
