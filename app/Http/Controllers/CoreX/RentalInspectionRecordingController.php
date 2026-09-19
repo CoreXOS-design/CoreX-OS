@@ -29,6 +29,47 @@ use Illuminate\Support\Facades\Storage;
  */
 class RentalInspectionRecordingController extends Controller
 {
+    /**
+     * GET /corex/properties/{property}/rental-inspection-tab — the data
+     * layer the rebuilt tab (§4) reads from: this property's items (every
+     * one, including retired — §3.3, retiring never hides history) and
+     * whichever in/out inspection is currently under way, each with its
+     * observations, discrepancies, and signatures loaded. Read-only:
+     * currentFor() never creates an inspection just because the tab was
+     * opened (§0.5).
+     */
+    public function tabData(Request $request, Property $property): JsonResponse
+    {
+        $items = RentalInspectionItem::where('property_id', $property->id)
+            ->with(['observations' => fn ($q) => $q->latest('created_at')])
+            ->get();
+
+        $withDetail = fn (string $type) => RentalInspection::currentFor($property, $type)
+            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures']);
+
+        return response()->json([
+            'items' => $items,
+            'in_inspection' => $withDetail(RentalInspection::TYPE_IN),
+            'out_inspection' => $withDetail(RentalInspection::TYPE_OUT),
+        ]);
+    }
+
+    /** POST /corex/properties/{property}/rental-inspections/start — §0.5, the deliberate action that begins one. */
+    public function start(Request $request, Property $property): JsonResponse
+    {
+        $validated = $request->validate([
+            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+        ]);
+
+        try {
+            $inspection = RentalInspection::start($property, $validated['type'], $request->user());
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+
+        return response()->json($inspection, 201);
+    }
+
     /** POST /corex/properties/{property}/rental-inspection-items — Johan's ruling §0.6: the agent adds items per property. */
     public function storeItem(Request $request, Property $property): JsonResponse
     {

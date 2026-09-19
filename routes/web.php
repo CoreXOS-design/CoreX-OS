@@ -3976,6 +3976,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Rental inspection items — Johan's ruling §0.6, the agent adds items per
         // property, differing from the advertised marketing room list above.
         // Spec: rental-inspections.md §14.1/§14.2.
+        Route::get('/{property}/rental-inspection-tab', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tabData'])->name('rental-inspection-tab.data');
+        Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
         Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
         Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an

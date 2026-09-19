@@ -225,6 +225,57 @@ class RentalInspection extends Model
     }
 
     /**
+     * §4/§14.7 — the property-tab's CURRENT inspection of a given type, if
+     * one is already under way: the property's active lease's most recent
+     * non-completed, non-cancelled inspection of that type. Read-only —
+     * deliberately does NOT create one. §0.5 ("inspections are deliberate
+     * events, not random acts") rules out silently materialising a real
+     * inspection just because an agent opened the tab; see start() for the
+     * explicit action that actually begins one.
+     */
+    public static function currentFor(Property $property, string $type): ?self
+    {
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+        if (! $lease) {
+            return null;
+        }
+
+        return self::where('lease_id', $lease->id)
+            ->where('type', $type)
+            ->whereNotIn('status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED])
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * §0.5/§4 — the deliberate action that actually begins an inspection.
+     * Refuses if one of this type is already under way for the property's
+     * active lease (currentFor() would already have found it — starting a
+     * second one is very likely a double-click, not a real second event).
+     * TYPE_AD_HOC is exempt from that check: several ad-hoc inspections can
+     * legitimately be open at once (§4), so there is no "already one
+     * running" concept for it.
+     */
+    public static function start(Property $property, string $type, User $by): self
+    {
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+        if (! $lease) {
+            throw new \LogicException('This property has no active lease — an inspection needs one to attach to.');
+        }
+
+        if ($type !== self::TYPE_AD_HOC && self::currentFor($property, $type)) {
+            throw new \LogicException(ucfirst($type) . '-inspection is already under way for this tenancy.');
+        }
+
+        return self::create([
+            'agency_id' => $property->agency_id,
+            'lease_id' => $lease->id,
+            'type' => $type,
+            'created_by_user_id' => $by->id,
+        ]);
+    }
+
+    /**
      * §0.2/§3.2a/§11 — every observation ever recorded against every item on
      * THIS PROPERTY, oldest first, regardless of which lease/tenancy
      * recorded it. This is what an out-inspection view must read: a fault

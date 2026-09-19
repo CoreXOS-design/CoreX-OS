@@ -112,6 +112,56 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertTrue($item->fresh()->is_retired);
     }
 
+    // ── Starting an inspection (§0.5 — deliberate, never auto-created) ──
+
+    public function test_the_tab_has_no_current_inspection_until_one_is_explicitly_started(): void
+    {
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+
+        $response->assertOk();
+        $this->assertNull($response->json('in_inspection'));
+        $this->assertSame(0, RentalInspection::count(), 'opening the tab must never silently create an inspection');
+    }
+
+    public function test_starting_an_in_inspection_makes_it_the_current_one(): void
+    {
+        $this->postJson(route('corex.properties.rental-inspections.start', $this->property), ['type' => RentalInspection::TYPE_IN])
+            ->assertStatus(201);
+
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+        $this->assertNotNull($response->json('in_inspection'));
+        $this->assertSame($this->lease->id, $response->json('in_inspection.lease_id'));
+    }
+
+    public function test_starting_a_second_in_inspection_while_one_is_already_under_way_is_refused(): void
+    {
+        $this->postJson(route('corex.properties.rental-inspections.start', $this->property), ['type' => RentalInspection::TYPE_IN])
+            ->assertStatus(201);
+
+        $this->postJson(route('corex.properties.rental-inspections.start', $this->property), ['type' => RentalInspection::TYPE_IN])
+            ->assertStatus(409);
+
+        $this->assertSame(1, RentalInspection::where('type', RentalInspection::TYPE_IN)->count());
+    }
+
+    public function test_multiple_ad_hoc_inspections_can_be_started_at_once(): void
+    {
+        $this->postJson(route('corex.properties.rental-inspections.start', $this->property), ['type' => RentalInspection::TYPE_AD_HOC])
+            ->assertStatus(201);
+        $this->postJson(route('corex.properties.rental-inspections.start', $this->property), ['type' => RentalInspection::TYPE_AD_HOC])
+            ->assertStatus(201);
+
+        $this->assertSame(2, RentalInspection::where('type', RentalInspection::TYPE_AD_HOC)->count());
+    }
+
+    public function test_starting_an_inspection_with_no_active_lease_is_refused(): void
+    {
+        $this->lease->update(['status' => Lease::STATUS_EXPIRED]);
+
+        $this->postJson(route('corex.properties.rental-inspections.start', $this->property), ['type' => RentalInspection::TYPE_IN])
+            ->assertStatus(409);
+    }
+
     // ── Observations ────────────────────────────────────────────────
 
     public function test_recording_an_observation_calls_the_atomic_record_path(): void
