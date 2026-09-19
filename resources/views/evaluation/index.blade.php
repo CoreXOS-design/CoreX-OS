@@ -1,3 +1,7 @@
+{{-- NOT ROUTED — hidden 2026-09-19. This Evaluation screen is a mock-up (sample
+     search data, placeholder Street View / Measure). The evaluation.index route
+     redirects to the dashboard and the sidebar entry is removed until real
+     reports are specced and built. Kept as the design reference. --}}
 @extends('layouts.corex-app')
 
 @section('corex-content')

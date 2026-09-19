@@ -486,9 +486,14 @@ Route::middleware('auth')->group(function () {
             ->name('system-updates.dismiss');
     });
 
-    Route::get('/evaluation', function () {
-        return view('evaluation.index');
-    })->middleware('permission:access_evaluation')->name('evaluation.index');
+    // Evaluation reports (Property / Suburb / Town / Street / Transfer) — HIDDEN
+    // 2026-09-19 (business decision): the screen was a mock-up (search only ever found
+    // five hard-coded sample properties; Street View / Measure were placeholders),
+    // so agents must not see it as real data. Off the sidebar; an old bookmark
+    // lands on the dashboard. Real reports are a separate, specced project —
+    // resources/views/evaluation/index.blade.php is kept as the design reference.
+    Route::get('/evaluation', fn () => redirect()->route('corex.dashboard'))
+        ->middleware('permission:access_evaluation')->name('evaluation.index');
 
     // Profile → redirect to My Portal (consolidated)
     Route::get('/profile', fn () => redirect('/my-portal#profile', 301))->name('profile.edit');
