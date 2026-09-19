@@ -72,6 +72,13 @@ words.
     fair." This confirms: Inspections and Work Orders are two separate objects, linked, not fused
     (cc5's original recommendation, now Johan-confirmed) — **but the link must be strong enough that
     an out-inspection can pull the full history of a SPACE**, not just of a property. See §3.4.
+14. (2026-09-19 follow-up ruling, sharpens #10 rather than contradicting it) "Andre is going to have to
+    tap into what we build to build the inspections on the corex app. So just keep that in mind when
+    devving the web version of inspections." Building the mobile app itself is still Andre's job, exactly
+    as #10 says — but the SERVER-SIDE CONTRACT his app depends on is now explicitly in scope for this
+    build, not an afterthought bolted on once the web screens exist. An inspection done by an agent
+    standing in a property with a phone is the real primary use case; the web screens are the back-office
+    view of the same underlying data and rules. See §14 for the full design this drives.
 
 ---
 
@@ -677,7 +684,8 @@ must be migrated before `rental_inspections`, since `rental_inspections.lease_id
 
 ## 13. Out of scope (this spec)
 
-- The mobile app's offline queue implementation itself (Andre's build, §0.10, §7.2).
+- The mobile app's offline queue implementation itself (Andre's build, §0.10, §7.2) — but NOT the
+  server-side contract it talks to, which §14 now specifies in full, per ruling #14.
 - Full cross-pillar Inventory (§9) — flagged as its own future spec, not built here.
 - Work Orders (§3.4) — a separate, not-yet-written spec; this spec only ensures the FK surface exists
   for it to attach to later.
@@ -686,3 +694,322 @@ must be migrated before `rental_inspections`, since `rental_inspections.lease_id
 - Landlord signature on the out-inspection — the schema leaves room (`signer_role` enum includes
   `landlord`) but Johan's ruling only requires the tenant's signature; building landlord sign-off is
   not requested and not built here unless Johan says otherwise.
+
+---
+
+## 14. Mobile foundation — the CoreX app is a first-class consumer, not an afterthought
+
+**Amendment, 2026-09-19, per ruling #14.** This section is written for Andre as much as for whoever
+builds the remaining web stages. If a sentence here reads as over-explained for an internal spec, that
+is deliberate — Johan asked for something he can hand over directly, to someone who did not build any
+of this.
+
+### 14.0 The one-sentence version
+
+An inspection is really done by an agent standing in a property with a phone, tapping through rooms,
+taking photos, and typing a note when something's wrong. The web screens (Stages 3-5 of this build) are
+the office's window onto the same data — useful for reviewing, resolving a dispute, or working from a
+desk, but not the primary way an inspection actually gets recorded. Everything below exists so that
+Andre's app and CoreX's web screens are two windows onto ONE set of rules, never two separate
+implementations of the same rules that can quietly drift apart.
+
+### 14.1 Audit — is any rule stuck somewhere the app can't reach it?
+
+Johan asked for this checked honestly, not asserted. I read every file landed so far (Stages 1, 2, 4 —
+migrations, models, the list-screen controller and views) against one test: **could a future API
+controller call this rule directly, or would it have to copy the logic by hand?**
+
+**What's already right, and can stay exactly as it is:** every actual business rule — the discrepancy
+detection/grouping, the "cannot complete while unresolved" guard, the deadline calculations, the
+signature capture and its refusal-note requirement, the late-fault-report decision, the cross-tenancy
+history query — lives as a plain method on an Eloquent model (`RentalInspection`,
+`RentalInspectionDiscrepancy`, `RentalInspectionSignature`, `RentalInspectionObservation`,
+`RentalInspectionItem`). None of it lives inside a Blade template, and none of it is duplicated between
+two call sites. A future API controller (§14.2) can call `RentalInspectionDiscrepancy::resolve(...)` or
+`RentalInspection::markCompleted()` directly and get the exact same behaviour the web gets, because
+there is only one copy of the behaviour to call. This is the right shape and does not need touching.
+
+**Two real gaps, found by checking, not assumed away:**
+
+1. **`RentalInspectionController::cancel()` (`app/Http/Controllers/CoreX/RentalInspectionController.php`,
+   the `cancel` method) writes the cancellation directly** — `status`, `cancelled_at`,
+   `cancelled_by_user_id`, `cancel_reason` are set inline in the controller, not through a model method.
+   Today that's harmless because nothing else needs to cancel an inspection. It stops being harmless the
+   moment an API endpoint needs the same action — whoever builds it would either have to copy these four
+   lines (now two places can drift: someone fixes a bug in one and not the other) or reach into the
+   controller from the API layer (wrong direction entirely). **Fix, when Stage 3/the API controller is
+   built:** add `RentalInspection::cancel(User $by, string $reason): void`, doing exactly what the
+   controller does today, and have both the web controller and the future API controller call it.
+2. **There is no single, atomic "record an observation" operation anywhere in the app.** Recording an
+   observation and detecting a discrepancy are two separate steps today —
+   `RentalInspectionObservation::create([...])` followed by a separate call to
+   `RentalInspectionDiscrepancy::detectFor($observation)` — and the ONLY place both steps currently
+   happen together is test helper code (confirmed by checking: `detectFor(` is called from nowhere in
+   `app/`, only from three test files). This is exactly the drift risk Johan is describing: if the web
+   controller and a future API controller each independently remember to call both steps, they might not
+   call them in the same way, and a missed `detectFor()` call means a genuine conflict silently never
+   gets flagged — the worst kind of bug, because nothing errors, the data is just structurally wrong.
+   **Fix, needed before Stage 3 (the property-tab controller) is built, not after:** a single entry
+   point — `RentalInspectionObservation::record(array $attributes): self` (or a small
+   `RentalInspectionRecordingService` if the logic grows beyond what belongs on the model) — that creates
+   the observation AND runs discrepancy detection as one atomic operation. Stage 3's web controller and
+   any future API controller both call this one method; neither can create an observation the "wrong"
+   way, because there is no other way to do it.
+
+Both fixes are additive (a new method wrapping existing, already-correct logic) — nothing built in
+Stages 1/2/4 needs to change shape, and neither fix is code yet, per this pass being spec-only.
+
+### 14.2 The API seam
+
+**In plain terms:** think of this as the counter Andre's app orders from. The app never touches the
+database directly — it asks CoreX's server to do something (fetch a checklist, record an observation,
+upload a photo) over the internet, the same way it already does for everything else the CoreX mobile
+app currently does (property listings, photo uploads, P24 location lookups). This section describes
+what that counter needs to offer for inspections specifically. **Nothing here is invented from scratch**
+— CoreX already has a real, working mobile API (`app/Http/Controllers/Api/MobilePropertyController.php`,
+routes under `routes/api.php`'s `mobile/properties` group) that the app uses today for property photos
+and details. Inspections should look and behave like a sibling of that, not a different animal.
+
+**Authentication.** The same mechanism the app already uses for everything else: a Laravel Sanctum
+bearer token, issued once at login (`$user->createToken('corex-mobile')`, `routes/api.php:64`) and sent
+on every request as `Authorization: Bearer <token>`. No new login flow, no new token type. Every
+inspection endpoint sits behind the same `auth:sanctum` + `app_access` middleware group every other
+mobile endpoint already sits behind (`routes/api.php`, the `Route::middleware(['auth:sanctum',
+'app_access'])->group(...)` wrapping `/v1/*`). Whichever agent is logged into the phone is who the
+server believes is recording the inspection — the same identity, same permissions, same agency scoping
+(`RentalInspection::scopeVisibleTo()`, already built) as if they were on the website.
+
+**Namespace and route shape**, matching the existing mobile convention exactly (`v1.mobile.properties.*`
+becomes `v1.mobile.rental-inspections.*`):
+
+| Method | Route | What it does |
+|---|---|---|
+| `GET` | `/api/v1/mobile/properties/{property}/rental-inspection-items` | The checklist for this property — see §14.3. Never hardcoded in the app. |
+| `POST` | `/api/v1/mobile/properties/{property}/rental-inspection-items` | Add a new space/meter to this property (Johan's ruling #6 — the agent adds items per property). |
+| `GET` | `/api/v1/mobile/rental-inspections` | This agent's inspections — for "resume where I left off" on the app's home screen. |
+| `POST` | `/api/v1/mobile/rental-inspections` | Start an inspection (lease + type). |
+| `GET` | `/api/v1/mobile/rental-inspections/{inspection}` | Full detail — items, observations so far, any discrepancy, signatures. What the app loads when an agent opens an in-progress inspection, including after reinstalling the app or switching phones. |
+| `POST` | `/api/v1/mobile/rental-inspections/{inspection}/observations` | Record one observation. Calls `RentalInspectionObservation::record()` (§14.1, fix 2) — the ONE path, atomic with discrepancy detection. |
+| `POST` | `/api/v1/mobile/rental-inspections/{inspection}/observations/{observation}/photos` | Attach a photo to an observation — see §14.5. |
+| `POST` | `/api/v1/mobile/rental-inspections/{inspection}/discrepancies/{discrepancy}/resolve` | Resolve a discrepancy. Calls `RentalInspectionDiscrepancy::resolve()` directly — same method the web will call. |
+| `POST` | `/api/v1/mobile/rental-inspections/{inspection}/signatures` | Capture a signature. Calls `RentalInspectionSignature::capture()` directly. |
+| `POST` | `/api/v1/mobile/rental-inspections/{inspection}/complete` | Finish the inspection. Calls `RentalInspection::markCompleted()` directly. |
+
+**Payload shapes** mirror the model's own `$fillable` arrays exactly (already stable, already tested) —
+there is deliberately no separate "API DTO" translation layer to invent and keep in sync. For example,
+`POST .../observations` accepts exactly `{item_id, condition, notes, source, client_idempotency_key}`
+(one-to-one with `RentalInspectionObservation`'s fillable columns, minus the server-assigned ones like
+`agency_id`/`observed_by_user_id`, which come from the authenticated user, never the request body — the
+same "never trust a client-supplied tenant/agency id" rule `BelongsToAgency` already enforces
+everywhere else in CoreX).
+
+**Error shapes** match the existing mobile API convention exactly, not a new envelope:
+`{"message": "..."}`, with the HTTP status carrying the real meaning — `422` for a validation failure
+(e.g. a condition value the enum doesn't recognise), `409` for a state conflict (e.g. trying to complete
+an inspection with an unresolved discrepancy — `RentalInspection::markCompleted()` already throws a
+`LogicException` for this; the API controller catches it and returns 409, not 500, since it's an
+expected, recoverable state the app should show the agent, not a crash), `403` for a permission/scoping
+failure, `500` only for genuine unexpected failures (matching `MobilePropertyController::uploadImage()`'s
+own rule: never return success unless the write genuinely, durably happened).
+
+**What this pass does NOT do:** write the actual `Api\RentalInspectionController`, its routes, or its
+tests. That is real code, held until the base is stable (per the conductor's explicit instruction) and
+until Stage 3's web equivalent exists to build alongside — but the shape above is fixed enough now that
+nothing in Stages 3-5 should be built in a way that makes it impossible or awkward to add this
+controller later calling the exact same model methods.
+
+### 14.3 The checklist must be fetched, never hardcoded
+
+**In plain terms:** the app must never ship with "Bedroom 1, Bedroom 2, Kitchen, Bathroom" typed into
+its own code. Different agencies inspect different things, and Johan has ruled the whole rental process
+is becoming agency-configurable — the app has to ask CoreX "what does this property need checking?"
+every time, not assume it already knows.
+
+**Good news: the hard part of this is already built, for free.** Johan's own ruling (§0.6) is that
+"the agent adds inspection spaces per property, differing from the advertised marketing room list" —
+meaning the item list was never meant to be a small, agency-wide, pre-set catalog in the first place. It
+is genuinely per-property data, and `rental_inspection_items` (Stage 1, already landed) already stores
+exactly that: `agency_id, property_id, kind, label, space_type, is_retired`. **`GET
+/api/v1/mobile/properties/{property}/rental-inspection-items` (§14.2) simply reads this table.** There
+is no separate "checklist config" system to build for the app to stop hardcoding things — the per-
+property list already is the checklist, and exposing it over the API is the whole fix.
+
+**Coordinated with cc5 (2026-09-19, cross-session, before writing this)** — their
+`rental-application-field-config.md` names two different config shapes for two different problems: a
+JSON blob on a settings row for toggling a small fixed set of fields ("Shape A"), or a real one-row-per-
+item table for open-ended, agency-defined things with their own identity and ordering ("Shape B", used
+for their custom fields: `agency_id, key, label, help_text, field_type, options, section, sort_order,
+required`). cc5's own read, which I agree with: inspection items are Shape B, and the existing
+`rental_inspection_items` table already IS that shape, one level down (per-property rather than
+agency-wide). **No new table is required to satisfy "never hardcode the checklist"** — the existing
+model, exposed over the API, already satisfies it.
+
+**One genuinely open, optional extension, not required for the above to work:** an agent typing
+"Bedroom 1, Bedroom 2, Kitchen, Bathroom, Geyser" by hand for every single new property is real,
+repetitive admin work. A future **agency-level default/seed catalog** — same Shape B pattern, one level
+up (`rental_inspection_item_defaults`: `agency_id, kind, label, space_type, sort_order, is_active`, no
+`property_id`) — could seed a new property's item list automatically the first time an inspection
+starts on it, with the agent still free to add, rename, or retire items per Johan's existing per-
+property ruling. Because this only ever COPIES into the property-level row at seed time rather than the
+inspection referencing the template live, it inherits the same historical-integrity safety
+`rental_inspection_items` already has for free — a later edit to the agency's default catalog can never
+retroactively change what a past inspection shows, because the past inspection's items were copied, not
+referenced. **This is a genuine open question for Johan, not decided here**: does he want this seeding
+behaviour built now, later, or not at all? The mobile "never hardcode" requirement is fully satisfied
+without it — this is a convenience layer on top, not a blocker.
+
+### 14.4 Offline capture — what the server does when data arrives late, out of order, or twice
+
+**In plain terms:** an agent inspecting a property in a basement parking garage or a rural area may have
+no signal at all. The app has to let them keep working anyway, and send everything to CoreX once a
+connection comes back — possibly minutes later, possibly that evening, possibly out of order if several
+observations queued up and retried in an unpredictable sequence. The server has to make sense of
+whatever arrives, whenever it arrives, exactly once each.
+
+**Already built, Stage 1 (`rental_inspection_observations.client_idempotency_key`,
+`rental_inspection_photos.client_idempotency_key`, both unique):** the app generates a UUID on the phone
+at the moment an observation or photo is captured — not when it's finally sent. If the same UUID arrives
+twice (a network retry after a timeout where the first attempt actually succeeded, or the same queued
+item accidentally submitted twice), the database's own `UNIQUE` constraint refuses the second insert.
+Mirrors the proven `client_upload_id` pattern already live in
+`MobilePropertyController::uploadImage()` for property photos.
+
+**Specified now, not built yet — the four concrete cases §14.2's future API controller must handle:**
+
+1. **Late arrival (the normal case).** An observation captured at 9am arrives at 2pm because the agent
+   had no signal until then. The server stamps `created_at` from when it actually captured the fact
+   (the app sends its own captured timestamp; the server trusts it, the same way `created_at` is already
+   a settable column on `RentalInspectionObservation`, not an auto column) — NOT from when the request
+   happened to arrive. This is why observation ordering (§3.1's "current condition is a query" and the
+   discrepancy-detection logic) must always sort by the CAPTURED time, never the received time — already
+   true today (`created_at` is explicitly settable on creation, per the Stage 1 model), just naming it
+   here as a rule that must hold for the API path too, not only the web path.
+2. **Out-of-order arrival.** Two observations for the same item, captured five minutes apart offline,
+   arrive to the server in the REVERSE order (the second one's upload happened to finish first). Because
+   discrepancy detection (§3.1) already compares CONDITION VALUES, not arrival sequence, and because
+   both observations carry their own real captured `created_at`, the detection logic behaves identically
+   regardless of which one the server processes first — nothing here needs to change, but it's worth
+   stating as a property the design already has, not something assumed.
+3. **A genuine duplicate (not a retry).** The agent's app crashed and, on restart, re-queued an
+   observation that had ALREADY been sent successfully, but under a NEW client_idempotency_key (a bug
+   in the app's own queue, not something CoreX can detect from the key alone, since the key is different
+   this time). This is a real risk the unique-key mechanism cannot catch by itself, because it relies on
+   the same key being reused. **Recommendation, not yet built:** the API controller for
+   `POST .../observations` can cheaply guard the common case — refuse (or flag for review, not silently
+   accept) a second observation for the same item, same inspection, with the same condition and the same
+   captured-timestamp-to-the-minute as one already on record, since that combination recorded twice
+   within a short window is far more likely to be an app-side duplicate than a genuine second real-world
+   check. This is a heuristic, not a hard guarantee — flagged as a recommendation for whoever builds the
+   API controller, not a rule this spec insists on.
+4. **Stale data — the property or lease has moved on since the phone captured it.** The agent starts an
+   inspection offline against Property X, Lease Y. While they're offline, the lease gets cancelled, or
+   the property changes hands, or (rarer but real) the whole lease record is superseded by a renewal.
+   The phone has no way to know this at capture time. **What the server does:** an inspection is
+   anchored to a specific `lease_id` at creation (§3.2, already built, immutable once set — there is no
+   "move this inspection to a different lease" operation anywhere in this design). If that lease has
+   since been cancelled or superseded by the time the offline data finally arrives, the observations
+   still belong, correctly, to the inspection that was actually happening at the time — a snapshot of
+   what was true when the agent was standing in the property, which is exactly what an inspection
+   record is FOR. The API controller does not reject a late-arriving observation just because the
+   lease's status has since changed — doing so would let a real, true inspection event silently
+   disappear because of something the agent had no way to see. **The one thing the API controller SHOULD
+   do**: if the inspection's own status has moved on without it (e.g. it was separately cancelled or
+   completed by someone else in the meantime, or the fault-report/signing deadline has since passed), a
+   late-arriving observation should still be accepted and stored (the evidence is real and happened),
+   but the response should tell the app plainly what happened — e.g. "recorded, but this inspection was
+   already marked completed on [date]" — so the agent isn't left thinking their offline work vanished
+   into nothing, and so the app can decide whether to surface that to them.
+
+### 14.5 Photos from a phone
+
+**In plain terms:** photos are the single heaviest, most failure-prone part of a mobile inspection —
+phone cameras produce large files, connections drop mid-upload, and a lost "before" photo of a damaged
+wall is exactly the kind of gap that turns an inspection into a shrug instead of evidence. This section
+is deliberately concrete, not hand-waved, per Johan's own instruction.
+
+**Reuse, don't reinvent — the exact pipeline already exists and is production-proven.**
+`MobilePropertyController::uploadImage()` (`app/Http/Controllers/Api/MobilePropertyController.php`) is
+the real, live mechanism the CoreX app already uses to upload property photos from a phone today. Every
+rule below is that same mechanism, applied to `rental_inspection_photos` instead of a property's
+gallery — this build does not invent a second photo pipeline:
+
+- **Format**: `jpg, jpeg, png, webp, heic, heif` — HEIC/HEIF included deliberately, because that's an
+  iPhone's default capture format, and Laravel's built-in `image` validation rule rejects it. The app
+  normally converts HEIC to JPEG on the phone before sending; the server still accepts a raw HEIC as a
+  safety net for an older app build or a failed conversion, and simply skips generating a thumbnail for
+  it rather than erroring (GD, the server's image library, cannot read HEIC directly).
+- **Size**: up to 50MB per photo. The number is not arbitrary — it's set from a real incident where a
+  smaller cap silently rejected 48-megapixel phone photos that are completely normal on current
+  hardware, and it matches the equivalent web-upload limit exactly so a photo isn't accepted from one
+  surface and rejected from the other.
+- **Association**: a photo belongs to exactly one observation (`rental_inspection_photos
+  .rental_inspection_observation_id`, Stage 1, already built) — not to the inspection directly, and not
+  to the item directly. This matters for the "no photos equals lots of fights" ruling (§0.3): a photo is
+  evidence FOR a specific claimed condition at a specific moment, not a loose gallery attached to the
+  visit in general.
+- **Idempotency**: `client_idempotency_key` (Stage 1, already built, unique) — the phone generates this
+  once per photo at capture time and resends the SAME value on every retry of that same photo. A retry
+  that lands on a photo already stored returns the existing record rather than creating a duplicate —
+  same mechanism as `client_upload_id` in the existing property-photo pipeline.
+- **Orientation and sizing**: EXIF orientation is baked into the stored file BEFORE any resizing happens
+  (a real, previously-shipped bug: resizing before fixing orientation can strip the "rotate me" tag and
+  leave the photo permanently sideways), then downscaled to the same 2560px cap every other CoreX photo
+  uses (`PropertyImageStorer`). No new image-processing code — the exact same services
+  (`ImageOrientationNormalizer`, `PropertyImageStorer`) are called against the new storage path.
+- **What happens on a half-failed upload**: the server never returns success unless the file is
+  confirmed durably written to disk. If the file write fails for any reason, the response is a `500`,
+  not a `200` with a warning — because the app is expected to treat a `500` as "retry this," and a `200`
+  as "this is safely done, forget about it and move on." Returning success on a half-failure would mean
+  the app deletes its only local copy believing CoreX has it, and the photo is gone permanently. This is
+  the single most important rule in this section: **a photo upload is binary — either CoreX definitely
+  has it, or the app is told to try again. There is no silent partial state.**
+
+### 14.6 Versioning — so a future change doesn't break an agent's phone mid-inspection
+
+**In plain terms:** once Andre has shipped a version of the app that real agents are using in the field,
+CoreX cannot casually change what an endpoint expects or returns — an agent standing in a damaged
+property, halfway through recording a dispute, is the worst possible moment to have their app suddenly
+error because the server changed underneath them.
+
+**The mechanism**: every endpoint in §14.2 lives under `/api/v1/...`, matching CoreX's existing,
+already-established API versioning convention (non-negotiable #7 — every API endpoint is versioned,
+named, and catalogued). The rule going forward, specific to inspections because agents use this one
+standing in a property with patchy signal, rather than at a desk:
+
+- **Additive changes — safe, no version bump needed.** Adding a new optional field to a response, adding
+  a new endpoint, adding a new (optional) field an old app version simply never sends — none of these
+  break an app that doesn't know about them yet. This covers the large majority of realistic future
+  changes (e.g. adding the agency-level default-catalog seeding from §14.3, if Johan decides to build
+  it — an old app version keeps working exactly as before, a new one gets the extra convenience).
+- **Breaking changes — never made in place.** Removing a field, renaming a field, changing what a field
+  means, changing a required payload shape, or changing an enum's valid values (e.g. adding a new
+  `condition` value the old app's dropdown doesn't know how to display) — any of these could genuinely
+  break an app already in an agent's hand. These require a new version, `/api/v2/...`, running ALONGSIDE
+  `/v1` for as long as any app build still in the field depends on it — never a silent in-place change to
+  `/v1`'s existing behaviour. This mirrors how CoreX already treats its API surface generally (versioned
+  namespaces, non-negotiable #7); nothing new is being invented here, just stated explicitly for this
+  specific, higher-stakes case.
+- **The app should tell the server its own build version on every request** (a simple header, e.g.
+  `X-CoreX-App-Version`), even though nothing reads it yet. This costs nothing to add now and means that
+  if a real-world problem ever needs debugging ("agents on build 4.2 are seeing X"), the information is
+  already there in the logs rather than needing to be added reactively after the fact.
+- **A breaking enum change specifically** (the most likely real one — e.g. adding a new `condition`
+  value beyond good/fair/damaged/not_working/missing/other) should default old app builds to treating an
+  unrecognised value as `other` with the real value preserved in the notes, rather than crashing or
+  silently dropping the observation — the app should degrade gracefully, not fail loudly, when it meets
+  data newer than itself.
+
+### 14.7 What this changes about the remaining build stages
+
+Nothing here changes Stage 4 (already landed) or requires touching it. It does change how Stage 3 (the
+property-tab controller, still deliberately held for attended work) should be built once it starts:
+
+- Item creation, observation recording, discrepancy resolution, and signature capture must each be a
+  model-layer method the web controller calls thinly (§14.1's two fixes are the concrete to-do list),
+  not logic written directly into the controller action.
+- The web controller and the future API controller (§14.2, not built this pass) are two thin callers of
+  the identical model methods — building Stage 3 this way costs nothing extra now and avoids a rebuild
+  later when the API controller is actually written.
+- No decision made in Stage 3 should assume the web browser is the only client — e.g. a validation
+  message meant only for a Blade form's specific HTML structure has no place inside a model method; it
+  belongs in the controller/view layer, which the API will not share and does not need to.
