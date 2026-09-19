@@ -42,7 +42,7 @@ return [
                 'element' => '[data-tour="re-properties-kpis"]',
                 'do'      => ['action' => 'click', 'say' => 'Click a tile to show only those listings.'],
                 'title'   => 'The numbers at a glance',
-                'body'    => 'A quick count of your stock by status: Total, Active (live), Draft (not finished), Sold, and Published (synced to the website and portals). Click any tile to filter the list down to just those listings.',
+                'body'    => 'A quick count of your stock by status: Total, On Market (live), Prospecting (not yet on mandate), Draft (not finished) and Sold — on the rentals list these read Available and Rented Out. Click any tile to filter the list down to just those listings.',
             ],
             [
                 'element' => '[data-tour="re-properties-search"]',
@@ -130,7 +130,7 @@ return [
                 'element' => '[data-tour="re-map-layers"]',
                 'do'      => ['action' => 'choose', 'say' => 'Click a layer icon to show or hide it.'],
                 'title'   => 'Turn layers on and off',
-                'body'    => 'Each icon is a type of pin: HFC Listings (your stock), Sold Comps (recent sales), Portal Stock (competitor listings from Property24 and Private Property), and more. Click one to show or hide that layer so the map stays readable.',
+                'body'    => 'Each chip is a type of pin: Active Stock (your listings on the market), Sold (HFC), Off-market, Sold Comps (recent sales), Portal Stock (competitor listings from Property24 and Private Property), MIC Subjects and Sectional Schemes. Click one to show or hide that layer so the map stays readable.',
             ],
             [
                 'element' => '[data-tour="re-map-viewmode"]',

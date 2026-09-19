@@ -331,7 +331,7 @@ class TourRegistry
                         'do'      => ['action' => 'click', 'say' => 'Click Continue to photos — it saves your draft.', 'until' => '[data-tour="wiz-photos-drop"]'],
                         'skip_if' => '[data-tour="wiz-photos-drop"]',
                         'title'   => 'Continue — and the rest',
-                        'body'    => 'When the Basics are in, this saves a draft and moves you to Step 2 · Photos (drag images in), then Step 3 · Details (beds, baths, mandate, agent), then Step 4 · Review to check everything before you publish. That\'s the whole capture — close this and add your first listing.',
+                        'body'    => 'When the Basics are in, this saves a draft and moves you to Step 2 · Photos (drag images in), then Step 3 · Details (description, mandate and sizes — plus lease details for a rental; bedrooms, bathrooms and garages were already captured here in the Basics), then Step 4 · Review to check everything before you publish. That\'s the whole capture — close this and add your first listing.',
                     ],
                     [
                         'element'       => '[data-tour="wiz-photos-drop"]',
@@ -1005,7 +1005,7 @@ class TourRegistry
                         'do'      => ['action' => 'click', 'say' => 'Click New Task.', 'until' => '[data-tour="task-form"]'],
                         'skip_if' => '[data-tour="task-form"]',
                         'title'   => 'Add a task',
-                        'body'    => 'Capture a follow-up in seconds — give it a due date and link it to a contact, property or deal so it shows up where you\'ll need it.',
+                        'body'    => 'Capture a follow-up in seconds — give it a title, pick the type and priority, set a due date, and tick the reminder so CoreX nudges you when it\'s due.',
                     ],
                     [
                         'element'       => '[data-tour="task-title"]',
