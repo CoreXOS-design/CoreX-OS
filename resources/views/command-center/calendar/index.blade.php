@@ -1133,7 +1133,7 @@
                     $shortcuts = [
                         ['T', 'Jump to today'],
                         ['M / W / D / A', 'Switch view'],
-                        ['â† / â†’', 'Previous / next period'],
+                        ['← / →', 'Previous / next period'],
                         ['N', 'New event'],
                         ['Esc', 'Close panel / modal'],
                         ['?', 'Show this help'],
@@ -2648,7 +2648,7 @@
                         <span class="w-2 h-2 rounded-full flex-shrink-0" :style="'background:' + ragHex(evt.rag)"></span>
                         <div class="min-w-0 flex-1">
                             <div class="text-[11px] font-medium truncate" style="color: var(--text-primary);" x-text="evt.title"></div>
-                            <div class="text-[10px]" style="color: var(--text-muted);" x-text="evt.time + ' Â· ' + evt.classLabel"></div>
+                            <div class="text-[10px]" style="color: var(--text-muted);" x-text="evt.time + ' · ' + evt.classLabel"></div>
                         </div>
                     </button>
                 </template>

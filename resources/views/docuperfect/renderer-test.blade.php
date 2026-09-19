@@ -194,7 +194,7 @@
 
 
     {{-- ============================================================
-         SECTION 4: CONDITIONAL â€” VAT TOGGLE
+         SECTION 4: CONDITIONAL — VAT TOGGLE
          ============================================================ --}}
     <h2 class="corex-h1">4. Value Added Tax</h2>
 

@@ -2,7 +2,7 @@
 
 @section('corex-content')
 <div class="-m-4 lg:-m-6" x-data="screeningShow()">
-    <x-page-header :title="'Screening â€” ' . $screening->user->name" :back-route="route('compliance.screenings.index')" back-label="Screenings" :flush="true">
+    <x-page-header :title="'Screening — ' . $screening->user->name" :back-route="route('compliance.screenings.index')" back-label="Screenings" :flush="true">
         <x-slot:actions>
             @if($screening->status === 'in_progress')
             <button @click="showFlag = true" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition" style="border:1px solid rgba(239,68,68,0.3); border-radius:6px; color:var(--ds-crimson);">Flag</button>

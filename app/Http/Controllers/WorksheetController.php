@@ -745,7 +745,7 @@ class WorksheetController extends Controller
             
 
 
-            // pipeline (ALL-TIME, NOT PAID) Ã¢â‚¬â€ money + counts
+            // pipeline (ALL-TIME, NOT PAID) — money + counts
             'pipeline_not_paid_all_time' => [
                 'counts' => $pipeCounts,
                 'agent_net_ex_vat_by_stage' => $pipeAgentNetByStage,
@@ -1262,7 +1262,7 @@ catch (\Throwable $e) {
 
                   self::syncTargetsFromWorksheet($w, $user);
 
-          return redirect()->back()->with('status', 'Branch default applied Ã¢â‚¬â€ targets set to meet company requirement.');
+          return redirect()->back()->with('status', 'Branch default applied — targets set to meet company requirement.');
     }
 
 

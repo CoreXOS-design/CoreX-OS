@@ -2,7 +2,7 @@
 
 @section('corex-content')
 <div class="-m-4 lg:-m-6">
-    <x-page-header title="Payroll Report â€” {{ $run->run_number }}" :back-route="route('payroll.runs.show', $run)" back-label="Run {{ $run->run_number }}" :flush="true">
+    <x-page-header title="Payroll Report — {{ $run->run_number }}" :back-route="route('payroll.runs.show', $run)" back-label="Run {{ $run->run_number }}" :flush="true">
         <x-slot:actions>
             <a href="{{ route('payroll.runs.bundle', $run) }}" class="corex-btn-primary text-xs">Download Bundle</a>
             <button onclick="window.print()" class="corex-btn-outline text-xs">Print Report</button>
@@ -178,7 +178,7 @@
                         <tr style="border-bottom:1px solid var(--border);">
                             <td class="px-3 py-2 text-xs font-semibold" style="color:var(--text-primary);">{{ $la->user->name ?? '?' }}</td>
                             <td class="px-3 py-2 text-xs" style="color:var(--text-muted);">{{ $la->leaveType->label ?? '-' }}</td>
-                            <td class="px-3 py-2 text-xs" style="color:var(--text-primary);">{{ $la->start_date?->format('d M') }} â€” {{ $la->end_date?->format('d M') }}</td>
+                            <td class="px-3 py-2 text-xs" style="color:var(--text-primary);">{{ $la->start_date?->format('d M') }} — {{ $la->end_date?->format('d M') }}</td>
                             <td class="px-2 py-2 text-center text-xs font-semibold" style="color:var(--text-primary);">{{ number_format($la->working_days_requested, 1) }}</td>
                             <td class="px-2 py-2 text-center">
                                 @if($la->affects_payroll)

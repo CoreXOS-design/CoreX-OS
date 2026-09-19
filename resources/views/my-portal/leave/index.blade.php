@@ -69,7 +69,7 @@
                         <tr style="border-bottom:1px solid var(--border, #e5e7eb);">
                             <td class="px-3 py-2.5 text-xs" style="font-family:monospace; color:var(--text-secondary, #94a3b8);">{{ $app->application_number }}</td>
                             <td class="px-3 py-2.5 text-xs" style="color:var(--text-primary, #0f172a);">{{ $app->leaveType->label ?? '-' }}</td>
-                            <td class="px-3 py-2.5 text-xs" style="color:var(--text-primary, #0f172a);">{{ $app->start_date?->format('d M') }} â€” {{ $app->end_date?->format('d M Y') }}</td>
+                            <td class="px-3 py-2.5 text-xs" style="color:var(--text-primary, #0f172a);">{{ $app->start_date?->format('d M') }} — {{ $app->end_date?->format('d M Y') }}</td>
                             <td class="px-2 py-2.5 text-center text-xs font-semibold" style="color:var(--text-primary, #0f172a);">{{ number_format($app->working_days_requested, 1) }}</td>
                             <td class="px-2 py-2.5 text-center">
                                 @php

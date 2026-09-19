@@ -37,7 +37,7 @@
         <div class="p-4 mb-4" style="background:var(--surface-2, #f8fafc); border:1px solid var(--border, #e5e7eb); border-radius:6px;">
             <dl class="space-y-1.5 text-xs">
                 <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Leave Type</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a);">{{ $application->leaveType->label ?? '-' }}</dd></div>
-                <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Period</dt><dd style="color:var(--text-primary, #0f172a);">{{ $application->start_date?->format('d M Y') }} â€” {{ $application->end_date?->format('d M Y') }}</dd></div>
+                <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Period</dt><dd style="color:var(--text-primary, #0f172a);">{{ $application->start_date?->format('d M Y') }} — {{ $application->end_date?->format('d M Y') }}</dd></div>
                 <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Working Days</dt><dd class="font-semibold" style="color:var(--text-primary, #0f172a);">{{ number_format($application->working_days_requested, 1) }}</dd></div>
                 @if($application->is_half_day)
                     <div class="flex justify-between"><dt style="color:var(--text-secondary, #6b7280);">Half Day</dt><dd style="color:var(--text-primary, #0f172a);">{{ ucfirst($application->half_day_period) }}</dd></div>

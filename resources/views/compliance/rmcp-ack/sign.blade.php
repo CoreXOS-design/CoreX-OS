@@ -20,7 +20,7 @@
             </div>
             @endif
 
-            {{-- Declaration â€” electronic signing version --}}
+            {{-- Declaration — electronic signing version --}}
             <div class="border p-6" style="background:var(--surface); border-color:var(--border, #e5e7eb); border-radius:6px;">
                 <h3 class="text-base font-semibold mb-4" style="color:var(--text-primary);">Declaration</h3>
                 <div class="space-y-3 text-sm" style="color:#334155; line-height:1.7;">
