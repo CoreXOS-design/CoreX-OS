@@ -209,3 +209,15 @@ PENDING is no longer discarded at ingestion (which made the blank permanent).
 ## 10. Done-criteria (every build prompt)
 
 `php -l` · `php artisan migrate` + `schema:dump` · `view:clear` · documented test command, full-suite failures stay at the 220 baseline (no new) · explicit short FK names · BelongsToAgency + SoftDeletes on new models · permissions added + granted (`reveal_mailbox_credential` owner-only default) · `corex:sync-permissions --merge-defaults` · nav present · **security tests: stored password never returned by any endpoint/view; reveal blocked without `reveal_mailbox_credential`; every reveal writes a `mailbox_credential_reveals` row; a user can only set their own credentials.** Report results, files, line counts. Update Jira.
+
+---
+
+## Amendment — 2026-09-19 (AT-422): where the mailbox box lives on Admin → Users
+
+On **Admin → Users → <user> → edit**, the **Communication Capture** (mailbox) box lives on the
+**Actions tab only**, as the last item, directly above the Save bar. It used to sit at the bottom of
+*every* tab. It is still rendered outside the main user `<form>` (its Edit / Test Connection / Reveal /
+Archive / Link buttons are their own forms), so it shares the tab state through a wrapper element, and
+a mailbox submit remembers "reopen on Actions" (the server redirect drops the `#hash`), so the result
+message is never hidden behind another tab. Same component, same permission
+(`manage_communication_mailboxes`); nothing about how mailboxes are linked or stored changed.

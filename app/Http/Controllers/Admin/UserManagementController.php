@@ -1020,6 +1020,25 @@ class UserManagementController extends Controller
     }
 
     /**
+     * AT-422 — quick on/off switch for the daily digest email for ONE user
+     * (users.daily_digest_enabled). The digest job (corex:calendar:send-digests)
+     * skips a switched-off user entirely — calendar items and birthdays alike, as
+     * it is a single email. Off does not touch anyone else's digest or any other
+     * notification (reminders, alerts) the user has.
+     */
+    public function toggleDailyDigest(Request $request, User $user)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $user->update(['daily_digest_enabled' => ! $user->daily_digest_enabled]);
+
+        return response()->json([
+            'success'              => true,
+            'daily_digest_enabled' => (bool) $user->fresh()->daily_digest_enabled,
+        ]);
+    }
+
+    /**
      * Quick on/off toggle for an agent's Property24 opt-out (exclude_from_p24).
      *
      * Flips the flag and pushes the visibility change to P24 SYNCHRONOUSLY (no

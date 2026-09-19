@@ -321,6 +321,12 @@ by oversight — do not reinstate them without asking:
 `test_removed_sections_are_gone` guards the removal. `test_no_step_deep_links_out_of_the_wizard`
 (§3.3a) independently forbids re-adding "open the full editor" links.
 
+- **Per-user switches on the user record** (lane note, AT-422, 2026-09-19 — *pending Johan's confirmation*):
+  the "Daily Digest Email" switch (`users.daily_digest_enabled`) is a per-person admin action, not
+  something an agency configures about how CoreX behaves for them, so it is not a wizard control — same
+  as the existing per-user `show_on_website` / `exclude_from_p24` switches, which are not in the wizard
+  either. Recorded here so the omission is on the record rather than unnoticed (CLAUDE.md 10a).
+
 ### 5.2 Commission step — the mentor programme is optional (2026-07-11)
 
 `commission_settings.mentor_program_enabled` (boolean, **default TRUE**) is an explicit

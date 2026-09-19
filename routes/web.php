@@ -636,6 +636,9 @@ Route::middleware('auth')->group(function () {
     // Property24 — quick visibility toggle per agent (exclude_from_p24).
     Route::post('/admin/users/{user}/toggle-p24', [App\Http\Controllers\Admin\UserManagementController::class, 'toggleP24'])
         ->middleware('permission:manage_users')->name('admin.users.toggle-p24');
+    // AT-422 — per-user off switch for the daily digest email (Admin → Users → Actions).
+    Route::post('/admin/users/{user}/toggle-daily-digest', [App\Http\Controllers\Admin\UserManagementController::class, 'toggleDailyDigest'])
+        ->middleware('permission:manage_users')->name('admin.users.toggle-daily-digest');
 
     Route::post('/admin/users/{user}/delete', [App\Http\Controllers\Admin\UserManagementController::class, 'delete'])
         ->middleware('permission:manage_users')->name('admin.users.delete');

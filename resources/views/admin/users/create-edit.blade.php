@@ -87,13 +87,29 @@
         </div>
     @endif
 
+    {{-- AT-422 — the tab state lives on this wrapper (not on the <form>) so the Communication
+         Capture box and the Save bar, which both sit OUTSIDE the form element, share it. The
+         opening tab is the URL hash, else the tab a mailbox action was submitted from (those
+         forms do a full-page save and redirect, which drops the hash), else Profile. --}}
+    <div x-data="{ activeTab: (() => {
+             const valid = ['profile','role','finance','compliance'@if($isEdit),'actions'@endif];
+             const h = (window.location.hash || '').replace('#','');
+             if (valid.includes(h)) return h;
+             try {
+                 const r = sessionStorage.getItem('corex.userEdit.reopenTab');
+                 if (r) { sessionStorage.removeItem('corex.userEdit.reopenTab'); if (valid.includes(r)) return r; }
+             } catch (e) {}
+             return 'profile';
+         })(),
+         // Remember which tab to reopen after a full-page save + redirect (sessionStorage can throw
+         // in private windows, so it is wrapped — never let it break the form).
+         rememberTab(t) { try { sessionStorage.setItem('corex.userEdit.reopenTab', t); } catch (e) {} } }"
+         x-init="$watch('activeTab', t => history.replaceState(null, '', '#' + t))">
     <form id="user-main-form"
           method="POST"
           action="{{ $isEdit ? route('admin.users.update', $user) : route('admin.users.store') }}"
           enctype="multipart/form-data"
           novalidate
-          x-data="{ activeTab: ['profile','role','finance','compliance'@if($isEdit),'actions'@endif].includes((window.location.hash || '').replace('#','')) ? (window.location.hash || '').replace('#','') : 'profile' }"
-          x-init="$watch('activeTab', t => history.replaceState(null, '', '#' + t))"
           autocomplete="off">
         @csrf
         @if($isEdit) @method('PUT') @endif
@@ -425,15 +441,16 @@
                         @endif
                     @endif
 
-                    {{-- Property24 opt-out. When excluded the agent is unpublished on
-                         P24 (published=false / status=Inactive) and never attached to
-                         newly-syndicated listings. The edit-mode switch pushes the
-                         change to P24 immediately and reports P24's actual result;
-                         the create-mode checkbox applies on save. --}}
+                    {{-- Property24 visibility. When the agent is hidden they are unpublished on P24
+                         (published=false / status=Inactive) and never attached to newly-syndicated
+                         listings. AT-422: the edit-mode switch reads "Show on Property24" and is ON
+                         (green) when the agent IS on P24 — the stored flag is still exclude_from_p24
+                         (on = NOT excluded). It pushes the change to P24 immediately and reports P24's
+                         actual result; the create-mode checkbox applies on save. --}}
                     @if($isEdit)
-                    <div class="flex items-center gap-2.5 text-sm mt-3 flex-wrap"
+                    <div class="flex items-center gap-2.5 text-sm flex-wrap"
                          x-data="{
-                            excluded: {{ (int)($user->exclude_from_p24 ?? 0) ? 'true' : 'false' }},
+                            onP24: {{ (int)($user->exclude_from_p24 ?? 0) ? 'false' : 'true' }},
                             loading: false, note: '', noteErr: false,
                             csrf: '{{ csrf_token() }}',
                             url: '{{ route('admin.users.toggle-p24', $user) }}',
@@ -445,7 +462,7 @@
                                     const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
                                     const j = await r.json().catch(() => ({}));
                                     if (r.ok && j.success) {
-                                        this.excluded = j.exclude_from_p24;
+                                        this.onP24 = !j.exclude_from_p24;
                                         this.note = j.message || '';
                                         this.noteErr = (j.p24_ok === false);
                                     } else {
@@ -458,22 +475,23 @@
                          }">
                         <button type="button" @click.stop="toggle()" :disabled="loading"
                                 class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
-                                :style="excluded ? 'background:var(--ds-crimson)' : 'background:var(--surface-3)'"
-                                role="switch" :aria-checked="excluded">
+                                :style="onP24 ? 'background:var(--ds-green)' : 'background:color-mix(in srgb, var(--text-muted) 40%, var(--surface))'"
+                                title="Show or hide this agent on Property24"
+                                role="switch" :aria-checked="onP24">
                             <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
                                   style="background:#fff; margin-top:2px;"
-                                  :style="excluded ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                                  :style="onP24 ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                         </button>
-                        <span style="color:var(--text-secondary);">Exclude from Property24</span>
+                        <span style="color:var(--text-secondary);">Show on Property24</span>
                         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase"
-                              :style="excluded ? 'background:rgba(220,38,38,0.15); color:var(--ds-crimson);' : 'background:var(--surface-3); color:var(--text-muted);'"
-                              x-text="excluded ? 'Hidden' : 'On P24'"></span>
+                              :style="onP24 ? 'background:rgba(34,197,94,0.15); color:var(--ds-green);' : 'background:rgba(220,38,38,0.15); color:var(--ds-crimson);'"
+                              x-text="onP24 ? 'On P24' : 'Hidden'"></span>
                         <span x-show="loading" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">syncing…</span>
                         <span x-show="!loading && note" x-cloak class="text-[0.6875rem]"
                               :style="noteErr ? 'color:var(--ds-crimson);' : 'color:var(--ds-green);'" x-text="note"></span>
                     </div>
                     @else
-                    <label class="flex items-center gap-2.5 text-sm cursor-pointer mt-3" style="color:var(--text-secondary);">
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
                         <input type="hidden" name="exclude_from_p24" value="0">
                         <input type="checkbox" name="exclude_from_p24" value="1" class="rounded"
                                style="accent-color:var(--brand-icon, #0ea5e9);"
@@ -801,6 +819,50 @@
             </div>
             @endif
 
+            {{-- Card: Daily digest email (AT-422). Per-user off switch — immediate, no Save needed (same as the
+                 website / Property24 switches). The digest job (corex:calendar:send-digests) skips a
+                 switched-off user; nobody else's digest and none of this user's other reminders change. --}}
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);"
+                 x-data="{
+                    digestOn: {{ $user->daily_digest_enabled ? 'true' : 'false' }},
+                    loading: false, err: '',
+                    csrf: '{{ csrf_token() }}',
+                    url: '{{ route('admin.users.toggle-daily-digest', $user) }}',
+                    async toggle() {
+                        if (this.loading) return;
+                        this.loading = true; this.err = '';
+                        const fd = new FormData(); fd.append('_token', this.csrf);
+                        try {
+                            const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                            const j = await r.json().catch(() => ({}));
+                            if (r.ok && j.success) { this.digestOn = j.daily_digest_enabled; } else { this.err = j.message || ('HTTP ' + r.status); }
+                        } catch (e) { this.err = e.message || 'Network error'; }
+                        this.loading = false;
+                    }
+                 }">
+                <div class="flex items-center gap-2 mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Daily Digest Email</h3>
+                </div>
+                <p class="text-xs mb-3" style="color:var(--text-muted);">The one email this user receives each morning with their calendar items and birthday reminders. Switch it off to stop it for this user only — nobody else's digest, and none of this user's other reminders or notifications, are affected.</p>
+                <div class="flex items-center gap-2.5 text-sm flex-wrap">
+                    <button type="button" @click.stop="toggle()" :disabled="loading"
+                            class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                            :style="digestOn ? 'background:var(--ds-green)' : 'background:color-mix(in srgb, var(--text-muted) 40%, var(--surface))'"
+                            title="Turn the daily digest email on or off for this user"
+                            role="switch" :aria-checked="digestOn">
+                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                              style="background:#fff; margin-top:2px;"
+                              :style="digestOn ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                    </button>
+                    <span style="color:var(--text-secondary);">Send this user the daily digest email</span>
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase"
+                          :style="digestOn ? 'background:rgba(34,197,94,0.15); color:var(--ds-green);' : 'background:rgba(220,38,38,0.15); color:var(--ds-crimson);'"
+                          x-text="digestOn ? 'On' : 'Off'"></span>
+                    <span x-show="err" x-cloak class="text-[0.6875rem]" style="color:var(--ds-crimson);" x-text="err"></span>
+                </div>
+            </div>
+
             {{-- Card: Login History (audit trail — .ai/specs/login-audit-trail.md) --}}
             @if($canViewLoginHistory)
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
@@ -919,6 +981,26 @@
         </div>
         @endif
 
+    </form>{{-- the Save bar's buttons reach this form through form="user-main-form" --}}
+
+    {{-- Communication Capture (AT-37) — Actions tab ONLY, directly above the Save bar (AT-422: it used
+         to sit at the bottom of every tab). Rendered OUTSIDE the main user form (forms cannot nest);
+         it shares the tab state through the wrapper above. Reuses the Settings → Email Setup per-user
+         component so the same management lives on the user record. Edit-only: a mailbox links to an
+         existing user. Its buttons do a full-page save + redirect, so a submit remembers "reopen on
+         Actions" for the reloaded page. --}}
+    @if($isEdit)
+        @permission('manage_communication_mailboxes')
+        <div x-show="activeTab === 'actions'" x-cloak
+             @submit="rememberTab('actions')"
+             class="mt-5 rounded-md p-4 lg:p-6" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb);">
+            <h3 class="text-sm font-bold uppercase tracking-wider mb-1" style="color:var(--text-primary, #1f2937);">Communication Capture</h3>
+            <p class="text-xs mb-4" style="color: var(--text-muted, #6b7280);">Link this user's mailbox to feed the Communication Archive. The password is stored encrypted and never shown — retrieving it is a separate, logged action.</p>
+            @include('settings.email-setup._user-mailbox', ['user' => $user])
+        </div>
+        @endpermission
+    @endif
+
         {{-- Sticky bottom action bar --}}
         <div class="sticky bottom-0 z-10 -mx-4 lg:-mx-6 px-4 lg:px-6 py-4 mt-5"
              style="background:linear-gradient(to top, var(--bg) 60%, transparent);">
@@ -940,21 +1022,7 @@
                 </button>
             </div>
         </div>
-    </form>
-
-    {{-- Communication Capture (AT-37) — rendered OUTSIDE the main user form (forms
-         cannot nest). Reuses the Settings → Email Setup per-user component so the
-         same management lives on the user record. Edit-only: a mailbox links to an
-         existing user. --}}
-    @if($isEdit)
-        @permission('manage_communication_mailboxes')
-        <div class="mt-6 rounded-md p-4 lg:p-6" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb);">
-            <h3 class="text-sm font-bold uppercase tracking-wider mb-1" style="color:var(--text-primary, #1f2937);">Communication Capture</h3>
-            <p class="text-xs mb-4" style="color: var(--text-muted, #6b7280);">Link this user's mailbox to feed the Communication Archive. The password is stored encrypted and never shown — retrieving it is a separate, logged action.</p>
-            @include('settings.email-setup._user-mailbox', ['user' => $user])
-        </div>
-        @endpermission
-    @endif
+    </div>{{-- /tab-state wrapper --}}
 
 </div>
 

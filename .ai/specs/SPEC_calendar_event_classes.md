@@ -2443,3 +2443,16 @@ Phase 2 — Daily Digest:
 6. `notification_event_types` table (26 rows, user-level prefs) is NOT modified. Two systems are orthogonal: user prefs vs agency policy.
 7. `fica_expires_at` column added to `fica_submissions` in build prompt 0a (resolves Gap #3).
 8. `CalendarEvent` model gets `BelongsToAgency` + `BelongsToBranch` traits in build prompt 0b (multi-tenancy safety fix).
+
+---
+
+## Amendment — 2026-09-19 (AT-422): per-user off switch for the daily digest email
+
+An admin can switch the single daily digest email (calendar items + birthdays,
+`corex:calendar:send-digests`) **off for ONE user**: Admin → Users → <user> → **Actions** → "Daily Digest
+Email". It is an immediate switch (no Save needed) backed by `users.daily_digest_enabled` (default `true`,
+so every existing user keeps receiving it). The job skips a switched-off user **entirely** — calendar
+items and birthdays alike, because it is one email. It changes nothing for anyone else and nothing about
+that user's other reminders / notifications. Permission: `manage_users` (same as the website / P24
+switches). Not covered: the separate Deal daily digest and Match digest emails — different emails, not
+changed here.

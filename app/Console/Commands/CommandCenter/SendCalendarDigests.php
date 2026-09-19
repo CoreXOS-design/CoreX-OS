@@ -83,6 +83,9 @@ class SendCalendarDigests extends Command
             ->whereNotNull('email')
             ->whereNull('deleted_at')
             ->where('is_active', true)
+            // AT-422 — an admin can switch the daily digest off for one user (Admin → Users →
+            // Actions). Applies to the whole email (calendar items AND birthdays): it is one email.
+            ->where('daily_digest_enabled', true)
             ->chunkById(100, function ($users) use (
                 $digestClasses, $resolver, $visibility, $dry, &$sent, &$skipped, $today, $birthdaysByUser
             ) {

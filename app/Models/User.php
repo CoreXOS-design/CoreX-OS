@@ -129,6 +129,8 @@ class User extends Authenticatable
         // Per-agent opt-out from Property24 — hides the agent on the P24 portal
         // and keeps them off syndicated listings. See Property24SyndicationService.
         'exclude_from_p24',
+        // AT-422 — per-user off switch for the daily digest email (Admin → Users → Actions).
+        'daily_digest_enabled',
         'website_order',
 
         // Admin-controlled commission defaults
@@ -260,6 +262,7 @@ class User extends Authenticatable
         'fica_required' => 'boolean',
         'show_on_website' => 'boolean',
         'exclude_from_p24' => 'boolean',
+        'daily_digest_enabled' => 'boolean',
         'website_order' => 'integer',
 
         'agent_cut_percent' => 'decimal:2',

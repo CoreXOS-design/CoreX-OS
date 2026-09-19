@@ -14815,6 +14815,7 @@ CREATE TABLE `users` (
   `medical_aid_dependents_count` tinyint unsigned NOT NULL DEFAULT '0',
   `show_on_website` tinyint(1) NOT NULL DEFAULT '0',
   `exclude_from_p24` tinyint(1) NOT NULL DEFAULT '0',
+  `daily_digest_enabled` tinyint(1) NOT NULL DEFAULT '1',
   `website_order` int unsigned DEFAULT NULL,
   `website_social_facebook` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `website_social_instagram` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -16642,3 +16643,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1344,'2026_09_15_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1345,'2026_09_17_000000_add_deleted_at_to_rental_application_document_validity_windows',254);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1346,'2026_09_17_000100_backfill_contact_matches_agent_id',254);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1347,'2026_09_19_120000_add_imported_released_at_to_properties_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1348,'2026_09_19_130000_add_daily_digest_enabled_to_users_table',256);
