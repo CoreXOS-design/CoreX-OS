@@ -350,10 +350,12 @@ return [
         'savers' => [
             ['controller' => LeaseSettingsController::class, 'method' => 'update'],
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'update'],
-            // Reserved for rental-work-orders.md's settings (completion_requires_photo,
-            // overdue_reminder_days) once that spec is built — add its own narrow saver
-            // here, alongside these, never merged into either existing one. Not built yet:
-            // the table (rental_work_order_settings) doesn't exist, per that spec's §8.
+            // Reserved for rental-work-orders.md's settings — completion_requires_photo,
+            // overdue_reminder_days, and no_approval_spend_threshold (the work-order
+            // spend gate cc4 confirmed 2026-09-19, after the first two were named) —
+            // once that spec is built, add its own narrow saver here, alongside these,
+            // never merged into either existing one. Not built yet: the table
+            // (rental_work_order_settings) doesn't exist, per that spec's §8.
         ],
         'controls' => [
             ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
@@ -368,7 +370,8 @@ return [
              'label' => 'Days a tenant has to sign the out-inspection',
              'explain' => 'Once an out-inspection is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
              'affects' => 'How long CoreX waits for the tenant\'s own signature before allowing an agent to close it out on their behalf. 7 days suits most agencies.'],
-            // Reserved for rental-work-orders.md's two settings — same pattern as above,
+            // Reserved for rental-work-orders.md's three settings (completion_requires_photo,
+            // overdue_reminder_days, no_approval_spend_threshold) — same pattern as above,
             // added here once that spec is built, not before.
         ],
     ],
