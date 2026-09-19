@@ -58,7 +58,7 @@
         <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
             Property this pitch is about
         </label>
-        <select @change="onPickerChange($event.target.value)"
+        <select @change="onPickerChange($event.target.value, $event.target)"
                 class="w-full px-3 py-2 text-sm rounded-md"
                 style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             @foreach($linkedProperties as $p)
