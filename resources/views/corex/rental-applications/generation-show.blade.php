@@ -56,11 +56,45 @@
                 // RentalApplication::fieldValidationRules() — formatted
                 // explicitly here rather than guessing by regex.
                 $dateFields = ['current_rental_from', 'current_rental_to', 'occupation_date'];
+
+                // .ai/specs/rental-application-field-config.md, generation-
+                // level follow-up 2026-09-20 — THIS generation's own frozen
+                // field config (RentalApplicationGeneration::seal()),
+                // never today's live settings and never
+                // rental_applications.field_config_snapshot (which only
+                // ever holds the LATEST round's config). A generation sealed
+                // before this column existed has field_config_snapshot ===
+                // null — falls back to the exact pre-existing behaviour
+                // (title-cased column name, JSON key order) below.
+                //
+                // Deliberately never gates on 'shown': a field hidden as of
+                // THIS generation may still carry a genuine answer from an
+                // earlier round (seal() freezes every known field's current
+                // value regardless of whether that round's form actually
+                // asked for it) — hidden governs decluttering an EMPTY
+                // field, never suppressing a real one already on file. The
+                // @continue below already drops every empty field, hidden
+                // or not, so this only affects label/order for fields that
+                // DO have a value.
+                $genFieldConfig = $sealed->field_config_snapshot;
+                $snapshotRows = collect($sealed->snapshot_json)
+                    ->reject(fn ($value) => is_null($value) || $value === '')
+                    ->map(function ($value, $field) use ($genFieldConfig) {
+                        $cfg = $genFieldConfig[$field] ?? null;
+                        return [
+                            'field' => $field,
+                            'value' => $value,
+                            'label' => $cfg['label'] ?? \Illuminate\Support\Str::headline($field),
+                            'order' => $cfg['order'] ?? 999,
+                        ];
+                    })
+                    ->values()
+                    ->sortBy('order');
             @endphp
-            @foreach($sealed->snapshot_json as $field => $value)
-                @continue(is_null($value) || $value === '')
+            @foreach($snapshotRows as $row)
+                @php [$field, $value] = [$row['field'], $row['value']]; @endphp
                 <div class="text-xs py-1" style="border-bottom: 1px solid var(--border);">
-                    <span style="color: var(--text-muted);">{{ \Illuminate\Support\Str::headline($field) }}:</span>
+                    <span style="color: var(--text-muted);">{{ $row['label'] }}:</span>
                     <span style="color: var(--text-primary);" class="font-medium">
                         @if(is_bool($value)) {{ $value ? 'Yes' : 'No' }}
                         @elseif(in_array($field, $dateFields, true)) {{ \Illuminate\Support\Carbon::parse($value)->format('d M Y') }}

@@ -454,11 +454,19 @@ class RentalApplicationReviewController extends Controller
             ])
             ->values();
 
+        // .ai/specs/rental-application-field-config.md, staff-facing
+        // follow-up 2026-09-20 — RentalApplication::displayFieldConfig()
+        // is the ONE resolver this screen's "Submitted Application"
+        // summary goes through: the frozen snapshot for an already-
+        // submitted application, live settings otherwise. Never re-derived
+        // here — see that method's own docblock for the three-way rule.
+        $fieldConfig = $rentalApplication->displayFieldConfig();
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
             'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries',
-            'documentTypeOptions'
+            'documentTypeOptions', 'fieldConfig'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 

@@ -592,6 +592,35 @@ class RentalApplication extends Model
     }
 
     /**
+     * .ai/specs/rental-application-field-config.md, staff-facing follow-up
+     * 2026-09-20 — the ONE resolver every AGENT-facing consumer of THIS
+     * application's own answers goes through (review.blade.php's summary,
+     * the editable pre-submission capture form) — parallel to
+     * resolvedFieldConfigFor() for the applicant-facing form, but aware of
+     * whether THIS specific record has actually been submitted:
+     *
+     * - Submitted, with a frozen snapshot: the snapshot, always — never
+     *   today's live settings. A config change after submission must never
+     *   silently reach backward into an already-signed record.
+     * - Submitted, but no snapshot (a record from before this column
+     *   existed): registry defaults (resolvedFieldConfigFor(null)), not
+     *   today's live agency settings either — a legacy record is rendered
+     *   as it always was (no hide/label/order applied), never retroactively
+     *   reshaped by config that didn't exist yet at its own submission.
+     * - Not yet submitted: today's live settings — nothing is historical
+     *   yet, so an agent capturing/viewing a draft sees exactly what the
+     *   applicant would see right now.
+     */
+    public function displayFieldConfig(): array
+    {
+        if ($this->isSubmitted()) {
+            return $this->field_config_snapshot ?? self::resolvedFieldConfigFor(null);
+        }
+
+        return self::resolvedFieldConfigFor($this->agency_id);
+    }
+
+    /**
      * Builds submit()'s full validation rule set from the agency's saved
      * $requiredKeys (RentalApplicationQualifyingSetting::requiredFieldKeysFor()).
      * A ticked field belonging to a conditional group is only enforced when

@@ -283,39 +283,69 @@
         <div>
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Personal Details</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <x-rental-application-field name="full_name" label="Full name and surname" :value="$rentalApplication->full_name" />
-                <x-rental-application-field name="id_number" label="ID number" :value="$rentalApplication->id_number" />
-                <x-rental-application-field name="marital_status" label="Marital status" :value="$rentalApplication->marital_status" />
-                <x-rental-application-field name="citizenship" label="Citizenship" :value="$rentalApplication->citizenship" />
-                <x-rental-application-field name="spouse_name" label="Spouse full name" :value="$rentalApplication->spouse_name" />
-                <x-rental-application-field name="spouse_id" label="Spouse ID number" :value="$rentalApplication->spouse_id" />
-                <x-rental-application-field name="email" label="Email address" type="email" :value="$rentalApplication->email" />
-                <x-rental-application-field name="cell" label="Cell number" :value="$rentalApplication->cell" />
-                <x-rental-application-field name="work_number" label="Work number" :value="$rentalApplication->work_number" />
+                @if($fieldConfig['full_name']['shown'])
+                <x-rental-application-field name="full_name" :label="$fieldConfig['full_name']['label']" :hint="$fieldConfig['full_name']['help_text']" :order="$fieldConfig['full_name']['order']" :value="$rentalApplication->full_name" />
+                @endif
+                @if($fieldConfig['id_number']['shown'])
+                <x-rental-application-field name="id_number" :label="$fieldConfig['id_number']['label']" :hint="$fieldConfig['id_number']['help_text']" :order="$fieldConfig['id_number']['order']" :value="$rentalApplication->id_number" />
+                @endif
+                @if($fieldConfig['marital_status']['shown'])
+                <x-rental-application-field name="marital_status" :label="$fieldConfig['marital_status']['label']" :hint="$fieldConfig['marital_status']['help_text']" :order="$fieldConfig['marital_status']['order']" :value="$rentalApplication->marital_status" />
+                @endif
+                @if($fieldConfig['citizenship']['shown'])
+                <x-rental-application-field name="citizenship" :label="$fieldConfig['citizenship']['label']" :hint="$fieldConfig['citizenship']['help_text']" :order="$fieldConfig['citizenship']['order']" :value="$rentalApplication->citizenship" />
+                @endif
+                @if($fieldConfig['spouse_name']['shown'])
+                <x-rental-application-field name="spouse_name" :label="$fieldConfig['spouse_name']['label']" :hint="$fieldConfig['spouse_name']['help_text']" :order="$fieldConfig['spouse_name']['order']" :value="$rentalApplication->spouse_name" />
+                @endif
+                @if($fieldConfig['spouse_id']['shown'])
+                <x-rental-application-field name="spouse_id" :label="$fieldConfig['spouse_id']['label']" :hint="$fieldConfig['spouse_id']['help_text']" :order="$fieldConfig['spouse_id']['order']" :value="$rentalApplication->spouse_id" />
+                @endif
+                @if($fieldConfig['email']['shown'])
+                <x-rental-application-field name="email" :label="$fieldConfig['email']['label']" :hint="$fieldConfig['email']['help_text']" :order="$fieldConfig['email']['order']" type="email" :value="$rentalApplication->email" />
+                @endif
+                @if($fieldConfig['cell']['shown'])
+                <x-rental-application-field name="cell" :label="$fieldConfig['cell']['label']" :hint="$fieldConfig['cell']['help_text']" :order="$fieldConfig['cell']['order']" :value="$rentalApplication->cell" />
+                @endif
+                @if($fieldConfig['work_number']['shown'])
+                <x-rental-application-field name="work_number" :label="$fieldConfig['work_number']['label']" :hint="$fieldConfig['work_number']['help_text']" :order="$fieldConfig['work_number']['order']" :value="$rentalApplication->work_number" />
+                @endif
             </div>
+            @if($fieldConfig['current_residential_address']['shown'])
             <div class="mt-3">
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Current residential address</label>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $fieldConfig['current_residential_address']['label'] }}</label>
                 <textarea name="current_residential_address" rows="2" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('current_residential_address', $rentalApplication->current_residential_address) }}</textarea>
+                @if($fieldConfig['current_residential_address']['help_text'])
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fieldConfig['current_residential_address']['help_text'] }}</p>
+                @endif
                 @error('current_residential_address')
                     <p class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</p>
                 @enderror
             </div>
+            @endif
         </div>
 
         <div>
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Emergency Contact (not staying with you)</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <x-rental-application-field name="emergency_contact_name" label="Name" :value="$rentalApplication->emergency_contact_name" />
-                <x-rental-application-field name="emergency_contact_cell" label="Cell number" :value="$rentalApplication->emergency_contact_cell" />
-                <x-rental-application-field name="emergency_contact_work" label="Work number" :value="$rentalApplication->emergency_contact_work" />
+                @if($fieldConfig['emergency_contact_name']['shown'])
+                <x-rental-application-field name="emergency_contact_name" :label="$fieldConfig['emergency_contact_name']['label']" :hint="$fieldConfig['emergency_contact_name']['help_text']" :order="$fieldConfig['emergency_contact_name']['order']" :value="$rentalApplication->emergency_contact_name" />
+                @endif
+                @if($fieldConfig['emergency_contact_cell']['shown'])
+                <x-rental-application-field name="emergency_contact_cell" :label="$fieldConfig['emergency_contact_cell']['label']" :hint="$fieldConfig['emergency_contact_cell']['help_text']" :order="$fieldConfig['emergency_contact_cell']['order']" :value="$rentalApplication->emergency_contact_cell" />
+                @endif
+                @if($fieldConfig['emergency_contact_work']['shown'])
+                <x-rental-application-field name="emergency_contact_work" :label="$fieldConfig['emergency_contact_work']['label']" :hint="$fieldConfig['emergency_contact_work']['help_text']" :order="$fieldConfig['emergency_contact_work']['order']" :value="$rentalApplication->emergency_contact_work" />
+                @endif
             </div>
         </div>
 
         <div x-data="{ situation: {{ \Illuminate\Support\Js::from(old('current_living_situation', $situationDefault)) }} }">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Current Living Situation</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                @if($fieldConfig['current_living_situation']['shown'])
                 <div class="sm:col-span-2">
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Which best describes their situation right now?</label>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $fieldConfig['current_living_situation']['label'] }}</label>
                     <select name="current_living_situation" x-model="situation"
                             class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                         <option value="">— Select —</option>
@@ -323,19 +353,33 @@
                             <option value="{{ $value }}">{{ $label }}</option>
                         @endforeach
                     </select>
+                    @if($fieldConfig['current_living_situation']['help_text'])
+                        <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fieldConfig['current_living_situation']['help_text'] }}</p>
+                    @endif
                     @error('current_living_situation')
                         <p class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</p>
                     @enderror
                 </div>
+                @endif
             </div>
 
             <div x-show="situation === 'renting'" x-cloak class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                <x-rental-application-field name="current_landlord_name" label="Landlord name" :value="$rentalApplication->current_landlord_name" />
-                <x-rental-application-field name="current_landlord_tel" label="Landlord tel number" :value="$rentalApplication->current_landlord_tel" />
-                <x-rental-application-field name="current_rental_amount" label="Current rental amount (R)" type="text" inputmode="decimal" :value="$rentalApplication->current_rental_amount" />
-                <x-rental-application-field name="current_rental_due_day" label="Rent due on which day of the month?" type="number" min="1" max="31" :value="$rentalApplication->current_rental_due_day"
-                    hint="e.g. 1 if their rent is due on the 1st of every month." />
-                <x-rental-application-field name="current_rental_from" label="From" type="date" :value="optional($rentalApplication->current_rental_from)->format('Y-m-d')" />
+                @if($fieldConfig['current_landlord_name']['shown'])
+                <x-rental-application-field name="current_landlord_name" :label="$fieldConfig['current_landlord_name']['label']" :hint="$fieldConfig['current_landlord_name']['help_text']" :order="$fieldConfig['current_landlord_name']['order']" :value="$rentalApplication->current_landlord_name" />
+                @endif
+                @if($fieldConfig['current_landlord_tel']['shown'])
+                <x-rental-application-field name="current_landlord_tel" :label="$fieldConfig['current_landlord_tel']['label']" :hint="$fieldConfig['current_landlord_tel']['help_text']" :order="$fieldConfig['current_landlord_tel']['order']" :value="$rentalApplication->current_landlord_tel" />
+                @endif
+                @if($fieldConfig['current_rental_amount']['shown'])
+                <x-rental-application-field name="current_rental_amount" :label="$fieldConfig['current_rental_amount']['label']" :hint="$fieldConfig['current_rental_amount']['help_text']" :order="$fieldConfig['current_rental_amount']['order']" type="text" inputmode="decimal" :value="$rentalApplication->current_rental_amount" />
+                @endif
+                @if($fieldConfig['current_rental_due_day']['shown'])
+                <x-rental-application-field name="current_rental_due_day" :label="$fieldConfig['current_rental_due_day']['label']" type="number" min="1" max="31" :value="$rentalApplication->current_rental_due_day" :order="$fieldConfig['current_rental_due_day']['order']"
+                    :hint="$fieldConfig['current_rental_due_day']['help_text'] ?? 'e.g. 1 if their rent is due on the 1st of every month.'" />
+                @endif
+                @if($fieldConfig['current_rental_from']['shown'])
+                <x-rental-application-field name="current_rental_from" :label="$fieldConfig['current_rental_from']['label']" :hint="$fieldConfig['current_rental_from']['help_text']" :order="$fieldConfig['current_rental_from']['order']" type="date" :value="optional($rentalApplication->current_rental_from)->format('Y-m-d')" />
+                @endif
                 <div x-data="{ stillLiving: {{ old('current_rental_still_living', $rentalApplication->current_rental_still_living) ? 'true' : 'false' }} }">
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">To</label>
                     <input type="date" name="current_rental_to" x-ref="currentRentalTo"
@@ -354,52 +398,75 @@
                 </div>
             </div>
 
+            @if($fieldConfig['current_living_situation_notes']['shown'])
             <div class="mt-3">
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Living situation — applicant's own words (optional)</label>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $fieldConfig['current_living_situation_notes']['help_text'] ?? "Living situation — applicant's own words (optional)" }}</label>
                 <textarea name="current_living_situation_notes" rows="4"
                           class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('current_living_situation_notes', $rentalApplication->current_living_situation_notes) }}</textarea>
                 @error('current_living_situation_notes')
                     <p class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</p>
                 @enderror
             </div>
+            @endif
         </div>
 
         <div>
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Employment</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                @if($fieldConfig['employment_type']['shown'])
                 <div>
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Employment type</label>
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $fieldConfig['employment_type']['label'] }}</label>
                     <select name="employment_type" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                         <option value="">— Select —</option>
                         @foreach(\App\Models\RentalApplication::EMPLOYMENT_TYPES as $type)
                             <option value="{{ $type }}" @selected(old('employment_type', $rentalApplication->employment_type) === $type)>{{ str_replace('_', ' ', ucfirst($type)) }}</option>
                         @endforeach
                     </select>
+                    @if($fieldConfig['employment_type']['help_text'])
+                        <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fieldConfig['employment_type']['help_text'] }}</p>
+                    @endif
                     @error('employment_type')
                         <p class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</p>
                     @enderror
                 </div>
-                <x-rental-application-field name="employer_name" label="Employer" :value="$rentalApplication->employer_name" />
-                <x-rental-application-field name="employer_position" label="Position" :value="$rentalApplication->employer_position" />
-                <x-rental-application-field name="employer_tel" label="Employer tel number" :value="$rentalApplication->employer_tel" />
-                <x-rental-application-field name="monthly_salary" label="Gross monthly income, before deductions (R)" type="text" inputmode="decimal" :value="$rentalApplication->monthly_salary"
-                    hint="The amount on the applicant's payslip BEFORE tax and other deductions — not their take-home pay." />
+                @endif
+                @if($fieldConfig['employer_name']['shown'])
+                <x-rental-application-field name="employer_name" :label="$fieldConfig['employer_name']['label']" :hint="$fieldConfig['employer_name']['help_text']" :order="$fieldConfig['employer_name']['order']" :value="$rentalApplication->employer_name" />
+                @endif
+                @if($fieldConfig['employer_position']['shown'])
+                <x-rental-application-field name="employer_position" :label="$fieldConfig['employer_position']['label']" :hint="$fieldConfig['employer_position']['help_text']" :order="$fieldConfig['employer_position']['order']" :value="$rentalApplication->employer_position" />
+                @endif
+                @if($fieldConfig['employer_tel']['shown'])
+                <x-rental-application-field name="employer_tel" :label="$fieldConfig['employer_tel']['label']" :hint="$fieldConfig['employer_tel']['help_text']" :order="$fieldConfig['employer_tel']['order']" :value="$rentalApplication->employer_tel" />
+                @endif
+                @if($fieldConfig['monthly_salary']['shown'])
+                <x-rental-application-field name="monthly_salary" :label="$fieldConfig['monthly_salary']['label']" type="text" inputmode="decimal" :value="$rentalApplication->monthly_salary" :order="$fieldConfig['monthly_salary']['order']"
+                    :hint="$fieldConfig['monthly_salary']['help_text'] ?? 'The amount on the applicant\'s payslip BEFORE tax and other deductions — not their take-home pay.'" />
+                @endif
             </div>
+            @if($fieldConfig['employer_address']['shown'])
             <div class="mt-3">
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Employer address</label>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $fieldConfig['employer_address']['label'] }}</label>
                 <textarea name="employer_address" rows="2" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('employer_address', $rentalApplication->employer_address) }}</textarea>
+                @if($fieldConfig['employer_address']['help_text'])
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fieldConfig['employer_address']['help_text'] }}</p>
+                @endif
                 @error('employer_address')
                     <p class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</p>
                 @enderror
             </div>
+            @endif
         </div>
 
         <div>
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Requirement of Lease</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <x-rental-application-field name="occupation_date" label="Effective date of occupation" type="date" :value="optional($rentalApplication->occupation_date)->format('Y-m-d')" />
-                <div x-data="{ months: {{ old('rental_term_months', $rentalApplication->rental_term_months) ?: 'null' }} }" class="sm:col-span-2">
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Rental terms required</label>
+                @if($fieldConfig['occupation_date']['shown'])
+                <x-rental-application-field name="occupation_date" :label="$fieldConfig['occupation_date']['label']" :hint="$fieldConfig['occupation_date']['help_text']" :order="$fieldConfig['occupation_date']['order']" type="date" :value="optional($rentalApplication->occupation_date)->format('Y-m-d')" />
+                @endif
+                @if($fieldConfig['rental_term_months']['shown'])
+                <div x-data="{ months: {{ old('rental_term_months', $rentalApplication->rental_term_months) ?: 'null' }} }" class="sm:col-span-2" style="order: {{ $fieldConfig['rental_term_months']['order'] }}">
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $fieldConfig['rental_term_months']['label'] }}</label>
                     <input type="hidden" name="rental_term_months" :value="months">
                     <div class="flex gap-2">
                         <template x-for="m in [6, 12, 24]" :key="m">
@@ -416,18 +483,28 @@
                     @if($rentalApplication->rental_terms && ! $rentalApplication->rental_term_months)
                         <p class="text-xs mt-1" style="color: var(--text-secondary);">Previously recorded as free text: "{{ $rentalApplication->rental_terms }}" — pick one of the options above to replace it.</p>
                     @endif
-                    <p class="text-xs mt-1" style="color: var(--text-secondary);">Maximum 24 months by law — a longer stay is arranged as a renewal later, not on this form.</p>
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fieldConfig['rental_term_months']['help_text'] ?? 'Maximum 24 months by law — a longer stay is arranged as a renewal later, not on this form.' }}</p>
                 </div>
-                <x-rental-application-field name="adults" label="Number of adults" type="number" :value="$rentalApplication->adults" />
-                <x-rental-application-field name="children" label="Number of children" type="number" :value="$rentalApplication->children" />
+                @endif
+                @if($fieldConfig['adults']['shown'])
+                <x-rental-application-field name="adults" :label="$fieldConfig['adults']['label']" :hint="$fieldConfig['adults']['help_text']" :order="$fieldConfig['adults']['order']" type="number" :value="$rentalApplication->adults" />
+                @endif
+                @if($fieldConfig['children']['shown'])
+                <x-rental-application-field name="children" :label="$fieldConfig['children']['label']" :hint="$fieldConfig['children']['help_text']" :order="$fieldConfig['children']['order']" type="number" :value="$rentalApplication->children" />
+                @endif
             </div>
+            @if($fieldConfig['special_conditions']['shown'])
             <div class="mt-3">
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Special conditions</label>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $fieldConfig['special_conditions']['label'] }}</label>
                 <textarea name="special_conditions" rows="2" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('special_conditions', $rentalApplication->special_conditions) }}</textarea>
+                @if($fieldConfig['special_conditions']['help_text'])
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ $fieldConfig['special_conditions']['help_text'] }}</p>
+                @endif
                 @error('special_conditions')
                     <p class="text-xs mt-1" style="color: var(--ds-red, #dc2626);">{{ $message }}</p>
                 @enderror
             </div>
+            @endif
         </div>
 
     </form>
