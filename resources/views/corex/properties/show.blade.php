@@ -1481,10 +1481,15 @@
 
             {{-- ── TWO-COLUMN GRID with row-aligned tops (Activity↔Agent, KeyDates↔LinkedContact) ── --}}
             @php
+                // AT-422 — Imported Stock carries no real listing dates (its Listed / Expiry
+                // / Loaded are import artefacts), so each of those three reads "Imported".
+                // The moment a user changes status / expiry / listed date the listing stops
+                // being imported and these show real dates again (see PropertyController::update).
+                $isImportedRow = ! $isNew && $property->isImportedStock();
                 $keyDates = array_filter([
-                    $property->listed_date  ? ['Listed',   $property->listed_date->format('d M Y')] : null,
-                    $property->expiry_date  ? ['Expires',  $property->expiry_date->format('d M Y')] : null,
-                    $property->created_at   ? ['Loaded',   $property->created_at->format('d M Y')]  : null,
+                    $isImportedRow ? ['Listed',  'Imported'] : ($property->listed_date ? ['Listed',   $property->listed_date->format('d M Y')] : null),
+                    $isImportedRow ? ['Expires', 'Imported'] : ($property->expiry_date ? ['Expires',  $property->expiry_date->format('d M Y')] : null),
+                    $isImportedRow ? ['Loaded',  'Imported'] : ($property->created_at  ? ['Loaded',   $property->created_at->format('d M Y')]  : null),
                     $property->updated_at   ? ['Modified', $property->updated_at->diffForHumans()]  : null,
                 ]);
                 $upcomingShowdays = $isNew ? collect() : $property->showdays()->where('active', true)->where('end_date', '>=', now())->orderBy('start_date')->take(3)->get();
@@ -3190,11 +3195,21 @@
                                     </select>
                                 </div>
                                 @php
-                                    $listedDateValue = $property->created_at?->format('Y-m-d') ?? now()->format('Y-m-d');
+                                    // AT-422 — Imported Stock: show "Imported" in Listed Date / Expiry Date /
+                                    // Loaded. The dates it carries are import artefacts, not real listing
+                                    // dates. Changing the status or picking an expiry date takes it over as a
+                                    // normal listing, with today's dates (PropertyController::update).
+                                    $importedFields = ! $isNew && $property->isImportedStock();
+                                    $listedDateValue = $importedFields
+                                        ? now()->format('Y-m-d')   // what a takeover will set; also the earliest expiry
+                                        : ($property->created_at?->format('Y-m-d') ?? now()->format('Y-m-d'));
+                                    $expiryInitial = $importedFields
+                                        ? (string) old('expiry_date', '')
+                                        : (string) old('expiry_date', $property->expiry_date?->format('Y-m-d'));
                                 @endphp
                                 <div x-data="{
                                         listedDate: '{{ $listedDateValue }}',
-                                        expiryDate: '{{ old('expiry_date', $property->expiry_date?->format('Y-m-d')) }}',
+                                        expiryDate: '{{ $expiryInitial }}',
                                         addMonths(n) {
                                             const base = this.listedDate ? new Date(this.listedDate) : new Date();
                                             base.setMonth(base.getMonth() + n);
@@ -3203,17 +3218,42 @@
                                      }" class="contents">
                                     <div>
                                         <label class="prop-label">Listed Date</label>
+                                        @if($importedFields)
+                                        {{-- No name: never submitted, so a plain save can't touch it. --}}
+                                        <input type="text" value="Imported" readonly disabled
+                                               class="prop-input prop-field-lifecycle"
+                                               style="opacity:.75; cursor:not-allowed;"
+                                               title="Imported from Property24 — changing the status or expiry date makes this a normal listing dated today">
+                                        @else
                                         <input type="date" name="listed_date" :value="listedDate" readonly
                                                class="prop-input prop-field-lifecycle"
                                                style="color-scheme: light dark; opacity:.75; cursor:not-allowed;"
                                                title="Listed Date is always the date the property was loaded">
+                                        @endif
                                     </div>
-                                    <div x-data="{ qaOpen: false }" @click.outside="qaOpen = false" class="relative">
+                                    <div x-data="{ qaOpen: false, picked: {{ $importedFields && $expiryInitial !== '' ? 'true' : 'false' }} }" @click.outside="qaOpen = false" class="relative">
                                         <label class="prop-label">Expiry Date</label>
+                                        @if($importedFields)
+                                        {{-- Reads "Imported" until the agent clicks it, then it becomes the normal date
+                                             picker. The real date input is only submitted once a date is actually
+                                             chosen (disabled while empty), so opening it and walking away, or any
+                                             other save, never counts as changing the expiry. --}}
+                                        <input type="text" value="Imported" readonly x-show="!picked"
+                                               class="prop-input prop-field-lifecycle" style="cursor:pointer;"
+                                               title="Imported from Property24 — click to set an expiry date (this makes it a normal listing dated today)"
+                                               @focus="picked = true; qaOpen = true; $nextTick(() => $refs.expiryInput.focus())"
+                                               @click="picked = true; qaOpen = true; $nextTick(() => $refs.expiryInput.focus())">
+                                        <input type="date" name="expiry_date" x-ref="expiryInput" x-model="expiryDate" :min="listedDate"
+                                               x-show="picked" x-cloak :disabled="!picked || !expiryDate"
+                                               class="prop-input prop-field-lifecycle" style="color-scheme: light dark;"
+                                               @focus="qaOpen = true" @click="qaOpen = true"
+                                               @change="if (expiryDate && expiryDate < listedDate) { expiryDate = listedDate; }">
+                                        @else
                                         <input type="date" name="expiry_date" x-model="expiryDate" :min="listedDate"
                                                class="prop-input prop-field-lifecycle" style="color-scheme: light dark;"
                                                @focus="qaOpen = true" @click="qaOpen = true"
                                                @change="if (expiryDate && expiryDate < listedDate) { expiryDate = listedDate; }">
+                                        @endif
                                         <div x-show="qaOpen" x-cloak x-transition.opacity
                                              class="absolute left-0 right-0 z-50 rounded-md border shadow-lg p-2 flex flex-wrap items-center gap-1.5"
                                              style="bottom:100%; margin-bottom:4px; background:var(--surface-1); border-color:var(--border);">
@@ -3227,8 +3267,13 @@
                                 @if(!$isNew)
                                     <div>
                                         <label class="prop-label">Loaded</label>
+                                        @if($importedFields)
+                                        <input type="text" value="Imported" disabled class="prop-input prop-field-lifecycle"
+                                               title="Imported from Property24{{ $property->p24_imported_at ? ' on ' . $property->p24_imported_at->format('j M Y') : '' }}">
+                                        @else
                                         <input type="text" value="{{ $property->created_at->format('d M Y H:i') }}" disabled class="prop-input prop-field-lifecycle"
                                                title="{{ $property->created_at->toDayDateTimeString() }}">
+                                        @endif
                                     </div>
                                     <div>
                                         <label class="prop-label">Modified</label>

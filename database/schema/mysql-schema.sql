@@ -10678,6 +10678,7 @@ CREATE TABLE `properties` (
   `deleted_at` timestamp NULL DEFAULT NULL,
   `p24_listing_number` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_imported_at` timestamp NULL DEFAULT NULL,
+  `imported_released_at` timestamp NULL DEFAULT NULL,
   `is_demo` tinyint(1) NOT NULL DEFAULT '0',
   `p24_image_signature` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `access_notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
@@ -16640,3 +16641,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1343,'2026_09_16_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1344,'2026_09_15_100000_add_p24_imported_at_to_properties_table',253);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1345,'2026_09_17_000000_add_deleted_at_to_rental_application_document_validity_windows',254);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1346,'2026_09_17_000100_backfill_contact_matches_agent_id',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1347,'2026_09_19_120000_add_imported_released_at_to_properties_table',255);

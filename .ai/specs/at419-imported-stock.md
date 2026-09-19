@@ -34,6 +34,33 @@
 > Files: `PropertyController::index()`, `Property::isImportedStock()`, `Property::scopeImportedLast()`,
 > `resources/views/corex/properties/index.blade.php`, `tests/Feature/Properties/ImportedStockTest.php`.
 
+> **Amendment 2, 2026-09-19 (AT-422, on Johan's instruction) — Imported Stock shows "Imported" in its
+> dates, and a user changing it turns it into a NEW listing.**
+> 1. On the property page, every Imported Stock property (imported + off-market, same test as the tag)
+>    shows the word **"Imported"** in **Listed Date, Expiry Date and Loaded** (edit form and the
+>    key-dates summary) instead of the import's dates, which are import artefacts, not real listing
+>    dates. Expiry Date stays usable: click it and it becomes the normal date picker.
+> 2. When a user **changes the status, the expiry date or the listed date** of Imported Stock (a save
+>    through the property edit form), the listing is **taken over**: **Listed Date and Loaded become
+>    today**, the **Imported tag goes**, and the listing appears exactly like a new one — it moves to
+>    the Properties page by default and off Imported Stock. **Expiry Date** becomes the date the user
+>    typed, **else blank** (like a brand-new listing, the agent sets the mandate expiry; Johan chose
+>    this over "today", which would show it expiring immediately). Any status change counts — including
+>    one off-market status to another. A typed expiry date earlier than today is refused (plain error,
+>    nothing changes). Editing anything else (price, description, photos…), or re-saving the same
+>    status in any casing, leaves it imported.
+> 3. Recorded by a new column `properties.imported_released_at` (see §3). `p24_imported_at` is NEVER
+>    changed by a takeover: it stays the permanent record of when the listing was imported, so the
+>    importer's "don't restamp" rule and the backfill command's "only stamp nulls" rule are untouched
+>    and the backfill can never put a taken-over listing back on Imported Stock. All three imported
+>    scopes and `isImportedStock()` treat a row with `imported_released_at` set as an ordinary property.
+> 4. Only the user-facing property edit save does this. The importer, the stale-stock / duplicate
+>    pipeline (which flips imports to draft/prospecting) and any other automated write do NOT — a
+>    takeover is a user decision. The original dates are kept in the property audit trail (AT-321).
+> Files: `database/migrations/2026_09_19_120000_add_imported_released_at_to_properties_table.php`,
+> `database/schema/mysql-schema.sql`, `Property::newListingAttributes()` + the scopes,
+> `PropertyController::update()`, `resources/views/corex/properties/show.blade.php`.
+
 ## 1. What this feature does and why
 
 Today, when an admin confirms a P24 (Property24) CSV import via Admin → Importer, every
@@ -75,6 +102,7 @@ Add one column to `properties`:
 | Column | Type | Purpose |
 |---|---|---|
 | `p24_imported_at` | `timestamp`, nullable | Stamped the moment a property is created/updated by the P24 importer's confirm step. Doubles as both the "this came from the importer" flag and the "Imported Date" value shown on the new page. |
+| `imported_released_at` | `timestamp`, nullable | **Added by AT-422 (Amendment 2).** Set when a user changes an Imported Stock listing's status / expiry date / listed date and it becomes a normal, new-looking listing. Null = never taken over (all existing rows). `p24_imported_at` is left as the permanent import record. |
 
 No change to `tracked_properties` — imported stock is agency stock (`properties`), not a
 prospecting lead, so it stays in the same tier it's in today; nothing moves tiers.

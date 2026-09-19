@@ -1329,6 +1329,17 @@ class PropertyController extends Controller
         $priceRequired = ! $isDraftSave && ! $isRental;     // sale price — a completed SALE
         $bbRequired    = ! $isDraftSave && $needsBedsBaths; // beds/baths/garages — a completed RESIDENTIAL listing
 
+        // AT-422 — Imported Stock turns into a normal, new-looking listing when a user changes
+        // its status, expiry date or listed date (decided further down, after validation).
+        // Its own imported dates are meaningless, so a typed expiry date is validated against
+        // TODAY — the listed date it will get if this save takes it over. That stand-in is
+        // only for validation; it is stripped again below unless the listing is taken over.
+        $wasImportedStock    = $property->isImportedStock();
+        $importedListedInput = $request->filled('listed_date') ? (string) $request->input('listed_date') : null;
+        if ($wasImportedStock && $importedListedInput === null) {
+            $request->merge(['listed_date' => now()->toDateString()]);
+        }
+
         $data = $request->validate([
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
@@ -1580,6 +1591,34 @@ class PropertyController extends Controller
         foreach (['price', 'beds', 'baths', 'garages', 'suburb', 'agent_id'] as $notNullField) {
             if (array_key_exists($notNullField, $data) && $data[$notNullField] === null) {
                 unset($data[$notNullField]);
+            }
+        }
+
+        // AT-422 — a user changing the status, expiry date or listed date of Imported Stock
+        // takes the listing over: Listed Date and Loaded become today, the Imported tag goes,
+        // and Expiry Date is the date they typed, else blank (a new listing's agent sets it).
+        // Anything else on the form (description, price, photos…) leaves it imported. The
+        // status is compared normalised (case / spaces) so an unchanged save never counts.
+        if ($wasImportedStock) {
+            $normStatus = static fn ($v): string => strtolower(str_replace(' ', '_', trim((string) $v)));
+            $toDate     = static fn ($v): ?string => ($v === null || $v === '') ? null : \Illuminate\Support\Carbon::parse($v)->toDateString();
+
+            $statusChanged = array_key_exists('status', $data)
+                && $normStatus($data['status']) !== $normStatus($property->status);
+            $expiryChanged = array_key_exists('expiry_date', $data)
+                && $toDate($data['expiry_date']) !== $property->expiry_date?->toDateString();
+            $listedChanged = $importedListedInput !== null
+                && $toDate($importedListedInput) !== ($property->listed_date ?? $property->created_at)?->toDateString();
+
+            if ($statusChanged || $expiryChanged || $listedChanged) {
+                $new = $property->newListingAttributes($expiryChanged ? $toDate($data['expiry_date']) : null);
+                // created_at / imported_released_at are not mass-assignable; forceFill rides the
+                // same save (and the same audit-trail entry) as the rest of the edit.
+                $property->forceFill(['created_at' => $new['created_at'], 'imported_released_at' => $new['imported_released_at']]);
+                $data['listed_date'] = $new['listed_date'];
+                $data['expiry_date'] = $new['expiry_date'];
+            } else {
+                unset($data['listed_date']);   // only ever merged in for validation
             }
         }
 

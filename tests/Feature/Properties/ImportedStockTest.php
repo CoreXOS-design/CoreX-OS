@@ -488,6 +488,236 @@ final class ImportedStockTest extends TestCase
         }
     }
 
+    // ── AT-422: changing an imported listing takes it over as a NEW listing ──
+    //
+    // When a user changes the status, expiry date or listed date of Imported Stock,
+    // Listed Date + Loaded become today, the Imported tag goes, and Expiry Date is the
+    // date they typed — else blank (a new listing's agent sets the mandate expiry).
+    // Anything else on the edit form leaves it imported.
+
+    /** A withdrawn P24 import, loaded 40 days ago, carrying its stale import expiry date. */
+    private function importedListing(int $agencyId, User $agent, string $title = 'ZZZ-Takeover', array $attrs = []): Property
+    {
+        $p = $this->property($agencyId, $agent, $title, array_merge([
+            'status'          => 'Withdrawn',              // P24 imports land capitalised
+            'p24_imported_at' => now()->subDays(40),
+            'price'           => 950000,
+            'beds' => 3, 'baths' => 2, 'garages' => 1,
+        ], $attrs));
+
+        DB::table('properties')->where('id', $p->id)->update([
+            'created_at'  => now()->subDays(40),
+            'listed_date' => null,                          // imports never carry a listed date
+            'expiry_date' => '2025-09-30',                  // the stale one from the P24 file
+        ]);
+
+        // A completed listing needs a linked contact to save (existing rule).
+        $contact = \App\Models\Contact::create([
+            'agency_id' => $agencyId, 'branch_id' => $agencyId, 'created_by_user_id' => $agent->id,
+            'first_name' => 'Sam', 'last_name' => 'Seller', 'phone' => '0820000099',
+        ]);
+        DB::table('contact_property')->insert([
+            'property_id' => $p->id, 'contact_id' => $contact->id, 'role' => 'seller',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        return $p->fresh();
+    }
+
+    /** What the edit form posts for an untouched save of $p (status left as stored). */
+    private function editPayload(Property $p, array $overrides = []): array
+    {
+        return array_merge([
+            'title'    => $p->title,
+            'price'    => 950000,
+            'suburb'   => 'Uvongo',
+            'city'     => 'Margate',
+            'province' => 'KwaZulu-Natal',
+            'beds'     => 3, 'baths' => 2, 'garages' => 1,
+            'agent_id' => $p->agent_id,
+        ], $overrides);
+    }
+
+    private function saveEdit(User $user, Property $p, array $overrides = []): \Illuminate\Testing\TestResponse
+    {
+        return $this->actingAs($user)->put(route('corex.properties.update', $p->id), $this->editPayload($p, $overrides));
+    }
+
+    private function assertTakenOverAsNewListing(Property $before, ?string $expectedExpiry): Property
+    {
+        $after = Property::withoutGlobalScopes()->findOrFail($before->id);
+
+        $this->assertTrue($after->created_at->diffInMinutes(now()) < 1, 'Loaded must be reset to now');
+        $this->assertSame(now()->toDateString(), $after->listed_date->toDateString(), 'Listed Date must be today');
+        $this->assertSame($expectedExpiry, $after->expiry_date?->toDateString(), 'Expiry Date');
+        $this->assertNotNull($after->imported_released_at, 'the import must be released');
+        $this->assertFalse($after->isImportedStock(), 'no longer imported stock (no tag)');
+        // The permanent record of the original import survives the takeover.
+        $this->assertSame($before->p24_imported_at->toDateTimeString(), $after->p24_imported_at->toDateTimeString());
+
+        return $after;
+    }
+
+    public function test_changing_the_status_of_imported_stock_turns_it_into_a_new_listing(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-Status');
+        $this->assertTrue($p->isImportedStock());
+
+        $this->saveEdit($admin, $p, ['status' => 'active'])->assertSessionHasNoErrors();
+
+        // Status only — no expiry typed — so Expiry Date is blank, like a brand-new listing.
+        $this->assertTakenOverAsNewListing($p, null);
+
+        // It now lives on Properties by default, untagged, and is gone from Imported Stock.
+        $this->get(route('corex.properties.index'))->assertOk()->assertSee('ZZZ-Takeover-Status');
+        $this->get(route('corex.properties.imported-stock'))->assertOk()->assertDontSee('ZZZ-Takeover-Status');
+    }
+
+    public function test_changing_to_another_off_market_status_still_takes_the_listing_over(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-Sold');
+
+        $this->saveEdit($admin, $p, ['status' => 'sold'])->assertSessionHasNoErrors();
+
+        // Sold is still off-market — but the user changed it, so it is theirs now: no tag,
+        // on Properties (not Imported Stock), even though the status alone would have qualified.
+        $after = $this->assertTakenOverAsNewListing($p, null);
+        $this->assertSame('sold', $after->status);
+
+        $this->get(route('corex.properties.index'))->assertOk()->assertSee('ZZZ-Takeover-Sold');
+        $this->get(route('corex.properties.imported-stock'))->assertOk()->assertDontSee('ZZZ-Takeover-Sold');
+        $res = $this->get(route('corex.properties.index', ['search' => 'ZZZ-Takeover-Sold']))->assertOk();
+        $this->assertSame(0, substr_count($res->getContent(), self::IMPORTED_TAG));
+    }
+
+    public function test_picking_an_expiry_date_takes_it_over_and_keeps_the_date_the_user_typed(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-Expiry');
+        $expiry = now()->addMonths(6)->toDateString();
+
+        // Status left exactly as stored ("Withdrawn"), only the expiry date is set.
+        $this->saveEdit($admin, $p, ['status' => 'Withdrawn', 'expiry_date' => $expiry])->assertSessionHasNoErrors();
+
+        $this->assertTakenOverAsNewListing($p, $expiry);
+    }
+
+    public function test_an_expiry_date_in_the_past_is_refused_and_nothing_changes(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-PastExpiry');
+
+        $this->saveEdit($admin, $p, ['expiry_date' => '2025-01-01'])->assertSessionHasErrors('expiry_date');
+
+        $after = Property::withoutGlobalScopes()->findOrFail($p->id);
+        $this->assertNull($after->imported_released_at);
+        $this->assertTrue($after->isImportedStock(), 'a refused save must leave it imported');
+        $this->assertSame($p->created_at->toDateTimeString(), $after->created_at->toDateTimeString());
+    }
+
+    public function test_changing_the_listed_date_takes_it_over_too(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-Listed');
+
+        // Not reachable from the (read-only) form field, but other clients can send it.
+        $this->saveEdit($admin, $p, ['listed_date' => now()->subDays(3)->toDateString()])->assertSessionHasNoErrors();
+
+        // Every date resets to today — including Listed Date — not the value that was sent.
+        $this->assertTakenOverAsNewListing($p, null);
+    }
+
+    public function test_an_ordinary_save_leaves_imported_stock_imported(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-Untouched');
+
+        // The same status, in the casing the stored value has AND in canonical form — neither
+        // is a change. Price is edited, so the save genuinely happened.
+        foreach (['Withdrawn', 'withdrawn', 'WITHDRAWN'] as $status) {
+            $this->saveEdit($admin, $p, ['status' => $status, 'price' => 975000])->assertSessionHasNoErrors();
+        }
+        // …and with no status field at all (the lazy-but-valid shortcut).
+        $this->saveEdit($admin, $p, ['price' => 990000])->assertSessionHasNoErrors();
+
+        $after = Property::withoutGlobalScopes()->findOrFail($p->id);
+        $this->assertSame(990000, (int) $after->price, 'the edit was saved');
+        $this->assertNull($after->imported_released_at);
+        $this->assertTrue($after->isImportedStock());
+        $this->assertSame($p->created_at->toDateTimeString(), $after->created_at->toDateTimeString());
+        $this->assertSame('2025-09-30', $after->expiry_date->toDateString(), 'imported expiry untouched');
+        $this->assertNull($after->listed_date, 'the validation stand-in must not leak into the save');
+    }
+
+    public function test_changing_a_non_imported_listing_never_resets_its_dates(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-Manual', ['status' => 'sold']);
+        // Same shape as the imported ones, but never touched by the P24 importer.
+        DB::table('properties')->where('id', $p->id)->update(['p24_imported_at' => null]);
+
+        $this->saveEdit($admin, $p, ['status' => 'active'])->assertSessionHasNoErrors();
+
+        $after = Property::withoutGlobalScopes()->findOrFail($p->id);
+        $this->assertNull($after->imported_released_at);
+        $this->assertSame($p->created_at->toDateTimeString(), $after->created_at->toDateTimeString(), 'Loaded untouched');
+        $this->assertSame('2025-09-30', $after->expiry_date->toDateString(), 'expiry untouched');
+    }
+
+    public function test_changing_an_active_imported_listing_is_left_alone(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        // Active imported stock is ordinary Properties stock (AT-419): not "imported stock"
+        // as far as this rule goes, so an edit must not rewrite its dates.
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-ActiveImp', ['status' => 'for_sale']);
+        $this->assertFalse($p->isImportedStock());
+
+        $this->saveEdit($admin, $p, ['status' => 'under_offer'])->assertSessionHasNoErrors();
+
+        $after = Property::withoutGlobalScopes()->findOrFail($p->id);
+        $this->assertNull($after->imported_released_at);
+        $this->assertSame($p->created_at->toDateTimeString(), $after->created_at->toDateTimeString());
+    }
+
+    public function test_property_page_shows_imported_in_the_date_fields_of_imported_stock(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-Page');
+
+        $res = $this->actingAs($admin)->get(route('corex.properties.show', $p->id))->assertOk();
+
+        // Listed Date, Expiry Date and Loaded each read "Imported" in the edit form…
+        $this->assertSame(3, substr_count($res->getContent(), 'value="Imported"'));
+        // …the key-dates summary too, and none of the import's real dates leak through.
+        $res->assertDontSee('30 Sep 2025', false);
+        $res->assertDontSee('2025-09-30', false);
+        // The imported listed date is not a submittable field, so a plain save can't touch it.
+        $res->assertDontSee('name="listed_date"', false);
+        // Expiry stays a real date picker the agent can use (submitted only once a date is chosen).
+        $res->assertSee('name="expiry_date"', false);
+    }
+
+    public function test_property_page_shows_real_dates_once_taken_over_and_for_normal_listings(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $p = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-Page2');
+        $this->saveEdit($admin, $p, ['status' => 'active', 'expiry_date' => now()->addMonths(3)->toDateString()]);
+
+        $res = $this->actingAs($admin)->get(route('corex.properties.show', $p->id))->assertOk();
+        $res->assertDontSee('value="Imported"', false);
+        $res->assertSee('name="listed_date"', false);
+        $res->assertSee(now()->addMonths(3)->format('Y-m-d'), false);
+        $res->assertSee(now()->format('d M Y H:i'), false);   // Loaded is a real timestamp again
+
+        // A listing that was never imported never shows the word.
+        $manual = $this->importedListing($agencyId, $admin, 'ZZZ-Takeover-Page3', ['status' => 'sold']);
+        DB::table('properties')->where('id', $manual->id)->update(['p24_imported_at' => null]);
+        $this->actingAs($admin)->get(route('corex.properties.show', $manual->id))
+            ->assertOk()->assertDontSee('value="Imported"', false);
+    }
+
     // ── Permission gate ──────────────────────────────────────────────────
 
     public function test_imported_stock_route_denied_without_its_own_permission(): void
