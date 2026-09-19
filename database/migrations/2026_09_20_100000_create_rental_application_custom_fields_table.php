@@ -17,8 +17,11 @@ use Illuminate\Support\Facades\Schema;
  * enum, same reasoning RentalApplication::EMPLOYMENT_TYPES already uses.
  *
  * `key` is agent-facing but SYSTEM-GENERATED (slugified from the label,
- * namespaced `custom.` so it can never collide with a real shipped column
- * name), never hand-typed — it's the JSON key every captured answer is
+ * namespaced `custom_` — underscore, not a dot; see
+ * RentalApplicationCustomField::generateKey()'s own docblock for why a
+ * literal dot in the key breaks Laravel's own dot-path resolution — so it
+ * can never collide with a real shipped column name), never hand-typed —
+ * it's the JSON key every captured answer is
  * stored under (rental_applications.custom_field_values, §7), so letting
  * an agent free-type it risks a malformed or colliding key reaching data
  * storage. Immutable after creation for the same reason: renaming it would
@@ -57,10 +60,10 @@ return new class extends Migration
             // purposes, so a composite unique including it would NOT
             // actually stop two simultaneously-active rows sharing a key.
             // Enforced in the application layer instead (
-            // RentalApplicationCustomFieldController::assertKeyNotDuplicated()),
+            // RentalApplicationCustomFieldController::assertLabelNotDuplicated()),
             // exactly the same reason RentalApplicationHighlighter has no
             // DB-level uniqueness on `label` either — a retired
-            // "custom.pet_deposit" must never block adding a fresh one
+            // "custom_pet_deposit" must never block adding a fresh one
             // under the same generated key.
             $table->index(['agency_id', 'key']);
         });

@@ -574,10 +574,60 @@ class RentalApplication extends Model
                 'order' => $orderIndex[$key] ?? 999,
                 'group' => $field['group'],
                 'section' => self::submissionFieldSectionOf($key),
+                'is_custom' => false,
+                'field_type' => null,
+                'options' => null,
             ];
         }
 
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
+        // custom fields go through this SAME resolver, merged into the
+        // SAME flat array, never a parallel field-listing mechanism. All
+        // under one dedicated section ('Additional Questions', not one of
+        // SUBMISSION_FIELD_SECTIONS — custom fields aren't grouped under
+        // any shipped section). `order` is the row's own sort_order
+        // directly — no named/unnamed reconciliation needed, since every
+        // custom field always has an explicit position (set on creation,
+        // adjustable via reorder()), unlike a shipped field's order which
+        // can be left unconfigured.
+        if ($agencyId !== null && $agencyId > 0) {
+            foreach (\App\Models\RentalApplicationCustomField::activeFor($agencyId) as $customField) {
+                $config[$customField->key] = [
+                    'key' => $customField->key,
+                    'label' => $customField->label,
+                    'help_text' => $customField->help_text,
+                    'shown' => true, // activeFor() already excludes shown=false and retired
+                    'required' => $customField->required,
+                    'order' => $customField->sort_order,
+                    'group' => null,
+                    'section' => 'Additional Questions',
+                    'is_custom' => true,
+                    'field_type' => $customField->field_type,
+                    'options' => $customField->options,
+                ];
+            }
+        }
+
         return $config;
+    }
+
+    /**
+     * RA-02's "a real person types 15,000... gets 'must be a number'" fix
+     * applies just as much to a custom number-type field as to
+     * monthly_salary — the keys (unprefixed, e.g. 'pet_deposit_amount')
+     * sanitizeNumericInput() needs to run against $application->custom_field_values,
+     * not the top-level request.
+     */
+    public static function customNumberFieldKeysFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        return \App\Models\RentalApplicationCustomField::activeFor($agencyId)
+            ->where('field_type', \App\Models\RentalApplicationCustomField::TYPE_NUMBER)
+            ->pluck('key')
+            ->all();
     }
 
     /**
@@ -682,7 +732,57 @@ class RentalApplication extends Model
             [self::signatureWellFormedRule()],
         );
 
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
+        // custom fields validate through this SAME method, never a second
+        // rule-building path. required is the field's own `required`
+        // column directly (no cross-mechanism reconciliation needed like
+        // shipped fields' required_field_keys vs hidden_field_keys — a
+        // custom field's shown and required live on the SAME row, so
+        // activeFor() already excludes anything not shown before this
+        // loop ever sees it: a hidden custom field can never reach here
+        // as "required").
+        if ($agencyId !== null && $agencyId > 0) {
+            foreach (\App\Models\RentalApplicationCustomField::activeFor($agencyId) as $customField) {
+                $fieldKey = 'custom_field_values.' . $customField->key;
+                $attributes[$fieldKey] = $customField->label;
+                $rules[$fieldKey] = self::customFieldValidationRule($customField);
+            }
+        }
+
         return [$rules, $attributes];
+    }
+
+    /**
+     * One rule set per RentalApplicationCustomField::FIELD_TYPES value —
+     * the single place a custom field's own validation shape is decided.
+     * $forceNullable — autosave() never enforces `required` (a partial,
+     * still-in-progress draft must always be saveable), same posture as
+     * every shipped field on that same route; true there, false at submit().
+     */
+    public static function customFieldValidationRule(\App\Models\RentalApplicationCustomField $customField, bool $forceNullable = false): array
+    {
+        $requiredOrNullable = ($customField->required && ! $forceNullable) ? 'required' : 'nullable';
+
+        return match ($customField->field_type) {
+            \App\Models\RentalApplicationCustomField::TYPE_NUMBER => [$requiredOrNullable, 'numeric'],
+            \App\Models\RentalApplicationCustomField::TYPE_DATE => [$requiredOrNullable, 'date'],
+            \App\Models\RentalApplicationCustomField::TYPE_YES_NO => [$requiredOrNullable, 'boolean'],
+            \App\Models\RentalApplicationCustomField::TYPE_CHOICE_LIST => [$requiredOrNullable, 'string', \Illuminate\Validation\Rule::in($customField->options ?? [])],
+            default => [$requiredOrNullable, 'string', 'max:2000'],
+        };
+    }
+
+    /** Nullable-only custom-field rules for autosave() — same field shapes, never a required gate. */
+    public static function customFieldAutosaveRulesFor(?int $agencyId): array
+    {
+        $rules = [];
+        if ($agencyId !== null && $agencyId > 0) {
+            foreach (\App\Models\RentalApplicationCustomField::activeFor($agencyId) as $customField) {
+                $rules['custom_field_values.' . $customField->key] = self::customFieldValidationRule($customField, forceNullable: true);
+            }
+        }
+
+        return $rules;
     }
 
     private static function signatureWellFormedRule(): \Closure

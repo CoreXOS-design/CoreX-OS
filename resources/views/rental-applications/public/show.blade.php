@@ -483,6 +483,70 @@
                 </div>
             </section>
 
+            @php
+                // .ai/specs/rental-application-field-config.md §7, piece
+                // (c)(2) — custom fields render through the SAME
+                // $fieldConfig this whole form already resolves through,
+                // never a parallel field-listing mechanism (§6's own
+                // rule). Not rendered via <x-rental-application-field> —
+                // that component's old($name, ...) call expects a plain
+                // flat field name; a bracketed HTML name like
+                // "custom_field_values[key]" (required so PHP parses the
+                // submission into a nested array) is not the dot-path
+                // old() needs to actually find it after a failed
+                // validation — AT-392's own "losing a tenant's typed
+                // answers is unacceptable" ruling applies here exactly as
+                // much as it does to every shipped field.
+                $customFields = collect($fieldConfig)->where('is_custom', true)->sortBy('order');
+            @endphp
+            @if($customFields->isNotEmpty())
+            <section data-progress-section="Additional Questions">
+                <h2 class="font-semibold text-slate-700 mb-3">Additional Questions</h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    @foreach($customFields as $cf)
+                        @php
+                            $cfName = 'custom_field_values[' . $cf['key'] . ']';
+                            $cfOldKey = 'custom_field_values.' . $cf['key'];
+                            $cfValue = old($cfOldKey, $application->custom_field_values[$cf['key']] ?? null);
+                            $cfError = $errors->has($cfOldKey);
+                        @endphp
+                        <div class="{{ in_array($cf['field_type'], ['text']) ? 'sm:col-span-2' : '' }}">
+                            <label class="block text-xs text-slate-500 mb-1">{{ $cf['label'] }}@if($cf['required']) *@endif</label>
+                            @if($cf['field_type'] === 'yes_no')
+                                <select name="{{ $cfName }}" @if($cf['required']) required @endif
+                                        class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                                    <option value="">— Select —</option>
+                                    <option value="1" @selected($cfValue == '1')>Yes</option>
+                                    <option value="0" @selected($cfValue !== null && $cfValue == '0')>No</option>
+                                </select>
+                            @elseif($cf['field_type'] === 'choice_list')
+                                <select name="{{ $cfName }}" @if($cf['required']) required @endif
+                                        class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                                    <option value="">— Select —</option>
+                                    @foreach($cf['options'] ?? [] as $option)
+                                        <option value="{{ $option }}" @selected($cfValue === $option)>{{ $option }}</option>
+                                    @endforeach
+                                </select>
+                            @elseif($cf['field_type'] === 'date')
+                                <input type="date" name="{{ $cfName }}" value="{{ $cfValue }}" @if($cf['required']) required @endif
+                                       class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                            @elseif($cf['field_type'] === 'number')
+                                <input type="text" inputmode="decimal" name="{{ $cfName }}" value="{{ $cfValue }}" @if($cf['required']) required @endif
+                                       class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                            @else
+                                <input type="text" name="{{ $cfName }}" value="{{ $cfValue }}" @if($cf['required']) required @endif
+                                       class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
+                            @endif
+                            @if($cf['help_text'])
+                                <p class="text-[11px] text-slate-400 mt-1">{{ $cf['help_text'] }}</p>
+                            @endif
+                            @error($cfOldKey) <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                    @endforeach
+                </div>
+            </section>
+            @endif
+
             @if($fieldConfig['declaration_signature']['shown'])
             <section data-progress-section="Declaration">
                 <h2 class="font-semibold text-slate-700 mb-2">{{ $fieldConfig['declaration_signature']['label'] }} @if(in_array('declaration_signature', $requiredFieldKeys, true)) *@endif</h2>

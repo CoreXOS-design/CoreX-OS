@@ -220,7 +220,14 @@ agent-signing party"). The shape (key/label/type/default/sort_order) is worth mi
 signing-party scoping is not.
 
 **Proposed shape** (new table, `rental_application_custom_fields`): `agency_id`, `key` (agent-chosen,
-namespaced e.g. `custom.pet_deposit` to guarantee it can never collide with a real column name),
+namespaced e.g. `custom_pet_deposit` to guarantee it can never collide with a real column name —
+**build-time correction, piece (c)(2), 2026-09-20**: the underscore is load-bearing, not cosmetic. A
+literal dot (this section's own original example, `custom.pet_deposit`) breaks silently, because
+Laravel treats every dot in a dot-path string — validation rule keys, `old()`, `$errors->has()` — as
+an array-nesting separator; a key containing its own dot gets misread as an extra nesting level
+everywhere the resolver, capture form, and validation all touch it. Confirmed live: a submitted
+custom field's value showed as permanently empty and "required" no matter what was typed. No real
+custom field existed anywhere at the time this was found, so there was nothing to migrate),
 `label`, `help_text`, `field_type` (text / number / date / yes-no / choice-list / **file upload**, per
 Johan's own list of types asked for), `options` (JSON, for choice-list type), `section` (which of the
 existing sections it's grouped under, or a dedicated "Additional questions" section), `sort_order`,

@@ -14,8 +14,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * module for a small, agency-owned, reorderable, archive-not-delete list).
  *
  * `key` is system-generated (RentalApplicationCustomField::generateKey()),
- * namespaced `custom.` so it can never collide with a real shipped column
- * name, and immutable after creation — it's the JSON key every captured
+ * namespaced `custom_` (underscore, not a dot — see generateKey()'s own
+ * docblock) so it can never collide with a real shipped column name, and
+ * immutable after creation — it's the JSON key every captured
  * answer is stored under (rental_applications.custom_field_values), so a
  * rename would orphan already-captured answers.
  *
@@ -67,15 +68,27 @@ class RentalApplicationCustomField extends Model
     }
 
     /**
-     * `custom.` + a slugified label, deduplicated against every key this
+     * `custom_` + a slugified label, deduplicated against every key this
      * agency has EVER used (including retired ones — a retired
-     * "custom.pet_deposit" and a brand new field from the same label must
+     * "custom_pet_deposit" and a brand new field from the same label must
      * never collide, since the retired one's already-captured answers are
      * still keyed under it).
+     *
+     * Underscore, not a dot — piece (c)(2) (capture) found the real
+     * reason: Laravel treats a literal `.` as an array-nesting separator
+     * EVERYWHERE a dot-path string is used (validation rule keys like
+     * 'custom_field_values.' . $key, old(), $errors->has()) — a key
+     * containing its own dot silently breaks all three, since
+     * 'custom_field_values.custom.pet_details' resolves as THREE nested
+     * levels, not two, even though the underlying array only has two.
+     * Confirmed live: a submitted custom field's value showed as
+     * permanently empty and "required" no matter what was typed. No real
+     * custom field existed anywhere before this fix landed, so there was
+     * nothing to migrate.
      */
     public static function generateKey(int $agencyId, string $label): string
     {
-        $base = 'custom.' . \Illuminate\Support\Str::slug($label, '_');
+        $base = 'custom_' . \Illuminate\Support\Str::slug($label, '_');
         $key = $base;
         $suffix = 2;
         $existingKeys = static::withTrashed()->where('agency_id', $agencyId)->pluck('key')->all();

@@ -762,10 +762,45 @@ class RentalApplicationSigningController extends Controller
         $input = $request->only(array_keys($rules));
         $input = array_merge($input, RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
 
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
+        // custom fields autosave through this SAME endpoint, never a
+        // second save path — merged in alongside the shipped-field rules
+        // so a genuinely invalid entry (wrong type for a number/date
+        // field, an option no longer on the list) is dropped the same
+        // best-effort way an invalid shipped field already is, rather
+        // than failing the whole autosave.
+        $customFieldRules = RentalApplication::customFieldAutosaveRulesFor($application->agency_id);
+        if (! empty($customFieldRules)) {
+            $customNumberKeys = RentalApplication::customNumberFieldKeysFor($application->agency_id);
+            $input['custom_field_values'] = RentalApplication::sanitizeNumericInput(
+                $request->input('custom_field_values', []),
+                $customNumberKeys
+            );
+            $rules = array_merge($rules, $customFieldRules);
+        }
+
         $validator = \Illuminate\Support\Facades\Validator::make($input, $rules);
         $fields = collect($input)->except($validator->errors()->keys())->all();
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
         $fields = RentalApplication::normalizeStillLiving($fields);
+
+        // Collection::except() only matches exact top-level keys, so a
+        // dotted error key like 'custom_field_values.pet_deposit' above
+        // never actually drops the individual bad entry — it would leave
+        // the whole custom_field_values array (including the invalid
+        // entry) passing through untouched. Pruned explicitly here, then
+        // merged the same never-replace way submit() does.
+        if (array_key_exists('custom_field_values', $fields)) {
+            $failedCustomKeys = collect($validator->errors()->keys())
+                ->filter(fn ($k) => str_starts_with($k, 'custom_field_values.'))
+                ->map(fn ($k) => substr($k, strlen('custom_field_values.')))
+                ->all();
+            $newValues = collect($fields['custom_field_values'] ?? [])
+                ->except($failedCustomKeys)
+                ->map(fn ($v) => $v === '' ? null : $v)
+                ->all();
+            $fields['custom_field_values'] = array_merge($application->custom_field_values ?? [], $newValues);
+        }
 
         $application->fill($fields);
         if ($application->status === 'sent') {
@@ -820,6 +855,19 @@ class RentalApplicationSigningController extends Controller
         // numeric field before validation, same as the agent-side fix.
         $request->merge(RentalApplication::sanitizeNumericInput($request->only(RentalApplication::NUMERIC_FIELDS)));
 
+        // Same RA-02 fix, custom number-type fields — sanitizeNumericInput()
+        // works on a flat array, so this runs against custom_field_values'
+        // own nested array, not the top-level request.
+        $customNumberKeys = RentalApplication::customNumberFieldKeysFor($application->agency_id);
+        if (! empty($customNumberKeys)) {
+            $request->merge([
+                'custom_field_values' => RentalApplication::sanitizeNumericInput(
+                    $request->input('custom_field_values', []),
+                    $customNumberKeys
+                ),
+            ]);
+        }
+
         // BUILD_STANDARD §2 — every field is optional at the STORAGE layer
         // (nullable passes on empty/absent) — that governs what the model
         // will store, not what the business accepts as a complete
@@ -846,6 +894,24 @@ class RentalApplicationSigningController extends Controller
         // string is stored as NULL, never coerced into breaking a date/decimal cast.
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
         $fields = RentalApplication::normalizeStillLiving($fields);
+
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
+        // MERGE into the existing custom_field_values, never replace it.
+        // $validated['custom_field_values'] only ever contains keys for
+        // custom fields that are currently ACTIVE (shown, not retired) —
+        // submissionValidationRules() only adds a rule for those, and
+        // Laravel's validate() drops any input key with no matching rule.
+        // A blind fill() would silently WIPE a retired field's already-
+        // captured answer on the next resubmit; merging keeps every OTHER
+        // key exactly as it was. A key that IS present (an active field,
+        // asked this round) still overwrites, blank included — an
+        // applicant clearing an answer they'd previously given must
+        // actually clear it, not have array_merge silently keep the old
+        // value alive underneath.
+        if (array_key_exists('custom_field_values', $fields)) {
+            $newValues = array_map(fn ($v) => $v === '' ? null : $v, $fields['custom_field_values'] ?? []);
+            $fields['custom_field_values'] = array_merge($application->custom_field_values ?? [], $newValues);
+        }
 
         // Standing rule — transactions roll back clean: the record save,
         // both signature captures, AND (reopen/resubmit, 2026-09-08) the

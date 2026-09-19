@@ -44,19 +44,19 @@ final class RentalApplicationCustomFieldTest extends TestCase
     {
         $key = RentalApplicationCustomField::generateKey($this->agency->id, 'Pet Deposit');
 
-        $this->assertSame('custom.pet_deposit', $key);
+        $this->assertSame('custom_pet_deposit', $key);
     }
 
     public function test_generate_key_dedupes_against_every_key_this_agency_has_ever_used_including_retired(): void
     {
         RentalApplicationCustomField::create([
-            'agency_id' => $this->agency->id, 'key' => 'custom.pet_deposit', 'label' => 'Pet Deposit',
+            'agency_id' => $this->agency->id, 'key' => 'custom_pet_deposit', 'label' => 'Pet Deposit',
             'field_type' => 'text', 'sort_order' => 0,
         ])->delete(); // retired
 
         $key = RentalApplicationCustomField::generateKey($this->agency->id, 'Pet Deposit');
 
-        $this->assertSame('custom.pet_deposit_2', $key);
+        $this->assertSame('custom_pet_deposit_2', $key);
     }
 
     // ── store() ──────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ final class RentalApplicationCustomFieldTest extends TestCase
         ])->assertSessionDoesntHaveErrors();
 
         $field = RentalApplicationCustomField::where('agency_id', $this->agency->id)->firstOrFail();
-        $this->assertSame('custom.pet_deposit', $field->key);
+        $this->assertSame('custom_pet_deposit', $field->key);
         $this->assertSame('Pet Deposit', $field->label);
         $this->assertTrue($field->shown, 'shown defaults true on creation');
         $this->assertFalse($field->required, 'required defaults false when unchecked');
@@ -114,7 +114,7 @@ final class RentalApplicationCustomFieldTest extends TestCase
     {
         $owner = $this->owner();
         RentalApplicationCustomField::create([
-            'agency_id' => $this->agency->id, 'key' => 'custom.pet_deposit', 'label' => 'Pet Deposit',
+            'agency_id' => $this->agency->id, 'key' => 'custom_pet_deposit', 'label' => 'Pet Deposit',
             'field_type' => 'text', 'sort_order' => 0,
         ]);
 
@@ -129,7 +129,7 @@ final class RentalApplicationCustomFieldTest extends TestCase
     {
         $owner = $this->owner();
         RentalApplicationCustomField::create([
-            'agency_id' => $this->agency->id, 'key' => 'custom.pet_deposit', 'label' => 'Pet Deposit',
+            'agency_id' => $this->agency->id, 'key' => 'custom_pet_deposit', 'label' => 'Pet Deposit',
             'field_type' => 'text', 'sort_order' => 0,
         ])->delete();
 
@@ -146,7 +146,7 @@ final class RentalApplicationCustomFieldTest extends TestCase
     {
         $owner = $this->owner();
         $field = RentalApplicationCustomField::create([
-            'agency_id' => $this->agency->id, 'key' => 'custom.pet_deposit', 'label' => 'Pet Deposit',
+            'agency_id' => $this->agency->id, 'key' => 'custom_pet_deposit', 'label' => 'Pet Deposit',
             'field_type' => 'text', 'shown' => true, 'sort_order' => 0,
         ]);
 
@@ -165,7 +165,7 @@ final class RentalApplicationCustomFieldTest extends TestCase
         $owner = $this->owner();
         $otherAgency = Agency::create(['name' => 'Other Agency', 'slug' => 'other-' . uniqid()]);
         $foreign = RentalApplicationCustomField::create([
-            'agency_id' => $otherAgency->id, 'key' => 'custom.not_yours', 'label' => 'Not Yours',
+            'agency_id' => $otherAgency->id, 'key' => 'custom_not_yours', 'label' => 'Not Yours',
             'field_type' => 'text', 'sort_order' => 0,
         ]);
 
@@ -183,7 +183,7 @@ final class RentalApplicationCustomFieldTest extends TestCase
         $owner = $this->owner();
         $contact = \App\Models\Contact::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Sipho', 'last_name' => 'Ndlovu']);
         $field = RentalApplicationCustomField::create([
-            'agency_id' => $this->agency->id, 'key' => 'custom.pet_deposit', 'label' => 'Pet Deposit',
+            'agency_id' => $this->agency->id, 'key' => 'custom_pet_deposit', 'label' => 'Pet Deposit',
             'field_type' => 'text', 'sort_order' => 0,
         ]);
         $application = \App\Models\RentalApplication::create([
@@ -203,7 +203,7 @@ final class RentalApplicationCustomFieldTest extends TestCase
     {
         $owner = $this->owner();
         $field = RentalApplicationCustomField::create([
-            'agency_id' => $this->agency->id, 'key' => 'custom.pet_deposit', 'label' => 'Pet Deposit',
+            'agency_id' => $this->agency->id, 'key' => 'custom_pet_deposit', 'label' => 'Pet Deposit',
             'field_type' => 'text', 'sort_order' => 0,
         ]);
         $field->delete();
@@ -219,8 +219,8 @@ final class RentalApplicationCustomFieldTest extends TestCase
     public function test_reorder_persists_the_new_sort_order(): void
     {
         $owner = $this->owner();
-        $a = RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom.a', 'label' => 'A', 'field_type' => 'text', 'sort_order' => 0]);
-        $b = RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom.b', 'label' => 'B', 'field_type' => 'text', 'sort_order' => 1]);
+        $a = RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom_a', 'label' => 'A', 'field_type' => 'text', 'sort_order' => 0]);
+        $b = RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom_b', 'label' => 'B', 'field_type' => 'text', 'sort_order' => 1]);
 
         $this->actingAs($owner)->post(route('corex.settings.rental-applications.custom-fields.reorder'), [
             'order' => [$b->id, $a->id],
@@ -234,9 +234,9 @@ final class RentalApplicationCustomFieldTest extends TestCase
 
     public function test_active_for_excludes_retired_and_hidden_fields(): void
     {
-        RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom.shown', 'label' => 'Shown', 'field_type' => 'text', 'shown' => true, 'sort_order' => 0]);
-        RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom.hidden', 'label' => 'Hidden', 'field_type' => 'text', 'shown' => false, 'sort_order' => 1]);
-        RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom.retired', 'label' => 'Retired', 'field_type' => 'text', 'shown' => true, 'sort_order' => 2])->delete();
+        RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom_shown', 'label' => 'Shown', 'field_type' => 'text', 'shown' => true, 'sort_order' => 0]);
+        RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom_hidden', 'label' => 'Hidden', 'field_type' => 'text', 'shown' => false, 'sort_order' => 1]);
+        RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom_retired', 'label' => 'Retired', 'field_type' => 'text', 'shown' => true, 'sort_order' => 2])->delete();
 
         $active = RentalApplicationCustomField::activeFor($this->agency->id);
 
@@ -245,7 +245,7 @@ final class RentalApplicationCustomFieldTest extends TestCase
 
     public function test_all_for_includes_retired_fields(): void
     {
-        RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom.retired', 'label' => 'Retired', 'field_type' => 'text', 'sort_order' => 0])->delete();
+        RentalApplicationCustomField::create(['agency_id' => $this->agency->id, 'key' => 'custom_retired', 'label' => 'Retired', 'field_type' => 'text', 'sort_order' => 0])->delete();
 
         $all = RentalApplicationCustomField::allFor($this->agency->id);
 
