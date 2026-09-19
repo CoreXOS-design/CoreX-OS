@@ -644,10 +644,25 @@ class RentalApplicationSigningController extends Controller
         // agency's own marital status option list (Ruling 1 — converts
         // marital_status from free text to a real select so the spouse
         // condition can actually fire).
-        $requiredFieldKeys = \App\Models\RentalApplicationQualifyingSetting::requiredFieldKeysFor($application->agency_id);
+        //
+        // .ai/specs/rental-application-field-config.md — reconciled against
+        // hidden_field_keys (effectiveRequiredFieldKeysFor()), not the raw
+        // requiredFieldKeysFor(): a field ticked BOTH compulsory and hidden
+        // must never render as required, since the applicant has no way to
+        // see or fill it in.
+        $requiredFieldKeys = \App\Models\RentalApplicationQualifyingSetting::effectiveRequiredFieldKeysFor($application->agency_id);
         $maritalStatusOptions = \App\Models\RentalApplicationQualifyingSetting::maritalStatusOptionsFor($application->agency_id);
 
-        return view('rental-applications.public.show', compact('application', 'autosaveDebounceSeconds', 'requiredFieldKeys', 'maritalStatusOptions'));
+        // .ai/specs/rental-application-field-config.md — the ONE resolver
+        // every consumer goes through (§6). This IS the editable form, even
+        // on a reopen/resubmit — always the LIVE config, never the stored
+        // snapshot (the snapshot is for read-only historical rendering of
+        // an already-submitted record; a form still being filled in, first
+        // time or again, reflects the agency's config as it stands right
+        // now, and gets a fresh snapshot at the moment it's (re)submitted).
+        $fieldConfig = RentalApplication::resolvedFieldConfigFor($application->agency_id);
+
+        return view('rental-applications.public.show', compact('application', 'autosaveDebounceSeconds', 'requiredFieldKeys', 'maritalStatusOptions', 'fieldConfig'));
     }
 
     /**
@@ -815,7 +830,14 @@ class RentalApplicationSigningController extends Controller
         // landlord/spouse) is only enforced when that group's trigger
         // condition is true for THIS submission — see
         // RentalApplication::submissionValidationRules().
-        $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::requiredFieldKeysFor($application->agency_id);
+        //
+        // .ai/specs/rental-application-field-config.md — reconciled against
+        // hidden_field_keys (effectiveRequiredFieldKeysFor()), not the raw
+        // requiredFieldKeysFor(): a field ticked BOTH compulsory and hidden
+        // would otherwise be an unsatisfiable validation rule — required by
+        // the server, invisible on the form, no way for the applicant to
+        // ever pass it.
+        $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::effectiveRequiredFieldKeysFor($application->agency_id);
         [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id);
         $validated = $request->validate($rules, [], $attributes);
 
@@ -855,6 +877,13 @@ class RentalApplicationSigningController extends Controller
             if ($isResubmit) {
                 $application->current_generation = $application->current_generation + 1;
             }
+            // .ai/specs/rental-application-field-config.md §3 — historical
+            // integrity. Frozen here, inside the same save/transaction, on
+            // every submit including a resubmit (a resubmit re-freezes
+            // against whatever the agency's config is NOW, matching how a
+            // reopened application already shows the applicant the LIVE
+            // form, not the stale one from their first attempt).
+            $application->snapshotFieldConfig();
             $application->save();
 
             $this->storeSignature($application, 'declaration', $validated['declaration_signature'] ?? null, $request);

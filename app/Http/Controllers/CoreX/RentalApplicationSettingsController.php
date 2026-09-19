@@ -99,6 +99,18 @@ class RentalApplicationSettingsController extends Controller
         $requiredFieldKeys = RentalApplicationQualifyingSetting::requiredFieldKeysFor($agencyId);
         $maritalStatusOptions = RentalApplicationQualifyingSetting::maritalStatusOptionsFor($agencyId);
 
+        // .ai/specs/rental-application-field-config.md — SHOWN/HIDDEN,
+        // label/help-text overrides, and within-section ordering. Same
+        // one-registry-drives-everything reasoning as $fieldRegistry above:
+        // this screen, the public form (RentalApplication::
+        // resolvedFieldConfigFor()), and the submitted-application snapshot
+        // all resolve from the identical four settings.
+        $hiddenFieldKeys = RentalApplicationQualifyingSetting::hiddenFieldKeysFor($agencyId);
+        $fieldLabelOverrides = RentalApplicationQualifyingSetting::fieldLabelOverridesFor($agencyId);
+        $fieldHelpTextOverrides = RentalApplicationQualifyingSetting::fieldHelpTextOverridesFor($agencyId);
+        $fieldOrder = RentalApplicationQualifyingSetting::fieldOrderFor($agencyId);
+        $fieldSections = RentalApplication::SUBMISSION_FIELD_SECTIONS;
+
         // Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
         // submission we can gate on ID." Which method, and the attempt
         // cap that must never become an oracle for guessing an ID.
@@ -212,7 +224,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'validityDefaults', 'validityOverrides'
         ));
     }
 
@@ -565,6 +577,82 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Compulsory fields saved.');
+    }
+
+    /**
+     * .ai/specs/rental-application-field-config.md — SHOWN/HIDDEN, label
+     * and help-text overrides, and within-section ordering. Extends the
+     * existing required_field_keys mechanism above; does not duplicate it.
+     *
+     * shown_field_keys[] follows updateRequiredFields()'s own pattern
+     * exactly — checkboxes default CHECKED (shown), only the checked ones
+     * are posted, and hidden_field_keys is derived as "every known key NOT
+     * posted as shown" rather than trusting a separate hidden list from
+     * the client. Posted keys are filtered against the registry's own
+     * known keys, same defensive pattern as updateRequiredFields().
+     *
+     * field_order is stored as a flat ordered array of KEYS (the shape
+     * RentalApplication::resolvedFieldConfigFor() already expects), built
+     * here from the per-field numeric "position" inputs the form actually
+     * submits — sorted ascending, blanks excluded (a field left blank
+     * keeps its registry-default position, per the resolver's own
+     * fallback). Ordering is agency-wide in storage but the resolver
+     * re-scopes it to each field's own section, so a cross-section
+     * ordering value here is harmless, not a validation case to guard.
+     */
+    public function updateFieldDisplayConfig(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('field_display_submitted')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['field_display' => 'That did not save — please try again.']);
+        }
+
+        $knownKeys = collect(RentalApplication::submissionFieldRegistry())->pluck('key')->all();
+
+        $shownSubmitted = $request->input('shown_field_keys', []);
+        $shownKeys = array_values(array_intersect($knownKeys, is_array($shownSubmitted) ? $shownSubmitted : []));
+        $hiddenKeys = array_values(array_diff($knownKeys, $shownKeys));
+
+        $labelOverrides = [];
+        foreach ((array) $request->input('field_labels', []) as $key => $label) {
+            $label = trim((string) $label);
+            if (in_array($key, $knownKeys, true) && $label !== '') {
+                $labelOverrides[$key] = $label;
+            }
+        }
+
+        $helpTextOverrides = [];
+        foreach ((array) $request->input('field_help_text', []) as $key => $text) {
+            $text = trim((string) $text);
+            if (in_array($key, $knownKeys, true) && $text !== '') {
+                $helpTextOverrides[$key] = $text;
+            }
+        }
+
+        $positions = [];
+        foreach ((array) $request->input('field_order', []) as $key => $position) {
+            if (! in_array($key, $knownKeys, true) || $position === '' || $position === null) {
+                continue;
+            }
+            $positions[$key] = (int) $position;
+        }
+        asort($positions);
+        $fieldOrder = array_keys($positions);
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            [
+                'hidden_field_keys' => $hiddenKeys,
+                'field_label_overrides' => $labelOverrides,
+                'field_help_text_overrides' => $helpTextOverrides,
+                'field_order' => $fieldOrder,
+            ],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Field display settings saved.');
     }
 
     /**
