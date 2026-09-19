@@ -316,8 +316,11 @@ function helpWidget() {
                     const fd = new FormData();
                     fd.append('_token', csrf);
                     fd.append('message', msg);
-                    fd.append('page_url', window.location.href);
-                    fd.append('page_title', document.title);
+                    // Tell Ellie where the agent is standing (ellie-v2 §6). The server
+                    // reads page_path — a full page_url was silently dropped, so "how
+                    // do I do this here?" had no page to refer to.
+                    fd.append('page_path', window.location.pathname.slice(0, 512));
+                    fd.append('page_title', (document.title || '').slice(0, 255));
                     if (cid) fd.append('conversation_id', String(parseInt(cid, 10)));
                     const r = await fetch('/ellie/send', {
                         method: 'POST',
