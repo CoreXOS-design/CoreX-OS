@@ -150,6 +150,232 @@ final class ImportedStockTest extends TestCase
         $res->assertSee('1 Aug 2026', false);
     }
 
+    // ── AT-422: a typed search on Properties also finds Imported Stock ───
+    //
+    // Spec amendment 2026-09-19. With NO search the partition above is unchanged
+    // (Properties hides Imported Stock); with a search term the Properties list
+    // looks across both and tags the imported rows, so nobody has to repeat a
+    // search on a second page.
+
+    private const IMPORTED_TAG = 'title="Imported from Property24"';
+
+    public function test_search_on_properties_also_finds_imported_off_market_stock_with_the_tag(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $this->property($agencyId, $admin, 'ZZZ-Withdrawn-Imported', [
+            'status' => 'withdrawn',
+            'p24_imported_at' => now(),
+        ]);
+
+        // No search: default unchanged — still hidden from Properties.
+        $this->get(route('corex.properties.index'))->assertOk()->assertDontSee('ZZZ-Withdrawn-Imported');
+
+        // Typed search: found, and tagged in BOTH the grid card and the table row.
+        $res = $this->get(route('corex.properties.index', ['search' => 'ZZZ-Withdrawn-Imported']))
+            ->assertOk()
+            ->assertSee('ZZZ-Withdrawn-Imported');
+        $this->assertSame(2, substr_count($res->getContent(), self::IMPORTED_TAG));
+    }
+
+    public function test_search_that_does_not_match_does_not_pull_in_imported_stock(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $this->property($agencyId, $admin, 'ZZZ-Withdrawn-Imported', [
+            'status' => 'withdrawn',
+            'p24_imported_at' => now(),
+        ]);
+
+        // Searching is not "show all imported" — only rows that actually match.
+        $this->get(route('corex.properties.index', ['search' => 'ZZZ-Nothing-Like-This']))
+            ->assertOk()
+            ->assertDontSee('ZZZ-Withdrawn-Imported');
+    }
+
+    public function test_search_finds_active_imported_stock_without_a_tag(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $this->property($agencyId, $admin, 'ZZZ-Active-Imported', [
+            'status' => 'for_sale',
+            'p24_imported_at' => now(),
+        ]);
+
+        // Active imported stock is ordinary Properties stock: found, never tagged.
+        $res = $this->get(route('corex.properties.index', ['search' => 'ZZZ-Active-Imported']))
+            ->assertOk()
+            ->assertSee('ZZZ-Active-Imported');
+        $this->assertSame(0, substr_count($res->getContent(), self::IMPORTED_TAG));
+    }
+
+    public function test_search_tags_only_the_imported_rows_among_mixed_results(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $this->property($agencyId, $admin, 'ZZZ-Mixed-Imported',  ['status' => 'sold',   'p24_imported_at' => now()]);
+        $this->property($agencyId, $admin, 'ZZZ-Mixed-Manual',    ['status' => 'sold',   'p24_imported_at' => null]);
+        $this->property($agencyId, $admin, 'ZZZ-Mixed-ActiveImp', ['status' => 'active', 'p24_imported_at' => now()]);
+
+        $res = $this->get(route('corex.properties.index', ['search' => 'ZZZ-Mixed']))
+            ->assertOk()
+            ->assertSee('ZZZ-Mixed-Imported')
+            ->assertSee('ZZZ-Mixed-Manual')
+            ->assertSee('ZZZ-Mixed-ActiveImp');
+
+        // One imported off-market row => the tag appears once per view (grid + table), no more.
+        $this->assertSame(2, substr_count($res->getContent(), self::IMPORTED_TAG));
+    }
+
+    public function test_search_finds_imported_stock_whatever_its_status_casing(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        // P24 imports land capitalised ("Withdrawn"), lowercase, and with a portal-only
+        // status like 'rented'/'let_out' — every one is imported off-market stock.
+        foreach (['Withdrawn', 'SOLD', 'expired', 'let_out', 'rented'] as $i => $status) {
+            $this->property($agencyId, $admin, "ZZZ-Casing-{$i}", ['status' => $status, 'p24_imported_at' => now()]);
+        }
+
+        $res = $this->get(route('corex.properties.index', ['search' => 'ZZZ-Casing']))->assertOk();
+        foreach (range(0, 4) as $i) {
+            $res->assertSee("ZZZ-Casing-{$i}");
+        }
+        $this->assertSame(10, substr_count($res->getContent(), self::IMPORTED_TAG));
+    }
+
+    public function test_search_result_for_reclassified_draft_or_prospecting_is_not_tagged_imported(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        // Reclassified out of the imported bucket (Andre, 2026-09-15): ordinary Properties
+        // rows, so the search must not brand them "Imported" either.
+        $this->property($agencyId, $admin, 'ZZZ-Reclass-Draft',       ['status' => 'draft',       'p24_imported_at' => now()]);
+        $this->property($agencyId, $admin, 'ZZZ-Reclass-Prospecting', ['status' => 'prospecting', 'p24_imported_at' => now()]);
+
+        $res = $this->get(route('corex.properties.index', ['search' => 'ZZZ-Reclass']))
+            ->assertOk()
+            ->assertSee('ZZZ-Reclass-Draft')
+            ->assertSee('ZZZ-Reclass-Prospecting');
+        $this->assertSame(0, substr_count($res->getContent(), self::IMPORTED_TAG));
+    }
+
+    public function test_search_keeps_honouring_the_agent_filter_for_imported_stock(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $agentA = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'agent']);
+        $agentB = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'agent']);
+        $this->actingAs($admin);
+
+        $this->property($agencyId, $agentA, 'ZZZ-Agent-Alpha-Imported', ['status' => 'withdrawn', 'p24_imported_at' => now()]);
+        $this->property($agencyId, $agentB, 'ZZZ-Agent-Bravo-Imported', ['status' => 'withdrawn', 'p24_imported_at' => now()]);
+
+        // Imported rows obey the picked agent exactly like every other row (2026-09-13 ruling)…
+        $this->get(route('corex.properties.index', ['agent_ids' => (string) $agentA->id, 'search' => 'ZZZ-Agent']))
+            ->assertOk()
+            ->assertSee('ZZZ-Agent-Alpha-Imported')
+            ->assertDontSee('ZZZ-Agent-Bravo-Imported');
+
+        // …and "All Agents" opens the whole agency.
+        $this->get(route('corex.properties.index', ['agent_ids' => 'all', 'search' => 'ZZZ-Agent']))
+            ->assertOk()
+            ->assertSee('ZZZ-Agent-Alpha-Imported')
+            ->assertSee('ZZZ-Agent-Bravo-Imported');
+    }
+
+    public function test_plain_agent_search_shows_a_colleagues_imported_listing_read_only_with_the_tag(): void
+    {
+        $agencyId = $this->makeAgency();
+        $me        = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'agent']);
+        $colleague = User::factory()->create(['agency_id' => $agencyId, 'branch_id' => $agencyId, 'role' => 'agent']);
+
+        $theirs = $this->property($agencyId, $colleague, 'ZZZ-Colleague-Imported', [
+            'status' => 'withdrawn',
+            'p24_imported_at' => now(),
+        ]);
+
+        // AT-394's read-only "Already listed" row must exist for imported stock too — it is
+        // the whole point of the widened search (don't re-capture what is already there) —
+        // and must say it is imported.
+        $res = $this->actingAs($me)
+            ->get(route('corex.properties.index', ['search' => 'ZZZ-Colleague-Imported']))
+            ->assertOk()
+            ->assertSee('ZZZ-Colleague-Imported')
+            ->assertSee('Already listed');
+
+        $rows = $res->viewData('properties')->getCollection()->keyBy('id');
+        $this->assertTrue((bool) $rows[$theirs->id]->owned_by_other, 'colleague listing must be read-only');
+        $this->assertSame(2, substr_count($res->getContent(), self::IMPORTED_TAG));
+    }
+
+    public function test_search_on_rentals_properties_also_finds_imported_rentals(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $this->property($agencyId, $admin, 'ZZZ-Rental-Imported', [
+            'status' => 'let_out',
+            'listing_type' => 'rental',
+            'p24_imported_at' => now(),
+        ]);
+
+        $this->get(route('corex.rentals.properties.index'))->assertOk()->assertDontSee('ZZZ-Rental-Imported');
+
+        $res = $this->get(route('corex.rentals.properties.index', ['search' => 'ZZZ-Rental-Imported']))
+            ->assertOk()
+            ->assertSee('ZZZ-Rental-Imported');
+        $this->assertSame(2, substr_count($res->getContent(), self::IMPORTED_TAG));
+    }
+
+    public function test_imported_stock_page_search_is_unchanged_and_tags_each_row_once_per_view(): void
+    {
+        [$agencyId, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $this->property($agencyId, $admin, 'ZZZ-Sold-Imported', ['status' => 'sold', 'p24_imported_at' => now()]);
+        $this->property($agencyId, $admin, 'ZZZ-Sold-Manual',   ['status' => 'sold', 'p24_imported_at' => null]);
+
+        // The Imported Stock page still lists only imported off-market rows, search or not.
+        $res = $this->get(route('corex.properties.imported-stock', ['search' => 'ZZZ-Sold']))
+            ->assertOk()
+            ->assertSee('ZZZ-Sold-Imported')
+            ->assertDontSee('ZZZ-Sold-Manual');
+        $this->assertSame(2, substr_count($res->getContent(), self::IMPORTED_TAG));
+    }
+
+    public function test_is_imported_stock_mirrors_the_imported_off_market_scope(): void
+    {
+        $cases = [
+            // status, p24_imported_at set?, expected
+            ['withdrawn',   true,  true],
+            ['Withdrawn',   true,  true],
+            ['SOLD',        true,  true],
+            ['let_out',     true,  true],
+            ['rented',      true,  true],
+            ['for_sale',    true,  false],  // active
+            ['active',      true,  false],
+            ['draft',       true,  false],  // reclassified out of the bucket
+            ['prospecting', true,  false],
+            ['not_selling', true,  false],
+            ['withdrawn',   false, false],  // never imported
+            ['',            true,  false],  // blank status must not throw or match
+        ];
+
+        foreach ($cases as [$status, $stamped, $expected]) {
+            $p = new Property();
+            $p->status = $status;
+            $p->p24_imported_at = $stamped ? now() : null;
+
+            $this->assertSame($expected, $p->isImportedStock(), "status='{$status}' stamped=" . ($stamped ? 'y' : 'n'));
+        }
+    }
+
     // ── Permission gate ──────────────────────────────────────────────────
 
     public function test_imported_stock_route_denied_without_its_own_permission(): void

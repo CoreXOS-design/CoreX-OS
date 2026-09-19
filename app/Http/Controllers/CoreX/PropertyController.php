@@ -158,9 +158,13 @@ class PropertyController extends Controller
         // AT-419 — the two pages partition every property between them: Imported
         // Stock gets P24-imported off-market rows, Properties gets everything
         // else (including active imported stock, unchanged).
+        // AT-422 — the one exception: a typed search on Properties looks across both,
+        // so a user hunting for a specific property doesn't have to repeat it on the
+        // Imported Stock page. Those rows carry the "Imported" tag in the view. No
+        // search term = the default partition above, unchanged.
         if ($importedStock) {
             $query->importedOffMarket();
-        } else {
+        } elseif ($search === '') {
             $query->excludingImportedOffMarket();
         }
 

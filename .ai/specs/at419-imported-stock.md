@@ -13,6 +13,21 @@
 > unavailable) is the actual set used by both AT-419 scopes — `OFF_MARKET_STATUSES` itself
 > is untouched. Found live on HFC's restored data: 3 drafts + 7 prospecting rows.
 
+> **Amendment, 2026-09-19 (AT-422):** users had to check two pages (Properties, then Imported
+> Stock) whenever they were looking for a specific property. **When a search term is typed on
+> the Properties page, results now also include Imported Stock** (imported + off-market, per
+> `Property::importedStockStatuses()`), each carrying the same "Imported" tag the Imported Stock
+> page uses. **With no search term, nothing changes** — Properties still hides Imported Stock by
+> default, and the Imported Stock page is untouched. Everything else about a search is as before:
+> the agent filter / "All Agents" choice, role breadth (own/branch/agency, incl. AT-394's read-only
+> "Already listed" rows), status/type/price filters and the header tiles all apply to the imported
+> rows exactly as they do to every other row. The same applies on Rentals → Properties (same
+> controller action). The tag is driven by the property itself (`Property::isImportedStock()` —
+> imported AND off-market), so an active imported listing still shows no tag anywhere. The tag
+> now also appears in the table (list) view, which previously had no tag on Imported Stock rows.
+> Files: `PropertyController::index()`, `Property::isImportedStock()`,
+> `resources/views/corex/properties/index.blade.php`, `tests/Feature/Properties/ImportedStockTest.php`.
+
 ## 1. What this feature does and why
 
 Today, when an admin confirms a P24 (Property24) CSV import via Admin → Importer, every

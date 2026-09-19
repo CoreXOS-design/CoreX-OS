@@ -834,6 +834,9 @@
         <div class="pcard-v2 relative overflow-hidden flex flex-col p-3.5" style="border:1px dashed color-mix(in srgb, var(--ds-amber) 45%, var(--border));">
             <div class="text-[1.125rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedPrice() }}</div>
             <div class="text-sm font-semibold leading-snug line-clamp-1" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</div>
+            @if($property->isImportedStock())
+            <span class="mt-2 text-[10px] font-semibold px-1.5 py-0.5 rounded inline-block w-fit whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+            @endif
             <div class="text-xs mt-2 px-2 py-1 rounded-md inline-block w-fit font-medium" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
                 Agent: {{ $property->agent?->name ?? 'Unassigned' }}
             </div>
@@ -871,7 +874,9 @@
                     @if($property->mandate_type)
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
                     @endif
-                    @if($importedStock ?? false)
+                    {{-- AT-422 — per property, not per page: a search on Properties also lists
+                         imported off-market stock, and it must be tagged there too. --}}
+                    @if($property->isImportedStock())
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Imported from Property24">Imported</span>
                     @endif
                 </div>
@@ -1077,6 +1082,9 @@
                             <div class="flex items-center gap-3 min-w-0">
                                 <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</span>
                                 <span class="text-xs font-semibold tabular-nums" style="color:var(--text-secondary);">{{ $property->formattedPrice() }}</span>
+                                @if($property->isImportedStock())
+                                <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+                                @endif
                                 <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
                                     Agent: {{ $property->agent?->name ?? 'Unassigned' }}
                                 </span>
@@ -1107,6 +1115,9 @@
                         <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="font-semibold text-sm transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
                             {{ Str::limit($property->title, 35) }}
                         </a>
+                        @if($property->isImportedStock())
+                        <span class="ml-1.5 align-middle text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+                        @endif
                         @if($property->p24_ref)
                         <div class="text-[10px] font-mono mt-0.5" style="color:{{ $rowIsOffMarket ? 'var(--text-muted)' : 'var(--brand-icon, #0ea5e9)' }};" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
                         @endif

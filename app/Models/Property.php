@@ -259,6 +259,19 @@ class Property extends Model
     }
 
     /**
+     * AT-422 — instance mirror of scopeImportedOffMarket(): true when this row is
+     * P24-imported stock that has gone off-market. Drives the "Imported" tag on the
+     * Properties list, where a typed search now surfaces these rows alongside
+     * everything else. Same single source of truth as the scope (importedStockStatuses(),
+     * case-insensitive) so the tag can never drift from what Imported Stock lists.
+     */
+    public function isImportedStock(): bool
+    {
+        return $this->p24_imported_at !== null
+            && in_array(strtolower((string) $this->status), self::importedStockStatuses(), true);
+    }
+
+    /**
      * Most recent of the four portal submit/activate timestamps we hold — the
      * "last advertised" signal for isStaleStock() below. Null when the property
      * has never been synced to either portal (e.g. hand-captured stock).
