@@ -1039,7 +1039,10 @@ Below 1024px the three regions stack and the page scrolls normally.
 >   stacked on the next entry or spill past the bottom of the grid (a 17:45 call widens the
 >   window to 19:00 rather than being cut off).
 > - An appointment **shorter than an hour** is a **one-line** card at the SAME font size:
->   `10:00  Call Shawn` (start time, then title; the long title ends in "…"). Hour-or-longer
+>   `10:00 – 10:15  Call Shawn` (time range, then title; the long title ends in "…"). On a card
+>   narrower than 210px (three entries sharing a row, or half a phone screen) the range would
+>   squeeze the title to nothing, so it shows the start time only (`10:00  Call Shawn`); the full
+>   range is always in the hover text (Johan, same day: "9:00 – 9:30 next to each other"). Hour-or-longer
 >   entries keep the two-line card (title, then time range · category). Hovering any card
 >   shows the full title, time range and category. The font is deliberately NOT shrunk.
 > - Checked in a real browser (Chromium) against the old layout: every short entry's text was

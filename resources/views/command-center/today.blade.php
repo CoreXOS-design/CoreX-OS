@@ -132,7 +132,7 @@
                                       :style="b.compact ? 'order: 2; flex: 1 1 0%; min-width: 0; line-height: 1.15;' : ''" x-text="b.title"></span>
                                 <span class="text-[0.6875rem] truncate" style="color: var(--text-muted);"
                                       :style="b.compact ? 'order: 1; flex: none; line-height: 1.15;' : ''">
-                                    <span class="font-mono tabular-nums" x-text="b.compact ? b.time : b.range"></span><span x-show="b.category && !b.compact" x-text="' · ' + b.category"></span>
+                                    <span class="font-mono tabular-nums" x-text="b.compact && b.narrow ? b.time : b.range"></span><span x-show="b.category && !b.compact" x-text="' · ' + b.category"></span>
                                 </span>
                             </a>
                         </template>
@@ -231,6 +231,10 @@ function commandCentre() {
     // little height for the two-line card, so it becomes one line: "10:30  Title".
     const MIN_BLOCK_MIN = 30;
     const COMPACT_UNDER_MIN = 60;
+    // A one-line card shows "09:15 – 09:30  Title"; on a card narrower than this (two or three
+    // entries sharing a row, or a phone) the range would squeeze the title to nothing, so it
+    // falls back to the start time only. The full range is always in the hover text.
+    const NARROW_BLOCK_PX = 210;
     const drawnEndMin = (item, startMin) => Math.max(itemEndMin(item, startMin), startMin + MIN_BLOCK_MIN);
 
     return {
@@ -244,9 +248,17 @@ function commandCentre() {
         _serverNowMin: {{ (int) now()->format('G') * 60 + (int) now()->format('i') }},
         _loadedAt: Date.now(),
         _tick: 0,
+        gridW: 0,   // measured width (px) of the hour grid — see NARROW_BLOCK_PX
 
         init() {
-            this.$nextTick(() => this.scrollToNow());
+            this.$nextTick(() => {
+                this.scrollToNow();
+                const g = this.$refs.grid;
+                if (g && window.ResizeObserver) {
+                    this.gridW = g.clientWidth;
+                    new ResizeObserver(() => { this.gridW = g.clientWidth; }).observe(g);
+                }
+            });
         },
 
         // ── Schedule ──────────────────────────────────────────────────────
@@ -303,6 +315,8 @@ function commandCentre() {
                 top:    ((it.s - start) / total) * 100,
                 height: ((it.v - it.s) / total) * 100,
                 compact: (it.e - it.s) < COMPACT_UNDER_MIN,
+                // Pixel width of this card = its lane share of the grid, minus the 3.25rem hour-label gutter.
+                narrow:  this.gridW > 0 && ((this.gridW - 52) * (1 / lanesOf[idx]) - 4) < NARROW_BLOCK_PX,
                 left:   (laneOf[idx] / lanesOf[idx]) * 100,
                 width:  (1 / lanesOf[idx]) * 100,
                 range:  it.time + (it.end_time ? ' – ' + it.end_time : ''),
