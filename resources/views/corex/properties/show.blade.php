@@ -4419,17 +4419,19 @@
                     delete: '{{ route('corex.properties.rental-images.delete', $property) }}',
                     deleteBulk: '{{ route('corex.properties.rental-images.delete-bulk', $property) }}'
                 },
-                data: {{ Js::from($property->rentalImagesStructure()) }}
+                data: {{ Js::from($property->rentalImagesStructure()) }},
+                inspectionUrls: {
+                    itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
+                    startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
+                    // Base for the inspection-scoped actions below — each one appends
+                    // /{id}/... itself, since which inspection is "current" changes at
+                    // runtime (a new one can be started without a page reload).
+                    inspectionsBase: '{{ url('/corex/rental-inspections') }}'
+                },
+                inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }}
              })">
 
-            <div class="flex items-start justify-between gap-4">
-                <p class="text-xs" style="color:var(--text-muted);max-width:42rem;">
-                    Inspection evidence for this rental. Each section is collapsed until you open it,
-                    carries its own date, and holds its own set of photos. Add as many extra sections
-                    as you need for handovers, snags or damage.
-                </p>
-                <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
-            </div>
+            <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
 
             {{-- Delete ALL rental images — destructive; behind a type-to-confirm modal.
                  AT-267 — same assistant gate as the per-image delete in
@@ -4476,39 +4478,73 @@
                 </div>
             </div>
 
-            {{-- In Inspection --}}
+            {{-- Inspection items — §0.6, the agent adds spaces/meters per property;
+                 never the advertised marketing room list above. --}}
+            <div class="prop-section">
+                <button type="button" class="prop-section-toggle" @click="toggle('items')">
+                    <h3 class="prop-section-heading">
+                        <span class="prop-section-heading-text">Inspection Items</span>
+                        <span class="ml-2 text-xs" style="color:var(--text-muted);" x-text="'(' + activeItems().length + ')'"></span>
+                    </h3>
+                    <svg class="prop-section-chevron" :class="open['items'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                </button>
+                <div x-show="open['items']" x-collapse class="prop-section-body space-y-3">
+                    <div x-show="itemError" x-cloak class="text-xs" style="color:#ef4444;" x-text="itemError"></div>
+
+                    <template x-for="item in activeItems()" :key="item.id">
+                        <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
+                            <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                            <div class="flex items-center gap-3">
+                                <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
+                                <button type="button" :disabled="itemBusy" @click="retireItem(item)"
+                                        class="text-xs font-semibold" style="color:var(--ds-crimson);">Retire</button>
+                            </div>
+                        </div>
+                    </template>
+
+                    <form @submit.prevent="addItem()" class="flex items-end gap-2 pt-2">
+                        <select x-model="newItem.kind" class="prop-input" style="max-width:8rem;">
+                            <option value="space">Space</option>
+                            <option value="meter">Meter</option>
+                        </select>
+                        <input type="text" x-model="newItem.label" placeholder="e.g. Bedroom 2, Water meter" maxlength="191"
+                               class="prop-input flex-1" @keydown.enter.prevent="addItem()">
+                        <button type="submit" :disabled="itemBusy || !newItem.label.trim()"
+                                class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">
+                            Add
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            {{-- In Inspection — rebuilt per rental-inspections.md §4/§14: item-based
+                 recording, not a flat photo gallery. --}}
                 <div class="prop-section">
                     <button type="button" class="prop-section-toggle" @click="toggle('in_inspection')">
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text">In Inspection</span>
-                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="'(' + data.in_inspection.images.length + ')'"></span>
+                            <span x-show="currentInspection('in')" class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="currentInspection('in')?.status.replace('_',' ')"></span>
                         </h3>
                         <svg class="prop-section-chevron" :class="open['in_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
-                    <div x-show="open['in_inspection']" x-collapse class="prop-section-body space-y-4">
-                        @include('corex.properties.partials.rental-section-body', [
-                            'section' => "'in_inspection'", 'cid' => 'null', 'key' => "'in_inspection'",
-                            'images' => 'data.in_inspection.images', 'date' => 'data.in_inspection.date',
-                        ])
+                    <div x-show="open['in_inspection']" x-collapse class="prop-section-body">
+                        @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in'])
                     </div>
                 </div>
 
-            {{-- Out Inspection --}}
+            {{-- Out Inspection — rebuilt per rental-inspections.md §4/§14. --}}
                 <div class="prop-section">
                     <button type="button" class="prop-section-toggle" @click="toggle('out_inspection')">
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text">Out Inspection</span>
-                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="'(' + data.out_inspection.images.length + ')'"></span>
+                            <span x-show="currentInspection('out')" class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="currentInspection('out')?.status.replace('_',' ')"></span>
                         </h3>
                         <svg class="prop-section-chevron" :class="open['out_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
-                    <div x-show="open['out_inspection']" x-collapse class="prop-section-body space-y-4">
-                        @include('corex.properties.partials.rental-section-body', [
-                            'section' => "'out_inspection'", 'cid' => 'null', 'key' => "'out_inspection'",
-                            'images' => 'data.out_inspection.images', 'date' => 'data.out_inspection.date',
-                        ])
+                    <div x-show="open['out_inspection']" x-collapse class="prop-section-body">
+                        @include('corex.properties.partials.rental-inspection-recording', ['section' => 'out'])
                     </div>
                 </div>
 
@@ -4609,6 +4645,12 @@
             </div>
         </div>
 
+        {{-- Same lightweight canvas-capture library already proven for compliance
+             sign-off (resources/views/compliance/policy-ack/sign.blade.php) — not a
+             second signature pipeline. Scoped inside this rental-only block so
+             non-rental property pages never load it. --}}
+        <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
+
         <script>
         function rentalImages(config) {
             return {
@@ -4624,6 +4666,223 @@
                 viewer: { open: false, images: [], index: 0 },
                 selecting: {},
                 sel: {},
+
+                // ── Inspection items (§14.1/§14.2 — same endpoints a mobile
+                // client calls; this is a thin caller, not a second
+                // implementation) ──────────────────────────────────────────
+                inspectionUrls: config.inspectionUrls,
+                items: config.inspectionData.items,
+                inInspection: config.inspectionData.in_inspection,
+                outInspection: config.inspectionData.out_inspection,
+                itemError: '',
+                itemBusy: false,
+                newItem: { kind: 'space', label: '' },
+
+                activeItems() { return this.items.filter(i => !i.is_retired); },
+
+                async addItem() {
+                    const label = this.newItem.label.trim();
+                    if (!label) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const item = await this._post(this.inspectionUrls.itemStore, {
+                            kind: this.newItem.kind, label,
+                        });
+                        this.items.push(item);
+                        this.newItem.label = '';
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                async retireItem(item) {
+                    if (!window.confirm(`Retire "${item.label}"? It stops appearing for new observations — its history stays exactly as it is.`)) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        await this._post(`${this.inspectionUrls.itemStore}/${item.id}/retire`, {});
+                        item.is_retired = true;
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // ── In/out inspections — recording (§14.1/§14.2, same endpoints a
+                // mobile client calls) ──────────────────────────────────────────
+                currentInspection(section) { return section === 'in' ? this.inInspection : this.outInspection; },
+                hasUnresolvedDiscrepancy(section) {
+                    const insp = this.currentInspection(section);
+                    return !!insp && (insp.discrepancies || []).some(d => !d.resolved_at);
+                },
+
+                startBusy: {},
+                startError: {},
+
+                async startInspection(section) {
+                    this.startBusy[section] = true;
+                    this.startError[section] = '';
+                    try {
+                        const inspection = await this._post(this.inspectionUrls.startInspection, { type: section });
+                        inspection.observations = [];
+                        inspection.discrepancies = [];
+                        inspection.signatures = [];
+                        if (section === 'in') this.inInspection = inspection; else this.outInspection = inspection;
+                    } catch (e) { this.startError[section] = e.message; }
+                    finally { this.startBusy[section] = false; }
+                },
+
+                // Latest observation recorded for this item WITHIN this inspection —
+                // null means nothing recorded yet on this event.
+                conditionFor(section, itemId) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return null;
+                    const mine = insp.observations.filter(o => o.rental_inspection_item_id === itemId);
+                    if (!mine.length) return null;
+                    return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+                },
+
+                obsForm: {},
+                obsBusy: {},
+                obsError: {},
+                _obsKey(section, itemId) { return section + '_' + itemId; },
+                obsField(section, itemId) {
+                    const key = this._obsKey(section, itemId);
+                    return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '', photo: null });
+                },
+
+                async recordObservation(section, item) {
+                    const key = this._obsKey(section, item.id);
+                    const form = this.obsField(section, item.id);
+                    if (!form.condition) return;
+                    if (form.condition !== 'good' && !form.notes.trim()) {
+                        this.obsError[key] = 'Notes are required when the condition isn\'t "good".';
+                        return;
+                    }
+                    const insp = this.currentInspection(section);
+                    this.obsBusy[key] = true;
+                    this.obsError[key] = '';
+                    try {
+                        const observation = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/observations`, {
+                            rental_inspection_item_id: item.id,
+                            condition: form.condition,
+                            notes: form.notes || null,
+                            source: section === 'in' ? 'in_inspection' : 'out_inspection',
+                        });
+                        const photoFile = form.photo;
+                        this.obsForm[key] = { condition: '', notes: '', photo: null };
+                        if (photoFile) {
+                            observation.photos = [await this._uploadObservationPhoto(insp.id, observation.id, photoFile)];
+                        } else {
+                            observation.photos = [];
+                        }
+                        insp.observations.push(observation);
+                    } catch (e) { this.obsError[key] = e.message; }
+                    finally { this.obsBusy[key] = false; }
+                },
+
+                _uploadObservationPhoto(inspectionId, observationId, file) {
+                    return new Promise((resolve, reject) => {
+                        const fd = new FormData();
+                        fd.append('photo', file);
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', `${this.inspectionUrls.inspectionsBase}/${inspectionId}/observations/${observationId}/photos`);
+                        xhr.setRequestHeader('X-CSRF-TOKEN', this.csrf);
+                        xhr.setRequestHeader('Accept', 'application/json');
+                        xhr.onload = () => {
+                            if (xhr.status >= 200 && xhr.status < 400) {
+                                try { resolve(JSON.parse(xhr.responseText || '{}')); }
+                                catch (_) { resolve({}); }
+                            } else {
+                                let msg = 'Photo upload failed (HTTP ' + xhr.status + '). The observation itself was saved — retry just the photo.';
+                                try { const j = JSON.parse(xhr.responseText); if (j && j.message) msg = j.message; } catch (_) {}
+                                reject(new Error(msg));
+                            }
+                        };
+                        xhr.onerror = () => reject(new Error('Network error uploading the photo. The observation itself was saved — retry just the photo.'));
+                        xhr.send(fd);
+                    });
+                },
+
+                // ── Discrepancies, signatures, lifecycle (§0.4/§0.7/§11) ────────
+                lifecycleError: '',
+                discForm: {},
+                discBusy: {},
+                discField(discrepancyId) {
+                    return this.discForm[discrepancyId] || (this.discForm[discrepancyId] = { accepted_observation_id: null, resolution_note: '' });
+                },
+
+                async resolveDiscrepancy(section, discrepancy) {
+                    const form = this.discField(discrepancy.id);
+                    if (!form.accepted_observation_id) return;
+                    const insp = this.currentInspection(section);
+                    this.discBusy[discrepancy.id] = true;
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/discrepancies/${discrepancy.id}/resolve`, {
+                            accepted_observation_id: form.accepted_observation_id,
+                            resolution_note: form.resolution_note || null,
+                        });
+                        Object.assign(discrepancy, updated);
+                    } catch (e) { this.lifecycleError = e.message; }
+                    finally { this.discBusy[discrepancy.id] = false; }
+                },
+
+                async completeInspection(section) {
+                    const insp = this.currentInspection(section);
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/complete`, {});
+                        Object.assign(insp, updated);
+                    } catch (e) { this.lifecycleError = e.message; }
+                },
+
+                async startAwaitingSignature() {
+                    const insp = this.outInspection;
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/start-awaiting-signature`, {});
+                        Object.assign(insp, updated);
+                    } catch (e) { this.lifecycleError = e.message; }
+                },
+
+                signaturePad: null,
+                signingOnBehalf: false,
+                refusedNote: '',
+
+                initSignaturePad() {
+                    const canvas = this.$refs.sigCanvas;
+                    if (!canvas || typeof SignaturePad === 'undefined') return;
+                    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+                    canvas.width = canvas.offsetWidth * ratio;
+                    canvas.height = 180 * ratio;
+                    canvas.getContext('2d').scale(ratio, ratio);
+                    this.signaturePad = new SignaturePad(canvas, { backgroundColor: '#fff' });
+                },
+                clearSignature() { this.signaturePad && this.signaturePad.clear(); },
+
+                async saveTenantSignature() {
+                    if (!this.signaturePad || this.signaturePad.isEmpty()) {
+                        this.lifecycleError = 'Draw a signature first.';
+                        return;
+                    }
+                    await this._saveSignature('tenant', this.signaturePad.toDataURL('image/png'), null);
+                },
+
+                async saveAgentOnBehalfSignature() {
+                    await this._saveSignature('agent_on_behalf', null, this.refusedNote);
+                },
+
+                async _saveSignature(signerRole, signatureImage, refusedNote) {
+                    const insp = this.outInspection;
+                    this.lifecycleError = '';
+                    try {
+                        const signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, {
+                            signer_role: signerRole, signature_image: signatureImage, refused_note: refusedNote,
+                        });
+                        insp.signatures.push(signature);
+                        this.signingOnBehalf = false;
+                        this.refusedNote = '';
+                    } catch (e) { this.lifecycleError = e.message; }
+                },
 
                 toggle(key) { this.open[key] = !this.open[key]; },
 
