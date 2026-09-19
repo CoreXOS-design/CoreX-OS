@@ -12468,6 +12468,10 @@ CREATE TABLE `rental_application_qualifying_settings` (
   `return_gate_attempt_window_minutes` smallint unsigned DEFAULT NULL,
   `required_field_keys` json DEFAULT NULL,
   `marital_status_options` json DEFAULT NULL,
+  `hidden_field_keys` json DEFAULT NULL,
+  `field_label_overrides` json DEFAULT NULL,
+  `field_help_text_overrides` json DEFAULT NULL,
+  `field_order` json DEFAULT NULL,
   `identity_gate_enabled` tinyint(1) DEFAULT NULL,
   `identity_gate_otp_length` tinyint unsigned DEFAULT NULL,
   `identity_gate_otp_expiry_minutes` int unsigned DEFAULT NULL,
@@ -12543,6 +12547,7 @@ CREATE TABLE `rental_applications` (
   `reopened_note` text COLLATE utf8mb4_unicode_ci,
   `approved_rental_amount` decimal(12,2) DEFAULT NULL,
   `approved_subject_to_fica_at` timestamp NULL DEFAULT NULL,
+  `field_config_snapshot` json DEFAULT NULL,
   `applicant_notified_at` timestamp NULL DEFAULT NULL,
   `decline_reason_template_id` bigint unsigned DEFAULT NULL,
   `decline_email_subject` text COLLATE utf8mb4_unicode_ci,
@@ -16953,3 +16958,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1369,'2026_09_17_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1370,'2026_09_15_100000_add_p24_imported_at_to_properties_table',323);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1371,'2026_09_17_000000_add_deleted_at_to_rental_application_document_validity_windows',323);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1372,'2026_09_17_000100_backfill_contact_matches_agent_id',323);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1373,'2026_09_19_090000_add_field_display_config_to_rental_application_qualifying_settings',324);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1374,'2026_09_19_090100_add_field_config_snapshot_to_rental_applications',324);

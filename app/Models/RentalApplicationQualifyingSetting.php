@@ -328,6 +328,7 @@ class RentalApplicationQualifyingSetting extends Model
         'identity_gate_enabled', 'identity_gate_otp_length', 'identity_gate_otp_expiry_minutes',
         'identity_gate_attempt_max', 'identity_gate_attempt_window_minutes', 'identity_gate_resend_cooldown_seconds',
         'required_field_keys', 'marital_status_options',
+        'hidden_field_keys', 'field_label_overrides', 'field_help_text_overrides', 'field_order',
     ];
 
     protected $casts = [
@@ -362,6 +363,10 @@ class RentalApplicationQualifyingSetting extends Model
         'identity_gate_resend_cooldown_seconds' => 'integer',
         'required_field_keys' => 'array',
         'marital_status_options' => 'array',
+        'hidden_field_keys' => 'array',
+        'field_label_overrides' => 'array',
+        'field_help_text_overrides' => 'array',
+        'field_order' => 'array',
     ];
 
     public static function maxRentPercentFor(?int $agencyId): float
@@ -716,6 +721,82 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->required_field_keys !== null
             ? $row->required_field_keys
             : self::DEFAULT_REQUIRED_FIELD_KEYS;
+    }
+
+    /**
+     * .ai/specs/rental-application-field-config.md — extends
+     * required_field_keys's own contract exactly (nullable, never
+     * force-populated, an explicit empty array is a real choice). NULL/no
+     * row = nothing hidden, every shipped field shows.
+     */
+    public static function hiddenFieldKeysFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->hidden_field_keys !== null ? $row->hidden_field_keys : [];
+    }
+
+    /**
+     * .ai/specs/rental-application-field-config.md — required_field_keys
+     * and hidden_field_keys are two independent agency choices; nothing
+     * stops an agency ticking a field BOTH compulsory and hidden. Neither
+     * requiredFieldKeysFor() nor hiddenFieldKeysFor() alone can answer
+     * "what must this applicant actually fill in" — a raw required list
+     * that still names a hidden field is an unsatisfiable server-side
+     * validation rule for a field the applicant has no way to see or
+     * complete. Every consumer that turns "required" into an enforced
+     * rule (submit()'s validation, show()'s `required` attribute) goes
+     * through this, never requiredFieldKeysFor() directly.
+     */
+    public static function effectiveRequiredFieldKeysFor(?int $agencyId): array
+    {
+        return array_values(array_diff(
+            self::requiredFieldKeysFor($agencyId),
+            self::hiddenFieldKeysFor($agencyId)
+        ));
+    }
+
+    public static function fieldLabelOverridesFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->field_label_overrides !== null ? $row->field_label_overrides : [];
+    }
+
+    public static function fieldHelpTextOverridesFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->field_help_text_overrides !== null ? $row->field_help_text_overrides : [];
+    }
+
+    /**
+     * WITHIN-SECTION order only (see the migration's own docblock for why
+     * cross-section reordering isn't attempted here) — a partial ordering
+     * (some keys named, others not) puts named keys first in the given
+     * order, then every unnamed key in its shipped registry order.
+     */
+    public static function fieldOrderFor(?int $agencyId): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->field_order !== null ? $row->field_order : [];
     }
 
     public static function maritalStatusOptionsFor(?int $agencyId): array
