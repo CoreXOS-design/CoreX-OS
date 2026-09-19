@@ -245,7 +245,7 @@
                                 <button class="corex-btn-outline text-xs px-3 py-1.5">Archive</button>
                             </form>
                         @endif
-                        <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline ml-auto" onsubmit="return confirm('Permanently delete this template? This cannot be undone.');">
+                        <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline ml-auto" onsubmit="return confirm('Delete this template? It will be removed from your lists. Nothing is erased — CoreX keeps it and support can recover it.');">
                             @csrf
                             @method('DELETE')
                             <button class="text-xs font-semibold transition-all duration-300 hover:opacity-80" style="color: var(--ds-crimson);">Delete</button>
@@ -332,7 +332,7 @@
                                                 <button class="corex-btn-outline text-xs px-2 py-1">Copy</button>
                                             </form>
                                         @endif
-                                        <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline" onsubmit="return confirm('Permanently delete?');">
+                                        <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline" onsubmit="return confirm('Delete this template? It will be removed from your lists. Nothing is erased — CoreX keeps it and support can recover it.');">
                                             @csrf
                                             @method('DELETE')
                                             <button class="text-xs font-semibold px-2 py-1 transition-colors hover:opacity-80" style="color: var(--ds-crimson);">Delete</button>
