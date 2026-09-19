@@ -5,7 +5,7 @@
     <div class="flex items-center justify-between" data-tour="cc-notifications-header">
         <h1 class="text-xl font-bold" style="color:var(--text-primary);">Notifications</h1>
         <div class="flex items-center gap-2">
-            @include('layouts.partials.tour-header-launcher')
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if($notifications->count() > 0)
             <form method="POST" action="{{ route('command-center.notifications.mark-all-read') }}">
                 @csrf
