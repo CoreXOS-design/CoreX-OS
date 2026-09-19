@@ -680,7 +680,7 @@ class RentalApplication extends Model
      * names so a failure reads "The Full name field is required." not "The
      * full_name field is required."
      */
-    public static function submissionValidationRules(array $requiredKeys, array $data, ?int $agencyId): array
+    public static function submissionValidationRules(array $requiredKeys, array $data, ?int $agencyId, ?int $applicationId = null): array
     {
         $rules = self::fieldValidationRules();
         $attributes = [];
@@ -745,7 +745,7 @@ class RentalApplication extends Model
             foreach (\App\Models\RentalApplicationCustomField::activeFor($agencyId) as $customField) {
                 $fieldKey = 'custom_field_values.' . $customField->key;
                 $attributes[$fieldKey] = $customField->label;
-                $rules[$fieldKey] = self::customFieldValidationRule($customField);
+                $rules[$fieldKey] = self::customFieldValidationRule($customField, applicationId: $applicationId);
             }
         }
 
@@ -758,8 +758,19 @@ class RentalApplication extends Model
      * $forceNullable — autosave() never enforces `required` (a partial,
      * still-in-progress draft must always be saveable), same posture as
      * every shipped field on that same route; true there, false at submit().
+     *
+     * §7, piece (c)(4) — TYPE_FILE never accepts free-typed input at all:
+     * a file custom field's ONLY legitimate value is a Document id placed
+     * there by uploadCustomFieldDocument()/replaceCustomFieldDocument()
+     * (the main form never renders an editable input for it — see
+     * show.blade.php's own file-type branch). $applicationId scopes the
+     * check so a hand-crafted submission can't borrow an unrelated
+     * document id and have it accepted as "the file for this question" —
+     * same "never trust blindly" reasoning as every other cross-tenant
+     * scoping fix already made in this module (property_id resolution in
+     * RentalApplicationController::update(), the exact same bug class).
      */
-    public static function customFieldValidationRule(\App\Models\RentalApplicationCustomField $customField, bool $forceNullable = false): array
+    public static function customFieldValidationRule(\App\Models\RentalApplicationCustomField $customField, bool $forceNullable = false, ?int $applicationId = null): array
     {
         $requiredOrNullable = ($customField->required && ! $forceNullable) ? 'required' : 'nullable';
 
@@ -768,17 +779,30 @@ class RentalApplication extends Model
             \App\Models\RentalApplicationCustomField::TYPE_DATE => [$requiredOrNullable, 'date'],
             \App\Models\RentalApplicationCustomField::TYPE_YES_NO => [$requiredOrNullable, 'boolean'],
             \App\Models\RentalApplicationCustomField::TYPE_CHOICE_LIST => [$requiredOrNullable, 'string', \Illuminate\Validation\Rule::in($customField->options ?? [])],
+            \App\Models\RentalApplicationCustomField::TYPE_FILE => [$requiredOrNullable, function (string $attribute, $value, \Closure $fail) use ($customField, $applicationId) {
+                if ($value === null || $value === '') {
+                    return;
+                }
+                $exists = $applicationId !== null && \App\Models\Document::where('id', $value)
+                    ->where('source_type', 'rental_application')
+                    ->where('source_id', $applicationId)
+                    ->where('custom_field_key', $customField->key)
+                    ->exists();
+                if (! $exists) {
+                    $fail('Please upload a file for this question.');
+                }
+            }],
             default => [$requiredOrNullable, 'string', 'max:2000'],
         };
     }
 
     /** Nullable-only custom-field rules for autosave() — same field shapes, never a required gate. */
-    public static function customFieldAutosaveRulesFor(?int $agencyId): array
+    public static function customFieldAutosaveRulesFor(?int $agencyId, ?int $applicationId = null): array
     {
         $rules = [];
         if ($agencyId !== null && $agencyId > 0) {
             foreach (\App\Models\RentalApplicationCustomField::activeFor($agencyId) as $customField) {
-                $rules['custom_field_values.' . $customField->key] = self::customFieldValidationRule($customField, forceNullable: true);
+                $rules['custom_field_values.' . $customField->key] = self::customFieldValidationRule($customField, forceNullable: true, applicationId: $applicationId);
             }
         }
 

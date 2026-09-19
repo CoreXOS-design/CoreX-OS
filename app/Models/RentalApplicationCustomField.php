@@ -38,16 +38,17 @@ class RentalApplicationCustomField extends Model
     public const TYPE_DATE = 'date';
     public const TYPE_YES_NO = 'yes_no';
     public const TYPE_CHOICE_LIST = 'choice_list';
+    public const TYPE_FILE = 'file';
 
     /**
-     * File upload is deliberately NOT here yet — Johan, 2026-09-20: "file
-     * upload last, reusing the existing document pipeline... if it starts
-     * sprawling, stop and tell me." A plain string column (not a MySQL
-     * enum — see the create migration's own docblock) means adding it
-     * later never needs a schema migration just to widen an enum.
+     * §7, piece (c)(4) — file upload landed last, as its own piece, per
+     * Johan's own ordering. A plain string column (not a MySQL enum — see
+     * the create migration's own docblock) meant adding this type here
+     * needed no schema migration to widen an enum — exactly the reason
+     * it was built this way from piece (c)(1).
      */
     public const FIELD_TYPES = [
-        self::TYPE_TEXT, self::TYPE_NUMBER, self::TYPE_DATE, self::TYPE_YES_NO, self::TYPE_CHOICE_LIST,
+        self::TYPE_TEXT, self::TYPE_NUMBER, self::TYPE_DATE, self::TYPE_YES_NO, self::TYPE_CHOICE_LIST, self::TYPE_FILE,
     ];
 
     protected $fillable = [

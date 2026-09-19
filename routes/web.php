@@ -3034,6 +3034,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalApplication}/documents/{document}', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'downloadDocument'])->name('corex.rental-applications.documents.download');
         Route::post('/{rentalApplication}/documents', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'uploadDocument'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.documents.upload');
+        // .ai/specs/rental-application-field-config.md §7, piece (c)(4) —
+        // a custom field's own single-slot file, agent side. Upload only,
+        // matching this screen's existing document ceiling (no
+        // replace/remove for ANY document here yet).
+        Route::post('/{rentalApplication}/custom-fields/{customFieldKey}/upload', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'uploadCustomFieldDocument'])
+            ->where('customFieldKey', '[a-z0-9_]+')->middleware('permission:rental_applications.create')->name('corex.rental-applications.custom-fields.upload');
         // AT-392 "pull from contact" — attach a document already on file
         // against this application's contact, without the applicant
         // re-sending it. Same permission as a fresh upload.
@@ -5228,6 +5234,18 @@ Route::prefix('rental-application')->group(function () {
     Route::get('/{token}/documents/{document}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'viewDocument'])->middleware('throttle:rental-application-document-view')->name('rental-applications.public.documents.view');
     Route::post('/{token}/documents/{document}/remove', [\App\Http\Controllers\RentalApplicationSigningController::class, 'removeDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.remove');
     Route::post('/{token}/documents/{document}/replace', [\App\Http\Controllers\RentalApplicationSigningController::class, 'replaceDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.replace');
+    // .ai/specs/rental-application-field-config.md §7, piece (c)(4) — a
+    // custom field's own single-slot file, distinct from the generic
+    // list above (see RentalApplicationSigningController's own comment on
+    // why these are separate methods, not branches of the generic ones).
+    // Same rate limiter — same "managing documents on this application"
+    // action class.
+    Route::post('/{token}/custom-fields/{customFieldKey}/upload', [\App\Http\Controllers\RentalApplicationSigningController::class, 'uploadCustomFieldDocument'])
+        ->where('customFieldKey', '[a-z0-9_]+')->middleware('throttle:rental-application-documents')->name('rental-applications.public.custom-fields.upload');
+    Route::post('/{token}/custom-fields/{customFieldKey}/replace', [\App\Http\Controllers\RentalApplicationSigningController::class, 'replaceCustomFieldDocument'])
+        ->where('customFieldKey', '[a-z0-9_]+')->middleware('throttle:rental-application-documents')->name('rental-applications.public.custom-fields.replace');
+    Route::post('/{token}/custom-fields/{customFieldKey}/remove', [\App\Http\Controllers\RentalApplicationSigningController::class, 'removeCustomFieldDocument'])
+        ->where('customFieldKey', '[a-z0-9_]+')->middleware('throttle:rental-application-documents')->name('rental-applications.public.custom-fields.remove');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====
