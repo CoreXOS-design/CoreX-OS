@@ -3163,6 +3163,43 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.approval.store');
         Route::post('/{rentalFaultReport}/outcome', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'setOutcome'])
             ->middleware('permission:rental_fault_reports.resolve')->name('corex.rental-fault-reports.outcome.store');
+
+        // Stage 4 (§3a.1/§0c) — the agency_appoints route: raising a real
+        // work order from an already-approved fault report.
+        Route::post('/{rentalFaultReport}/raise-work-order', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'raiseWorkOrder'])
+            ->middleware('permission:rental_fault_reports.raise_work_order')->name('corex.rental-fault-reports.raise-work-order');
+    });
+
+    // .ai/specs/rental-work-orders.md §3/§6, Stage 4 — the work orders
+    // themselves. A work order raised FROM a fault report is created via
+    // the route above instead; store() here is for one raised directly.
+    Route::prefix('rental-work-orders')->middleware('permission:rental_work_orders.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'index'])->name('corex.rental-work-orders.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'create'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'store'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.store');
+        Route::get('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'show'])->name('corex.rental-work-orders.show');
+        Route::put('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'update'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.update');
+        Route::post('/{rentalWorkOrder}/approval', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'recordApproval'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.approval.store');
+        Route::post('/{rentalWorkOrder}/assign-supplier', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'assignSupplier'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.assign-supplier');
+        Route::post('/{rentalWorkOrder}/start-progress', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'startProgress'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.start-progress');
+        Route::post('/{rentalWorkOrder}/complete', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'complete'])
+            ->middleware('permission:rental_work_orders.complete')->name('corex.rental-work-orders.complete');
+        Route::post('/{rentalWorkOrder}/notes', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'addNote'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.notes.store');
+        Route::post('/{rentalWorkOrder}/cancel', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'cancel'])
+            ->middleware('permission:rental_work_orders.cancel')->name('corex.rental-work-orders.cancel');
+        Route::delete('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'destroy'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.destroy');
+        Route::post('/{rentalWorkOrder}/restore', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'restore'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.restore');
+        Route::post('/{rentalWorkOrder}/photos', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'storePhoto'])
+            ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.photos.store');
     });
 
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,

@@ -1,7 +1,10 @@
 # Rental Work Orders (and Fault Reports)
 
-**Status:** Spec — not yet built. NO CODE has been written against this spec.
-**Date:** 2026-09-14 (amended 2026-09-22, amended 2026-09-24, amended again 2026-09-25 — see below)
+**Status:** Stages 1-4 BUILT (the fault report record, its lifecycle, the spend threshold, and the work
+orders themselves — see §11 for exactly what and when). Stage 5 (§3a.5, the out-inspection's attached
+"Fault & Repair History" block) remains spec only.
+**Date:** 2026-09-14 (amended 2026-09-22, amended 2026-09-24, amended 2026-09-25, amended again
+2026-09-26, built Stages 1-4 through 2026-09-25/2026-09-28 — see below)
 **Author:** cc4
 **Pillar:** Property (`Property`) — every work order and fault report anchors to a property; Contact
 (owner, tenant, supplier's own contact person) is who is notified and who reported it; touches Lease
@@ -1360,8 +1363,10 @@ automatic link, and the choice of whether to build even the reminder is Johan's,
 
 ## 10. Permissions
 
-New keys in `config/corex-permissions.php`, following the `leases.*`/`rental_inspections.*` naming
-convention already established by the two sibling specs:
+**BUILT, Stage 4, 2026-09-28** — all keys below exist in `config/corex-permissions.php`, named for what
+they do, not bent around the Role Manager's own generic-CRUD-slot display quirk (a shared rendering
+issue across the whole app, cc2's fix, out of this spec's lane — see the third rename listed just
+below). Naming convention, following `leases.*`/`rental_inspections.*`:
 - `rental_work_orders.view`
 - `rental_work_orders.create` (covers logging a fault, assigning a supplier, adding notes/photos)
 - `rental_work_orders.complete` — deliberately separate from `.create` **[cc4 design call, flagged for
@@ -1387,30 +1392,15 @@ their own record rather than a work-order status:
   same reasoning as `.complete` on work orders: an outcome becoming final is a heavier call than
   logging what was reported.
 - `rental_fault_reports.cancel`
+- `rental_fault_reports.raise_work_order` — **new, Stage 4** — raising an actual work order from an
+  already-approved fault report (the agency_appoints route, §3a.1) is its own distinct action, separate
+  from `.record_approval` itself: approving and then raising are two separate decisions, at two separate
+  times, per §0c/§3a.1's own settlement.
 
 ---
 
-## 11. Files (fault reports Stages 1-2 now BUILT and landed on QA1 — see inline notes; work orders §3.1-§3.4 remain spec only)
+## 11. Files (fault reports Stages 1-3 and work orders Stage 4 now BUILT and landed — see inline notes; only the out-inspection attached view, §3a.5/Stage 5, remains)
 
-- `database/migrations/xxxx_create_rental_work_orders_table.php`
-- `database/migrations/xxxx_create_rental_work_order_updates_table.php`
-- `database/migrations/xxxx_create_rental_work_order_photos_table.php`
-- `database/migrations/xxxx_create_rental_work_order_settings_table.php`
-- `database/migrations/xxxx_register_rental_work_order_notification_events.php` (idempotent, §4)
-- `app/Models/RentalWorkOrder.php`, `RentalWorkOrderUpdate.php`, `RentalWorkOrderPhoto.php`,
-  `RentalWorkOrderSetting.php` — all `use BelongsToAgency`.
-- `app/Services/Rentals/RentalWorkOrderService.php` — status transitions, the completion gate (§3.4),
-  the approval gate (§3.4/§3.4a), the update-log writer. **Already named this way since the original
-  draft, before the mobile-foundation ruling existed for this spec — the discipline that ruling asks
-  for (§13: logic in a service, not a controller or a Blade) was already this spec's design from day
-  one, not something added in this amendment.**
-- `app/Http/Controllers/CoreX/RentalWorkOrderController.php` — thin: validates the request shape, calls
-  `RentalWorkOrderService`. CRUD, status actions, photo upload.
-- `app/Mail/Rentals/RentalWorkOrderOwnerMail.php`, `RentalWorkOrderTenantMail.php`,
-  `RentalWorkOrderSupplierMail.php` — the three external notifications (§4).
-- `resources/views/corex/rental-work-orders/index.blade.php` — the new list screen (§6).
-- `resources/views/corex/properties/partials/rental-tab-work-orders.blade.php` — the property-level
-  button + history (§6).
 - **BUILT, Stage 1, 2026-09-25 (fault reports §3a — the record itself):**
   - `database/migrations/2026_09_25_100000_create_rental_fault_reports_table.php` — includes the
     `rental_work_order_id` column with NO foreign-key constraint (`rental_work_orders` doesn't exist
@@ -1481,25 +1471,59 @@ their own record rather than a work-order status:
   - `tests/Feature/Onboarding/RentalsStepSaverIndependenceTest.php` — extended, not replaced: the
     combined-step test now posts all four fields, plus a new independence proof for the third saver
     (matching the two already there).
+- **BUILT, Stage 4, 2026-09-28 (the work orders themselves — §3/§3.4/§6):**
+  - `database/migrations/2026_09_28_100000_create_rental_work_orders_table.php`,
+    `..._100100_create_rental_work_order_updates_table.php`,
+    `..._100200_create_rental_work_order_photos_table.php`.
+  - `..._100300_add_work_order_foreign_keys_deferred_from_stage1_2.php` — the two real FK constraints
+    (`rental_fault_reports.rental_work_order_id`, `rental_approvals.rental_work_order_id`) deliberately
+    deferred since Stage 1/2, added now that the referenced table exists. Safe: both columns hold only
+    NULLs until this stage, since nothing before it could ever have set them.
+  - `..._100400_register_rental_work_order_notifications.php` (idempotent, §4).
+  - `app/Models/RentalWorkOrder.php`, `RentalWorkOrderUpdate.php`, `RentalWorkOrderPhoto.php` — `use
+    BelongsToAgency`. `RentalWorkOrderSetting.php` (Stage 3) gained `completionRequiresPhotoFor()`.
+    `RentalFaultReport`/`RentalApproval` gained their own deferred `workOrder()` relations (same
+    forward-reference reasoning as Stage 1's own note, now resolved).
+  - Lifecycle lives on the model, matching `RentalInspection`/`RentalFaultReport`'s own established
+    pattern in this codebase: `assignSupplier()`, `recordApproval()`, `startProgress()`, `complete()`,
+    `cancel()`, `addNote()`, `scopeOverdue()`.
+  - `app/Services/Rentals/RentalWorkOrderService.php` — `report()` (raised directly), `fromFaultReport()`
+    (the agency_appoints route, §3a.1 — a DELIBERATE, separate agency action, never automatic on
+    approval alone), `storePhoto()`, and every notification (internal `NotificationDispatcher::fire()`
+    plus the three external mails).
+  - `app/Http/Controllers/CoreX/RentalWorkOrderController.php` — thin. `RentalFaultReportController`
+    gained `raiseWorkOrder()`.
+  - `app/Mail/Rentals/RentalWorkOrderOwnerMail.php` (created + completed stages, one class),
+    `RentalWorkOrderTenantMail.php` (creation only, and only for a work order raised WITHOUT an
+    upstream fault report — one raised FROM a fault report never sends this; the tenant was already
+    notified at fault-report creation, §3a/§4), `RentalWorkOrderSupplierMail.php` — plus their three
+    plain-HTML Blade views under `resources/views/emails/rentals/`.
+  - `app/Console/Commands/Rentals/ScanRentalWorkOrderNotifications.php`, scheduled every 30 minutes
+    (`routes/console.php`, matching `notifications:scan-deals`'s own cadence) — the "tracking way to
+    keep track of work orders" Johan asked for. Keys its notification dedup off the work order's own
+    `updated_at` (a stable, persistent-condition key), NOT `now()` — caught before landing: `now()`
+    would have re-notified every single scan tick for the same stale work order, the exact
+    "persistent condition" mistake `ScanDealNotifications`' own code comments warn against.
+  - `resources/views/corex/rental-work-orders/index.blade.php`, `create.blade.php`, `show.blade.php`.
+  - The property-tab "Work Order" button + recent-history list — built inline in
+    `resources/views/corex/properties/show.blade.php`, same convention as the fault-report button
+    beside it, not a separate partial file.
+  - `tests/Feature/RentalWorkOrders/RentalWorkOrderListScreenTest.php` (full CRUD/list-screen floor,
+    the overdue filter, cross-agency 404) and `RentalWorkOrderLifecycleTest.php` (the spine —
+    raising a work order is proven a SEPARATE action from approving one, never automatic; situations 2
+    and 4 of §7's four-situation test as real fixtures; the supplier/approval/completion/cancel gates;
+    the overdue scope; permission separation). No separate `tests/Feature/RentalApprovals/*` file was
+    created — the exactly-one-of and approval_route assertions this section's own earlier draft named
+    live inside the fault-report and work-order lifecycle test files instead, alongside the flows they
+    actually belong to.
+  - **Known, honest gap carried forward, not fixed by this stage**: Stage 1 flagged that fault reports
+    have no owner/tenant-facing MAIL at all (only the internal agent notification) — this stage does
+    not add one either. A work order raised FROM a fault report never sends its own tenant mail
+    (correctly — the tenant was already told at fault-report stage) but that fault-report-stage mail
+    still does not exist. Still real, still undecided, still Johan's call.
 - `config/corex-permissions.php` — new permission keys (§10).
 - Sidebar entry for the new list screens (same-day, non-negotiable #2) — Rental Work Orders AND Rental
   Fault Reports both, under the existing Rentals section.
-- `tests/Feature/RentalWorkOrders/*` — the four-situation test in §7 as real fixtures at minimum, plus
-  completion-gate enforcement, the approval gate refusing `ordered` while pending/declined, agency
-  scoping, and notification dispatch (internal vs external split).
-- `tests/Feature/RentalFaultReports/*` — **updated, 2026-09-25**: the outcome-required-note enforcement
-  (§3a), the lease-scoping of the out-inspection's attached block (§3a.4 — proving a PREVIOUS tenancy's
-  fault report does NOT appear), the reverse FK (`rental_work_orders.reported_fault_report_id`)
-  round-tripping correctly, PLUS: a fault report reaching `status='resolved'`/`outcome='repaired'` via
-  `approval_route='owner_handles'` with `rental_work_order_id` staying null throughout (the case this
-  amendment exists to make work), `repaired_at` required whenever outcome is `repaired`/
-  `repaired_partially`, and the spend-threshold default (`no_approval_spend_threshold`) suppressing the
-  approval gate at or under it.
-- `tests/Feature/RentalApprovals/*` — **new, 2026-09-25**: exactly-one-of `rental_fault_report_id`/
-  `rental_work_order_id` enforced, `approval_route` required when `decision='approved'` at the
-  fault-report level and always null at the work-order level, and a work order raised from an
-  already-approved fault report inheriting `owner_approval_status` without writing a second
-  `rental_approvals` row.
 - Re-run `php artisan schema:dump`, commit refreshed `database/schema/mysql-schema.sql`
   (non-negotiable #12a).
 
