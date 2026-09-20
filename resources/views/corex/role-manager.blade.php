@@ -310,13 +310,19 @@
                                             </div>
                                             @endif
 
-                                            {{-- Create / Edit / Archive --}}
+                                            {{-- Create / Edit / Archive — the configured label is the title
+                                                 whenever one exists; the generic "Create"/"Edit"/"Archive"
+                                                 word is a FALLBACK for a permission with no label, never an
+                                                 override for one that has one (bug found 2026-09-20: this
+                                                 previously always showed the generic word and discarded the
+                                                 real label entirely, e.g. rental_fault_reports.create's
+                                                 "Report & Edit Faults" was never rendered anywhere). --}}
                                             @foreach($fStandardActions as $action)
                                             @if(isset($fActionMap[$action]))
                                             @php $fAp = $fActionMap[$action]; @endphp
                                             <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
                                                 <div>
-                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">{{ ucfirst($action) }}</p>
+                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $fAp->label ?: ucfirst($action) }}</p>
                                                     <p class="text-xs mt-0.5" style="color:var(--text-muted);">Can {{ strtolower($action) }} records in this module</p>
                                                 </div>
                                                 <div class="flex-shrink-0">
@@ -344,13 +350,19 @@
                                             @endif
                                             @endforeach
 
-                                            {{-- Other actions (manage, send, etc.) --}}
+                                            {{-- Other actions (manage, send, etc.) — same rule as Create/Edit/
+                                                 Archive above: the configured label is the title; the
+                                                 auto-derived headline of the raw key is a FALLBACK for a
+                                                 permission with no label, never the override for one that
+                                                 has one. Previously inverted (auto-derived headline as
+                                                 title, real label demoted to subtitle) for every permission
+                                                 in this bucket across every feature, not just one module. --}}
                                             @foreach($fOtherActions as $otherKey)
                                             @php $fOp = $fActionMap[$otherKey]; @endphp
                                             <div class="px-5 py-4 flex items-center justify-between gap-4" style="border-bottom:1px solid var(--border);">
                                                 <div>
-                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">{{ \Illuminate\Support\Str::headline($otherKey) }}</p>
-                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">{{ $fOp->label }}</p>
+                                                    <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $fOp->label ?: \Illuminate\Support\Str::headline($otherKey) }}</p>
+                                                    <p class="text-xs mt-0.5" style="color:var(--text-muted);">Additional action for this module</p>
                                                 </div>
                                                 <div class="flex-shrink-0">
                                                     @foreach($roles as $role)
