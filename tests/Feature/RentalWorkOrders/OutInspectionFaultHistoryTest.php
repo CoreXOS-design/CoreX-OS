@@ -123,6 +123,54 @@ final class OutInspectionFaultHistoryTest extends TestCase
         $this->assertSame([], $response->json('out_inspection_fault_history'));
     }
 
+    /**
+     * 2026-09-20 — caught on a real QA1 walk: the block was going blank the
+     * instant an out-inspection completed, which per Johan's own framing
+     * ("geyser in month 7... tenant moves out in month 16") is exactly the
+     * moment during a deposit dispute an agent needs it. currentFor()
+     * correctly excludes completed inspections for its OWN question ("is
+     * one currently open") — this proves the fault history no longer
+     * piggybacks on that exclusion.
+     */
+    public function test_history_still_shows_after_the_out_inspection_completes(): void
+    {
+        $lease = $this->lease();
+        $faultReport = $this->faultReport($lease);
+        RentalInspection::create([
+            'agency_id' => $this->agency->id, 'lease_id' => $lease->id, 'property_id' => $this->property->id,
+            'type' => RentalInspection::TYPE_OUT, 'created_by_user_id' => $this->admin->id,
+            'status' => RentalInspection::STATUS_COMPLETED, 'completed_at' => now(),
+        ]);
+
+        $response = $this->actingAs($this->admin)->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+
+        $response->assertOk();
+        // The "is one currently open" question is rightly still null —
+        // currentFor() must not be widened to make this fix work.
+        $this->assertNull($response->json('out_inspection'));
+        $this->assertTrue($response->json('out_inspection_recorded'));
+        $history = collect($response->json('out_inspection_fault_history'));
+        $this->assertTrue($history->contains('id', $faultReport->id), 'History must survive completion — this is the moment it matters most.');
+    }
+
+    /** A cancelled out-inspection attempt never really happened — it must not surface stale history either. */
+    public function test_a_cancelled_out_inspection_shows_no_history(): void
+    {
+        $lease = $this->lease();
+        $this->faultReport($lease);
+        RentalInspection::create([
+            'agency_id' => $this->agency->id, 'lease_id' => $lease->id, 'property_id' => $this->property->id,
+            'type' => RentalInspection::TYPE_OUT, 'created_by_user_id' => $this->admin->id,
+            'status' => RentalInspection::STATUS_CANCELLED,
+        ]);
+
+        $response = $this->actingAs($this->admin)->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+
+        $response->assertOk();
+        $this->assertFalse($response->json('out_inspection_recorded'));
+        $this->assertSame([], $response->json('out_inspection_fault_history'));
+    }
+
     public function test_attaching_history_does_not_disturb_the_existing_tab_payload_keys(): void
     {
         $lease = $this->lease();
@@ -133,7 +181,7 @@ final class OutInspectionFaultHistoryTest extends TestCase
 
         $response = $this->actingAs($this->admin)->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
 
-        $response->assertOk()->assertJsonStructure(['items', 'in_inspection', 'out_inspection', 'out_inspection_fault_history']);
+        $response->assertOk()->assertJsonStructure(['items', 'in_inspection', 'out_inspection', 'out_inspection_fault_history', 'out_inspection_recorded']);
         $this->assertNull($response->json('in_inspection'));
         $this->assertNotNull($response->json('out_inspection'));
     }

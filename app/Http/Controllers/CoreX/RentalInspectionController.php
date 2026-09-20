@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\Lease;
+use App\Models\Property;
 use App\Models\RentalInspection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -13,10 +15,56 @@ use Illuminate\View\View;
  * inspection. Recording observations/photos/signatures HAPPENS on the
  * property's Rental Images tab (§1/§4, a separate controller); this
  * controller is the agency-level Read + administrative-lifecycle surface —
- * search, sort, filter, cancel, archive, restore.
+ * search, sort, filter, create (a picker that hands off to the same
+ * RentalInspection::start() the tab's own AJAX flow calls — no second
+ * implementation), cancel, archive, restore.
  */
 class RentalInspectionController extends Controller
 {
+    /**
+     * 2026-09-20 — the list screen had no way to start an inspection at all;
+     * an agent had to already know to go to a property's Rental Images tab.
+     * This is an ADDITIONAL entry point, not a replacement — the tab's own
+     * "Start In/Out-Inspection" buttons keep working exactly as they did.
+     * Only properties with an active lease are offered: RentalInspection::
+     * start() hard-requires one, so listing properties without one would be
+     * a guaranteed dead end.
+     */
+    public function create(Request $request): View
+    {
+        $properties = Property::where('listing_type', 'rental')
+            ->whereIn('id', Lease::where('status', Lease::STATUS_ACTIVE)->pluck('property_id'))
+            ->orderBy('title')
+            ->limit(500)
+            ->get();
+
+        return view('corex.rental-inspections.create', ['properties' => $properties]);
+    }
+
+    public function store(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'property_id' => ['required', 'integer', 'exists:properties,id'],
+            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+        ]);
+
+        $property = Property::findOrFail($validated['property_id']);
+
+        try {
+            $inspection = RentalInspection::start($property, $validated['type'], $request->user());
+        } catch (\LogicException $e) {
+            return back()->withInput()->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
+
+        // Recording (observations/photos/signatures) only happens on the
+        // property's Rental Images tab (§1/§4) — this screen's own show()
+        // page is read-only, so land the agent where they can actually
+        // start working, not on a dead end they'd have to navigate away
+        // from immediately.
+        return redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'rental-images'])
+            ->with('success', ucfirst($validated['type']) . '-inspection started.');
+    }
+
     /**
      * Search: property address, tenant name, agent name (creator). Sort:
      * scheduled_for (default, most-recent-first), property address, status,
@@ -34,9 +82,12 @@ class RentalInspectionController extends Controller
         }
         $direction = $direction === 'asc' ? 'asc' : 'desc';
 
+        $archived = $request->boolean('archived');
+
         $query = RentalInspection::query()
+            ->when($archived, fn ($q) => $q->onlyTrashed())
             ->visibleTo($user, $request->get('scope'))
-            ->with(['property', 'lease.tenants.contact', 'createdBy']);
+            ->with(['property', 'lease.tenants.contact', 'createdBy', 'archivedBy']);
 
         if ($search = trim((string) $request->get('q', ''))) {
             $query->where(function ($q) use ($search) {
@@ -78,7 +129,10 @@ class RentalInspectionController extends Controller
             $query->orderBy("rental_inspections.{$sort}", $direction);
         }
 
-        $hasAnyInspections = RentalInspection::query()->visibleTo($user, $request->get('scope'))->exists();
+        $hasAnyInspections = RentalInspection::query()
+            ->when($archived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'))
+            ->exists();
 
         $inspections = $query->paginate(25)->withQueryString();
 
@@ -87,6 +141,7 @@ class RentalInspectionController extends Controller
             'sort' => $sort,
             'direction' => $direction,
             'hasAnyInspections' => $hasAnyInspections,
+            'archived' => $archived,
             'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy']),
         ]);
     }
@@ -114,12 +169,19 @@ class RentalInspectionController extends Controller
         return redirect()->route('corex.rental-inspections.show', $rentalInspection)->with('success', 'Inspection cancelled.');
     }
 
+    /**
+     * 2026-09-20 — a real QA1 walk found no supported way to archive an
+     * inspection once it had any recorded observations: this used to refuse
+     * with "cancel it instead", but cancel() only flips status without
+     * hiding the record, a dead end for an agent who started one on the
+     * wrong property. delete() here is already a SOFT delete (softDeletes()
+     * column) with restore() already existing — archiving never destroys
+     * the evidence, it only hides it from the working list, exactly as
+     * every other entity's archive/restore floor already works.
+     */
     public function destroy(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
-        if (!$rentalInspection->isDeletable()) {
-            return back()->withErrors(['rental_inspection' => 'This inspection has recorded observations and cannot be deleted — cancel it instead.']);
-        }
-
+        $rentalInspection->forceFill(['archived_by_user_id' => $request->user()->id])->save();
         $rentalInspection->delete();
 
         return redirect()->route('corex.rental-inspections.index')->with('success', 'Inspection archived.');
@@ -129,6 +191,7 @@ class RentalInspectionController extends Controller
     {
         $inspection = RentalInspection::withTrashed()->findOrFail($rentalInspection);
         $inspection->restore();
+        $inspection->forceFill(['archived_by_user_id' => null])->save();
 
         return redirect()->route('corex.rental-inspections.show', $inspection)->with('success', 'Inspection restored.');
     }

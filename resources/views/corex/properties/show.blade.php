@@ -4608,7 +4608,7 @@
                              and what was not repaired." Attached, not merged —
                              a separate block, never inside the recording above.
                              Read-only: resolved from its own screen, not here. --}}
-                        <template x-if="currentInspection('out')">
+                        <template x-if="outInspectionRecorded">
                             <div class="mt-3 pt-3 space-y-2" style="border-top:1px solid var(--border);">
                                 <h4 class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Fault &amp; Repair History — this tenancy</h4>
                                 <template x-if="!outInspectionFaultHistory.length">
@@ -4764,6 +4764,12 @@
                 // never edited from here (a fault report is resolved from its
                 // own screen or the property tab, §6a's own instruction).
                 outInspectionFaultHistory: config.inspectionData.out_inspection_fault_history,
+                // 2026-09-20 fix — deliberately NOT derived from outInspection
+                // above (that goes null the moment the out-inspection
+                // completes). Drives the fault-history block's own
+                // visibility so it stays shown after completion, when it
+                // matters most.
+                outInspectionRecorded: config.inspectionData.out_inspection_recorded,
                 itemError: '',
                 itemBusy: false,
                 newItem: { kind: 'space', label: '' },
