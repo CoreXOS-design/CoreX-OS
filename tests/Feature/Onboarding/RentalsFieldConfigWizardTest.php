@@ -84,6 +84,11 @@ final class RentalsFieldConfigWizardTest extends TestCase
                 'expiry_notice_window_days' => 60,
                 'fault_report_window_days' => 7,
                 'out_inspection_signing_window_days' => 7,
+                // Stage 3 (rental-work-orders.md) landed a 4th saver on this same
+                // step after this test was first written — required together with
+                // everything above, same shared-step-payload discipline as every
+                // other cross-domain field here.
+                'no_approval_spend_threshold' => 500,
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
@@ -135,6 +140,11 @@ final class RentalsFieldConfigWizardTest extends TestCase
                 'expiry_notice_window_days' => 60,
                 'fault_report_window_days' => 7,
                 'out_inspection_signing_window_days' => 7,
+                // Stage 3 (rental-work-orders.md) landed a 4th saver on this same
+                // step after this test was first written — required together with
+                // everything above, same shared-step-payload discipline as every
+                // other cross-domain field here.
+                'no_approval_spend_threshold' => 500,
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
@@ -182,6 +192,11 @@ final class RentalsFieldConfigWizardTest extends TestCase
                 'expiry_notice_window_days' => 45,
                 'fault_report_window_days' => 12,
                 'out_inspection_signing_window_days' => 9,
+                // Stage 3 (rental-work-orders.md) landed a 4th saver on this same
+                // step after this test was first written — required together with
+                // everything above, same shared-step-payload discipline as every
+                // other cross-domain field here.
+                'no_approval_spend_threshold' => 500,
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
