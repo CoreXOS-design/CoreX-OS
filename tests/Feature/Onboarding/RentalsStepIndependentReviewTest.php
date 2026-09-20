@@ -167,19 +167,25 @@ final class RentalsStepIndependentReviewTest extends TestCase
     }
 
     /**
-     * NOT the original incident's shape (no boolean force-default exists
-     * here to trigger), but a real, different finding worth proving either
-     * way: AgencySetupWizardController::save() calls each saver in a plain
-     * foreach with no surrounding DB transaction. If an earlier saver's
-     * write succeeds and a LATER saver's own `required` validation then
-     * throws, the earlier write is already committed — the request reports
-     * failure but is not actually atomic. This does not corrupt a field the
-     * step never rendered (both fields here are always rendered together
-     * and both are `required`), so it does not reproduce the named
-     * incident, but it is a real partial-write-on-failure inconsistency,
-     * reported separately rather than silently folded into "protected."
+     * ORIGINALLY (this test's own history): NOT the named incident's shape,
+     * but a real, different finding worth proving either way —
+     * AgencySetupWizardController::save() called each saver in a plain
+     * foreach with no surrounding DB transaction, so an earlier saver's
+     * write survived even when a later saver's validation then failed the
+     * request as a whole. Reported as a genuine gap, not fixed at the time
+     * (out of scope for that task).
+     *
+     * CLOSED 2026-09-20 (conductor's ruling, after cc1 proved a real user
+     * could be told "Saved." while a saver silently failed): save() now
+     * runs every saver inside one DB transaction, and ANY failure —
+     * thrown directly or converted from a has()-guard's flashed error —
+     * rolls the whole step back. This test now asserts the opposite of
+     * what it originally demonstrated: the gap it once proved is the exact
+     * gap the fix closed, so a stale assertion here would silently regress
+     * back to "partial writes are fine" the moment anyone touched this
+     * file without re-reading why it existed.
      */
-    public function test_a_partial_post_missing_a_required_field_leaves_the_earlier_savers_write_committed(): void
+    public function test_a_partial_post_missing_a_required_field_rolls_back_the_earlier_savers_write_too(): void
     {
         $agency = Agency::create(['name' => 'Agency C', 'slug' => 'agency-c-' . uniqid()]);
         LeaseSetting::create(['agency_id' => $agency->id, 'expiry_notice_window_days' => 60]);
@@ -194,13 +200,14 @@ final class RentalsStepIndependentReviewTest extends TestCase
 
         $response->assertSessionHasErrors();
 
-        // The request as a whole reports failure (validation errors) — but
-        // saver #1 already ran and its write already persisted before
-        // saver #2's validation threw.
+        // The whole step is now one transaction: saver #1's write never
+        // survives a later saver's failure in the same request. The
+        // pre-existing value (60) must be exactly what it was before this
+        // request, not the posted-but-never-fully-saved 45.
         $this->assertSame(
-            45,
+            60,
             LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
-            'demonstrates the partial-write: the failed request still persisted the first saver\'s new value'
+            'the whole step is atomic now — an earlier saver\'s write must not survive a later saver\'s failure in the same request'
         );
     }
 

@@ -101,6 +101,16 @@ final class AgencySetupWizardAtomicSaveTest extends TestCase
         $payload = $this->fullValidPayload();
         unset($payload['field_display_submitted']);
 
+        // A real user always GETs the step before POSTing its form — this
+        // is what gives Laravel's session a "previous URL" for the
+        // ValidationException handler's own redirect(url()->previous())
+        // fallback to land on. Omitting it made this test fail on a
+        // harness gap, not a real one (found and reproduced independently
+        // by cc1): a raw ->post() with no preceding ->get() has no previous
+        // URL tracked, so the failure redirect fell through to root
+        // instead of back to this step — the mechanism was never broken.
+        $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'leases']));
+
         $response = $this->actingAs($admin)
             ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $payload);
 
