@@ -19,8 +19,6 @@ use Illuminate\Queue\SerializesModels;
  */
 class RentalWorkOrderSupplierMail extends Mailable implements ShouldQueue
 {
-    public $queue = 'mail';
-
     use Queueable, SerializesModels;
 
     public string $agencyName;
@@ -28,6 +26,7 @@ class RentalWorkOrderSupplierMail extends Mailable implements ShouldQueue
 
     public function __construct(public RentalWorkOrder $workOrder)
     {
+        $this->onQueue('mail');
         $this->agencyName = $workOrder->property?->agency?->name ?? config('mail.from.name', 'CoreX OS');
         $this->propertyAddress = $workOrder->property?->buildDisplayAddress() ?: ('Property #' . $workOrder->property_id);
     }

@@ -19,8 +19,6 @@ use Illuminate\Queue\SerializesModels;
  */
 class RentalWorkOrderOwnerMail extends Mailable implements ShouldQueue
 {
-    public $queue = 'mail';
-
     use Queueable, SerializesModels;
 
     public const STAGE_CREATED = 'created';
@@ -32,6 +30,7 @@ class RentalWorkOrderOwnerMail extends Mailable implements ShouldQueue
 
     public function __construct(public RentalWorkOrder $workOrder, public string $stage, string $ownerName)
     {
+        $this->onQueue('mail');
         $this->ownerName = $ownerName ?: 'there';
         $this->agencyName = $workOrder->property?->agency?->name ?? config('mail.from.name', 'CoreX OS');
         $this->propertyAddress = $workOrder->property?->buildDisplayAddress() ?: ('Property #' . $workOrder->property_id);
