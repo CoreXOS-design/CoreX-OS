@@ -201,7 +201,7 @@ final class RentalInspectionWorkflowTest extends TestCase
     public function test_an_in_inspection_cannot_complete_while_a_tenant_is_undispositioned(): void
     {
         $tenant = \App\Models\Contact::create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
             'first_name' => 'Naledi', 'last_name' => 'Tenant', 'email' => uniqid() . '@example.test',
         ]);
         \App\Models\LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
@@ -218,7 +218,7 @@ final class RentalInspectionWorkflowTest extends TestCase
     public function test_an_in_inspection_completes_once_every_tenant_is_dispositioned_and_the_agent_signs(): void
     {
         $tenant = \App\Models\Contact::create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
             'first_name' => 'Naledi', 'last_name' => 'Tenant', 'email' => uniqid() . '@example.test',
         ]);
         \App\Models\LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);

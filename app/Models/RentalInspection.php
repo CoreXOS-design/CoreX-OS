@@ -251,6 +251,15 @@ class RentalInspection extends Model
             if ($outstanding->isNotEmpty()) {
                 $first = $outstanding->first();
                 if ($first['party_role'] === RentalInspectionSignature::PARTY_TENANT) {
+                    // Contact::find() is scope-sensitive (ContactScope) — this
+                    // is display only, never the guard itself, so a contact
+                    // the completing user's role/agency can't see under its
+                    // own scoping just falls back to a generic label rather
+                    // than erroring. The BLOCK above (outstandingSignatories())
+                    // is unaffected either way: it resolves tenants via
+                    // LeaseTenant, not this scoped Contact lookup. Named
+                    // precisely by cc1 (2026-09-20) after a real test-fixture
+                    // instance of this exact degradation.
                     $name = \App\Models\Contact::find($first['party_contact_id'])?->full_name ?? 'A tenant';
                     throw new \LogicException("Cannot complete: {$name} has neither signed nor been marked as refusing.");
                 }
