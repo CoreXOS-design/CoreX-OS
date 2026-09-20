@@ -329,6 +329,7 @@ class RentalApplicationQualifyingSetting extends Model
         'identity_gate_attempt_max', 'identity_gate_attempt_window_minutes', 'identity_gate_resend_cooldown_seconds',
         'required_field_keys', 'marital_status_options',
         'hidden_field_keys', 'field_label_overrides', 'field_help_text_overrides', 'field_order',
+        'credit_bureau_name',
     ];
 
     protected $casts = [
@@ -810,6 +811,30 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->marital_status_options !== null
             ? $row->marital_status_options
             : self::DEFAULT_MARITAL_STATUS_OPTIONS;
+    }
+
+    /**
+     * Johan, 2026-09-20 — "hfc uses tpn so thats why we have that." Null
+     * (no row, or a row with this column unset) means no specific bureau
+     * named — deliberately NOT a 'TPN' constant fallback the way every
+     * other setting here falls through to a DEFAULT_* value. A brand new
+     * agency has no reason to be defaulted to a named competitor product
+     * neither they nor CoreX chose on their behalf; RentalApplication::
+     * creditBureauConsentLabel() renders null as generic "Credit Bureau
+     * Consent" wording, which is also the correct reading for an agency
+     * that genuinely runs no bureau check at all — same safe state, same
+     * text, no blank gap in applicant-facing copy either way.
+     */
+    public static function creditBureauNameFor(?int $agencyId): ?string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return null;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+        $value = $row ? trim((string) $row->credit_bureau_name) : '';
+
+        return $value !== '' ? $value : null;
     }
 
     /**

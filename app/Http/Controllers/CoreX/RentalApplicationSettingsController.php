@@ -95,7 +95,13 @@ class RentalApplicationSettingsController extends Controller
         // checklist below AND submit()'s own validation (RentalApplication::
         // submissionFieldRegistry() — one array, so this screen can never
         // show a field submit() doesn't actually enforce, or vice versa.
-        $fieldRegistry = RentalApplication::submissionFieldRegistry();
+        // Johan, 2026-09-20 — the credit bureau is agency-configurable now
+        // (RentalApplicationQualifyingSetting::creditBureauNameFor()), so
+        // the registry's own default label for tpn_consent_signature is
+        // already bureau-aware once $agencyId is threaded through here —
+        // no special-casing needed in this controller for that part.
+        $creditBureauName = RentalApplicationQualifyingSetting::creditBureauNameFor($agencyId);
+        $fieldRegistry = RentalApplication::submissionFieldRegistry($agencyId);
         $requiredFieldKeys = RentalApplicationQualifyingSetting::requiredFieldKeysFor($agencyId);
         $maritalStatusOptions = RentalApplicationQualifyingSetting::maritalStatusOptionsFor($agencyId);
 
@@ -109,7 +115,19 @@ class RentalApplicationSettingsController extends Controller
         $fieldLabelOverrides = RentalApplicationQualifyingSetting::fieldLabelOverridesFor($agencyId);
         $fieldHelpTextOverrides = RentalApplicationQualifyingSetting::fieldHelpTextOverridesFor($agencyId);
         $fieldOrder = RentalApplicationQualifyingSetting::fieldOrderFor($agencyId);
-        $fieldSections = RentalApplication::SUBMISSION_FIELD_SECTIONS;
+
+        // The SUBMISSION_FIELD_SECTIONS constant's own key ("Tenant Profile
+        // Network Consent") is a stable internal grouping name, not
+        // user-facing text — renamed here, for THIS screen's rendering
+        // only, to the same bureau-aware heading the field label above
+        // already uses. The constant itself stays untouched (it's also
+        // used as a lookup key elsewhere via submissionFieldSectionOf()).
+        $fieldSections = collect(RentalApplication::SUBMISSION_FIELD_SECTIONS)
+            ->mapWithKeys(fn ($keys, $section) => [
+                $section === 'Tenant Profile Network Consent'
+                    ? RentalApplication::creditBureauConsentLabel($creditBureauName)
+                    : $section => $keys,
+            ])->all();
 
         // Return gate, AT-392 round 4, 2026-09-13 — Johan: "after initial
         // submission we can gate on ID." Which method, and the attempt
@@ -240,7 +258,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName'
         ));
     }
 
@@ -410,6 +428,34 @@ class RentalApplicationSettingsController extends Controller
         }
 
         return $redirect;
+    }
+
+    /**
+     * Johan, 2026-09-20 — "hfc uses tpn so thats why we have that." Every
+     * place that named "TPN" now reads from this setting instead — the
+     * public form's heading, its signature caption, this screen's own
+     * field-display label and section heading, and the PDF. Blank clears
+     * it back to no-specific-bureau (also the correct state for an agency
+     * that genuinely runs no bureau check), same reasoning as
+     * updateDeclineEmail()'s own '' => null normalisation above.
+     */
+    public function updateCreditBureau(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'credit_bureau_name' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $value = trim((string) ($validated['credit_bureau_name'] ?? ''));
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['credit_bureau_name' => $value !== '' ? $value : null],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Credit bureau saved.');
     }
 
     /**

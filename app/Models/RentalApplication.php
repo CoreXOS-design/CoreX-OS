@@ -408,7 +408,34 @@ class RentalApplication extends Model
      * "a wrong label is worse than a missing entry, because a missing entry
      * fails the build and a wrong label ships silently."
      */
-    public static function submissionFieldRegistry(): array
+    /**
+     * Johan, 2026-09-20 — the ONE place the credit bureau's display name
+     * gets turned into user-facing text, so every consumer (this
+     * registry's default label, the PDF's own heading, the settings
+     * screen's section heading) reads the identical computed string
+     * rather than re-deriving their own. Null (unconfigured, or an agency
+     * that genuinely runs no bureau check) reads as generic wording —
+     * never a blank gap in a sentence.
+     */
+    public static function creditBureauConsentLabel(?string $bureauName): string
+    {
+        return $bureauName ? "{$bureauName} Consent" : 'Credit Bureau Consent';
+    }
+
+    /**
+     * Takes an already-RESOLVED label (agency label override already
+     * applied, or historical field_config_snapshot value for a submitted
+     * application via displayFieldConfig()) rather than re-deriving from
+     * today's live bureau setting — so an old application's PDF keeps
+     * naming whichever bureau it actually disclosed at submission time,
+     * same historical-integrity rule as every other frozen field.
+     */
+    public static function creditBureauConsentCaption(string $resolvedLabel): string
+    {
+        return 'Applicant Signature — ' . $resolvedLabel;
+    }
+
+    public static function submissionFieldRegistry(?int $agencyId = null): array
     {
         $labels = [
             'full_name' => 'Full name and surname',
@@ -444,7 +471,9 @@ class RentalApplication extends Model
             'adults' => 'Number of adults',
             'children' => 'Number of children',
             'declaration_signature' => 'Declaration signature',
-            'tpn_consent_signature' => 'TPN consent signature',
+            'tpn_consent_signature' => self::creditBureauConsentLabel(
+                \App\Models\RentalApplicationQualifyingSetting::creditBureauNameFor($agencyId)
+            ),
         ];
 
         $registry = [];
@@ -563,7 +592,7 @@ class RentalApplication extends Model
         }
 
         $config = [];
-        foreach (self::submissionFieldRegistry() as $field) {
+        foreach (self::submissionFieldRegistry($agencyId) as $field) {
             $key = $field['key'];
             $config[$key] = [
                 'key' => $key,

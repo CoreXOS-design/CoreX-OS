@@ -2860,6 +2860,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.qualifying-formula');
 
+    // Johan, 2026-09-20 — agency-level credit bureau name.
+    Route::post('/settings/rental-applications/credit-bureau', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateCreditBureau'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.credit-bureau');
+
     // Reopen/resubmit, 2026-09-08.
     Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.reopen-link-expiry');

@@ -618,12 +618,17 @@
             @endif
 
             @if($fieldConfig['tpn_consent_signature']['shown'])
-            <section data-progress-section="Tenant Profile Network Consent">
+            <section data-progress-section="{{ $fieldConfig['tpn_consent_signature']['label'] }}">
                 <h2 class="font-semibold text-slate-700 mb-2">{{ $fieldConfig['tpn_consent_signature']['label'] }} @if(in_array('tpn_consent_signature', $requiredFieldKeys, true)) *@endif</h2>
                 <p class="text-xs text-slate-500 mb-2">
                     {{ $fieldConfig['tpn_consent_signature']['help_text'] ?? 'The tenant hereby consents that, and authorises the Landlord or agent to, at all times contact, request and obtain information from any credit provider or registered credit bureau relevant to an assessment of the tenant\'s creditworthiness.' }}
                 </p>
-                @include('rental-applications.public._signature-pad', ['field' => 'tpn_consent_signature', 'label' => 'TPN consent'])
+                {{-- Johan, 2026-09-20 — "hfc uses tpn so thats why we have
+                     that." Reuses the SAME resolved label as the heading
+                     above (agency override, or the bureau-aware registry
+                     default) rather than a second hardcoded 'TPN consent'
+                     string, so the two can never say different things. --}}
+                @include('rental-applications.public._signature-pad', ['field' => 'tpn_consent_signature', 'label' => $fieldConfig['tpn_consent_signature']['label']])
                 @error('tpn_consent_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
             </section>
             @endif
@@ -1068,7 +1073,11 @@ function rentalApplicationForm() {
             const decl = this.$refs.declaration_signature_input.value;
             const tpn = this.$refs.tpn_consent_signature_input.value;
             if (!decl || !tpn) {
-                this.error = 'Please sign both the declaration and the TPN consent before submitting.';
+                // Johan, 2026-09-20 — "hfc uses tpn so thats why we have
+                // that." Js::from() for safe string escaping, same pattern
+                // already used elsewhere on this page (x-data bindings
+                // above) — never raw Blade interpolation into a JS string.
+                this.error = 'Please sign both the declaration and the ' + {{ \Illuminate\Support\Js::from($fieldConfig['tpn_consent_signature']['label']) }} + ' before submitting.';
                 return;
             }
 
