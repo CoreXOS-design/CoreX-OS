@@ -145,12 +145,27 @@ final class RentalInspectionWorkflowTest extends TestCase
         $inspection->markCompleted();
     }
 
-    public function test_starting_the_signing_window_is_only_valid_for_an_out_inspection(): void
+    public function test_starting_the_signing_window_is_not_valid_for_an_ad_hoc_inspection(): void
     {
-        $inIns = $this->makeInspection(RentalInspection::TYPE_IN);
+        // §15.3 (2026-09-20) — widened to BOTH in and out; TYPE_AD_HOC stays
+        // excluded, matching its existing lighter-weight lifecycle.
+        $adHoc = $this->makeInspection(RentalInspection::TYPE_AD_HOC);
 
         $this->expectException(\LogicException::class);
+        $adHoc->startAwaitingSignature();
+    }
+
+    public function test_an_in_inspection_can_now_start_its_own_signing_window(): void
+    {
+        // §15.3 — in-inspection signing is a whole new path, built in Stage
+        // 2. Proven here at the model layer that it genuinely works, not
+        // just that the old exception is gone.
+        $inIns = $this->makeInspection(RentalInspection::TYPE_IN);
+
         $inIns->startAwaitingSignature();
+
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inIns->status);
+        $this->assertNotNull($inIns->signing_deadline_at);
     }
 
     public function test_starting_the_signing_window_sets_the_deadline_from_settings(): void

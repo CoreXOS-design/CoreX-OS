@@ -395,6 +395,75 @@ final class RentalInspectionRecordingControllerTest extends TestCase
           ->assertJsonFragment(['disposition' => 'refused', 'party_role' => 'tenant']);
     }
 
+    // ── §15.3, Stage 2 — in-inspection signing, the whole new path ──────
+
+    public function test_an_in_inspection_can_start_its_own_signing_window_over_real_http(): void
+    {
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+
+        $this->postJson(route('corex.rental-inspections.start-awaiting-signature', $inspection))
+            ->assertOk()
+            ->assertJsonFragment(['status' => RentalInspection::STATUS_AWAITING_SIGNATURE]);
+    }
+
+    public function test_a_tenant_can_sign_an_in_inspection_over_real_http(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $inspection->startAwaitingSignature();
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_TENANT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'party_contact_id' => $tenant->id,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(201)->assertJsonFragment(['disposition' => 'signed', 'party_role' => 'tenant']);
+    }
+
+    public function test_the_agent_cannot_sign_an_in_inspection_until_the_tenant_has_over_real_http(): void
+    {
+        $this->makeTenant();
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $inspection->startAwaitingSignature();
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_AGENT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(422);
+    }
+
+    public function test_the_agent_can_sign_an_in_inspection_once_the_tenant_has_over_real_http(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $inspection->startAwaitingSignature();
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_contact_id' => $tenant->id, 'party_signature_path' => 'signatures/tenant.png',
+        ]);
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_AGENT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(201)->assertJsonFragment(['disposition' => 'signed', 'party_role' => 'agent']);
+    }
+
+    /**
+     * Stage 5 (§15.7) is what makes signing MANDATORY on an in-inspection —
+     * this stage only adds the ABILITY to sign. Proving the old, unchanged
+     * guard still lets an unsigned in-inspection complete, exactly as
+     * before, so nothing here silently starts enforcing early.
+     */
+    public function test_an_in_inspection_still_completes_without_any_signature_in_this_stage(): void
+    {
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+
+        $this->postJson(route('corex.rental-inspections.complete', $inspection))
+            ->assertOk()
+            ->assertJsonFragment(['status' => RentalInspection::STATUS_COMPLETED]);
+    }
+
     // ── Lifecycle passthroughs ──────────────────────────────────────
 
     public function test_completing_an_inspection_with_an_unresolved_discrepancy_returns_409_not_500(): void

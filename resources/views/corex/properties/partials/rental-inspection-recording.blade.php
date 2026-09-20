@@ -83,13 +83,81 @@
         <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>
 
         @if($section === 'in')
-            <div class="flex justify-end pt-1">
-                <button type="button" :disabled="hasUnresolvedDiscrepancy('in')" @click="completeInspection('in')"
-                        class="px-4 py-2 rounded-md text-sm font-semibold"
-                        :style="hasUnresolvedDiscrepancy('in') ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
-                    Complete
-                </button>
-            </div>
+            {{-- §15.3 (2026-09-20), Stage 2 — the whole new signing path.
+                 Per-tenant rows + the agent's own signature. No landlord, no
+                 refusal option yet (Stages 3-4) — markCompleted() does not
+                 yet require any of this (Stage 5), so Complete still works
+                 unsigned in the meantime; this only ADDS the ability to
+                 sign, ready for Stage 5 to start requiring it. --}}
+            <template x-if="currentInspection('in').status !== 'awaiting_signature'">
+                <div class="flex justify-end pt-1">
+                    <button type="button" :disabled="hasUnresolvedDiscrepancy('in')" @click="startAwaitingSignature('in')"
+                            class="px-4 py-2 rounded-md text-sm font-semibold"
+                            :style="hasUnresolvedDiscrepancy('in') ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
+                        Ready to sign
+                    </button>
+                </div>
+            </template>
+
+            <template x-if="currentInspection('in').status === 'awaiting_signature'">
+                <div class="space-y-2 pt-1" style="border-top:1px solid var(--border);">
+                    <template x-for="tenant in inspectionTenants('in')" :key="tenant.contact_id">
+                        <div class="py-1.5" style="border-bottom:1px solid var(--border);">
+                            <div class="flex items-center justify-between gap-3">
+                                <span class="text-sm" x-text="tenantName(tenant)" style="color:var(--text-primary);"></span>
+                                <template x-if="tenantDisposition('in', tenant.contact_id)">
+                                    <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Signed</span>
+                                </template>
+                                <template x-if="!tenantDisposition('in', tenant.contact_id)">
+                                    <button type="button" @click="openSigningFor('in_tenant_' + tenant.contact_id)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
+                                </template>
+                            </div>
+                            <template x-if="activeSigningKey === ('in_tenant_' + tenant.contact_id)">
+                                <div class="space-y-2 pt-2">
+                                    <canvas x-init="$nextTick(() => initSignaturePadFor('in_tenant_' + tenant.contact_id, $el))"
+                                            class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
+                                    <div class="flex items-center gap-2">
+                                        <button type="button" @click="clearSignatureFor('in_tenant_' + tenant.contact_id)" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Clear</button>
+                                        <button type="button" @click="saveTenantSignatureFor('in', tenant)" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    <div class="py-1.5">
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="text-sm font-semibold" style="color:var(--text-primary);">Agent</span>
+                            <template x-if="agentDisposition('in')">
+                                <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Signed</span>
+                            </template>
+                            <template x-if="!agentDisposition('in') && allTenantsDispositioned('in')">
+                                <button type="button" @click="openSigningFor('in_agent')"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Sign</button>
+                            </template>
+                        </div>
+                        <template x-if="activeSigningKey === 'in_agent'">
+                            <div class="space-y-2 pt-2">
+                                <canvas x-init="$nextTick(() => initSignaturePadFor('in_agent', $el))"
+                                        class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
+                                <div class="flex items-center gap-2">
+                                    <button type="button" @click="clearSignatureFor('in_agent')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Clear</button>
+                                    <button type="button" @click="saveAgentSignatureFor('in')" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="flex justify-end pt-1">
+                        <button type="button" :disabled="hasUnresolvedDiscrepancy('in')" @click="completeInspection('in')"
+                                class="px-4 py-2 rounded-md text-sm font-semibold"
+                                :style="hasUnresolvedDiscrepancy('in') ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
+                            Complete
+                        </button>
+                    </div>
+                </div>
+            </template>
         @else
             <template x-if="currentInspection('out').status !== 'awaiting_signature'">
                 <div class="flex justify-end pt-1">

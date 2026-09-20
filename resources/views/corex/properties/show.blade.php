@@ -4925,8 +4925,11 @@
                     } catch (e) { this.lifecycleError = e.message; }
                 },
 
-                async startAwaitingSignature() {
-                    const insp = this.outInspection;
+                async startAwaitingSignature(section) {
+                    // §15.3 (2026-09-20) — widened from out-only to both
+                    // types; kept the param so Stage 2's new in-section UI
+                    // and the existing out-section UI share one method.
+                    const insp = this.currentInspection(section || 'out');
                     this.lifecycleError = '';
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/start-awaiting-signature`, {});
@@ -4934,6 +4937,8 @@
                     } catch (e) { this.lifecycleError = e.message; }
                 },
 
+                // ── Out-inspection signing (unchanged from before §15 —
+                // Stage 3 rebuilds this alongside adding the landlord) ──────
                 signaturePad: null,
                 signingOnBehalf: false,
                 refusedNote: '',
@@ -4971,6 +4976,74 @@
                         insp.signatures.push(signature);
                         this.signingOnBehalf = false;
                         this.refusedNote = '';
+                    } catch (e) { this.lifecycleError = e.message; }
+                },
+
+                // ── In-inspection signing (§15.3, Stage 2 — the whole new
+                // path: per-tenant rows + the agent's own signature. No
+                // landlord, no refusal yet — Stages 3-4). One canvas active
+                // at a time (activeSigningKey), matching how an agent
+                // actually hands one device to one person at a time. ──────
+                activeSigningKey: null,
+                signaturePads: {},
+
+                inspectionTenants(section) {
+                    return this.currentInspection(section)?.lease?.tenants || [];
+                },
+                tenantName(tenant) {
+                    return [tenant.contact?.first_name, tenant.contact?.last_name].filter(Boolean).join(' ') || 'Tenant';
+                },
+                tenantDisposition(section, contactId) {
+                    const insp = this.currentInspection(section);
+                    return (insp?.signatures || []).find(s => s.party_role === 'tenant' && s.party_contact_id === contactId) || null;
+                },
+                agentDisposition(section) {
+                    const insp = this.currentInspection(section);
+                    return (insp?.signatures || []).find(s => s.party_role === 'agent') || null;
+                },
+                allTenantsDispositioned(section) {
+                    return this.inspectionTenants(section).every(t => this.tenantDisposition(section, t.contact_id));
+                },
+
+                openSigningFor(key) {
+                    this.activeSigningKey = this.activeSigningKey === key ? null : key;
+                },
+                initSignaturePadFor(key, canvasEl) {
+                    if (!canvasEl || typeof SignaturePad === 'undefined') return;
+                    const ratio = Math.max(window.devicePixelRatio || 1, 1);
+                    canvasEl.width = canvasEl.offsetWidth * ratio;
+                    canvasEl.height = 140 * ratio;
+                    canvasEl.getContext('2d').scale(ratio, ratio);
+                    this.signaturePads[key] = new SignaturePad(canvasEl, { backgroundColor: '#fff' });
+                },
+                clearSignatureFor(key) { this.signaturePads[key]?.clear(); },
+
+                async saveTenantSignatureFor(section, tenant) {
+                    const key = section + '_tenant_' + tenant.contact_id;
+                    const pad = this.signaturePads[key];
+                    if (!pad || pad.isEmpty()) { this.lifecycleError = 'Draw a signature first.'; return; }
+                    await this._saveDisposition(section, {
+                        party_role: 'tenant', disposition: 'signed',
+                        party_contact_id: tenant.contact_id, signature_image: pad.toDataURL('image/png'),
+                    }, key);
+                },
+
+                async saveAgentSignatureFor(section) {
+                    const key = section + '_agent';
+                    const pad = this.signaturePads[key];
+                    if (!pad || pad.isEmpty()) { this.lifecycleError = 'Draw a signature first.'; return; }
+                    await this._saveDisposition(section, {
+                        party_role: 'agent', disposition: 'signed', signature_image: pad.toDataURL('image/png'),
+                    }, key);
+                },
+
+                async _saveDisposition(section, payload, key) {
+                    const insp = this.currentInspection(section);
+                    this.lifecycleError = '';
+                    try {
+                        const signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, payload);
+                        insp.signatures.push(signature);
+                        if (this.activeSigningKey === key) this.activeSigningKey = null;
                     } catch (e) { this.lifecycleError = e.message; }
                 },
 

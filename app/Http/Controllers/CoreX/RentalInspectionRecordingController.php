@@ -56,6 +56,12 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => $e->getMessage()], 409);
         }
 
+        // §15.4 — the per-tenant signing UI reads lease.tenants.contact off
+        // this same-page response (tabPayloadFor()'s own eager-load covers
+        // the full-reload case, but a freshly-started inspection never goes
+        // through that path).
+        $inspection->load('lease.tenants.contact');
+
         return response()->json($inspection, 201);
     }
 

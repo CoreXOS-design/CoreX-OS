@@ -203,15 +203,19 @@ class RentalInspection extends Model
     }
 
     /**
-     * §3.5/§0.7 — an out-inspection moves to awaiting_signature once the
-     * walkthrough is done, opening the tenant's signing window. Guarded the
-     * same way completion is: cannot proceed while a discrepancy is still
-     * unresolved (§11).
+     * §3.5/§0.7, widened by §15.3 (2026-09-20) — an in- or out-inspection
+     * moves to awaiting_signature once the walkthrough is done, opening the
+     * signing step. Previously out-inspection only; Johan's fuller ruling
+     * ("inspections both in and out needs all party signatures") requires
+     * the same step on both. TYPE_AD_HOC stays excluded — §15 names "both
+     * in and out" specifically, and an ad-hoc mid-tenancy check keeps its
+     * existing lighter-weight lifecycle. Guarded the same way completion is:
+     * cannot proceed while a discrepancy is still unresolved (§11).
      */
     public function startAwaitingSignature(): void
     {
-        if ($this->type !== self::TYPE_OUT) {
-            throw new \LogicException('Only an out-inspection has a signing window.');
+        if (! in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
+            throw new \LogicException('Only an in- or out-inspection has a signing window.');
         }
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot start the signing window while a discrepancy is unresolved.');
@@ -355,8 +359,11 @@ class RentalInspection extends Model
             ->with(['observations' => fn (HasMany $q) => $q->latest('created_at')])
             ->get();
 
+        // §15.4 — the per-tenant signing UI (Stage 2) needs to know WHO the
+        // lease's tenants are to render one row each; lease.tenants.contact
+        // is the same relation path already proven elsewhere in this module.
         $withDetail = fn (string $type) => self::currentFor($property, $type)
-            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures']);
+            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures', 'lease.tenants.contact']);
 
         $outInspection = $withDetail(self::TYPE_OUT);
 
