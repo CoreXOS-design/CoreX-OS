@@ -35,10 +35,6 @@ use Illuminate\Support\Collection;
  */
 class RentalApplicationApprovedMail extends Mailable implements ShouldQueue
 {
-    // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
-    // sent inside the page request; the live mail worker group drains this queue.
-    public $queue = 'mail';
-
     use Queueable, SerializesModels;
 
     public string $applicantName;
@@ -52,6 +48,10 @@ class RentalApplicationApprovedMail extends Mailable implements ShouldQueue
         public bool $isSubjectToFica = false,
         public ?string $ficaContinueUrl = null,
     ) {
+        // Queueable already declares $queue — set it via onQueue() rather than
+        // redeclaring the property (fatals as an incompatible trait-property
+        // redeclaration; see RentalApplicationReturnedMail's own note).
+        $this->onQueue('mail');
         $this->applicantName = $application->contact->full_name ?: 'there';
         $this->agencyName = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
         $this->amount = number_format((float) $application->approved_rental_amount, 2);
