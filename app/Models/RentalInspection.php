@@ -228,20 +228,42 @@ class RentalInspection extends Model
     }
 
     /**
-     * §3.5/§11 — completing an in-inspection opens the tenant's fault-report
-     * window from that moment. Completing an out-inspection requires a
-     * signature already on record (tenant's own, or an agent_on_behalf one
-     * carrying the required refusal note, §0.7) — signing is what closes it,
-     * not a separate step. Either way, cannot complete while a discrepancy
-     * is unresolved (§11).
+     * §3.5/§11/§15.7 — completing an in-inspection opens the tenant's
+     * fault-report window from that moment. Johan's fuller 2026-09-20
+     * ruling: "its form part of the lease agreement so without signatures
+     * its not an accepted document" — an in- or out-inspection now
+     * requires EVERY tenant and the landlord (if resolvable) to have a
+     * disposition (signed or refused), AND the agent's own signature,
+     * before it can complete. TYPE_AD_HOC is exempt — §15 names "both in
+     * and out" specifically, and an ad-hoc mid-tenancy check keeps its
+     * existing lighter-weight lifecycle. Cannot complete while a
+     * discrepancy is unresolved either way (§11).
+     *
+     * This CANNOT become a bypass: outstandingSignatories() and
+     * hasAgentSignature() are the same checks RentalInspectionSignature::
+     * capture() itself already enforces when creating a row (§15.2a) — a
+     * disposition satisfying this guard cannot exist without the real
+     * thing (a genuine signature image, or a genuine reason) behind it.
      */
     public function markCompleted(): void
     {
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot complete an inspection while a discrepancy is unresolved.');
         }
-        if ($this->type === self::TYPE_OUT && ! $this->signatures()->exists()) {
-            throw new \LogicException('Cannot complete an out-inspection with no signature on record.');
+
+        if (in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
+            $outstanding = $this->outstandingSignatories();
+            if ($outstanding->isNotEmpty()) {
+                $first = $outstanding->first();
+                if ($first['party_role'] === RentalInspectionSignature::PARTY_TENANT) {
+                    $name = \App\Models\Contact::find($first['party_contact_id'])?->full_name ?? 'A tenant';
+                    throw new \LogicException("Cannot complete: {$name} has neither signed nor been marked as refusing.");
+                }
+                throw new \LogicException('Cannot complete: the landlord has neither signed nor been marked as refusing.');
+            }
+            if (! $this->hasAgentSignature()) {
+                throw new \LogicException('Cannot complete an inspection without the agent\'s own signature.');
+            }
         }
 
         $completedAt = now();

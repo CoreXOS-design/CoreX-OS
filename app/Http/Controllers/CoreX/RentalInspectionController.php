@@ -97,10 +97,17 @@ class RentalInspectionController extends Controller
             'property', 'lease.tenants.contact',
             'observations.item', 'observations.observedByUser', 'observations.observedByContact', 'observations.photos',
             'discrepancies.observations', 'discrepancies.resolvedBy', 'discrepancies.acceptedObservation',
-            'signatures', 'createdBy', 'cancelledBy',
+            'signatures.partyContact', 'signatures.recordedByUser', 'createdBy', 'cancelledBy',
         ]);
 
-        return view('corex.rental-inspections.show', ['inspection' => $rentalInspection]);
+        return view('corex.rental-inspections.show', [
+            'inspection' => $rentalInspection,
+            // §15.5/§15.8 — refusal_reason_preset stores a KEY; this maps it
+            // to the agency's own current label for display. A key an
+            // agency has since removed/renamed still shows the key itself
+            // (never blank) via the blade's own fallback.
+            'refusalReasonPresets' => \App\Models\RentalInspectionSetting::refusalReasonPresetsFor($rentalInspection->agency_id),
+        ]);
     }
 
     public function cancel(Request $request, RentalInspection $rentalInspection): RedirectResponse

@@ -1030,9 +1030,10 @@ property-tab controller, still deliberately held for attended work) should be bu
 
 ---
 
-## 15. Three-party signing — Johan's 2026-09-20 ruling (DECIDED — building now, staged)
+## 15. Three-party signing — Johan's 2026-09-20 ruling (BUILT, all five stages)
 
-**Status: decided, building.** §15 originally recorded an open question (was in-inspection signing
+**Status: BUILT.** All five stages landed 2026-09-20 (cc4), each independently verified by cc1 over
+real HTTP/test runs before landing, not test-suite-only. §15 originally recorded an open question (was in-inspection signing
 in scope at all). Johan's answer was bigger than the question — kept below in §15.0 for the record,
 then superseded by the decided design in §15.1 onward. This is not a signature step bolted onto an
 inspection: **an inspection forms part of the lease agreement, and an unsigned one is not an accepted
@@ -1306,4 +1307,26 @@ not one landing at the end.
   for a signature by someone reading it cold, eighteen months later, with no access to this spec.
 - The landlord requirement is waived, not silently ignored and not blocking, when
   `Property::sellerOwnerContact()` resolves to null.
-- Every new setting from §15.6 appears in the Setup Wizard in the same stage it's built, not later.
+- ~~Every new setting from §15.6 appears in the Setup Wizard in the same stage it's built, not later.~~
+  **Not met, flagged not silently dropped (Stage 1)**: `refusal_reason_presets` is a JSON list; none of
+  the wizard's existing control types (number/select/text/textarea/toggle) fit it, and building a new
+  repeater-style control type was judged out of scope for this build. It IS editable — on the dedicated
+  `/corex/settings/rental-inspections` screen, guarded against the wizard's own unrelated save wiping it
+  (§15.6) — just not from the wizard itself. Flagged to the conductor at Stage 1 time; still open for
+  Johan's call on whether a wizard control gets built later.
+
+**All five stages built 2026-09-20 (cc4), each independently verified by cc1 over real HTTP before
+landing:**
+1. The signature model (`RentalInspectionSignature` rebuilt around `capture()`'s invariant enforcement,
+   `RentalInspection::outstandingSignatories()`/`hasAgentSignature()`).
+2. In-inspection signing — the whole new per-tenant + agent path.
+3. Out-inspection landlord signing — consolidated with in-inspection's shared UI in the same pass,
+   rather than left as a second divergent shape (a deviation from the conductor's own suggested stage
+   split, made because leaving out-inspection without agent-signing while in-inspection already had it
+   would have been real inconsistency, not a deliberate design choice — flagged to her directly at the
+   time).
+4. Refusal capture + the agent attestation, including `rental_inspections.sign_on_behalf` finding its
+   real successor use (gating a refused disposition specifically) after Stage 3's cleanup left it
+   dormant.
+5. The completion guard replaced on both types (§15.7) and the show-page's unambiguous signed-vs-refused
+   rendering (§15.8).

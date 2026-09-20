@@ -509,9 +509,29 @@ final class RentalInspectionRecordingControllerTest extends TestCase
      * guard still lets an unsigned in-inspection complete, exactly as
      * before, so nothing here silently starts enforcing early.
      */
-    public function test_an_in_inspection_still_completes_without_any_signature_in_this_stage(): void
+    /**
+     * §15.7, Stage 5 — this is the exact opposite of what this test used to
+     * prove in Stage 2 ("still completes without any signature in THIS
+     * stage"). Now that the completion guard is real, an unsigned
+     * in-inspection must genuinely be refused, over real HTTP, not just at
+     * the model layer.
+     */
+    public function test_an_in_inspection_cannot_complete_over_real_http_without_the_agents_signature(): void
     {
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+
+        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertStatus(409);
+    }
+
+    public function test_an_in_inspection_completes_over_real_http_once_the_agent_signs(): void
+    {
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $inspection->startAwaitingSignature();
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_AGENT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(201);
 
         $this->postJson(route('corex.rental-inspections.complete', $inspection))
             ->assertOk()

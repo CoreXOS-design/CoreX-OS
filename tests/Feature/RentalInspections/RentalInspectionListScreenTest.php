@@ -13,6 +13,7 @@ use App\Models\Property;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
+use App\Models\RentalInspectionSignature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -214,6 +215,38 @@ final class RentalInspectionListScreenTest extends TestCase
 
         $this->actingAs($admin)->get(route('corex.rental-inspections.show', $inspection))
             ->assertOk()->assertSee('Lounge')->assertSee('Good');
+    }
+
+    /**
+     * §15.5/§15.8/§15.12's own acceptance criteria — a signed row and a
+     * refused row must be distinguishable by someone reading the page cold,
+     * not just by code that happens to know which is which.
+     */
+    public function test_show_renders_signed_and_refused_dispositions_unambiguously(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
+        $property = $this->property($this->branchA, 'Signature detail property', $admin);
+        $inspection = $this->inspection($property, $admin, ['type' => RentalInspection::TYPE_OUT]);
+        $tenant = Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id,
+            'first_name' => 'Palesa', 'last_name' => 'Tenant', 'email' => uniqid() . '@example.test',
+        ]);
+        LeaseTenant::create(['lease_id' => $inspection->lease_id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id, 'refusal_reason_preset' => 'not_present', 'recorded_by_user_id' => $admin->id,
+        ]);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('corex.rental-inspections.show', $inspection));
+
+        $response->assertOk()
+            ->assertSee('Palesa Tenant')
+            ->assertSee('Refused to sign')
+            ->assertSee('Not present for the walkthrough')
+            ->assertSee('Signed')
+            ->assertSee('src="signatures/agent.png"', false); // the signed row renders an image, never bare text
     }
 
     public function test_cancel_requires_a_reason_and_stamps_the_cancelling_user(): void

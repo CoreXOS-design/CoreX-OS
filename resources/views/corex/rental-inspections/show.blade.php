@@ -124,16 +124,55 @@
     @if($inspection->signatures->isNotEmpty())
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Signatures</h2>
-        {{-- §15.5/§15.8 — minimal rename-safe rendering for Stage 1. The full
-             unambiguous signed-vs-refused treatment (distinct storage, label
-             AND rendering, per Johan's 2026-09-20 ruling) is Stage 5. --}}
+        {{--
+            §15.5/§15.8, Stage 5 — the unambiguous rendering Johan's ruling
+            requires: "a refusal must never be able to look like a signature,
+            on screen or on the PDF." Branches on `disposition` alone (never
+            on whether party_signature_path happens to be null), and a
+            signed row's image and a refused row's reason block share no
+            markup — different shape, not just different colour, so this
+            still reads correctly in black-and-white print. Neither is
+            styled as an error or a warning: both are simply facts about how
+            the inspection ended (Johan: "none of these should feel like
+            [an error state] in the UI").
+        --}}
         @foreach($inspection->signatures as $signature)
-            <div class="text-sm" style="border-bottom: 1px solid var(--border); padding-bottom: 4px;">
-                {{ ucfirst($signature->party_role) }} —
-                {{ $signature->disposition === 'refused' ? 'REFUSED TO SIGN' : 'Signed' }}
-                ({{ $signature->disposition_recorded_at?->format('Y-m-d H:i') }})
-                @if($signature->refusal_reason_note)
-                    <div class="text-xs" style="color: var(--text-muted);">{{ $signature->refusal_reason_note }}</div>
+            @php
+                $partyLabel = match($signature->party_role) {
+                    'agent' => 'Agent',
+                    'landlord' => 'Landlord' . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
+                    default => 'Tenant' . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
+                };
+                $reasonLabel = collect($refusalReasonPresets)->firstWhere('key', $signature->refusal_reason_preset)['label']
+                    ?? $signature->refusal_reason_preset;
+            @endphp
+            <div class="text-sm py-2" style="border-bottom: 1px solid var(--border);">
+                <div class="flex items-center justify-between gap-3">
+                    <span style="color: var(--text-primary);">{{ $partyLabel }}</span>
+                    <span class="text-xs" style="color: var(--text-muted);">{{ $signature->disposition_recorded_at?->format('Y-m-d H:i') }}</span>
+                </div>
+                @if($signature->disposition === 'signed')
+                    <div class="mt-1.5">
+                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Signed</span>
+                        @if($signature->party_signature_path)
+                            <div class="mt-1">
+                                <img src="{{ $signature->party_signature_path }}" alt="{{ $partyLabel }}'s signature"
+                                     style="max-height: 60px; background: #fff; border: 1px solid var(--border); border-radius: 4px; padding: 4px;">
+                            </div>
+                        @endif
+                    </div>
+                @else
+                    <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
+                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Refused to sign</span>
+                        <div class="text-xs mt-0.5" style="color: var(--text-secondary);">
+                            Reason: {{ $reasonLabel }}{{ $signature->refusal_reason_note ? ' — ' . $signature->refusal_reason_note : '' }}
+                        </div>
+                        @if($signature->recordedByUser)
+                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                Recorded by {{ $signature->recordedByUser->name }} — attested by the agent's own signature below.
+                            </div>
+                        @endif
+                    </div>
                 @endif
             </div>
         @endforeach
