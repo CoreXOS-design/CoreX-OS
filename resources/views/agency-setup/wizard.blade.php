@@ -45,6 +45,27 @@
             </div>
         @endif
 
+        {{-- Bug found 2026-09-20: a saver's failure previously never reached
+             this page at all — this step's savers run inside one DB
+             transaction now (AgencySetupWizardController::save()), so a
+             failure anywhere rolls the whole step back and lands the user
+             back HERE with the real error, never a "Saved." they didn't
+             earn. This banner is the only thing standing between that fix
+             and a user who still can't see it — every @error($key) block
+             on individual controls below only covers fields this step
+             actually renders; a failing field this step never declared
+             (e.g. a hidden submitted-marker) has nowhere else to show up. --}}
+        @if ($errors->any())
+            <div class="mx-6 mt-4 rounded-md px-3 py-2 text-sm" style="background:color-mix(in srgb, var(--ds-crimson,#e11d48) 10%, transparent); color:var(--ds-crimson,#e11d48);">
+                <p class="font-semibold mb-1">That didn't save — please try again.</p>
+                <ul class="list-disc pl-5 space-y-0.5">
+                    @foreach ($errors->all() as $message)
+                        <li>{{ $message }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         <form id="wizard-step-form" method="POST"
               action="{{ route('corex.agency-setup.step.save', ['step' => $stepKey]) }}"
               enctype="multipart/form-data"

@@ -77,6 +77,31 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
                 'fault_report_window_days' => 37,
                 'out_inspection_signing_window_days' => 53,
                 'no_approval_spend_threshold' => 500,
+                // .ai/specs/rental-application-field-config.md joined this
+                // same shared step after this test was first written — every
+                // field below is something a real page load actually renders
+                // (the tick grid defaults every field to shown, the 4
+                // toggles and return_gate_method all carry real defaults),
+                // so a genuine browser submission sends all of it. Confirmed
+                // directly: adding ONLY the return-gate fields is NOT
+                // enough — updateFieldDisplayConfig()/updateRequiredFields()/
+                // the 4 boolean savers each flash their own "did not save"
+                // error via has()-guard when their field is absent, and
+                // since none of them throw, the loop keeps running past
+                // them — so the request still redirects forward looking
+                // like success while a stale flashed error survives into
+                // the session, still failing assertSessionHasNoErrors().
+                'shown_field_keys' => collect(\App\Models\RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
+                'required_field_keys' => [],
+                'field_display_submitted' => '1',
+                'required_fields_submitted' => '1',
+                'return_gate_method' => 'id_number',
+                'return_gate_attempt_max' => 6,
+                'return_gate_attempt_window_minutes' => 15,
+                'lock_property_after_submission' => '1',
+                'tag_contact_as_tenant_on_approval' => '1',
+                'require_fica_before_authorisation' => '0',
+                'document_uploads_open_after_approval' => '1',
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();

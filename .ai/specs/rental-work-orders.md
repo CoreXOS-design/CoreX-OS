@@ -1551,6 +1551,18 @@ their own record rather than a work-order status:
     spec leaves genuinely open — the mailbox-polling automation question (§3a.1a, investigated not
     built) and the fault-report-level owner/tenant mail gap (named above and in Stage 1) — remain
     exactly that: open, not silently resolved by finishing the rest of the build.
+  - **Real bug, found and fixed 2026-09-20** (a genuine end-to-end QA1 walk, not a test suite): the
+    history block above was scoped to `$outInspection` from `tabPayloadFor()`'s existing
+    `currentFor()`-based lookup — which deliberately excludes `completed`/`cancelled` inspections (it
+    answers "is one currently open"). That meant the fault-and-repair history went blank the INSTANT
+    the out-inspection actually completed — exactly the moment during a deposit dispute an agent needs
+    it, per Johan's own framing for why this stage exists at all. Fixed with a second, independent
+    lookup, `RentalInspection::mostRecentOutFor()` — same lease-scoping (§3a.4), but includes completed
+    (excludes only `cancelled`, since an abandoned attempt never really happened) — feeding the history
+    query instead of `currentFor()`'s result. `currentFor()` itself was deliberately left untouched; it
+    still correctly guards `start()`'s double-start protection, which is a different question. See
+    `RentalInspectionListScreenTest`/`OutInspectionFaultHistoryTest` for the tests proving history now
+    survives completion.
 - `config/corex-permissions.php` — new permission keys (§10).
 - Sidebar entry for the new list screens (same-day, non-negotiable #2) — Rental Work Orders AND Rental
   Fault Reports both, under the existing Rentals section.

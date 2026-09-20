@@ -54,7 +54,12 @@
                 @if(!in_array($inspection->status, ['completed', 'cancelled'], true))
                     <button type="button" onclick="document.getElementById('cancel-inspection-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Cancel inspection</button>
                 @endif
-                @if($inspection->isDeletable() && $inspection->status !== 'completed')
+                {{-- 2026-09-20 — isDeletable()/the completed-status restriction are both
+                     retired: archiving is now unconditional (real evidence is never
+                     destroyed by a soft delete), matching RentalInspectionController::
+                     destroy(). This button is only hidden once the record is already
+                     archived, below. --}}
+                @if(!$inspection->trashed())
                     <form method="POST" action="{{ route('corex.rental-inspections.destroy', $inspection) }}" onsubmit="return confirm('Archive this inspection?');">
                         @csrf
                         @method('DELETE')
