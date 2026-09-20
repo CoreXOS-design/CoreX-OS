@@ -12642,6 +12642,32 @@ CREATE TABLE `rental_applications` (
   CONSTRAINT `rental_applications_reopened_by_user_id_foreign` FOREIGN KEY (`reopened_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_approvals`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_approvals` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rental_fault_report_id` bigint unsigned DEFAULT NULL,
+  `rental_work_order_id` bigint unsigned DEFAULT NULL,
+  `decision` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `approval_route` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `evidence_type` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `evidence_text` text COLLATE utf8mb4_unicode_ci,
+  `evidence_file_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `decided_at` timestamp NOT NULL,
+  `recorded_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_approvals_fault_report_fk` (`rental_fault_report_id`),
+  KEY `rental_approvals_recorded_by_user_id_foreign` (`recorded_by_user_id`),
+  KEY `rental_approvals_agency_report_idx` (`agency_id`,`rental_fault_report_id`),
+  KEY `rental_approvals_work_order_idx` (`rental_work_order_id`),
+  CONSTRAINT `rental_approvals_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_approvals_fault_report_fk` FOREIGN KEY (`rental_fault_report_id`) REFERENCES `rental_fault_reports` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_approvals_recorded_by_user_id_foreign` FOREIGN KEY (`recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_document_types`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -17079,3 +17105,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1378,'2026_09_20_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1379,'2026_09_25_100000_create_rental_fault_reports_table',328);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1380,'2026_09_25_100100_create_rental_fault_report_photos_table',328);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1381,'2026_09_25_100200_register_rental_fault_report_created_notification',328);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1382,'2026_09_26_100000_create_rental_approvals_table',329);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1383,'2026_09_26_100100_register_rental_fault_report_resolved_notification',329);
