@@ -42,6 +42,7 @@ class RentalInspection extends Model
         'cancelled_at',
         'cancelled_by_user_id',
         'cancel_reason',
+        'archived_by_user_id',
         'created_by_user_id',
     ];
 
@@ -81,6 +82,11 @@ class RentalInspection extends Model
     public function cancelledBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cancelled_by_user_id');
+    }
+
+    public function archivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'archived_by_user_id');
     }
 
     public function createdBy(): BelongsTo
@@ -164,17 +170,6 @@ class RentalInspection extends Model
             ->where('party_role', RentalInspectionSignature::PARTY_AGENT)
             ->where('disposition', RentalInspectionSignature::DISPOSITION_SIGNED)
             ->exists();
-    }
-
-    /**
-     * §3.3 — deletable through the ordinary CRUD path only while nothing has
-     * been recorded against it yet. Once a single observation exists, this
-     * is evidence and may only be cancelled, never deleted — same reasoning
-     * and shape as Lease::isDeletable().
-     */
-    public function isDeletable(): bool
-    {
-        return $this->observations()->doesntExist();
     }
 
     /**
@@ -299,6 +294,38 @@ class RentalInspection extends Model
     }
 
     /**
+     * The most recent out-inspection ever recorded for this property,
+     * regardless of status — including completed — except cancelled (a
+     * cancelled attempt never really happened, so it carries no history).
+     *
+     * Deliberately NOT currentFor(): that method answers "is one currently
+     * under way" and correctly excludes completed/cancelled for that
+     * question — widening it would break the start()/currentFor() guard
+     * against double-starting an inspection. This answers a DIFFERENT
+     * question — "which out-inspection's fault history should the tab
+     * show" — and the answer to that is needed MOST at the exact moment
+     * currentFor() goes null: right after the out-inspection completes,
+     * during a deposit dispute. Found via a real QA1 walk on 2026-09-20 —
+     * the fault-and-repair block (Stage 5, rental-work-orders.md §3a.5/§6a)
+     * was going blank the instant it mattered.
+     *
+     * Not scoped through the property's ACTIVE lease (unlike currentFor()/
+     * start()) — nothing flips a lease's own status on out-inspection
+     * completion, and the whole point is to keep working once that lease is
+     * no longer active. Scoped through the inspection's own lease_id
+     * belonging to this property instead, so the most recent tenancy's
+     * out-inspection is found however lease.status reads by then.
+     */
+    public static function mostRecentOutFor(Property $property): ?self
+    {
+        return self::where('type', self::TYPE_OUT)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->whereHas('lease', fn ($q) => $q->where('property_id', $property->id))
+            ->latest('id')
+            ->first();
+    }
+
+    /**
      * §0.5/§4 — the deliberate action that actually begins an inspection.
      * Refuses if one of this type is already under way for the property's
      * active lease (currentFor() would already have found it — starting a
@@ -366,6 +393,13 @@ class RentalInspection extends Model
             ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures', 'lease.tenants.contact']);
 
         $outInspection = $withDetail(self::TYPE_OUT);
+        // 2026-09-20 fix — deliberately NOT $outInspection above. That value
+        // is scoped by currentFor() ("is one currently open"), which goes
+        // null the instant an out-inspection completes — exactly the moment
+        // the fault history matters most (a deposit dispute after move-out).
+        // mostRecentOutFor() answers "which out-inspection's history should
+        // the tab show" instead, and keeps answering it after completion.
+        $mostRecentOut = self::mostRecentOutFor($property);
 
         return [
             'items' => $items,
@@ -380,8 +414,8 @@ class RentalInspection extends Model
             // items' own property-wide carry-forward) — empty until an
             // out-inspection actually exists, since there's no lease context
             // to scope by before then.
-            'out_inspection_fault_history' => $outInspection
-                ? \App\Models\RentalFaultReport::where('lease_id', $outInspection->lease_id)->orderByDesc('reported_at')->get()
+            'out_inspection_fault_history' => $mostRecentOut
+                ? \App\Models\RentalFaultReport::where('lease_id', $mostRecentOut->lease_id)->orderByDesc('reported_at')->get()
                 : collect(),
             // §15.4, Stage 3 — property-level (unlike tenants, which are
             // lease-level), so both in_inspection and out_inspection share
@@ -389,6 +423,10 @@ class RentalInspection extends Model
             // can't resolve one — the UI shows that plainly (§15.4) rather
             // than hiding the row or blocking on a party nobody can name.
             'landlord_contact' => $property->sellerOwnerContact(),
+            // Drives the fault-history block's own visibility on the tab —
+            // deliberately separate from out_inspection (above) so the block
+            // stays visible once out_inspection goes null on completion.
+            'out_inspection_recorded' => (bool) $mostRecentOut,
         ];
     }
 }

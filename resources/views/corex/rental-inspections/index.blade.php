@@ -31,9 +31,21 @@
 <div class="p-6 space-y-4">
     <div class="flex items-center justify-between">
         <h1 class="text-lg font-semibold">Rental Inspections</h1>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('corex.rental-inspections.index', array_merge(request()->except('page'), ['archived' => $archived ? null : 1])) }}"
+               class="corex-btn-outline text-xs {{ $archived ? 'corex-tab-active' : '' }}">
+                {{ $archived ? 'Hide archived' : 'Show archived' }}
+            </a>
+            @permission('rental_inspections.create')
+            <a href="{{ route('corex.rental-inspections.create') }}" class="corex-btn-primary text-xs">Start Inspection</a>
+            @endpermission
+        </div>
     </div>
 
     <form method="GET" action="{{ route('corex.rental-inspections.index') }}" class="flex flex-wrap items-end gap-3">
+        @if($archived)
+            <input type="hidden" name="archived" value="1">
+        @endif
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address, tenant or agent name" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
@@ -83,7 +95,7 @@
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('type') }}" style="color: var(--text-muted);">Type{{ $sortIndicator('type') }}</a></th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
                     <th class="text-left px-4 py-2"><a href="{{ $sortLink('scheduled_for') }}" style="color: var(--text-muted);">Scheduled{{ $sortIndicator('scheduled_for') }}</a></th>
-                    <th class="text-left px-4 py-2">Discrepancy</th>
+                    <th class="text-left px-4 py-2">{{ $archived ? 'Archived' : 'Discrepancy' }}</th>
                     <th></th>
                 </tr>
             </thead>
@@ -96,18 +108,31 @@
                     <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($inspection->status) }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span></td>
                     <td class="px-4 py-2">{{ $inspection->scheduled_for?->format('Y-m-d') ?? '—' }}</td>
                     <td class="px-4 py-2">
-                        @if($inspection->hasUnresolvedDiscrepancy())
+                        @if($archived)
+                            {{ $inspection->archivedBy?->name ?? 'Unknown' }} — {{ $inspection->deleted_at?->format('Y-m-d') }}
+                        @elseif($inspection->hasUnresolvedDiscrepancy())
                             <span class="ds-badge ds-badge-danger">Unresolved</span>
                         @endif
                     </td>
                     <td class="px-4 py-2 text-right">
-                        <a href="{{ route('corex.rental-inspections.show', $inspection) }}" class="corex-btn-outline text-xs">View</a>
+                        @if($archived)
+                            @permission('rental_inspections.create')
+                            <form method="POST" action="{{ route('corex.rental-inspections.restore', $inspection->id) }}" class="inline">
+                                @csrf
+                                <button type="submit" class="corex-btn-outline text-xs">Restore</button>
+                            </form>
+                            @endpermission
+                        @else
+                            <a href="{{ route('corex.rental-inspections.show', $inspection) }}" class="corex-btn-outline text-xs">View</a>
+                        @endif
                     </td>
                 </tr>
                 @empty
                 <tr><td colspan="7" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
-                    @if(!$hasAnyInspections)
-                        No inspections yet on this agency. Recording one starts from a property's Rental Images tab.
+                    @if($archived)
+                        No archived inspections on this agency.
+                    @elseif(!$hasAnyInspections)
+                        No inspections yet on this agency. Click "Start Inspection" above, or start one from a property's Rental Images tab.
                     @else
                         No inspections match this search or filter. Try clearing a filter.
                     @endif

@@ -4608,7 +4608,7 @@
                              and what was not repaired." Attached, not merged —
                              a separate block, never inside the recording above.
                              Read-only: resolved from its own screen, not here. --}}
-                        <template x-if="currentInspection('out')">
+                        <template x-if="outInspectionRecorded">
                             <div class="mt-3 pt-3 space-y-2" style="border-top:1px solid var(--border);">
                                 <h4 class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Fault &amp; Repair History — this tenancy</h4>
                                 <template x-if="!outInspectionFaultHistory.length">
@@ -4767,6 +4767,12 @@
                 // §15.4, Stage 3 — property-level, shared by both sections. Null
                 // means Property::sellerOwnerContact() couldn't resolve one.
                 landlordContact: config.inspectionData.landlord_contact,
+                // 2026-09-20 fix — deliberately NOT derived from outInspection
+                // above (that goes null the moment the out-inspection
+                // completes). Drives the fault-history block's own
+                // visibility so it stays shown after completion, when it
+                // matters most.
+                outInspectionRecorded: config.inspectionData.out_inspection_recorded,
                 itemError: '',
                 itemBusy: false,
                 newItem: { kind: 'space', label: '' },

@@ -348,6 +348,13 @@ return [
                 . 'far ahead agents get warned of a lease expiring, how long a tenant has to report a '
                 . 'fault after moving in, and how long they have to sign an out-inspection.',
         ],
+        // .ai/specs/rental-application-field-config.md — conductor's ruling,
+        // 2026-09-20: the shipped-field tick grid (shown/required) belongs
+        // here because it is Johan's own tick/untick model, not a scalar
+        // key/type/default control this generic form can render on its own.
+        // It renders via the partial, BEFORE the generic controls below,
+        // through the SAME form/save cycle (wizard.blade.php).
+        'partial' => 'agency-setup.steps.rentals-field-config',
         'savers' => [
             ['controller' => LeaseSettingsController::class, 'method' => 'update'],
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'update'],
@@ -357,6 +364,17 @@ return [
             // saver validates and writes ONLY no_approval_spend_threshold —
             // never merged into either saver above.
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'update'],
+            // Shipped-field tick grid (rentals-field-config.blade.php partial) —
+            // narrow, has()/submitted-marker-guarded savers, same independence
+            // pattern as every other saver on this step.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateFieldDisplayConfig'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequiredFields'],
+            // The 5 scalar rental-application controls below.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updatePropertyLock'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateTenantTagging'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireFicaBeforeAuthorisation'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateDocumentUploadsOpenAfterApproval'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateReturnGate'],
         ],
         'controls' => [
             ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
@@ -378,6 +396,43 @@ return [
             // Reserved for rental-work-orders.md's two remaining settings
             // (completion_requires_photo, overdue_reminder_days) — added here
             // once work orders themselves are built (Stage 4), not before.
+            // .ai/specs/rental-application-field-config.md — the 5 scalar rental-
+            // application settings the conductor ruled IN the wizard, 2026-09-20.
+            // identity_gate_enabled deliberately stays OUT — its own docblock
+            // calls it a universal security decision, not a customisation.
+            // Rate-limit knobs stay OUT — expert carve-out.
+            ['key' => 'lock_property_after_submission', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'heading' => 'Rental applications',
+             'label' => 'Lock the property link once an application is submitted',
+             'explain' => 'Once an applicant submits, CoreX can stop the same application link from being used to apply for a different property.',
+             'affects' => 'Whether an applicant\'s link stays tied to the one property they applied for, or can be reused for another listing.'],
+            ['key' => 'tag_contact_as_tenant_on_approval', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tag the contact as Tenant when an application is approved',
+             'explain' => 'When an agent approves a rental application, CoreX can automatically add "Tenant" to that person\'s contact record.',
+             'affects' => 'Whether an approved applicant\'s contact record picks up the Tenant tag automatically, or an agent has to add it by hand.'],
+            ['key' => 'require_fica_before_authorisation', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Require FICA verification before an application can be authorised',
+             'explain' => 'CoreX can block an agent from authorising (final-approving) a rental application until the applicant\'s FICA/identity verification is complete.',
+             'affects' => 'Whether the Authorise step on an application is blocked until FICA is done, or can happen before FICA is complete.'],
+            ['key' => 'document_uploads_open_after_approval', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Keep document uploads open after an application is approved',
+             'explain' => 'CoreX can keep letting an approved applicant upload outstanding documents (e.g. payslips, ID) after approval, instead of closing the upload window immediately.',
+             'affects' => 'Whether an approved applicant can still add documents afterwards, or the upload window closes the moment they are approved.'],
+            ['key' => 'return_gate_method', 'source' => 'rental_application', 'type' => 'select', 'default' => 'id_number',
+             'options' => ['id_number' => 'ID number', 'email_otp' => 'Email OTP (one-time code by email)'],
+             'label' => 'How a returning applicant proves who they are',
+             'explain' => 'When someone reopens an application link they already started, CoreX asks for one of these before showing their saved answers.',
+             'affects' => 'What a returning applicant is asked for before CoreX lets them back into their own in-progress application.'],
+        ],
+        // Fine-tuning an agency does once they are live and know what they want —
+        // custom labels, help text, field order, and the full custom-field editor
+        // — deliberately stays out of the wizard (conductor's ruling, 2026-09-20)
+        // and lives at /corex/settings/rental-applications instead. An agency
+        // must never have to discover that screen by accident.
+        'links' => [
+            ['route' => 'corex.settings.rental-applications.edit',
+             'label' => 'Rental application settings',
+             'explain' => 'Custom field labels, help text, field ordering, and adding your own extra questions are set here, any time after setup.'],
         ],
     ],
 
