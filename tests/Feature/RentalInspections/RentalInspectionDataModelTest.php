@@ -452,7 +452,7 @@ final class RentalInspectionDataModelTest extends TestCase
     {
         $tenant = $this->makeTenant();
         $landlord = Contact::create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
             'first_name' => 'Lindiwe', 'last_name' => 'Landlord', 'email' => uniqid() . '@example.test',
         ]);
         \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $this->property->id, 'role' => 'landlord']);

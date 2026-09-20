@@ -360,7 +360,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     {
         $property = $this->property;
         $landlord = \App\Models\Contact::create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
             'first_name' => 'Lindiwe', 'last_name' => 'Landlord', 'email' => uniqid() . '@example.test',
         ]);
         \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $property->id, 'role' => 'landlord']);
