@@ -1106,6 +1106,12 @@
                 <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-reports.*') ? 'active' : '' }}">Rental Fault Reports</a>
                 @endpermission
 
+                {{-- .ai/specs/rental-work-orders.md §3/§6, Stage 4 — the work
+                     orders themselves. Same-day nav entry per non-negotiable #2. --}}
+                @permission('rental_work_orders.view')
+                <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-work-orders.*') ? 'active' : '' }}">Rental Work Orders</a>
+                @endpermission
+
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif

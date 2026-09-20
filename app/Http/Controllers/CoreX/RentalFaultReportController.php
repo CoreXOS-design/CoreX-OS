@@ -274,6 +274,30 @@ class RentalFaultReportController extends Controller
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Outcome recorded.');
     }
 
+    /**
+     * Stage 4 — §3a.1/§0c, the agency_appoints route. Only valid once this
+     * fault report has already been approved that way; RentalFaultReport
+     * itself has no method to reach a mandatory work order because none
+     * exists — this is one specific agency's choice to make on one
+     * specific approved report, not a required step.
+     */
+    public function raiseWorkOrder(Request $request, \App\Services\Rentals\RentalWorkOrderService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $validated = $request->validate([
+            'trade_type' => ['nullable', 'string', 'max:60'],
+            'title' => ['required', 'string', 'max:191'],
+            'description' => ['required', 'string'],
+        ]);
+
+        try {
+            $workOrder = $service->fromFaultReport($rentalFaultReport, $request->user(), $validated);
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order raised.');
+    }
+
     public function cancel(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
         $validated = $request->validate([
