@@ -444,6 +444,29 @@ final class RentalInspectionDataModelTest extends TestCase
         $this->assertTrue($inspection->hasAgentSignature());
     }
 
+    /**
+     * §15.4, Stage 3 — the flip side of the test above: when a landlord IS
+     * resolvable, the agent must wait on THEM too, not just the tenants.
+     */
+    public function test_the_agent_cannot_sign_until_a_resolvable_landlord_is_also_dispositioned(): void
+    {
+        $tenant = $this->makeTenant();
+        $landlord = Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Lindiwe', 'last_name' => 'Landlord', 'email' => uniqid() . '@example.test',
+        ]);
+        \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $this->property->id, 'role' => 'landlord']);
+        $inspection = $this->makeInspection();
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_contact_id' => $tenant->id, 'party_signature_path' => 'signatures/tenant.png',
+        ]);
+
+        $this->expectException(\LogicException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
+    }
+
     public function test_the_agent_cannot_sign_twice_on_the_same_inspection(): void
     {
         $inspection = $this->makeInspection(); // no tenants on this lease — nothing outstanding

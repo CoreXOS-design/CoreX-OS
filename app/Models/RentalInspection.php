@@ -383,6 +383,12 @@ class RentalInspection extends Model
             'out_inspection_fault_history' => $outInspection
                 ? \App\Models\RentalFaultReport::where('lease_id', $outInspection->lease_id)->orderByDesc('reported_at')->get()
                 : collect(),
+            // §15.4, Stage 3 — property-level (unlike tenants, which are
+            // lease-level), so both in_inspection and out_inspection share
+            // this same value. Null when Property::sellerOwnerContact()
+            // can't resolve one — the UI shows that plainly (§15.4) rather
+            // than hiding the row or blocking on a party nobody can name.
+            'landlord_contact' => $property->sellerOwnerContact(),
         ];
     }
 }

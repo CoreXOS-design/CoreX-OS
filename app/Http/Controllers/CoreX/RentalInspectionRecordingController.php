@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
-use App\Models\LeaseTenant;
 use App\Models\Property;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionDiscrepancy;
@@ -187,76 +186,18 @@ class RentalInspectionRecordingController extends Controller
     /**
      * POST /corex/rental-inspections/{inspection}/signatures
      *
-     * .ai/specs/rental-inspections.md §15 (Johan's 2026-09-20 fuller ruling,
-     * building in stages) — §15's new canonical request shape is
-     * `party_role`/`disposition`/`party_contact_id`. Stage 1 lands the model
-     * only (per the conductor's own staging); the property tab's UI still
-     * sends the OLD shape (`signer_role`/`refused_note`) until Stage 2-4
-     * rebuild it, so this endpoint accepts both, translating the old shape
-     * to the new one rather than breaking the live tenant-signing flow
-     * mid-rebuild.
+     * .ai/specs/rental-inspections.md §15.10's canonical shape —
+     * `party_role`/`disposition`/`party_contact_id` — what both sections'
+     * rebuilt signing UI (Stages 2-3) and the future mobile API call.
      *
-     * `signer_role='agent_on_behalf'` (the old refusal path) is temporarily
-     * unavailable — Stage 4 ("refusal capture and the agent attestation")
-     * is what rebuilds it properly, per-party, with the agent-signs-last
-     * rule (§15.2a). Returning a clear 422 here rather than silently
-     * mis-mapping it into the new shape is deliberate: a refusal is
-     * evidence for a lease agreement, and guessing at it is worse than
-     * saying plainly it isn't ready yet.
+     * Stage 1 briefly kept a translation layer here for the OLD
+     * `signer_role`/`refused_note` request shape the property tab's
+     * pre-§15 out-inspection UI used to send. Stage 3 replaced that UI with
+     * the same shared per-party pattern in-inspection already used since
+     * Stage 2, so nothing sends the old shape any more — removed rather
+     * than left as unreachable dead code.
      */
     public function storeSignature(Request $request, RentalInspection $rentalInspection): JsonResponse
-    {
-        if ($request->filled('party_role')) {
-            return $this->storeSignatureNewShape($request, $rentalInspection);
-        }
-
-        $validated = $request->validate([
-            'signer_role' => ['required', 'string', 'in:tenant,agent_on_behalf,landlord'],
-            'signature_image' => ['nullable', 'string'], // base64 PNG from the canvas capture, §3.6
-            'refused_note' => ['nullable', 'string', 'max:2000'],
-        ]);
-
-        if ($validated['signer_role'] === 'agent_on_behalf') {
-            return response()->json([
-                'message' => 'Recording a refusal is being rebuilt for the new three-party signing model and is temporarily unavailable — coming back in a later stage of this build.',
-            ], 422);
-        }
-
-        $partyRole = $validated['signer_role']; // 'tenant' | 'landlord'
-
-        if ($partyRole === RentalInspectionSignature::PARTY_TENANT) {
-            $tenantContactIds = LeaseTenant::where('lease_id', $rentalInspection->lease_id)->pluck('contact_id');
-            if ($tenantContactIds->count() !== 1) {
-                return response()->json([
-                    'message' => $tenantContactIds->count() === 0
-                        ? 'This lease has no tenant on record to sign.'
-                        : 'This lease has more than one tenant — per-tenant signing is coming in a later stage of this build; each tenant cannot yet be individually selected here.',
-                ], 422);
-            }
-            $partyContactId = $tenantContactIds->first();
-        } else { // landlord
-            $partyContactId = $rentalInspection->property?->sellerOwnerContact()?->id;
-            if (! $partyContactId) {
-                return response()->json(['message' => 'This property has no resolvable landlord contact to sign.'], 422);
-            }
-        }
-
-        $attributes = ['party_contact_id' => $partyContactId, 'recorded_by_user_id' => $request->user()->id];
-        if (!empty($validated['signature_image'])) {
-            $attributes['party_signature_path'] = RentalInspectionSignature::storeCanvasImage($validated['signature_image'], $rentalInspection->property_id);
-        }
-
-        try {
-            $signature = RentalInspectionSignature::capture($rentalInspection, $partyRole, RentalInspectionSignature::DISPOSITION_SIGNED, $attributes);
-        } catch (\InvalidArgumentException|\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
-        }
-
-        return response()->json($signature, 201);
-    }
-
-    /** §15.10's canonical shape — what Stage 2+'s rebuilt UI and the future mobile API both call. */
-    private function storeSignatureNewShape(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
         $validated = $request->validate([
             'party_role' => ['required', 'string', 'in:' . implode(',', [

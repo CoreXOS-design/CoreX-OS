@@ -15,7 +15,6 @@ use App\Models\RentalInspectionObservation;
 use App\Models\RentalInspectionPhoto;
 use App\Models\RentalInspectionSignature;
 use App\Models\User;
-use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
@@ -317,68 +316,63 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     // ── Signatures ──────────────────────────────────────────────────
 
     /**
-     * Grants 'agent' both .view (the route GROUP's own gate — every route
-     * under corex.rental-inspections.* stacks it, this one included) and
-     * .create (this specific route's gate), but NOT .sign_on_behalf. This
-     * isolates the inline check (§6) from both route-level gates: a bare
-     * forceProductionPosture() would deny the whole request before the
-     * inline check ever ran, proving nothing about which check actually
-     * fired — found by direct debugging when granting .create alone still
-     * 403'd, tracing it to the group-level .view middleware.
+     * §15, Stage 3 (2026-09-20) — the old single-tenant, auto-resolving
+     * signer_role/refused_note request shape (and the sign_on_behalf
+     * permission check that lived only inside its agent_on_behalf branch)
+     * is fully retired now that out-inspection uses the same shared
+     * per-party UI in-inspection has used since Stage 2. Replaces three
+     * obsolete tests that covered that old shape's specific limitations
+     * (permission bypass, temporarily-disabled refusal, multi-tenant
+     * refusal) — the multi-tenant case in particular is no longer a
+     * limitation at all: the new shape asks for an explicit
+     * party_contact_id, so it never had to guess which tenant signed.
+     *
+     * NOTE for Stage 4: rental_inspections.sign_on_behalf has no caller at
+     * all right now (its only check lived in the removed old branch) —
+     * real refusal-recording needs to decide whether/how that permission
+     * gates it, not assume it's already wired.
      */
-    private function grantCreateButNotSignOnBehalf(): void
+    public function test_multiple_tenants_on_the_same_out_inspection_each_sign_independently(): void
     {
-        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.view', 'scope' => 'own']);
-        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.create', 'scope' => 'own']);
-        PermissionService::clearCache();
-    }
-
-    public function test_tenant_signature_does_not_require_sign_on_behalf_permission(): void
-    {
-        $this->grantCreateButNotSignOnBehalf();
-        $this->makeTenant();
+        $tenantOne = $this->makeTenant();
+        $tenantTwo = $this->makeTenant();
         $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+        $inspection->startAwaitingSignature();
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'signer_role' => RentalInspectionSignature::PARTY_TENANT,
+            'party_role' => RentalInspectionSignature::PARTY_TENANT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'party_contact_id' => $tenantOne->id,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
         ])->assertStatus(201);
-    }
-
-    /**
-     * §15 (2026-09-20) — the old agent_on_behalf refusal path is retired.
-     * Its real successor (per-party refusal, agent attestation) lands in
-     * Stage 4 (§15.11); until then this old request shape returns a clear,
-     * deliberate 422 regardless of permission — proving the feature is
-     * genuinely disabled during the rebuild, not silently mis-mapped into
-     * the new shape or permission-gated in a way that could confuse the
-     * two. Replaces the two old phrase/permission-specific tests, which no
-     * longer describe real behaviour.
-     */
-    public function test_the_old_agent_on_behalf_refusal_path_is_temporarily_unavailable_during_the_rebuild(): void
-    {
-        $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'signer_role' => 'agent_on_behalf',
-            'refused_note' => 'Called three times — tenant refused to sign out inspection.',
-        ])->assertStatus(422);
+            'party_role' => RentalInspectionSignature::PARTY_TENANT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_REFUSED,
+            'party_contact_id' => $tenantTwo->id,
+            'refusal_reason_preset' => 'not_present',
+        ])->assertStatus(201);
+
+        $this->assertCount(2, $inspection->signatures()->where('party_role', 'tenant')->get());
     }
 
-    public function test_tenant_signature_is_refused_when_the_lease_has_more_than_one_tenant(): void
+    public function test_the_landlord_can_sign_an_out_inspection_over_real_http(): void
     {
-        // §15's per-tenant selection UI is Stage 2+ — the old single-tenant
-        // request shape can't safely guess which tenant signed when there's
-        // more than one, so it refuses rather than silently misattributing
-        // a document that forms part of the lease agreement (§15).
-        $this->makeTenant();
-        $this->makeTenant();
+        $property = $this->property;
+        $landlord = \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Lindiwe', 'last_name' => 'Landlord', 'email' => uniqid() . '@example.test',
+        ]);
+        \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $property->id, 'role' => 'landlord']);
         $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+        $inspection->startAwaitingSignature();
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'signer_role' => RentalInspectionSignature::PARTY_TENANT,
+            'party_role' => RentalInspectionSignature::PARTY_LANDLORD,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'party_contact_id' => $landlord->id,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
-        ])->assertStatus(422);
+        ])->assertStatus(201)->assertJsonFragment(['disposition' => 'signed', 'party_role' => 'landlord']);
     }
 
     public function test_the_new_canonical_signature_shape_works_directly(): void

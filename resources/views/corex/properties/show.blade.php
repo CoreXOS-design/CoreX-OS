@@ -4764,6 +4764,9 @@
                 // never edited from here (a fault report is resolved from its
                 // own screen or the property tab, §6a's own instruction).
                 outInspectionFaultHistory: config.inspectionData.out_inspection_fault_history,
+                // §15.4, Stage 3 — property-level, shared by both sections. Null
+                // means Property::sellerOwnerContact() couldn't resolve one.
+                landlordContact: config.inspectionData.landlord_contact,
                 itemError: '',
                 itemBusy: false,
                 newItem: { kind: 'space', label: '' },
@@ -4937,53 +4940,11 @@
                     } catch (e) { this.lifecycleError = e.message; }
                 },
 
-                // ── Out-inspection signing (unchanged from before §15 —
-                // Stage 3 rebuilds this alongside adding the landlord) ──────
-                signaturePad: null,
-                signingOnBehalf: false,
-                refusedNote: '',
-
-                initSignaturePad() {
-                    const canvas = this.$refs.sigCanvas;
-                    if (!canvas || typeof SignaturePad === 'undefined') return;
-                    const ratio = Math.max(window.devicePixelRatio || 1, 1);
-                    canvas.width = canvas.offsetWidth * ratio;
-                    canvas.height = 180 * ratio;
-                    canvas.getContext('2d').scale(ratio, ratio);
-                    this.signaturePad = new SignaturePad(canvas, { backgroundColor: '#fff' });
-                },
-                clearSignature() { this.signaturePad && this.signaturePad.clear(); },
-
-                async saveTenantSignature() {
-                    if (!this.signaturePad || this.signaturePad.isEmpty()) {
-                        this.lifecycleError = 'Draw a signature first.';
-                        return;
-                    }
-                    await this._saveSignature('tenant', this.signaturePad.toDataURL('image/png'), null);
-                },
-
-                async saveAgentOnBehalfSignature() {
-                    await this._saveSignature('agent_on_behalf', null, this.refusedNote);
-                },
-
-                async _saveSignature(signerRole, signatureImage, refusedNote) {
-                    const insp = this.outInspection;
-                    this.lifecycleError = '';
-                    try {
-                        const signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, {
-                            signer_role: signerRole, signature_image: signatureImage, refused_note: refusedNote,
-                        });
-                        insp.signatures.push(signature);
-                        this.signingOnBehalf = false;
-                        this.refusedNote = '';
-                    } catch (e) { this.lifecycleError = e.message; }
-                },
-
-                // ── In-inspection signing (§15.3, Stage 2 — the whole new
-                // path: per-tenant rows + the agent's own signature. No
-                // landlord, no refusal yet — Stages 3-4). One canvas active
-                // at a time (activeSigningKey), matching how an agent
-                // actually hands one device to one person at a time. ──────
+                // ── In/out signing, shared (§15, Stages 2-3 — the old
+                // out-only tenant/agent_on_behalf mechanism is fully retired;
+                // both sections now use this one path). One canvas active at
+                // a time (activeSigningKey), matching how an agent actually
+                // hands one device to one person at a time. ──────
                 activeSigningKey: null,
                 signaturePads: {},
 
@@ -4997,12 +4958,23 @@
                     const insp = this.currentInspection(section);
                     return (insp?.signatures || []).find(s => s.party_role === 'tenant' && s.party_contact_id === contactId) || null;
                 },
+                landlordDisposition(section) {
+                    const insp = this.currentInspection(section);
+                    return (insp?.signatures || []).find(s => s.party_role === 'landlord') || null;
+                },
                 agentDisposition(section) {
                     const insp = this.currentInspection(section);
                     return (insp?.signatures || []).find(s => s.party_role === 'agent') || null;
                 },
                 allTenantsDispositioned(section) {
                     return this.inspectionTenants(section).every(t => this.tenantDisposition(section, t.contact_id));
+                },
+                // §15.4/§15.7 — gates the agent's own "Sign" button: every
+                // tenant, AND the landlord unless sellerOwnerContact()
+                // couldn't resolve one (§15.4's waived-not-blocking rule).
+                allRequiredPartiesDispositioned(section) {
+                    return this.allTenantsDispositioned(section)
+                        && (!this.landlordContact || !!this.landlordDisposition(section));
                 },
 
                 openSigningFor(key) {
@@ -5025,6 +4997,16 @@
                     await this._saveDisposition(section, {
                         party_role: 'tenant', disposition: 'signed',
                         party_contact_id: tenant.contact_id, signature_image: pad.toDataURL('image/png'),
+                    }, key);
+                },
+
+                async saveLandlordSignatureFor(section) {
+                    const key = section + '_landlord';
+                    const pad = this.signaturePads[key];
+                    if (!pad || pad.isEmpty()) { this.lifecycleError = 'Draw a signature first.'; return; }
+                    await this._saveDisposition(section, {
+                        party_role: 'landlord', disposition: 'signed',
+                        party_contact_id: this.landlordContact?.id, signature_image: pad.toDataURL('image/png'),
                     }, key);
                 },
 
