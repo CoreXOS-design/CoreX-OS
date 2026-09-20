@@ -1,6 +1,11 @@
 # Rental Inspections
 
-**Status:** Spec — not yet built. NO CODE has been written against this spec.
+**Status:** ~~Spec — not yet built. NO CODE has been written against this spec.~~ **Superseded,
+2026-09-20**: the spec as it stood through §14 has since been BUILT (Stages 1-5, cc4, landed on QA1,
+independently verified by cc1 via real HTTP walks — not test-suite-only). The original "not yet built"
+line is kept, struck through rather than deleted, so this header stays an honest record of the spec's
+own history. **§15 (added 2026-09-20) is a new, separate addendum and genuinely is spec-only, not yet
+built** — see its own status line.
 **Date:** 2026-09-17 (amended 2026-09-17 — see amendment note below)
 **Author:** cc5, with the data-model core designed by cc3 (current-state investigation, folded in per §3)
 **Pillar:** Property (`Property`) — every `rental_inspection_item` anchors directly to it; every
@@ -50,7 +55,9 @@ words.
 6. The agent adds **inspection spaces** per property, and they **differ from the advertised room
    list**. Water and electricity meters are handled the same way as spaces.
 7. **Links, and 7 days for the tenant to sign** the out-inspection. If unsigned in time, the agent can
-   sign on the tenant's behalf with a strict note: "tenant refused to sign out inspection."
+   sign on the tenant's behalf with a strict note: "tenant refused to sign out inspection." **(2026-09-20
+   — Johan asked for this hardened into a real per-party refusal record with the agent's own signature;
+   see §15, specced but not yet built, one open question pending his answer.)**
 8. **Offline is critical** — "no internet is a reality... an offline way to do this is critical as
    well." Flagged explicitly, not quietly solved, in §7.
 9. **Two sides**: the property inspection (this spec), and **inventory lists** — "if we get inventory
@@ -260,7 +267,9 @@ rental_inspection_discrepancies
 rental_inspection_discrepancy_observations   -- pivot: which observations are in conflict
   discrepancy_id, observation_id
 
-rental_inspection_signatures
+rental_inspection_signatures   -- CURRENT shape, as actually built. §15 (2026-09-20, specced, not yet
+                                -- built) proposes a revised shape for this table once Johan answers
+                                -- the open question there — do not treat this block as final.
   id
   rental_inspection_id
   signer_role            -- enum: 'tenant' | 'agent_on_behalf' | 'landlord' (landlord signature is
@@ -693,7 +702,9 @@ must be migrated before `rental_inspections`, since `rental_inspections.lease_id
   surfaces (§8) but does not make.
 - Landlord signature on the out-inspection — the schema leaves room (`signer_role` enum includes
   `landlord`) but Johan's ruling only requires the tenant's signature; building landlord sign-off is
-  not requested and not built here unless Johan says otherwise.
+  not requested and not built here unless Johan says otherwise. **(2026-09-20 — his refusal-recording
+  request names "landlord or tenant" explicitly; see §15.8, an open question, not yet resolved either
+  way — this line stays until it is.)**
 
 ---
 
@@ -1013,3 +1024,328 @@ property-tab controller, still deliberately held for attended work) should be bu
 - No decision made in Stage 3 should assume the web browser is the only client — e.g. a validation
   message meant only for a Blade form's specific HTML structure has no place inside a model method; it
   belongs in the controller/view layer, which the API will not share and does not need to.
+
+---
+
+## 15. Refusal-to-sign attestation — Johan's 2026-09-20 ruling (SPEC ONLY — NOT YET BUILT)
+
+**Status: specced, not built.** One open question (§15.2) is with Johan now, via the conductor. Nothing
+in this section is implemented — do not build against it until the open question is answered and the
+conductor gives the go-ahead. This section amends §0.7, §3.2's signature schema, and §13's landlord
+out-of-scope line, all three flagged inline where they're touched.
+
+### 15.0 What Johan actually asked for, verbatim
+
+"on in inspections and out inspections the scenario exist that the parties - landlord or tenant dont
+want to sign the inspections. we should build an agent tick if that scenario happens where agent can
+tick - party refuses to sign and sign as a record of this happening as well."
+
+Read plainly: a party refuses to sign; the agent ticks that this happened; the **agent** signs to
+attest to the refusal; the refusal itself becomes the record. This is not "no signature" — it is a
+different, deliberate kind of record.
+
+### 15.1 This is not a new mechanism — it's a hardening of one that already exists
+
+Important context the conductor's brief didn't have and Johan may not be thinking of by name: **ruling
+§0.7 already covers part of this ground**, and it is already built, on the out-inspection only —
+`signer_role = 'agent_on_behalf'` on `rental_inspection_signatures` (§3.2), gated behind the
+`rental_inspections.sign_on_behalf` permission, requiring `refused_note` to contain Johan's own exact
+phrase ("tenant refused to sign out inspection"), surfaced in the UI as a "Tenant unavailable" escape
+hatch during the out-inspection's `awaiting_signature` step
+(`resources/views/corex/properties/partials/rental-inspection-recording.blade.php`). It is NOT gated by
+the 7-day window actually elapsing — an agent can use it the moment a tenant says no, which already
+matches what Johan is describing now.
+
+So this ruling is a **hardening and expansion** of something real and shipped, not a green-field build.
+Checked directly, not assumed, three real gaps in the existing mechanism against what Johan is now
+asking for:
+
+1. **No actual agent signature is captured today.** `saveAgentOnBehalfSignature()` posts
+   `signature_image: null` — the existing "on behalf" record is a required TEXT PHRASE, not a real
+   signature. Johan's new words are explicit: "agent can... sign as a record of this happening" — the
+   agent's own signature capture, not just a note, is new work even for the out-inspection case that
+   already exists.
+2. **It is not per-party.** `signer_contact_id` exists as a column but the UI never populates it for any
+   signer role — there is no concept today of "which of this lease's tenants" signed or refused. A lease
+   with two tenants has exactly one generic "tenant signs" slot. Johan's own words this time are explicit
+   that this must be per-party: "there can be more than one tenant on a lease, so it is per-party."
+3. **Ambiguity risk Johan flagged is real in the current shape.** `signer_role='agent_on_behalf'` is one
+   value in the same enum column, on the same table row shape, as a genuine tenant/landlord signature —
+   distinguished only by which enum value a reader/renderer remembers to check. Nothing today prevents a
+   future PDF/print view from looping over `signatures` and rendering `signature_path` generically for
+   every row, which for an `agent_on_behalf` row is simply null — silently blank, not a labelled
+   refusal. §15.3 below is the direct fix for this, and it is the single most important part of this
+   ruling: Johan named it as the thing that makes the record real evidence rather than a checkbox.
+
+### 15.2 THE OPEN QUESTION — does in-inspection get signing at all?
+
+**Currently, per the 2026-09-20 QA1 walk (confirmed live, code-verified in three places): an
+in-inspection has NO signature step of any kind.** Not in the UI (the recording partial's
+`@if($section === 'in')` branch goes straight from recording observations to a bare "Complete"
+button), not in the model (`RentalInspection::startAwaitingSignature()` throws "Only an out-inspection
+has a signing window" for any other type), not in `markCompleted()` (the signature-exists guard is
+`if ($this->type === self::TYPE_OUT && ! $this->signatures()->exists())` — explicitly `TYPE_OUT` only).
+§2 of this spec already states the tenant is "signer of the out-inspection" specifically. This was
+Johan's own original ruling (§0.7 only ever mentions signing the out-inspection) — the conductor
+corrected her own assumption on this point during the walk, and Johan's follow-up ruling was recorded
+as correct and final.
+
+Johan's new words — "on in inspections and out inspections the scenario exist" — read as assuming BOTH
+already have a signing step to refuse. They do not. This is not this spec guessing wrong; it is a live
+mismatch between the request and the current build that the conductor is putting to Johan directly.
+**Both branches below are specced in full so either can be built the moment he answers. Do not build
+either until he does.**
+
+#### Branch A — in-inspection gains a real signing step (parity with out-inspection)
+
+The in-inspection gains its own `awaiting_signature` stage, identical in shape to the out-inspection's:
+`RentalInspection::startAwaitingSignature()`'s type guard is relaxed to allow `TYPE_IN` (its
+unresolved-discrepancy guard stays, unchanged, for both types); `markCompleted()`'s signature-required
+guard extends to `TYPE_IN` as well as `TYPE_OUT`; the recording partial's `@if($section === 'in')`
+branch is removed so both sections render the same signing/refusal step described in §15.3-§15.6 before
+completion is possible.
+
+**The business argument FOR this branch**, grounded in Johan's own already-stated evidentiary
+philosophy (§0's ruling #2): the out-inspection is deliberately NOT a clean comparison against the
+in-inspection — prior issues carry forward specifically "so owner cannot blame tenant for damages... the
+owner neglected to fix." That protection is weaker if the tenant never actually attested to what
+condition was recorded at move-in — an owner could equally argue two years later "the tenant never
+signed off on that in-inspection, so I don't accept it recorded what was really there." A signed (or
+recorded-refused) in-inspection closes that gap the same way a signed out-inspection closes the
+opposite one.
+
+**The cost**: a materially bigger build — a second full signing/refusal flow, a second per-agency
+signing-window setting (§15.9), more UI surface, more of Andre's mobile app to build against on day
+one instead of added later.
+
+#### Branch B — only the out-inspection gets refusal-recording; in-inspection stays exactly as it is
+
+The in-inspection's shape does not change at all — no signature, no refusal, no signing window, exactly
+as it works today and exactly as Johan's original §0.7 ruling and §2's "signer of the out-inspection"
+language already state. Only the existing out-inspection signing step (§15.1) is hardened per
+§15.3-§15.6.
+
+**The business argument FOR this branch**: it is the smaller, more conservative read of what was
+actually ruled on. §0.7 has always been about the out-inspection specifically — that's where the 7-day
+signing window, the deposit stakes, and (per the walk) the only signature UI that has ever existed all
+already live. Johan's new words can be read as being about hardening THAT existing mechanism (which
+does need real work — §15.1) rather than a request to build a brand-new capability for in-inspections
+from nothing. If he later decides move-in acknowledgement matters too, Branch A remains fully buildable
+as a follow-up on the same foundation §15.3-§15.6 lay down either way.
+
+**The cost of guessing wrong here is real in both directions** — building A when he meant B is
+unrequested scope on a feature he never asked for; building B when he meant A ships a signed-off
+out-inspection sitting next to an in-inspection with no comparable protection, the exact evidentiary
+gap Branch A's argument names. This is why the conductor is asking rather than either side guessing.
+
+### 15.3 Data model — the discriminator that makes ambiguity structurally impossible
+
+**[cc4 design call, recommended]** Johan's instruction is explicit and is treated as a hard requirement,
+not a style preference: *"if a refusal and a signature can ever look alike on the PDF or the screen, the
+spec is wrong."* The current schema (§3.2) cannot honestly guarantee that — see §15.1, gap 3. The fix is
+to stop overloading one enum column with two different meanings ("who" and "what happened") and split
+them:
+
+```
+rental_inspection_signatures   -- revised shape, replaces the current one in §3.2
+  id
+  rental_inspection_id
+  party_role              -- enum: 'tenant' | 'landlord'  -- WHO this row is about. Note: no longer
+                           --   includes 'agent_on_behalf' — that concept is retired. An agent never
+                           --   IS the party; the agent only ever attests TO a party's disposition.
+  party_contact_id         -- FK to contacts. Required whenever the party is identifiable (every
+                           --   tenant on an active lease has a Contact via LeaseTenant already) —
+                           --   this is the per-party column §15.4 depends on.
+  disposition              -- enum: 'signed' | 'refused'  -- NEW. The ONE column anything rendering
+                           --   this row must branch on. Nothing else may be used to infer which kind
+                           --   of row this is.
+  party_signature_path     -- storage path (§3.6 pattern). NON-NULL only when disposition='signed'.
+                           --   MUST be NULL when disposition='refused' — enforced at creation, not by
+                           --   convention (§15.6).
+  refusal_reason_preset    -- FK/string key into an agency-configurable short list (§15.5, §15.9).
+                           --   NON-NULL only when disposition='refused'.
+  refusal_reason_note      -- free text. Required when refusal_reason_preset = 'other'; optional
+                           --   elaboration otherwise. NULL when disposition='signed'.
+  attesting_agent_user_id  -- WHO recorded the refusal. NON-NULL only when disposition='refused' —
+                           --   there is no "agent attests to a signature", only to a refusal.
+  attesting_agent_signature_path  -- the agent's OWN signature image, captured at the moment they
+                           --   record the refusal (§15.1, gap 1 — this is the field that does not
+                           --   exist today). NON-NULL only when disposition='refused'. This is the
+                           --   single field that turns "agent ticked a box" into "agent attested,
+                           --   in their own hand, that this happened" — Johan's own distinction.
+  disposition_recorded_at  -- when this row was captured (was `signed_at`; renamed because it is not
+                           --   always a signing event).
+  created_at
+```
+
+**The invariant this enforces, checked at the single factory method that creates these rows (mirrors
+the existing `refusalNoteIsValid()` pattern in `RentalInspectionSignature::capture()`, strengthened),
+never left to a caller or a view to get right:**
+
+| | `disposition = 'signed'` | `disposition = 'refused'` |
+|---|---|---|
+| `party_signature_path` | **required** | **must be null** |
+| `refusal_reason_preset` / `_note` | must be null | **required** (`_preset`; `_note` required only if preset is "other" — §15.5) |
+| `attesting_agent_user_id` | must be null | **required** |
+| `attesting_agent_signature_path` | must be null | **required** |
+
+Any attempt to create a row that violates this table throws, the same way `capture()` already throws
+`InvalidArgumentException` today for an invalid refusal note — this is a strengthening of an existing
+guard, not a new category of guard.
+
+**Rendering** (§15.7 covers the not-yet-built PDF/print/email case in full) branches on `disposition`
+alone, never on whether `party_signature_path` happens to be null — a genuinely signed row's image and
+a refused row's attestation image must never share a code path, a template partial, or even adjacent
+visual weight. A refused row renders as a clearly bordered/labelled block — e.g. "**PARTY REFUSED TO
+SIGN**" — showing the reason, the attesting agent's name, and the agent's OWN signature image captioned
+unambiguously ("Agent attestation — NOT {{ party name }}'s own signature"), in a colour/weight distinct
+enough to survive a black-and-white printout, not relying on colour alone.
+
+### 15.4 Per-party granularity — multiple tenants on a lease
+
+A lease's tenants come from `LeaseTenant` (already built, already queried by
+`Lease::tenantNames()`/`tenants()` throughout this module). Each tenant is its own
+`rental_inspection_signatures` row keyed by `party_contact_id` — never a single flag on the inspection.
+A two-tenant lease can genuinely end up with one `signed` row and one `refused` row for the SAME
+inspection, and the record must show exactly that, not collapse it into one household-level status.
+
+**[cc4 design call, recommend Johan confirm]**: whether the OUT-inspection's completion guard should
+require a disposition row (signed OR refused — either satisfies it) for **every** tenant on the lease,
+or whether any ONE tenant's disposition (signed or refused) is enough to represent the household.
+Recommendation: require every tenant. Reasoning: the entire point of this ruling is that different
+parties can react differently, and a household where one tenant signs while another refuses is exactly
+the scenario Johan is asking to make visible — collapsing to "at least one" would let a refusal by the
+tenant who actually disputes the condition go unrecorded as long as their co-tenant signed, which
+defeats the evidentiary purpose. This does not block completion on a tenant who was never on-site for
+the walkthrough at all — see §15.6 for how that's handled without becoming a second escape hatch.
+
+Landlord is address separately in §15.8 — the "every party" requirement above is stated for tenants
+specifically; whether landlord disposition ever gates completion is its own open question.
+
+### 15.5 What gets captured, and whether the reason is mandatory — recommendation, argued
+
+**Captured per refusal, per §15.3's schema**: which party (`party_role` + `party_contact_id`), when
+(`disposition_recorded_at`), which agent (`attesting_agent_user_id`), the agent's own signature
+(`attesting_agent_signature_path`), and a reason (`refusal_reason_preset` + optional `_note`).
+
+**Recommendation: the reason is mandatory, always — not an agency setting, not optional.**
+
+Argued, per Johan's own framing of this as evidence rather than a form: a refusal record with no reason
+is barely distinguishable from an agent who simply didn't bother collecting a signature and ticked an
+escape hatch instead — it proves an event happened but says nothing about WHY, and "why" is exactly what
+a deposit dispute eighteen months later turns on ("the tenant refused because they disputed the
+condition we recorded" is a materially different fact than "the tenant refused because they'd already
+moved out and couldn't be reached"). An unreasoned tick is weak evidence bordering on none.
+
+The counter-concern Johan raised — an agent at a front door should not be blocked by a long form — is
+answered by HOW the reason is captured, not by making it optional: a short, agency-configurable
+preset list (§15.9), one tap, e.g. "Disputes the recorded condition" / "Not present / unavailable" /
+"Refused outright, no reason given" / "Other". Free text (`refusal_reason_note`) is only REQUIRED when
+"Other" is picked — every other case costs the agent one tap, not a paragraph. "Refused outright, no
+reason given" is deliberately kept as a preset option itself, rather than making the whole field
+skippable — an agent can always truthfully record "no reason was given," which is itself informative
+and satisfies the mandatory-reason rule, without inventing a reason that wasn't actually stated.
+
+### 15.6 The completion guard — refusal satisfies it without becoming a bypass
+
+**Today** (`RentalInspection::markCompleted()`): `if ($this->type === self::TYPE_OUT && !
+$this->signatures()->exists())` throws a 409, proven live on the walk. This must be replaced by a check
+against §15.4's "every tenant has a disposition row" rule, for whichever inspection type(s) end up
+gated (out-inspection always; in-inspection only under Branch A, §15.2).
+
+**Why this cannot become an escape hatch**: the guard itself only ever asks "does a valid disposition
+row exist for this party" — it never inspects a checkbox or a note in isolation. Because §15.3's
+factory method REFUSES to create a `refused` row without a real `attesting_agent_signature_path` and a
+real reason, there is no code path that produces a disposition row satisfying the guard without those
+two things genuinely being captured. An agent cannot "tick refused" and complete the inspection with
+nothing behind it, because the row that would satisfy the guard cannot exist without the agent's own
+signature already on it. The tick and the signature are not two separate steps where the first alone is
+enough — they are one atomic action.
+
+**The tenant-who-was-never-present case** (distinct from a tenant who refuses): if a tenant genuinely
+never attends the walkthrough at all (not "refuses when asked" — never asked, because they weren't
+there), §15.4's "every tenant needs a disposition row" rule would otherwise block completion forever.
+**[cc4 design call, flagged for Johan]**: recommend "not present" is itself one of §15.5's reason
+presets, captured through the exact same `refused` disposition + agent attestation path — an agent
+attesting "this tenant was not present for the walkthrough" is functionally the same kind of record as
+attesting "this tenant refused when asked," and reusing one mechanism for both avoids inventing a
+second, weaker escape hatch that would undermine §15.3's whole guarantee.
+
+### 15.7 The PDF and any printed or emailed output
+
+**No PDF/print/export currently exists for a rental inspection at all** — checked, not assumed
+(`grep` across `app/Services`, `app/Http/Controllers` for any inspection-related PDF/export code
+returns nothing). This section is therefore a forward-looking constraint on whoever eventually builds
+that output, not a fix to something broken today.
+
+The requirement, restated as a design constraint for that future work: any rendering of a
+`rental_inspection_signatures` row — screen or PDF — MUST branch on `disposition` first, MUST render a
+`refused` row as a visibly distinct block (not a signature image slot that happens to be empty), and
+MUST show the agent's attestation signature captioned as the agent's, never positioned or styled so it
+could be mistaken for the party's own mark. An inspection with a `refused` row and no visual sign of
+anything unusual is a silent failure mode this spec must not allow to exist even by omission — better
+that a future PDF renderer's own test suite asserts this directly than that it's left to be noticed by
+someone glancing at a printed page in a dispute.
+
+### 15.8 Landlord — a related, connected scope question, distinct from §15.2
+
+Johan's words name landlord refusal explicitly: "the parties - landlord or tenant." §13 (out of scope)
+currently states landlord signing itself was never built — "Johan's ruling only requires the tenant's
+signature; building landlord sign-off is not requested and not built here unless Johan says otherwise."
+**His words here are arguably him saying otherwise**, but this spec does not assume that — it surfaces
+the consequence plainly instead: **a landlord cannot be recorded as refusing to sign something they
+were never asked to sign in the first place.** If landlord refusal-recording is wanted, landlord
+signing itself needs a real UI path built alongside it (the schema already has `party_role='landlord'`
+room — §15.3 keeps the enum value, unlike `agent_on_behalf`, which is retired). This is flagged as its
+own explicit question for the conductor to put to Johan, separate from §15.2's in/out-inspection
+question — do not assume landlord is in scope just because his sentence named it, and do not silently
+drop it either.
+
+### 15.9 Multi-agency settings
+
+Per non-negotiable #9 and this spec's own ruling #12 (every threshold is an agency setting, never
+hardcoded), extending `rental_inspection_settings` (§3.2):
+
+- `refusal_reason_presets` — the agency-configurable short list from §15.5 (JSON array of
+  `{key, label}`, agency-editable wording; "Other" always present and always last, not
+  agency-removable, since §15.5's mandatory-reason guarantee depends on an escape valve existing). A
+  sensible, neutral, multi-agency-safe default ships with every new agency (no HFC-specific wording):
+  "Disputes the recorded condition", "Not present for the walkthrough", "Refused outright, no reason
+  given", "Other".
+- Whether in-inspection signing is enabled at all (only meaningful if Branch A, §15.2, is chosen) would
+  itself need to be a per-agency toggle if Johan wants any agency able to opt out later — flagged here
+  so it isn't forgotten if Branch A is the answer, not decided now since the branch itself isn't
+  decided.
+- Every new setting here reaches the Setup Wizard in the same build prompt as the settings screen,
+  per CLAUDE.md non-negotiable #10a — noted now so it isn't rediscovered as a gap the way the
+  rental-applications settings cluster was.
+
+### 15.10 Mobile/API shape
+
+Extends §14.2's table once built — no new endpoint shape is needed, the same
+`POST /api/v1/mobile/rental-inspections/{inspection}/signatures` endpoint already specced there simply
+accepts the revised §15.3 payload shape (`party_role`, `party_contact_id`, `disposition`, plus either
+`signature_image` or `refusal_reason_preset`/`refusal_reason_note`, with the agent's own
+`attesting_agent_signature_image` sent alongside a `refused` disposition — the agent is always the
+authenticated caller per §14.2's existing rule, so `attesting_agent_user_id` is server-derived, never
+client-supplied). `RentalInspectionSignature::capture()` (§15.3's revised factory) is the ONE place
+this validation lives, called identically by the web controller and the future mobile API controller,
+matching §14.1's "one copy of the behaviour" principle exactly.
+
+### 15.11 What this changes elsewhere in this spec, once built
+
+- **§0's ruling #7** — "the agent can sign on the tenant's behalf with a strict note" is superseded by
+  this section's real signature-plus-reason mechanism; the strict-phrase note requirement is retired in
+  favour of §15.5's structured reason.
+- **§3.2's `rental_inspection_signatures` schema** — replaced by §15.3's revised shape. `signer_role`'s
+  `agent_on_behalf` value is retired; `signer_contact_id` becomes the required (for tenant/landlord)
+  `party_contact_id`; `refused_note` is replaced by `refusal_reason_preset`/`refusal_reason_note`;
+  `signed_at` is renamed `disposition_recorded_at`.
+- **§13's landlord out-of-scope line** — superseded by §15.8's open question; do not delete the old line
+  until that question is answered, so the record shows it was reconsidered, not silently dropped.
+
+### 15.12 Not built yet — nothing to accept criteria against
+
+No acceptance criteria are written for this section (contrast §11, which is criteria for what IS built)
+— per the conductor's explicit instruction, this is spec-only until the open question in §15.2 is
+answered. Acceptance criteria get written alongside whichever branch is actually built.
