@@ -15,10 +15,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * might need repair, with its own lifecycle (reported -> owner approval
  * where required -> work order raised (optional) -> outcome). It exists
  * whether or not a work order is ever raised from it, and survives long
- * after any work order tied to it is closed. Stage 1 build: the record
- * itself, reporting, and cancel/restore. Approval/outcome transitions land
- * in Stage 2 against the columns already defined here (§3a's schema is
- * spec-complete from day one, not amended per stage).
+ * after any work order tied to it is closed. Stage 1 built the record
+ * itself, reporting, and cancel/restore. Stage 2 (this revision) builds the
+ * lifecycle: requestApproval()/recordApproval()/setOutcome(), against
+ * columns already defined since Stage 1 (§3a's schema is spec-complete
+ * from day one, not amended per stage). Work-order linkage (§3.1's reverse
+ * FK, the workOrder() relation) lands in Stage 4.
  */
 class RentalFaultReport extends Model
 {
@@ -151,6 +153,11 @@ class RentalFaultReport extends Model
         return $this->hasMany(RentalFaultReportPhoto::class);
     }
 
+    public function approvals(): HasMany
+    {
+        return $this->hasMany(RentalApproval::class)->orderByDesc('created_at');
+    }
+
     /**
      * §3a schema block — deletable only while nothing has been logged
      * against it: no photo, no linked work order. Once either exists, only
@@ -177,6 +184,117 @@ class RentalFaultReport extends Model
             'cancelled_at' => now(),
             'cancelled_by_user_id' => $by->id,
             'cancel_reason' => $reason,
+        ])->save();
+    }
+
+    /**
+     * §3a.1 — a purely agent-initiated status marker: "I've asked the owner,
+     * waiting to hear back." Records no evidence (Johan's ruling requires
+     * evidence only for the DECISION, §3.4a) — it exists so the list screen
+     * can distinguish "nothing asked yet" from "asked, pending." Optional:
+     * recordApproval() below does NOT require this to have been called
+     * first — an agent who already has the written reply in hand records
+     * the decision directly, without a pointless intermediate click.
+     */
+    public function requestApproval(): void
+    {
+        if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This fault report is already closed.');
+        }
+        if ($this->owner_approval_status === self::APPROVAL_APPROVED || $this->owner_approval_status === self::APPROVAL_DECLINED) {
+            throw new \LogicException('A decision has already been recorded for this fault report.');
+        }
+
+        $this->forceFill([
+            'status' => self::STATUS_AWAITING_APPROVAL,
+            'owner_approval_status' => self::APPROVAL_PENDING,
+        ])->save();
+    }
+
+    /**
+     * §3.4a/§3a.1, settled 2026-09-25 — the decision, always in writing, with
+     * TWO distinct outcomes when approved (§0c): agency_appoints (a work
+     * order follows, Stage 4) or owner_handles (no work order, ever, for
+     * this report — a fully normal, complete path). Writes the append-only
+     * evidence row and updates this report's own denormalized current-value
+     * columns, same "current column + log" shape §3.4 already uses for
+     * rental_work_orders.status/rental_work_order_updates.
+     */
+    public function recordApproval(User $recordedBy, array $attributes): RentalApproval
+    {
+        if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This fault report is already closed.');
+        }
+
+        $decision = $attributes['decision'];
+        $route = $attributes['approval_route'] ?? null;
+
+        if ($decision === self::APPROVAL_APPROVED && ! in_array($route, [self::ROUTE_AGENCY_APPOINTS, self::ROUTE_OWNER_HANDLES], true)) {
+            throw new \InvalidArgumentException('approval_route (agency_appoints or owner_handles) is required when the decision is approved.');
+        }
+        if ($decision === self::APPROVAL_DECLINED) {
+            $route = null; // never meaningful on a decline
+        }
+
+        $approval = $this->approvals()->create([
+            'agency_id' => $this->agency_id,
+            'decision' => $decision,
+            'approval_route' => $route,
+            'evidence_type' => $attributes['evidence_type'],
+            'evidence_text' => $attributes['evidence_text'] ?? null,
+            'evidence_file_path' => $attributes['evidence_file_path'] ?? null,
+            'decided_at' => $attributes['decided_at'] ?? now(),
+            'recorded_by_user_id' => $recordedBy->id,
+        ]);
+
+        $newStatus = match (true) {
+            $decision === self::APPROVAL_DECLINED => self::STATUS_DECLINED,
+            $route === self::ROUTE_OWNER_HANDLES => self::STATUS_OWNER_HANDLING,
+            $route === self::ROUTE_AGENCY_APPOINTS => self::STATUS_APPROVED,
+            default => $this->status,
+        };
+
+        $this->forceFill([
+            'status' => $newStatus,
+            'owner_approval_status' => $decision === self::APPROVAL_APPROVED ? self::APPROVAL_APPROVED : self::APPROVAL_DECLINED,
+            'approval_route' => $route,
+        ])->save();
+
+        return $approval;
+    }
+
+    /**
+     * §3a.2/§0c — the spine of this whole record: was it repaired, and when.
+     * Deliberately NOT gated on owner_approval_status, approval_route, or
+     * any work order existing — Johan's own situation 3 (§1/§7) is a fault
+     * report reaching an outcome having never gone through approval at all
+     * (nobody fixed it), and the owner_handles route (§3a.1) reaches a
+     * `repaired` outcome with no work order ever having existed. This method
+     * is callable from any state except already-closed, on purpose.
+     */
+    public function setOutcome(array $attributes): void
+    {
+        if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This fault report is already closed.');
+        }
+
+        $outcome = $attributes['outcome'];
+        $note = $attributes['outcome_note'] ?? null;
+        $repairedAt = $attributes['repaired_at'] ?? null;
+
+        if ($outcome !== self::OUTCOME_REPAIRED && empty($note)) {
+            throw new \InvalidArgumentException('outcome_note is required unless the outcome is "repaired".');
+        }
+        if (in_array($outcome, [self::OUTCOME_REPAIRED, self::OUTCOME_REPAIRED_PARTIALLY], true) && empty($repairedAt)) {
+            throw new \InvalidArgumentException('repaired_at is required when the outcome is repaired or repaired_partially — Johan\'s own words: "the important part is capturing if and when the repairs were carried out."');
+        }
+
+        $this->forceFill([
+            'status' => self::STATUS_RESOLVED,
+            'outcome' => $outcome,
+            'outcome_note' => $note,
+            'repaired_at' => $repairedAt,
+            'resolved_at' => now(),
         ])->save();
     }
 

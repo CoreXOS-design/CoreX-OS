@@ -1001,6 +1001,22 @@ was no upstream fault report to have already asked the question. `approval_route
 that level (a work order's existence already implies the agency-appoints path); only `decision` matters
 there.
 
+**Built, Stage 2 (2026-09-26): `awaiting_approval` is agent-set, evidence-free, and optional — `[cc4
+design call]`.** An agent can mark a fault report `status='awaiting_approval'` /
+`owner_approval_status='pending'` purely to track "I've asked, waiting to hear back" on the list screen —
+this records no evidence (Johan's ruling requires evidence only for the actual DECISION). Crucially, it
+is **not a required step** before recording a decision: an agent who already has the owner's written
+reply in hand records it directly from `reported`, with no pointless intermediate click enforced. If
+Johan wants `awaiting_approval` to be a mandatory gate instead, that's a one-line change to
+`RentalFaultReport::recordApproval()`'s guard, not a schema change.
+
+**Built, Stage 2: approval evidence file upload is image-only, same as every other upload in this
+feature family.** A screenshot of the WhatsApp reply or the email is the natural artifact and reuses
+`PropertyImageStorer` with no second pipeline (§3a.3's own reasoning, applied here too). A genuine
+document attachment (a forwarded `.eml`/`.pdf`) is a real but separate future need — `evidence_text`
+(required regardless of channel) covers the pasted-content case in the meantime, so no evidence is ever
+blocked by this restriction, only the file-attachment format is narrower than "anything."
+
 ### 3a.1a Investigated, not built: could an owner's approval email file itself?
 
 Per the conductor's explicit instruction, this is a read-only investigation, reported for Johan's
@@ -1373,7 +1389,7 @@ their own record rather than a work-order status:
 
 ---
 
-## 11. Files to create (none yet written — spec only)
+## 11. Files (fault reports Stages 1-2 now BUILT and landed on QA1 — see inline notes; work orders §3.1-§3.4 remain spec only)
 
 - `database/migrations/xxxx_create_rental_work_orders_table.php`
 - `database/migrations/xxxx_create_rental_work_order_updates_table.php`
@@ -1394,34 +1410,51 @@ their own record rather than a work-order status:
 - `resources/views/corex/rental-work-orders/index.blade.php` — the new list screen (§6).
 - `resources/views/corex/properties/partials/rental-tab-work-orders.blade.php` — the property-level
   button + history (§6).
-- **New, 2026-09-24 — fault reports (§3a):**
-  - `database/migrations/xxxx_create_rental_fault_reports_table.php`
-  - `database/migrations/xxxx_create_rental_fault_report_photos_table.php`
-  - `database/migrations/xxxx_add_reported_fault_report_id_to_rental_work_orders_table.php` — the new
-    FK + `reported_by_type`/`'fault_report'` enum value (§3.1).
-  - `database/migrations/xxxx_register_rental_fault_report_notification_events.php` (idempotent, §4).
-  - `app/Models/RentalFaultReport.php`, `RentalFaultReportPhoto.php` — `use BelongsToAgency`.
-  - `app/Services/Rentals/RentalFaultReportService.php` — the approval gate (§3a.1), the outcome
-    transition (§3a.2), raising a linked work order. Same thin-controller discipline as
-    `RentalWorkOrderService` (§13) from day one, not retrofitted.
-  - `app/Http/Controllers/CoreX/RentalFaultReportController.php` — thin, calls the service.
-  - `app/Mail/Rentals/RentalFaultReportOwnerMail.php`, `RentalFaultReportTenantMail.php`.
-  - `resources/views/corex/rental-fault-reports/index.blade.php` — the new list screen (§6a).
-  - `resources/views/corex/properties/partials/rental-tab-fault-reports.blade.php` — the property-level
-    button + history (§6a).
-  - The out-inspection's "Fault & Repair History" attached block (§3a.5, §6a) — a read query added to
-    the existing out-inspection screen (`rental-inspections.md`'s rebuilt tab), not a new screen of its
-    own.
-- **New, 2026-09-25 — the approval evidence log, settled shape (§3.4a):**
-  - `database/migrations/xxxx_create_rental_approvals_table.php` — the single shared table for both
-    fault-report-level and work-order-level approval evidence. No conditional branch any more — the
-    mechanism is settled, not a fork on an open question.
-  - `database/migrations/xxxx_add_approval_route_and_repaired_at_to_rental_fault_reports_table.php` —
-    `reported_channel`, `captured_by_user_id`, `approval_route`, `repaired_at`, and the
-    `'owner_handling'` status enum value (§3a).
-  - `app/Models/RentalApproval.php` — `use BelongsToAgency`.
-  - No mail class, no public token-gated route — the settled mechanism is an agent-driven upload/paste
-    into an authenticated CoreX screen, not an owner-facing link.
+- **BUILT, Stage 1, 2026-09-25 (fault reports §3a — the record itself):**
+  - `database/migrations/2026_09_25_100000_create_rental_fault_reports_table.php` — includes the
+    `rental_work_order_id` column with NO foreign-key constraint (`rental_work_orders` doesn't exist
+    until Stage 4) — a plain indexed column now, the real FK added in Stage 4's own migration. Caught
+    by a real test run, not lint (see the Stage 1 commit message).
+  - `database/migrations/2026_09_25_100100_create_rental_fault_report_photos_table.php`
+  - `database/migrations/2026_09_25_100200_register_rental_fault_report_created_notification.php`
+    (idempotent, §4 — `.resolved` deferred to Stage 2, below).
+  - `app/Models/RentalFaultReport.php`, `RentalFaultReportPhoto.php` — `use BelongsToAgency`. NO
+    `workOrder()` relation yet — a PHP relation method must instantiate its related class the moment
+    it's CALLED, not just referenced by `::class`, so it can't be defined against
+    `App\Models\RentalWorkOrder` before Stage 4 builds that class (also caught by a real test run).
+  - `app/Services/Rentals/RentalFaultReportService.php` — `report()`, `notifyCreated()`.
+  - `app/Http/Controllers/CoreX/RentalFaultReportController.php` — thin, calls the service/model.
+  - **No Mail classes were built** — notifications for fault reports go through
+    `NotificationDispatcher::fire()` (internal, to the assigned agent) per §4's own design; there is no
+    external-party (owner/tenant) mail for fault reports specifically in the spec as written, unlike
+    work orders' three-recipient mail set. If Johan wants the owner/tenant notified directly on a fault
+    report (not just the agent), that's a real, undecided addition — flagged here, not built.
+  - `resources/views/corex/rental-fault-reports/index.blade.php`, `create.blade.php`, `show.blade.php`
+    (§6a's list screen + the record/detail views).
+  - The property-tab "Report a Fault" button + recent-history list — built directly inline in
+    `resources/views/corex/properties/show.blade.php` (the existing Rentals tab area), not as a separate
+    partial file — matching how the adjacent "Create lease" button is done in that same file, not
+    `rental-tab-fault-reports.blade.php` as originally sketched here.
+  - **NOT built yet**: the out-inspection's "Fault & Repair History" attached block (§3a.5/§6a) —
+    that's Stage 5, deliberately last, once `rental-inspections.md`'s out-inspection screen has this to
+    attach to.
+- **BUILT, Stage 2, 2026-09-26 (the lifecycle — §3a.1/§3a.2/§3.4a):**
+  - `database/migrations/2026_09_26_100000_create_rental_approvals_table.php` — the single shared table
+    for both fault-report-level and (future, Stage 4) work-order-level approval evidence.
+    `rental_work_order_id` is a plain column, no FK constraint yet, same Stage-1-established pattern.
+  - `database/migrations/2026_09_26_100100_register_rental_fault_report_resolved_notification.php`
+    (idempotent, §4 — deferred from Stage 1 until this stage's outcome action existed to fire it).
+  - `app/Models/RentalApproval.php` — `use BelongsToAgency`. NO `workOrder()` relation, same reasoning
+    as `RentalFaultReport`'s own deferred relation.
+  - `RentalFaultReport::requestApproval()`, `recordApproval()`, `setOutcome()` — the lifecycle logic
+    lives on the model (matching `RentalInspection::start()`/`cancel()`'s own established pattern in
+    this codebase), not the service; the service gained only `storeApprovalScreenshot()` and
+    `notifyResolved()`.
+  - `app/Http/Controllers/CoreX/RentalFaultReportController.php` gained `requestApproval()`,
+    `recordApproval()`, `setOutcome()` — thin, validate-then-call, per §13's own discipline.
+  - `resources/views/corex/rental-fault-reports/show.blade.php` gained the approval-recording and
+    outcome-setting sections — hidden entirely once the report is `resolved`/`cancelled` (screen-space
+    rule: no dead controls for a decision that's already final).
 - `config/corex-permissions.php` — new permission keys (§10).
 - Sidebar entry for the new list screens (same-day, non-negotiable #2) — Rental Work Orders AND Rental
   Fault Reports both, under the existing Rentals section.

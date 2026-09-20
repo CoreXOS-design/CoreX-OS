@@ -3147,6 +3147,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.restore');
         Route::post('/{rentalFaultReport}/photos', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'storePhoto'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.photos.store');
+
+        // Stage 2 (§3a.1/§3a.2, §0c) — the lifecycle: request/record approval,
+        // set the outcome. Separately permissioned per §10 — a decision
+        // becoming final is a heavier call than logging or editing a report.
+        Route::post('/{rentalFaultReport}/request-approval', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'requestApproval'])
+            ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.request-approval');
+        Route::post('/{rentalFaultReport}/approval', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'recordApproval'])
+            ->middleware('permission:rental_fault_reports.record_approval')->name('corex.rental-fault-reports.approval.store');
+        Route::post('/{rentalFaultReport}/outcome', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'setOutcome'])
+            ->middleware('permission:rental_fault_reports.resolve')->name('corex.rental-fault-reports.outcome.store');
     });
 
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,

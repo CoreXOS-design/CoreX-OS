@@ -16,10 +16,11 @@ use Illuminate\View\View;
 
 /**
  * .ai/specs/rental-work-orders.md §3a/§6a — full CRUD + list screen per
- * BUILD_STANDARD §1a-§1d. Stage 1 build: the record itself — report, view,
- * edit the reportable facts, cancel/archive/restore, photos. Approval and
- * outcome transitions (§3a.1/§3a.2) are a separate controller action landing
- * in Stage 2, against the same schema.
+ * BUILD_STANDARD §1a-§1d. Stage 1: the record itself — report, view, edit
+ * the reportable facts, cancel/archive/restore, photos. Stage 2 (this
+ * revision): the lifecycle — requestApproval/recordApproval/setOutcome,
+ * thin calls into RentalFaultReport's own model methods (§13's own
+ * discipline: no business rule decided in this controller).
  */
 class RentalFaultReportController extends Controller
 {
@@ -156,7 +157,7 @@ class RentalFaultReportController extends Controller
             // 'workOrder' — added in Stage 4 once App\Models\RentalWorkOrder
             // exists (see RentalFaultReport::workOrder()'s own note).
             'reportedByContact', 'reportedByUser', 'capturedByUser', 'cancelledByUser',
-            'createdByUser', 'photos.uploadedBy',
+            'createdByUser', 'photos.uploadedBy', 'approvals.recordedByUser',
         ]);
 
         return view('corex.rental-fault-reports.show', ['faultReport' => $rentalFaultReport]);
@@ -180,6 +181,97 @@ class RentalFaultReportController extends Controller
         $rentalFaultReport->update($validated);
 
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Fault report updated.');
+    }
+
+    /**
+     * §3a.1 — purely a status marker, no evidence. See
+     * RentalFaultReport::requestApproval()'s own note on why this is
+     * optional, not a required gate before recordApproval() below.
+     */
+    public function requestApproval(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        try {
+            $rentalFaultReport->requestApproval();
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Marked as awaiting owner approval.');
+    }
+
+    /**
+     * §3.4a/§0c — always in writing. evidence_text is required regardless
+     * of channel (a short, human-readable account of what was said or
+     * sent); evidence_file is an optional supplementary screenshot/forward,
+     * reusing PropertyImageStorer like every other upload in this feature.
+     */
+    public function recordApproval(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $validated = $request->validate([
+            'decision' => ['required', 'in:' . implode(',', [
+                \App\Models\RentalApproval::DECISION_APPROVED,
+                \App\Models\RentalApproval::DECISION_DECLINED,
+            ])],
+            'approval_route' => ['nullable', 'in:' . implode(',', [
+                RentalFaultReport::ROUTE_AGENCY_APPOINTS,
+                RentalFaultReport::ROUTE_OWNER_HANDLES,
+            ])],
+            'evidence_type' => ['required', 'in:' . implode(',', [
+                \App\Models\RentalApproval::EVIDENCE_WHATSAPP,
+                \App\Models\RentalApproval::EVIDENCE_EMAIL,
+                \App\Models\RentalApproval::EVIDENCE_VERBAL_NOTE,
+            ])],
+            'evidence_text' => ['required', 'string'],
+            // Image only, same as every other upload in this feature family
+            // (§3a.3's own "no second pipeline" reasoning) — a screenshot of
+            // the WhatsApp/email is the natural artifact here; a document
+            // attachment (e.g. a forwarded .eml/.pdf) is a real but separate
+            // future need, not quietly bolted on as a second storage path.
+            'evidence_file' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+            'decided_at' => ['nullable', 'date'],
+        ]);
+
+        if ($request->hasFile('evidence_file')) {
+            $validated['evidence_file_path'] = $service->storeApprovalScreenshot($request->file('evidence_file'), $rentalFaultReport->property_id);
+        }
+        unset($validated['evidence_file']);
+
+        try {
+            $rentalFaultReport->recordApproval($request->user(), $validated);
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Approval decision recorded.');
+    }
+
+    /**
+     * §3a.2/§0c — the spine. Callable regardless of approval state (see
+     * RentalFaultReport::setOutcome()'s own note).
+     */
+    public function setOutcome(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $validated = $request->validate([
+            'outcome' => ['required', 'in:' . implode(',', [
+                RentalFaultReport::OUTCOME_REPAIRED,
+                RentalFaultReport::OUTCOME_REPAIRED_PARTIALLY,
+                RentalFaultReport::OUTCOME_NOT_REPAIRED,
+                RentalFaultReport::OUTCOME_OWNER_DECLINED,
+                RentalFaultReport::OUTCOME_TENANT_LIABLE,
+            ])],
+            'outcome_note' => ['nullable', 'string'],
+            'repaired_at' => ['nullable', 'date'],
+        ]);
+
+        try {
+            $rentalFaultReport->setOutcome($validated);
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
+        }
+
+        $service->notifyResolved($rentalFaultReport);
+
+        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Outcome recorded.');
     }
 
     public function cancel(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse

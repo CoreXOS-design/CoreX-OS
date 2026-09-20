@@ -38,6 +38,9 @@
             {{-- The linked work order display lands in Stage 4 once
                  App\Models\RentalWorkOrder and its own show route exist —
                  rental_work_order_id is always null until then. --}}
+            @if($faultReport->owner_approval_status !== \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)
+                <div><span style="color: var(--text-muted);">Owner approval:</span> {{ ucfirst($faultReport->owner_approval_status) }}{{ $faultReport->approval_route ? ' — ' . str_replace('_', ' ', ucfirst($faultReport->approval_route)) : '' }}</div>
+            @endif
             @if($faultReport->outcome)
                 <div><span style="color: var(--text-muted);">Outcome:</span> {{ ucfirst(str_replace('_', ' ', $faultReport->outcome)) }}{{ $faultReport->repaired_at ? ' — ' . $faultReport->repaired_at->format('Y-m-d') : '' }}</div>
                 @if($faultReport->outcome_note)
@@ -120,5 +123,105 @@
         </form>
         @endpermission
     </div>
+
+    {{-- §3a.1/§3.4a — approval is always in writing; this is where that
+         gets captured. Not shown once the report is closed — there is
+         nothing left to decide. --}}
+    @if(!in_array($faultReport->status, ['resolved', 'cancelled'], true))
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Owner approval</h2>
+
+        @if($faultReport->approvals->isNotEmpty())
+            <ul class="space-y-1 text-sm">
+                @foreach($faultReport->approvals as $approval)
+                    <li>
+                        {{ ucfirst($approval->decision) }}{{ $approval->approval_route ? ' — ' . str_replace('_', ' ', ucfirst($approval->approval_route)) : '' }}
+                        <span style="color: var(--text-muted);">({{ ucfirst(str_replace('_', ' ', $approval->evidence_type)) }}, {{ $approval->decided_at?->format('Y-m-d') }}, recorded by {{ $approval->recordedByUser?->name }})</span>
+                        @if($approval->evidence_text)
+                            <div class="text-xs" style="color: var(--text-muted);">{{ $approval->evidence_text }}</div>
+                        @endif
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+
+        @permission('rental_fault_reports.record_approval')
+            @if($faultReport->owner_approval_status === \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)
+                <form method="POST" action="{{ route('corex.rental-fault-reports.request-approval', $faultReport) }}">
+                    @csrf
+                    <button type="submit" class="corex-btn-outline text-xs">Mark awaiting approval</button>
+                </form>
+            @endif
+            <button type="button" onclick="document.getElementById('record-approval-form').classList.toggle('hidden')" class="corex-btn-outline text-xs">Record decision</button>
+            <form id="record-approval-form" method="POST" action="{{ route('corex.rental-fault-reports.approval.store', $faultReport) }}" enctype="multipart/form-data" class="hidden space-y-3 pt-2" x-data="{ decision: 'approved' }">
+                @csrf
+                <div>
+                    <label class="text-xs font-medium">Decision</label>
+                    <select name="decision" x-model="decision" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <option value="approved">Approved</option>
+                        <option value="declined">Declined</option>
+                    </select>
+                </div>
+                <div x-show="decision === 'approved'" x-cloak>
+                    <label class="text-xs font-medium">Who handles the repair</label>
+                    <select name="approval_route" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <option value="agency_appoints">Agency appoints a contractor</option>
+                        <option value="owner_handles">Owner sorts it themselves</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Evidence</label>
+                    <select name="evidence_type" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <option value="whatsapp">WhatsApp reply</option>
+                        <option value="email">Email</option>
+                        <option value="verbal_note">Verbal (undocumented)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs font-medium">What the owner said</label>
+                    <textarea name="evidence_text" required rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
+                </div>
+                <div>
+                    <label class="text-xs font-medium">Screenshot (optional)</label>
+                    <input type="file" name="evidence_file" accept="image/*" class="text-xs">
+                </div>
+                <button type="submit" class="corex-btn-primary text-xs">Save decision</button>
+            </form>
+        @endpermission
+    </div>
+    @endif
+
+    {{-- §3a.2/§0c — the spine. Always reachable while the report is open,
+         regardless of approval state. --}}
+    @if(!in_array($faultReport->status, ['resolved', 'cancelled'], true))
+    @permission('rental_fault_reports.resolve')
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Outcome</h2>
+        <form method="POST" action="{{ route('corex.rental-fault-reports.outcome.store', $faultReport) }}" class="space-y-3" x-data="{ outcome: '' }">
+            @csrf
+            <div>
+                <label class="text-xs font-medium">What happened</label>
+                <select name="outcome" x-model="outcome" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    <option value="">Select…</option>
+                    <option value="repaired">Repaired</option>
+                    <option value="repaired_partially">Repaired partially</option>
+                    <option value="not_repaired">Not repaired</option>
+                    <option value="owner_declined">Owner declined</option>
+                    <option value="tenant_liable">Tenant liable</option>
+                </select>
+            </div>
+            <div x-show="outcome === 'repaired' || outcome === 'repaired_partially'" x-cloak>
+                <label class="text-xs font-medium">Date repaired</label>
+                <input type="date" name="repaired_at" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+            </div>
+            <div x-show="outcome !== '' && outcome !== 'repaired'" x-cloak>
+                <label class="text-xs font-medium">Note</label>
+                <textarea name="outcome_note" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save outcome</button>
+        </form>
+    </div>
+    @endpermission
+    @endif
 </div>
 @endsection

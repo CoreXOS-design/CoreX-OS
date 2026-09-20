@@ -5,6 +5,8 @@ namespace App\Services\Rentals;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
 use App\Services\CommandCenter\NotificationDispatcher;
+use App\Services\Images\PropertyImageStorer;
+use Illuminate\Http\UploadedFile;
 
 /**
  * .ai/specs/rental-work-orders.md §3a/§11/§13 — where a fault report is
@@ -39,6 +41,16 @@ class RentalFaultReportService
     }
 
     /**
+     * §3.4a — an approval's evidence screenshot, reusing PropertyImageStorer
+     * exactly like every other image in this feature family. No second
+     * pipeline for evidence specifically.
+     */
+    public function storeApprovalScreenshot(UploadedFile $file, int $propertyId): string
+    {
+        return app(PropertyImageStorer::class)->store($file, $propertyId);
+    }
+
+    /**
      * §4 — fires to the property's assigned agent, independent of whether a
      * work order ever follows. Skipped, not attempted, if the property has
      * no assigned agent — same "logged as a no-op, not a failure" treatment
@@ -58,6 +70,31 @@ class RentalFaultReportService
             [
                 'title' => 'Fault reported — ' . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
                 'body' => $faultReport->title,
+                'action_url' => route('corex.rental-fault-reports.show', $faultReport->id),
+                'severity' => 'info',
+                'threshold_hit_at' => now(),
+            ]
+        );
+    }
+
+    /**
+     * §4 — fires to the assigned agent when the outcome is set, whatever
+     * that outcome is. Same skip-not-fail treatment as notifyCreated().
+     */
+    public function notifyResolved(RentalFaultReport $faultReport): void
+    {
+        $property = $faultReport->property()->with('agent')->first();
+        if (!$property || !$property->agent_id || !$property->agent) {
+            return;
+        }
+
+        app(NotificationDispatcher::class)->fire(
+            $property->agent,
+            'rental_fault_report.resolved',
+            $faultReport,
+            [
+                'title' => 'Fault report resolved — ' . ($property->buildDisplayAddress() ?: $property->title ?: ('Property #' . $property->id)),
+                'body' => $faultReport->title . ': ' . str_replace('_', ' ', ucfirst($faultReport->outcome)),
                 'action_url' => route('corex.rental-fault-reports.show', $faultReport->id),
                 'severity' => 'info',
                 'threshold_hit_at' => now(),
