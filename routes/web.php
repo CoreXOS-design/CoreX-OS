@@ -3121,6 +3121,28 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.complete');
     });
 
+    // .ai/specs/rental-work-orders.md §3a/§6a — Rental Fault Reports, its own
+    // record (2026-09-24/25 amendments). Stage 1 build: the record itself,
+    // reporting, edit-while-reported, cancel/archive/restore, photos.
+    Route::prefix('rental-fault-reports')->middleware('permission:rental_fault_reports.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'index'])->name('corex.rental-fault-reports.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'create'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'store'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.store');
+        Route::get('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'show'])->name('corex.rental-fault-reports.show');
+        Route::put('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'update'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.update');
+        Route::post('/{rentalFaultReport}/cancel', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'cancel'])
+            ->middleware('permission:rental_fault_reports.cancel')->name('corex.rental-fault-reports.cancel');
+        Route::delete('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'destroy'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.destroy');
+        Route::post('/{rentalFaultReport}/restore', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'restore'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.restore');
+        Route::post('/{rentalFaultReport}/photos', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'storePhoto'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.photos.store');
+    });
+
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,
     // a new file, deliberately separate from RentalApplicationController above,
     // which is owned by another lane and actively being edited). See

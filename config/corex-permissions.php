@@ -152,6 +152,13 @@ return [
         // agency-onboarding-rentals-step.md §8 — same role as leases.manage_settings.
         ['key' => 'rental_inspections.manage_settings',     'label' => 'Manage Rental Inspection Settings',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 5],
 
+        // ── Rental Fault Reports (rental-work-orders.md §3a, 2026-09-24/25) ──
+        // Stage 1 build: the record itself. .resolve/.record_approval are added
+        // in Stage 2 once the outcome/approval actions they gate actually exist.
+        ['key' => 'rental_fault_reports.view',   'label' => 'View Rental Fault Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_fault_reports', 'sort_order' => 1],
+        ['key' => 'rental_fault_reports.create', 'label' => 'Report & Edit Faults',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 2],
+        ['key' => 'rental_fault_reports.cancel', 'label' => 'Cancel Fault Reports',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 3],
+
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
         ['key' => 'daily_activity.create',   'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 43],

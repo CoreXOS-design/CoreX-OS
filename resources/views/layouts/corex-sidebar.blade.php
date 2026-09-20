@@ -1099,6 +1099,13 @@
                 <a href="{{ route('corex.rental-inspections.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inspections.*') ? 'active' : '' }}">Rental Inspections</a>
                 @endpermission
 
+                {{-- .ai/specs/rental-work-orders.md §3a/§6a — a fault report is its own
+                     record (settled 2026-09-24/25), not a tab within work orders. Same-day
+                     nav entry per non-negotiable #2. --}}
+                @permission('rental_fault_reports.view')
+                <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-reports.*') ? 'active' : '' }}">Rental Fault Reports</a>
+                @endpermission
+
                 @if($user->isRentalApplicationAuthoriser())
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
                 @endif

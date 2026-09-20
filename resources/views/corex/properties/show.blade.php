@@ -4289,6 +4289,35 @@
                     @endif
                 </div>
 
+                {{-- .ai/specs/rental-work-orders.md §3a/§6a — "Report a Fault"
+                     button, Johan's own wording: an agent raises this standing
+                     in the property. Lease pre-filled when there's an active
+                     one; the report itself works during a vacancy too. --}}
+                @php
+                    $recentFaultReports = \App\Models\RentalFaultReport::where('property_id', $property->id)
+                        ->orderByDesc('reported_at')->limit(5)->get();
+                @endphp
+                <div class="rounded-md p-3 text-sm space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <div class="flex items-center justify-between">
+                        <strong>Fault reports</strong>
+                        @permission('rental_fault_reports.create')
+                        <a href="{{ route('corex.rental-fault-reports.create', array_filter(['property_id' => $property->id, 'lease_id' => $activeLease?->id])) }}" class="corex-btn-outline text-xs">Report a fault</a>
+                        @endpermission
+                    </div>
+                    @if($recentFaultReports->isEmpty())
+                        <span style="color: var(--text-muted);">No fault reports yet on this property.</span>
+                    @else
+                        <ul class="space-y-1">
+                            @foreach($recentFaultReports as $fr)
+                                <li class="flex items-center justify-between">
+                                    <span>{{ $fr->title }} — {{ ucfirst(str_replace('_', ' ', $fr->status)) }}</span>
+                                    <a href="{{ route('corex.rental-fault-reports.show', $fr) }}" class="text-xs underline">View</a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+
                 {{-- Settled rental property — dedicated save action
                      (PropertyController::updateRentalDetails()): its own
                      validation, its own DB transaction, the same
