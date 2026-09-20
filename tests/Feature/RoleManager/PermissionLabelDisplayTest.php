@@ -92,9 +92,21 @@ final class PermissionLabelDisplayTest extends TestCase
      */
     private function extractRows(string $html, string $moduleKey): array
     {
-        $start = strpos($html, "selectedFeature === '{$moduleKey}'");
+        // Bug found 2026-09-20 (cc1, re-running these tests after landing):
+        // "selectedFeature === '{$moduleKey}'" as a bare substring also
+        // matches the SIDEBAR NAV BUTTON's own `:style="selectedFeature ===
+        // '{$moduleKey}' ? ..."` binding, which renders BEFORE the actual
+        // detail panel in DOM order — so $start landed on the ~900-byte
+        // sidebar button snippet instead of the real content, and the real
+        // permission rows fell entirely outside the extracted window. The
+        // `x-show="` prefix is unique to the detail panel's own opening tag
+        // (the sidebar button uses `:style=`, never `x-show=`), so anchoring
+        // on the full attribute — not just the expression inside it — picks
+        // the right occurrence deterministically.
+        $needle = "x-show=\"selectedFeature === '{$moduleKey}'\"";
+        $start = strpos($html, $needle);
         $this->assertNotFalse($start, "module block for '{$moduleKey}' not found in the rendered page");
-        $nextStart = strpos($html, "selectedFeature === '", $start + 10);
+        $nextStart = strpos($html, "x-show=\"selectedFeature === '", $start + strlen($needle));
         $section = $nextStart !== false ? substr($html, $start, $nextStart - $start) : substr($html, $start);
 
         preg_match_all(
