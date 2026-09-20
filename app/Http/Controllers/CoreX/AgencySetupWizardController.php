@@ -437,6 +437,29 @@ class AgencySetupWizardController extends Controller
                 // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — same
                 // always-a-real-number contract as 'leases' above.
                 'rental_work_orders' => \App\Models\RentalWorkOrderSetting::spendThresholdFor($agency->id),
+                // Bug found 2026-09-20 (cc4, while wiring rental_work_orders'
+                // display case): this source had NO arm at all, so both of its
+                // controls fell through to `default => $agency->{$key} ?? ...`
+                // — fault_report_window_days/out_inspection_signing_window_days
+                // aren't Agency columns, so $agency->{$key} is always null and
+                // the wizard always rendered the hardcoded control default,
+                // never the agency's real saved value. Display-only (the save
+                // path goes through RentalInspectionSettingsController::update,
+                // independent of this method) but not harmless: an owner who
+                // opens the wizard sees what looks like an unset field and
+                // re-saves over their real value. Explicit per-key match,
+                // not a generic {$key} lookup, because these two keys don't
+                // share a common camelKey+'For' method name (unlike
+                // 'rental_application' below) — RentalInspectionSetting's
+                // own resolver names are faultReportWindowDaysFor() and
+                // signingWindowDaysFor(), not a mechanical transform of the
+                // control keys. Regression: tests/Feature/Onboarding/
+                // AgencySetupWizardCurrentValuesTest.php.
+                'rental_inspections' => match ($key) {
+                    'fault_report_window_days' => \App\Models\RentalInspectionSetting::faultReportWindowDaysFor($agency->id),
+                    'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),
+                    default => $control['default'] ?? null,
+                },
                 // AT-395 — the outgoing-mail step reads the CURRENT ADMIN's own
                 // mailbox row, never any other agent's. Password is never
                 // resolved back (write-only, same rule as every mailbox screen).
