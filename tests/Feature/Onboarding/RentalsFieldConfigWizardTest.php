@@ -254,4 +254,42 @@ final class RentalsFieldConfigWizardTest extends TestCase
             $this->assertStringNotContainsStringIgnoringCase($term, $leasesStepSource, "found '{$term}' in the leases step's user-facing copy values");
         }
     }
+
+    /**
+     * Found while rebasing this branch onto cc5's credit-bureau-setting work
+     * (2026-09-20): the tick grid's section groups came from
+     * resolvedFieldConfigFor(), which already threads $agencyId through to
+     * the bureau-aware FIELD label (RentalApplication::submissionFieldRegistry())
+     * — but the SECTION HEADING still came from the raw SUBMISSION_FIELD_SECTIONS
+     * constant key, "Tenant Profile Network Consent", regardless of agency.
+     * Fixed the same way RentalApplicationSettingsController::edit() already
+     * does it for the real settings screen: rename just that one section key
+     * via RentalApplication::creditBureauConsentLabel(). Non-negotiable #9 —
+     * a second agency with no TPN relationship must never see "TPN" or
+     * "Tenant Profile Network" anywhere, including a section heading.
+     */
+    public function test_the_consent_section_heading_is_bureau_aware_not_hardcoded_to_tpn(): void
+    {
+        $bureauAgency = $this->newAgency('Coastal Realty');
+        $bureauAdmin = $this->admin($bureauAgency);
+        \App\Models\RentalApplicationQualifyingSetting::create([
+            'agency_id' => $bureauAgency->id,
+            'credit_bureau_name' => 'Xchange',
+        ]);
+
+        $noBureauAgency = $this->newAgency('Cape Town Rentals');
+        $noBureauAdmin = $this->admin($noBureauAgency);
+
+        // Configured-bureau agency.
+        $response = $this->actingAs($bureauAdmin)->get(route('corex.agency-setup.step', ['step' => 'leases']))->assertOk();
+        $response->assertSee('Xchange Consent');
+        $response->assertDontSee('Tenant Profile Network Consent');
+        $response->assertDontSee('TPN Consent');
+
+        // No-bureau-configured agency — the safe, neutral default, never HFC's TPN.
+        $response = $this->actingAs($noBureauAdmin)->get(route('corex.agency-setup.step', ['step' => 'leases']))->assertOk();
+        $response->assertSee('Credit Bureau Consent');
+        $response->assertDontSee('TPN Consent');
+        $response->assertDontSee('Tenant Profile Network Consent');
+    }
 }

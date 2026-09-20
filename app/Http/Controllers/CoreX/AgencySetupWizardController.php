@@ -161,9 +161,20 @@ class AgencySetupWizardController extends Controller
             // /corex/settings/rental-applications (the exact incident class
             // named in agency-onboarding-setup.md §6.1).
             'leases' => [
+                // The "Tenant Profile Network Consent" SECTION LABEL (from the
+                // SUBMISSION_FIELD_SECTIONS constant, unchanged) is renamed here
+                // to the agency's own configured bureau — same technique
+                // RentalApplicationSettingsController::edit() uses for the real
+                // settings screen (credit_bureau_name, 2026-09-20). Renders
+                // "Credit Bureau Consent" for an agency with no bureau
+                // configured, never a hardcoded "TPN" — non-negotiable #9.
                 'rentalFieldSections' => collect(\App\Models\RentalApplication::resolvedFieldConfigFor($agency->id))
                     ->reject(fn ($f) => $f['is_custom'])
-                    ->groupBy('section')
+                    ->groupBy(fn ($f) => $f['section'] === 'Tenant Profile Network Consent'
+                        ? \App\Models\RentalApplication::creditBureauConsentLabel(
+                            \App\Models\RentalApplicationQualifyingSetting::creditBureauNameFor($agency->id)
+                        )
+                        : $f['section'])
                     ->map(fn ($fields) => $fields->sortBy('order')->values()),
                 'rentalFieldLabelOverrides' => \App\Models\RentalApplicationQualifyingSetting::fieldLabelOverridesFor($agency->id),
                 'rentalFieldHelpTextOverrides' => \App\Models\RentalApplicationQualifyingSetting::fieldHelpTextOverridesFor($agency->id),
