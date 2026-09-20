@@ -23,10 +23,6 @@ use Illuminate\Queue\SerializesModels;
  */
 class RentalApplicationMoreInfoRequestMail extends Mailable implements ShouldQueue
 {
-    // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
-    // sent inside the page request; the live mail worker group drains this queue.
-    public $queue = 'mail';
-
     use Queueable, SerializesModels;
 
     public string $contactName;
@@ -36,6 +32,10 @@ class RentalApplicationMoreInfoRequestMail extends Mailable implements ShouldQue
 
     public function __construct(public RentalApplication $application, string $note)
     {
+        // Queueable already declares $queue — set it via onQueue() rather than
+        // redeclaring the property (fatals as an incompatible trait-property
+        // redeclaration; see RentalApplicationReturnedMail's own note).
+        $this->onQueue('mail');
         $this->contactName = $application->contact->full_name ?: 'there';
         $this->agencyName  = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
         $this->onlineUrl   = route('rental-applications.public.show', $application->token);
