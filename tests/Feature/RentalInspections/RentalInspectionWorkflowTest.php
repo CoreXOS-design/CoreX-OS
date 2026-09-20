@@ -174,10 +174,12 @@ final class RentalInspectionWorkflowTest extends TestCase
 
     public function test_completing_an_out_inspection_succeeds_once_a_signature_exists(): void
     {
+        // markCompleted()'s guard is still "any signature exists" in Stage 1
+        // (§15.7's full 3-party guard replaces it in Stage 5) — this proves
+        // that unchanged guard still works against the new table shape.
         $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
-        RentalInspectionSignature::capture($outIns, RentalInspectionSignature::SIGNER_TENANT, [
-            'signer_contact_id' => null,
-            'signature_path' => 'signatures/test.png',
+        RentalInspectionSignature::capture($outIns, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/test.png',
         ]);
 
         $outIns->markCompleted();
@@ -186,28 +188,41 @@ final class RentalInspectionWorkflowTest extends TestCase
         $this->assertNull($outIns->fault_report_deadline_at, 'the fault-report window belongs to the in-inspection only');
     }
 
-    public function test_agent_on_behalf_signature_requires_the_exact_refusal_phrase(): void
+    /**
+     * §15 — the old agent_on_behalf/REQUIRED_REFUSAL_PHRASE mechanism is
+     * retired. Its real successor, per-party refusal with the agent's own
+     * attestation, is built in Stage 4 (§15.11) — these two tests replace
+     * the old phrase-validation tests with the Stage 1 model's actual
+     * refusal shape, proven directly at the model layer.
+     */
+    public function test_a_tenant_refusal_is_a_real_disposition_not_a_signature(): void
+    {
+        $tenant = \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Thabo', 'last_name' => 'Tenant', 'email' => uniqid() . '@example.test',
+        ]);
+        \App\Models\LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+        $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
+
+        $signature = RentalInspectionSignature::capture($outIns, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id,
+            'refusal_reason_preset' => 'refused_no_reason',
+        ]);
+
+        $this->assertSame(RentalInspectionSignature::DISPOSITION_REFUSED, $signature->disposition);
+        $this->assertNull($signature->party_signature_path);
+        // The old guard still only cares that a ROW exists, regardless of disposition —
+        // Stage 5 is what makes it care whether every required party is accounted for.
+        $outIns->markCompleted();
+        $this->assertSame(RentalInspection::STATUS_COMPLETED, $outIns->status);
+    }
+
+    public function test_agent_signature_requires_a_real_signature_image(): void
     {
         $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
 
         $this->expectException(\InvalidArgumentException::class);
-        RentalInspectionSignature::capture($outIns, RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF, [
-            'signed_by_user_id' => $this->agent->id,
-            'refused_note' => 'Tenant did not respond after several calls.',
-        ]);
-    }
-
-    public function test_agent_on_behalf_signature_succeeds_with_the_exact_refusal_phrase(): void
-    {
-        $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
-
-        $signature = RentalInspectionSignature::capture($outIns, RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF, [
-            'signed_by_user_id' => $this->agent->id,
-            'refused_note' => 'Called three times over the window — tenant refused to sign out inspection.',
-        ]);
-
-        $this->assertNotNull($signature->id);
-        $this->assertSame(RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF, $signature->signer_role);
+        RentalInspectionSignature::capture($outIns, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, []);
     }
 
     public function test_window_decision_can_only_be_recorded_for_a_report_outside_the_window(): void

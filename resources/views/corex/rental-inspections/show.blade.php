@@ -124,11 +124,16 @@
     @if($inspection->signatures->isNotEmpty())
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Signatures</h2>
+        {{-- §15.5/§15.8 — minimal rename-safe rendering for Stage 1. The full
+             unambiguous signed-vs-refused treatment (distinct storage, label
+             AND rendering, per Johan's 2026-09-20 ruling) is Stage 5. --}}
         @foreach($inspection->signatures as $signature)
             <div class="text-sm" style="border-bottom: 1px solid var(--border); padding-bottom: 4px;">
-                {{ ucfirst(str_replace('_', ' ', $signature->signer_role)) }} — {{ $signature->signed_at?->format('Y-m-d H:i') }}
-                @if($signature->refused_note)
-                    <div class="text-xs" style="color: var(--text-muted);">{{ $signature->refused_note }}</div>
+                {{ ucfirst($signature->party_role) }} —
+                {{ $signature->disposition === 'refused' ? 'REFUSED TO SIGN' : 'Signed' }}
+                ({{ $signature->disposition_recorded_at?->format('Y-m-d H:i') }})
+                @if($signature->refusal_reason_note)
+                    <div class="text-xs" style="color: var(--text-muted);">{{ $signature->refusal_reason_note }}</div>
                 @endif
             </div>
         @endforeach

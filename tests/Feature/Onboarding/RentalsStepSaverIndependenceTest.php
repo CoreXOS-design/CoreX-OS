@@ -74,6 +74,38 @@ final class RentalsStepSaverIndependenceTest extends TestCase
         $this->assertSame(750.0, RentalWorkOrderSetting::spendThresholdFor($agency->id));
     }
 
+    /**
+     * §15.6's own new field, this stage's own new saver-precondition risk:
+     * the wizard step has no control for refusal_reason_presets at all (no
+     * wizard control type fits a JSON list yet — flagged for the conductor,
+     * not silently decided), so its POST never carries that key. Proves the
+     * has()-guarded saver (RentalInspectionSettingsController::update())
+     * does NOT force-default/wipe an agency's own edited preset list just
+     * because the wizard step doesn't know about it — the exact incident
+     * this whole test file exists to prevent, for a field added today.
+     */
+    public function test_saving_the_wizard_step_never_wipes_an_agencys_own_refusal_reason_presets(): void
+    {
+        $agency = Agency::create(['name' => 'Preset Realty', 'slug' => 'preset-realty-' . uniqid()]);
+        $admin = $this->admin($agency);
+        RentalInspectionSetting::create([
+            'agency_id' => $agency->id,
+            'refusal_reason_presets' => [['key' => 'custom_1', 'label' => 'Our own agency reason']],
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+                'expiry_notice_window_days' => 45,
+                'fault_report_window_days' => 10,
+                'out_inspection_signing_window_days' => 14,
+                'no_approval_spend_threshold' => 750,
+            ])
+            ->assertRedirect();
+
+        $presets = RentalInspectionSetting::refusalReasonPresetsFor($agency->id);
+        $this->assertContains('custom_1', array_column($presets, 'key'), 'the wizard step must never wipe a preset it has no control for');
+    }
+
     public function test_saving_the_dedicated_lease_settings_page_never_touches_rental_inspection_settings(): void
     {
         $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-realty-' . uniqid()]);

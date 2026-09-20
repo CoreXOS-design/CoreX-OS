@@ -120,6 +120,53 @@ class RentalInspection extends Model
     }
 
     /**
+     * §15.4/§15.7 — every tenant on this inspection's own lease, plus the
+     * landlord if Property::sellerOwnerContact() resolves one, who does NOT
+     * yet have a disposition (signed or refused) row on THIS inspection.
+     * Empty means every required party is accounted for — the one thing
+     * both RentalInspectionSignature::capture()'s agent-signs-last rule
+     * (§15.2a) and the eventual completion guard (§15.7) both ask.
+     *
+     * @return \Illuminate\Support\Collection<int, array{party_role: string, party_contact_id: int}>
+     */
+    public function outstandingSignatories(): \Illuminate\Support\Collection
+    {
+        $existing = $this->signatures()
+            ->whereIn('party_role', [RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::PARTY_LANDLORD])
+            ->get(['party_role', 'party_contact_id']);
+
+        $outstanding = collect();
+
+        $tenantContactIds = \App\Models\LeaseTenant::where('lease_id', $this->lease_id)->pluck('contact_id');
+        foreach ($tenantContactIds as $contactId) {
+            $already = $existing->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_TENANT
+                && (int) $s->party_contact_id === (int) $contactId);
+            if (! $already) {
+                $outstanding->push(['party_role' => RentalInspectionSignature::PARTY_TENANT, 'party_contact_id' => $contactId]);
+            }
+        }
+
+        $landlordContactId = $this->property?->sellerOwnerContact()?->id;
+        if ($landlordContactId) {
+            $already = $existing->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_LANDLORD);
+            if (! $already) {
+                $outstanding->push(['party_role' => RentalInspectionSignature::PARTY_LANDLORD, 'party_contact_id' => $landlordContactId]);
+            }
+        }
+
+        return $outstanding;
+    }
+
+    /** §15.1 — the agent always signs; this is the one check for whether they already have. */
+    public function hasAgentSignature(): bool
+    {
+        return $this->signatures()
+            ->where('party_role', RentalInspectionSignature::PARTY_AGENT)
+            ->where('disposition', RentalInspectionSignature::DISPOSITION_SIGNED)
+            ->exists();
+    }
+
+    /**
      * §3.3 — deletable through the ordinary CRUD path only while nothing has
      * been recorded against it yet. Once a single observation exists, this
      * is evidence and may only be cancelled, never deleted — same reasoning

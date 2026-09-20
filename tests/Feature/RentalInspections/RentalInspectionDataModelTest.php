@@ -15,6 +15,7 @@ use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
 use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
+use App\Models\LeaseTenant;
 use App\Models\User;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -66,6 +67,17 @@ final class RentalInspectionDataModelTest extends TestCase
             'start_date' => now()->subMonths(2),
             'created_by_user_id' => $this->agent->id,
         ]);
+    }
+
+    private function makeTenant(?Lease $lease = null): Contact
+    {
+        $contact = Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Tenant', 'last_name' => (string) uniqid(), 'email' => uniqid() . '@example.test',
+        ]);
+        LeaseTenant::create(['lease_id' => ($lease ?? $this->lease)->id, 'contact_id' => $contact->id, 'is_primary' => true]);
+
+        return $contact;
     }
 
     private function makeItem(string $label = 'Bedroom 1'): RentalInspectionItem
@@ -259,10 +271,207 @@ final class RentalInspectionDataModelTest extends TestCase
         $this->assertSame(7, RentalInspectionSetting::signingWindowDaysFor($this->agency->id), 'unset column still falls back to the default');
     }
 
-    public function test_signature_refusal_note_must_contain_the_exact_required_phrase(): void
+    public function test_refusal_reason_presets_default_is_neutral_with_other_always_last(): void
     {
-        $this->assertFalse(RentalInspectionSignature::refusalNoteIsValid('Tenant did not respond.'));
-        $this->assertTrue(RentalInspectionSignature::refusalNoteIsValid('Called three times — tenant refused to sign out inspection.'));
+        $presets = RentalInspectionSetting::refusalReasonPresetsFor($this->agency->id);
+
+        $this->assertSame('other', end($presets)['key'], '"other" must always be present and always last');
+        $this->assertContains('disputes_condition', array_column($presets, 'key'));
+        $this->assertStringNotContainsStringIgnoringCase('HFC', json_encode($presets), 'default wording must be multi-agency neutral');
+    }
+
+    public function test_refusal_reason_presets_agency_override_still_forces_other_last(): void
+    {
+        RentalInspectionSetting::create([
+            'agency_id' => $this->agency->id,
+            'refusal_reason_presets' => [
+                ['key' => 'other', 'label' => 'Other'],
+                ['key' => 'custom_reason', 'label' => 'A custom agency reason'],
+            ],
+        ]);
+
+        $presets = RentalInspectionSetting::refusalReasonPresetsFor($this->agency->id);
+
+        $this->assertSame('other', end($presets)['key'], '"other" is forced last even if the agency saved it elsewhere');
+        $this->assertContains('custom_reason', array_column($presets, 'key'));
+    }
+
+    // ── §15.2a — RentalInspectionSignature::capture()'s invariants ──────
+
+    public function test_a_tenant_can_sign(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection();
+
+        $signature = RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_contact_id' => $tenant->id,
+            'party_signature_path' => 'signatures/tenant.png',
+        ]);
+
+        $this->assertSame(RentalInspectionSignature::PARTY_TENANT, $signature->party_role);
+        $this->assertSame(RentalInspectionSignature::DISPOSITION_SIGNED, $signature->disposition);
+        $this->assertNull($signature->refusal_reason_preset);
+    }
+
+    public function test_a_signed_disposition_requires_a_signature_image(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection();
+
+        $this->expectException(\InvalidArgumentException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_contact_id' => $tenant->id,
+        ]);
+    }
+
+    public function test_a_tenant_can_refuse_with_a_reason_and_no_signature_image(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection();
+
+        $signature = RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id,
+            'refusal_reason_preset' => 'not_present',
+        ]);
+
+        $this->assertSame(RentalInspectionSignature::DISPOSITION_REFUSED, $signature->disposition);
+        $this->assertNull($signature->party_signature_path, 'a refusal must never carry a signature image — that is what makes it unmistakably not a signature');
+    }
+
+    public function test_a_refused_disposition_must_not_carry_a_signature_image(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection();
+
+        $this->expectException(\InvalidArgumentException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id,
+            'party_signature_path' => 'signatures/should-not-be-here.png',
+            'refusal_reason_preset' => 'not_present',
+        ]);
+    }
+
+    public function test_a_refused_disposition_requires_a_reason(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection();
+
+        $this->expectException(\InvalidArgumentException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id,
+        ]);
+    }
+
+    public function test_refusal_reason_other_requires_a_free_text_note(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection();
+
+        $this->expectException(\InvalidArgumentException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id,
+            'refusal_reason_preset' => 'other',
+        ]);
+    }
+
+    public function test_party_contact_id_must_actually_be_a_tenant_on_this_lease(): void
+    {
+        $strangerContact = Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Not', 'last_name' => 'ALease Tenant', 'email' => uniqid() . '@example.test',
+        ]);
+        $inspection = $this->makeInspection();
+
+        $this->expectException(\InvalidArgumentException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_contact_id' => $strangerContact->id,
+            'party_signature_path' => 'signatures/tenant.png',
+        ]);
+    }
+
+    public function test_the_same_party_cannot_be_dispositioned_twice_on_one_inspection(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection();
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_contact_id' => $tenant->id, 'party_signature_path' => 'signatures/tenant.png',
+        ]);
+
+        $this->expectException(\LogicException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id, 'refusal_reason_preset' => 'not_present',
+        ]);
+    }
+
+    public function test_the_agent_has_no_refusal_option(): void
+    {
+        $inspection = $this->makeInspection();
+
+        $this->expectException(\InvalidArgumentException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
+    }
+
+    public function test_the_agent_cannot_sign_until_every_tenant_and_the_landlord_is_dispositioned(): void
+    {
+        $this->makeTenant(); // one outstanding tenant, no disposition recorded yet
+        $inspection = $this->makeInspection();
+
+        $this->expectException(\LogicException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
+    }
+
+    public function test_the_agent_can_sign_once_every_tenant_is_dispositioned_on_a_lease_with_no_resolvable_landlord(): void
+    {
+        // This property has no seller/owner-side contact linked at all —
+        // sellerOwnerContact() resolves null, so the landlord requirement
+        // is waived (§15.4), not blocking.
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection();
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_contact_id' => $tenant->id, 'party_signature_path' => 'signatures/tenant.png',
+        ]);
+
+        $signature = RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
+
+        $this->assertSame(RentalInspectionSignature::PARTY_AGENT, $signature->party_role);
+        $this->assertNull($signature->party_contact_id, 'the agent is never identified via a Contact');
+        $this->assertTrue($inspection->hasAgentSignature());
+    }
+
+    public function test_the_agent_cannot_sign_twice_on_the_same_inspection(): void
+    {
+        $inspection = $this->makeInspection(); // no tenants on this lease — nothing outstanding
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
+
+        $this->expectException(\LogicException::class);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent-again.png',
+        ]);
+    }
+
+    public function test_outstanding_signatories_lists_every_undispositioned_tenant(): void
+    {
+        $tenantOne = $this->makeTenant();
+        $tenantTwo = $this->makeTenant();
+        $inspection = $this->makeInspection();
+
+        $this->assertCount(2, $inspection->outstandingSignatories());
+
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenantOne->id, 'refusal_reason_preset' => 'not_present',
+        ]);
+
+        $remaining = $inspection->outstandingSignatories();
+        $this->assertCount(1, $remaining);
+        $this->assertSame($tenantTwo->id, $remaining->first()['party_contact_id']);
     }
 
     public function test_agency_scoping_hides_another_agencys_inspection(): void
