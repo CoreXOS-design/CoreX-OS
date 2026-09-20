@@ -7649,6 +7649,7 @@ CREATE TABLE `leases` (
   `property_id` bigint unsigned NOT NULL,
   `status` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `rental_amount` decimal(12,2) NOT NULL,
+  `rental_no_approval_spend_threshold` decimal(10,2) DEFAULT NULL,
   `deposit_amount` decimal(12,2) DEFAULT NULL,
   `start_date` date NOT NULL,
   `end_date` date DEFAULT NULL,
@@ -13024,6 +13025,22 @@ CREATE TABLE `rental_reminder_settings` (
   CONSTRAINT `rental_reminder_settings_updated_by_foreign` FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_work_order_settings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_work_order_settings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `completion_requires_photo` tinyint(1) NOT NULL DEFAULT '1',
+  `overdue_reminder_days` smallint unsigned DEFAULT NULL,
+  `no_approval_spend_threshold` decimal(10,2) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_work_order_settings_agency_id_foreign` (`agency_id`),
+  CONSTRAINT `rental_work_order_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rentals`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -17107,3 +17124,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1380,'2026_09_25_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1381,'2026_09_25_100200_register_rental_fault_report_created_notification',328);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1382,'2026_09_26_100000_create_rental_approvals_table',329);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1383,'2026_09_26_100100_register_rental_fault_report_resolved_notification',329);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1384,'2026_09_27_100000_create_rental_work_order_settings_table',330);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1385,'2026_09_27_100100_add_rental_no_approval_spend_threshold_to_leases_table',330);
