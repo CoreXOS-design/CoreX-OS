@@ -3109,6 +3109,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // here — this is Read plus administrative lifecycle only.
     Route::prefix('rental-inspections')->middleware('permission:rental_inspections.view')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'index'])->name('corex.rental-inspections.index');
+        // 2026-09-20 — the list screen's own "Start Inspection" entry point,
+        // added alongside (never instead of) the property tab's own AJAX
+        // start flow. Registered BEFORE the /{rentalInspection} route below —
+        // otherwise "create" would greedily bind as an inspection id.
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'create'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'store'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.store');
         Route::get('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'show'])->name('corex.rental-inspections.show');
         Route::post('/{rentalInspection}/cancel', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'cancel'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.cancel');
