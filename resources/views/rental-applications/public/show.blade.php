@@ -509,10 +509,71 @@
                             $cfOldKey = 'custom_field_values.' . $cf['key'];
                             $cfValue = old($cfOldKey, $application->custom_field_values[$cf['key']] ?? null);
                             $cfError = $errors->has($cfOldKey);
+                            // §7, piece (c)(4) — the current file, resolved
+                            // the SAME scoped way as
+                            // RentalApplicationSigningController::
+                            // resolveCustomFieldDocument() (source +
+                            // custom_field_key together), never trusting
+                            // the raw custom_field_values id alone.
+                            $cfDoc = $cf['field_type'] === 'file' && $cfValue
+                                ? \App\Models\Document::where('id', $cfValue)
+                                    ->where('source_type', 'rental_application')
+                                    ->where('source_id', $application->id)
+                                    ->where('custom_field_key', $cf['key'])
+                                    ->first()
+                                : null;
                         @endphp
-                        <div class="{{ in_array($cf['field_type'], ['text']) ? 'sm:col-span-2' : '' }}">
+                        <div class="{{ in_array($cf['field_type'], ['text', 'file']) ? 'sm:col-span-2' : '' }}">
                             <label class="block text-xs text-slate-500 mb-1">{{ $cf['label'] }}@if($cf['required']) *@endif</label>
-                            @if($cf['field_type'] === 'yes_no')
+                            @if($cf['field_type'] === 'file')
+                                <div x-data="{
+                                        uploading: false,
+                                        error: null,
+                                        doc: {{ Js::from($cfDoc ? ['id' => $cfDoc->id, 'name' => $cfDoc->original_name, 'view_url' => route('rental-applications.public.documents.view', [$application->token, $cfDoc->id])] : null) }},
+                                        action(url, file) {
+                                            this.uploading = true; this.error = null;
+                                            const formData = new FormData();
+                                            formData.append('file', file);
+                                            formData.append('_token', csrfToken());
+                                            return fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken() }, body: formData })
+                                                .then(res => res.json().then(data => ({ ok: res.ok, data })))
+                                                .then(({ ok, data }) => {
+                                                    this.uploading = false;
+                                                    if (!ok) { this.error = data.message || 'Upload failed.'; return; }
+                                                    this.doc = data.document;
+                                                })
+                                                .catch(() => { this.uploading = false; this.error = 'Network error — please try again.'; });
+                                        },
+                                        remove() {
+                                            this.uploading = true; this.error = null;
+                                            const formData = new FormData();
+                                            formData.append('_token', csrfToken());
+                                            fetch({{ Js::from(route('rental-applications.public.custom-fields.remove', [$application->token, $cf['key']])) }}, { method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': csrfToken() }, body: formData })
+                                                .then(() => { this.uploading = false; this.doc = null; })
+                                                .catch(() => { this.uploading = false; this.error = 'Network error — please try again.'; });
+                                        },
+                                    }">
+                                    <template x-if="!doc">
+                                        <label class="inline-block px-3 py-2 rounded-lg border border-slate-300 text-sm cursor-pointer" :class="uploading ? 'opacity-50' : ''">
+                                            <span x-text="uploading ? 'Uploading…' : 'Choose file'"></span>
+                                            <input type="file" class="hidden" :disabled="uploading" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                                                   @change="action({{ Js::from(route('rental-applications.public.custom-fields.upload', [$application->token, $cf['key']])) }}, $event.target.files[0]); $event.target.value = ''">
+                                        </label>
+                                    </template>
+                                    <template x-if="doc">
+                                        <div class="flex items-center gap-2 flex-wrap text-sm">
+                                            <a :href="doc.view_url" target="_blank" rel="noopener" class="text-slate-700 hover:underline" x-text="'✓ ' + doc.name"></a>
+                                            <label class="text-xs font-medium text-slate-500 hover:text-slate-700 cursor-pointer">
+                                                Replace
+                                                <input type="file" class="hidden" :disabled="uploading" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                                                       @change="action({{ Js::from(route('rental-applications.public.custom-fields.replace', [$application->token, $cf['key']])) }}, $event.target.files[0]); $event.target.value = ''">
+                                            </label>
+                                            <button type="button" class="text-xs font-medium text-red-500 hover:text-red-700" :disabled="uploading" @click="remove()">Remove</button>
+                                        </div>
+                                    </template>
+                                    <p class="text-xs mt-1" x-show="error" x-text="error" style="color: #dc2626;"></p>
+                                </div>
+                            @elseif($cf['field_type'] === 'yes_no')
                                 <select name="{{ $cfName }}" @if($cf['required']) required @endif
                                         class="w-full rounded-lg border px-3 py-2 text-sm {{ $cfError ? 'border-red-400' : 'border-slate-300' }}">
                                     <option value="">— Select —</option>

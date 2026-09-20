@@ -22,6 +22,7 @@ class Document extends Model
         'original_name', 'storage_path', 'disk', 'mime_type', 'size',
         'document_type_id', 'source_type', 'source_id', 'uploaded_by',
         'deal_id', // AT-158 WS3 (D4) — DR2 deal anchor
+        'custom_field_key', // .ai/specs/rental-application-field-config.md §7, piece (c)(4)
     ];
 
     protected $casts = ['size' => 'integer'];

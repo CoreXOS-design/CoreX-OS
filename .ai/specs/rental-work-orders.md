@@ -1,7 +1,7 @@
 # Rental Work Orders (and Fault Reports)
 
 **Status:** Spec — not yet built. NO CODE has been written against this spec.
-**Date:** 2026-09-14 (amended 2026-09-22, amended again 2026-09-24 — see below)
+**Date:** 2026-09-14 (amended 2026-09-22, amended 2026-09-24, amended again 2026-09-25 — see below)
 **Author:** cc4
 **Pillar:** Property (`Property`) — every work order and fault report anchors to a property; Contact
 (owner, tenant, supplier's own contact person) is who is notified and who reported it; touches Lease
@@ -28,6 +28,23 @@ Three of the four original open questions remain genuinely open — §3.2a (how 
 the front door that doesn't exist), §3.4a (owner-approval evidentiary capture), §3.4b (the spend
 threshold) — none decided by this amendment either.
 
+**Amendment, 2026-09-25 — Johan has ruled on all three remaining open questions.** §0c has the full
+settlement. In brief: tenant reporting stays the simple thing (the agent captures it) but the record
+now carries WHO reported it and THROUGH WHAT CHANNEL, so tenant self-service on Andre's future app
+slots in later without a rewrite (§3.2a, §3a). Owner approval is bigger than this spec had it — there
+are TWO outcomes of approval, not one (agency appoints a contractor, or the owner sorts it themselves
+with no work order at all), and the work order is now explicitly NOT mandatory to reach a resolved
+outcome (§3a.1, §3.4a). The essential fact this whole feature exists to capture is "was it repaired,
+and when" — a new `repaired_at` field carries that, independent of who did the work (§3a.2). Approval
+evidence is always in writing (a WhatsApp reply or an email) and is captured by the agent as an upload
+or a pasted record, retained on its own append-only evidence log (§3.4a, new `rental_approvals` table,
+shared with work-order-level approvals). The spend threshold is agency-level with a sensible default,
+overridable — Johan himself was unsure whether the override belongs on the property or the lease; this
+amendment argues it through and recommends the PROPERTY (§3.4b), not the lease he tentatively suggested.
+A read-only investigation into whether CoreX's existing mailbox-polling
+and message-archive machinery could file an approval email automatically is reported in §3a.1a — not
+built, per instruction.
+
 ---
 
 ## 0a. What the 2026-09-22 amendment settled, added, and left open (historical — see §0b for what changed since)
@@ -50,11 +67,15 @@ threshold) — none decided by this amendment either.
 **Four things Johan had been asked and had not yet ruled on at the time:**
 1. ~~§1a — is a tenant fault report an inspection, or a separate thing?~~ **Settled 2026-09-24 — see
    §0b/§1a. Neither of the two answers argued at the time was right; Johan's own is.**
-2. §3.2a — how does a tenant, who has no CoreX login, actually report a fault? **Still open.**
-3. §3.4a — how is the owner's approval captured and retained as evidence, not just obtained? **Still
-   open.**
-4. §3.4b — the agency-configurable spend threshold below which no approval is required. **Still
-   open.**
+2. ~~§3.2a — how does a tenant, who has no CoreX login, actually report a fault?~~ **Settled
+   2026-09-25 — see §0c/§3.2a. The agent captures it; the record is designed so tenant self-service
+   slots in later without a rewrite.**
+3. ~~§3.4a — how is the owner's approval captured and retained as evidence, not just obtained?~~
+   **Settled 2026-09-25 — see §0c/§3.4a. Bigger than originally specified: there are two distinct
+   approval outcomes, not one.**
+4. ~~§3.4b — the agency-configurable spend threshold below which no approval is required.~~ **Settled
+   in shape 2026-09-25 — see §0c/§3.4b. One sub-question (property vs. lease override) argued and
+   recommended, not unilaterally decided.**
 
 **Corrected:** §4's notification section overstated WhatsApp — confirmed directly against the code,
 there is no automated WhatsApp send anywhere in CoreX, only a `wa.me` link an agent opens and sends
@@ -91,11 +112,70 @@ attached report of faults and their repairs."*
   carry-forward `rental_inspection_items` already uses for a different purpose.
 - Photos on fault reports, same pipeline as everywhere else — `rental_fault_report_photos`, §3a.3.
 
-**Unchanged, still true:** contractors in the existing supplier list, owner approval gates the work
-and must be recorded not obtained (now applying to the fault report's own approval step, §3a.1, before
-a work order is even raised — see the note there on how a downstream work order inherits it),
-agency-configurable spend threshold (§3.4b, still open), finances out, deposits out except advertising
-deposits, no automated WhatsApp.
+**Unchanged, still true:** contractors in the existing supplier list, finances out, deposits out except
+advertising deposits, no automated WhatsApp. (Owner approval and the spend threshold, both referenced
+as "still open" when this section was first written, are now settled — see §0c immediately below.)
+
+---
+
+## 0c. What the 2026-09-25 amendment settles — tenant reporting, approval's two routes, and the spend threshold's shape
+
+Johan ruled on all three questions §0a left open. Three separate quotes, three separate settlements:
+
+**On tenant reporting**, verbatim: *"for now the agent will capture the tenant report - in the future
+we hope to get tenants on the corex app and they can report from there."*
+
+**Settled:** the simple thing, built now — the agent captures a tenant's fault report on their behalf
+(§3.2a's own previously-costed "option 3"). No tokened link, no public form, no inbound-email parser.
+**But the record does not assume this is permanent.** `rental_fault_reports` carries WHO reported it
+(`reported_by_contact_id`, already existed) and, new this amendment, THROUGH WHAT CHANNEL and BY WHOM
+CAPTURED (`reported_channel`, `captured_by_user_id` — §3a) — so today a row reads "captured by an
+agent, reported by the tenant, by phone," and the day Andre's tenant-app ships, a row reads "reported
+by the tenant, via the app," with `captured_by_user_id` simply null and nothing else about the schema,
+the service, or the out-inspection's attached view changing. §3.2a has the full design; §13 restates
+the mobile-foundation consequence.
+
+**On approval**, verbatim: *"all approvals happens in writing - whatsapp response, or email back
+stating repairs approved, or owner uses their own contractor / complex care taker to fix - so the
+options are agency appoints, or owner takes the repairs and sorts it out. I think the important part is
+capturing if and when the repairs were carried out."*
+
+**Settled, and it is bigger than this spec had it.** This spec's owner-approval gate (§3.4/§3.4a,
+2026-09-22) was written as a single approved/declined switch guarding whether a work order could be
+commissioned — that was wrong in a specific way: **it silently assumed a work order always follows
+approval.** Johan's ruling names TWO genuinely different outcomes of "approved":
+
+- **Agency appoints** — the owner approves, the agency assigns a contractor from the existing supplier
+  list, a work order is raised, the contractor is notified. This is the path this spec already modeled
+  correctly.
+- **Owner sorts it themselves** — their own contractor, or the complex caretaker. **No work order. No
+  supplier from our list. The agency does not appoint anyone.** This is the path this spec would have
+  gotten wrong: nothing before this amendment let a fault report reach a complete, resolved outcome
+  without a `rental_work_orders` row attached. §3a.1/§3a.2 now build this path as a fully normal, first-
+  class outcome — a fault the owner handled personally is closed and correct with no work order
+  anywhere near it, not a degenerate case of one that never got raised.
+
+**And Johan named the field that actually matters, independent of either route**: whether and when the
+repair happened. `repaired_at` (§3a) is new, first-class, and is the spine of this record — at
+move-out, "geyser, reported month 7, repaired month 7 by the owner's own plumber" answers the question
+that matters; who appointed the repair and who paid for it are real facts this spec still keeps, but
+they are secondary to that one.
+
+**Approval evidence** is settled as always-in-writing (a WhatsApp reply or an email saying approved) —
+§3.4a specifies exactly how that's captured and retained: since CoreX has no automated WhatsApp capture
+and (per the read-only investigation in §3a.1a) no automated email-to-record filing either, today this
+is an agent-driven upload or pasted record, on its own append-only evidence log (`rental_approvals`),
+not a bare status flip.
+
+**On the spend threshold**, verbatim: *"we can build spend threshold in, Id say agency setting, then an
+override per lease agreement. agent captures approved no auth amount on property / lease and thats
+where the decision lives?"*
+
+**Settled in shape**: an agency-level setting with a sensible default (§3.4b/§8, unchanged from the
+2026-09-22 proposal — `rental_work_order_settings.no_approval_spend_threshold`, proposed default R500),
+overridable. **Johan himself wrote "property / lease" with a question mark — genuinely undecided which,
+and this amendment does not take his lease suggestion at face value.** §3.4b argues it through and
+recommends the override lives on the PROPERTY, not the lease, and says why.
 
 ---
 
@@ -144,9 +224,10 @@ That's the operational surface. The ruling that actually defines the schema is t
 
 What is settled from this and built into the amendment below: contractors live in the existing
 supplier list (§2, already this spec's design); owner approval gates the work (§3.4/§3.4a); work
-orders can arise from inspections (§3.2, already this spec's design). What is raised but not yet
-answered: whether a fault report IS an inspection record (§1a) and how the owner's approval is
-actually captured (§3.4a) are both open. **On "email / and or whatsapp": checked directly against the
+orders can arise from inspections (§3.2, already this spec's design). What was raised but not yet
+answered at the time this section was written: whether a fault report IS an inspection record (§1a)
+and how the owner's approval is actually captured (§3.4a) — **both now settled, in later amendments;
+see §0b/§1a and §0c/§3.4a respectively.** **On "email / and or whatsapp": checked directly against the
 code — there is no automated WhatsApp send anywhere in CoreX, only a `wa.me` link an agent opens and
 sends from their own phone (`SigningWhatsAppLinkService` is the pattern; nothing resembling a
 WhatsApp Business API or equivalent send client exists). §4 below builds the email path as automated
@@ -337,13 +418,13 @@ rental_work_orders
                                 --   NEW, 2026-09-22 amendment — Johan's ruling: owner approval
                                 --   GATES commissioning work; an agent may not move a work order
                                 --   to 'ordered' while this is 'pending' or 'declined'. Defaults
-                                --   to 'not_required' at creation — becomes 'pending' the moment
-                                --   an agent requests approval, per whichever mechanism §3.4a
-                                --   settles on, or stays 'not_required' if the cost is under the
-                                --   agency's approval threshold (§3.4b, also not yet settled). The
-                                --   GATE is settled; the fields recording HOW an approval was
-                                --   actually captured are deliberately NOT added to this table yet
-                                --   — see §3.4a, open.
+                                --   to 'not_required' at creation — 'not_required' if the cost is
+                                --   at or under the agency's (or property's, §3.4b) spend
+                                --   threshold. A work order raised directly (not from a fault
+                                --   report) records its own approval via `rental_approvals`
+                                --   (§3.4a, settled 2026-09-25) — one raised FROM an already-
+                                --   approved fault report inherits this value instead of asking
+                                --   twice (§3a.1).
   trade_type                    -- NULLABLE, references agency_service_types.code (§2) — used to
                                 --   filter the supplier picker by trade, same mechanism the
                                 --   existing COC work-order feature already uses. Nullable
@@ -494,47 +575,60 @@ considered answer to the edge case, not left implicit.
   — this work order was commissioned from a `rental_fault_reports` row (§3a), not raised directly.
   `reported_fault_report_id` links to it.
 
-### 3.2a How does the tenant actually report? (open — a real front door does not exist yet)
+### 3.2a How does the tenant actually report? SETTLED 2026-09-25 — the agent captures it, channel-tracked for the future
 
 **Checked directly against the code, not assumed:** a tenant is a `Contact` row
 (`lease_tenants.contact_id` → `contacts.id`), and `Contact extends Model` — not
 `Illuminate\Foundation\Auth\User as Authenticatable`, no password column, no auth guard. **A tenant
-has no CoreX login today, anywhere in the system.** `reported_by_type='tenant'`'s own wording above —
-"a portal report if one exists" — was already an honest placeholder; there is no such portal. Without
-one of the options below, `reported_by_type='tenant'` can only ever mean "the agent typed this in on
-the tenant's behalf" — which may be exactly right for now, but should be a decision, not a default
-nobody noticed.
+has no CoreX login today, anywhere in the system.**
 
-Three real options, each costed against what already exists in this codebase rather than invented
-fresh:
+Johan's ruling, verbatim: *"for now the agent will capture the tenant report - in the future we hope to
+get tenants on the corex app and they can report from there."* This settles the question in favour of
+what was previously costed below as "option 3" — built now, plainly, with no new mechanism. What was
+open before this ruling was whether that should be a permanent design or a placeholder; Johan's own
+"for now" and "in the future" language makes it explicitly the latter, so the record is designed to
+absorb that future without a rewrite:
+
+- **`rental_fault_reports.reported_channel`** — new, this amendment — enum:
+  `'phone'` | `'whatsapp'` | `'email'` | `'in_person'` | `'app'` | `'other'`. How the report actually
+  reached the agency. `'app'` is a placeholder value for Andre's future tenant-app channel — reserved
+  now, used later, no schema change needed when that day comes.
+- **`rental_fault_reports.captured_by_user_id`** — new, this amendment — nullable FK `users`. The staff
+  member who typed the report into CoreX on the tenant's behalf. **Nullable specifically for the
+  future**: the day a tenant reports directly through Andre's app, this column is null (nobody captured
+  it, the tenant entered it themselves) while `reported_by_contact_id` still names the tenant and
+  `reported_channel='app'` names how — nothing else about the row, the service call beneath it, or the
+  out-inspection's attached view (§3a.5) changes. Today, every row has this set, because every row is
+  agent-captured.
+- The service method this becomes — `RentalFaultReportService::report()` (§11/§13) — takes
+  `reported_by_contact_id`, `reported_channel`, and an OPTIONAL `captured_by_user_id`, precisely so a
+  future mobile/app endpoint can call the identical method with that argument omitted, rather than a
+  second reporting path being built when tenants eventually get a login. This is the same discipline
+  §13 already commits to for the rest of this spec, applied to the one path that didn't have an
+  API-shaped answer yet.
+
+The three options originally costed here are kept, not deleted, because the reasoning behind picking
+the cheapest one is still worth seeing:
 
 1. **A tokened link, mailed to the tenant** — the proven pattern already live for rental applications
    (`RentalApplicationSigningController`, its own docblock: *"modelled on the existing `/sign/{token}`
    mechanism... same token shape, same 14-day expiry... the token itself IS the identity here"*), and
    for DR2's external parties (`DealSecureLinkMail`, already cited in §4 below as the supplier
-   reply-link precedent). Cost: a new token column + expiry on whatever record the tenant lands on
-   (either directly on a new fault-report entry point, or — if §1a resolves toward "a fault report IS
-   a work order" — a public, token-gated `POST` onto `rental_work_orders`), a public route, and a
-   minimal form (what's wrong, optional photo, optional space). Highest cost of the three, but the
-   only one that gives the tenant their own, independently-timestamped record of having reported it —
-   which matters directly to situation 3 in §1's table (the tenant needs to be ABLE to prove they
-   reported it, not just trust the agent's word for it).
-2. **An email address that files itself** — a dedicated inbound address per agency (or one CoreX-wide
-   address with agency/property resolution from the sender or a reply-to token) that creates a
-   `reported_by_type='tenant'` work order automatically from an inbound email. Cost: this is a NEW
-   capability — nothing in the codebase today parses inbound mail into a record (the WhatsApp capture
-   pipeline referenced in §4 does something structurally similar for WA messages, but there is no
-   inbound-email equivalent to copy). Real build cost, not a reuse.
-3. **The agent captures it on the tenant's behalf** — a call or message comes in, the agent opens the
-   work-order form and fills it in as `reported_by_type='tenant'`, `reported_by_contact_id` set to the
-   tenant's own contact row. Zero new mechanism — this is what §3.2's existing wording already
-   describes and is what this spec builds by default absent a ruling otherwise. Honest cost: the
-   "evidence the tenant reported it" is only ever the agent's own word plus whatever internal
-   timestamp CoreX puts on it — weaker than option 1 for situation 3's dispute purpose, but real today.
+   reply-link precedent). Highest cost of the three, and the only one that gives the tenant their own,
+   independently-timestamped record of having reported it — which matters directly to situation 3 in
+   §1's table. **Not built — Johan's ruling is that the future answer to this is the CoreX app, not a
+   tokened link, so this option is not the one to build toward.**
+2. **An email address that files itself** — a dedicated inbound address that creates a fault report
+   automatically from an inbound email. This is a NEW capability — nothing in the codebase parses
+   inbound mail into a record today (§3a.1a's investigation confirms this again, from a different
+   angle). **Not built, not the direction Johan named.**
+3. **The agent captures it on the tenant's behalf** — **this is the one Johan settled on.** Zero new
+   mechanism, built now. Honest cost, unchanged by this ruling: "the tenant reported it" is the agent's
+   word plus a timestamp, weaker than option 1 for situation 3's dispute purpose — but real today, and
+   Johan has ruled that trade-off is the right one until the app exists.
 
-**Not decided here.** Option 3 is what the rest of this spec assumes is available on day one, since it
-requires nothing new; options 1 and 2 are named with their real cost so a future decision to build
-either is informed, not a surprise.
+**Settled, not merely "not decided" any more.** This spec builds option 3 as the only path, with
+`reported_channel`/`captured_by_user_id` as the seam Andre's future tenant-app work attaches to.
 
 ### 3.3 Who paid — the field the task explicitly warns is easiest to leave out
 
@@ -556,8 +650,12 @@ other single column here.
   no formal supplier) — a work order can move straight from `reported` to `in_progress`/`completed`
   without ever passing through `ordered` if no supplier was engaged. **Gated, 2026-09-22 amendment:**
   cannot move to `ordered` while `owner_approval_status` is `pending` or `declined` — an agent does not
-  commission work on an owner's property without their approval. See §3.4a/§3.4b for what is and isn't
-  settled about how that approval is captured and when it's required at all.
+  commission work on an owner's property without their approval. **Note the ordering, settled
+  2026-09-25:** a work order can only ever exist on the `agency_appoints` approval route (§3.4a/§3a.1)
+  — the `owner_handles` route never produces a work order at all, so this gate is only ever exercised
+  by a work order raised directly (proactive owner-instructed work, or straight from an inspection) or
+  one already inheriting `approved` from its upstream fault report. See §3.4a for exactly how approval
+  is captured and §3.4b for the threshold below which it isn't required at all.
 - **`in_progress`** — work has started but isn't finished. Optional stage — a quick fix may skip
   straight to `completed`.
 - **`completed`** — **requires, per Johan's ruling ("photos of the work conducted"): at least one
@@ -577,65 +675,125 @@ Every status transition writes a `rental_work_order_updates` row (`update_type='
 timestamps directly on the work order itself, is what lets the out-inspection screen show a full
 timeline, not just a final state.
 
-### 3.4a Owner approval — captured as evidence, not just obtained (open)
+### 3.4a Owner approval — SETTLED 2026-09-25, and bigger than this spec originally had it
 
-**Settled:** the gate exists (§3.4). **Open:** how an approval is actually captured and retained, so
-that if an owner later disputes a bill, "the agent said they approved" is worth something more than
-that. Same evidentiary thinking §3.4 already applies to completion (photo + payer, not a checkbox) —
-an approval needs the same treatment: what was sent, what came back, when.
+Johan's ruling, verbatim: *"all approvals happens in writing - whatsapp response, or email back stating
+repairs approved, or owner uses their own contractor / complex care taker to fix - so the options are
+agency appoints, or owner takes the repairs and sorts it out. I think the important part is capturing
+if and when the repairs were carried out."*
 
-Three real options, each grounded in a mechanism already proven in this codebase, not invented fresh:
+**What this corrects.** The 2026-09-22 gate (§3.4) modeled approval as a single switch guarding whether
+a `rental_work_order` could move to `ordered` — implicitly assuming approval always leads toward a work
+order. Johan's ruling shows that's wrong: there are **two distinct outcomes of "the owner approved,"**
+and only one of them ever touches `rental_work_orders` at all. Both are settled and built at the
+FAULT-REPORT stage (§3a.1) — Johan's own lifecycle is "reported → owner approval where required → work
+order raised → outcome," and approval is the fault report's decision, not the work order's:
 
-1. **A secure tokened link the owner clicks — Approve / Decline.** The same shape as
-   `RentalInspectionSignature::capture()` (already built, this codebase, this session): a lightweight,
-   evidentiary capture — signer identity, a timestamp, and (for a decline or an agent-side override) a
-   required note — without the full DocuPerfect e-sign ceremony. Concretely: a
-   `rental_work_order_approvals` row per request, `token`/`expires_at` matching the rental-application
-   pattern (§3.2a), `decision` (`approved`/`declined`), `decided_at`, and the request/response mail
-   content retained (or at minimum referenced) the way `DealSecureLinkMail`'s pattern already
-   preserves what was sent. This is the strongest evidence of the three, and the most build cost.
-2. **An internal record only — the agent marks it, with a note.** Mirrors
-   `RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF` — a sanctioned "the other party didn't formally
-   engage through the system" path, already accepted elsewhere in this codebase as real evidence
-   (Johan's own required phrase for that case: *"tenant refused to sign out inspection"*). Here it
-   would be an agent recording "spoke to the owner on [date], they approved by phone/WhatsApp — note:
-   [free text]." Cheapest to build (no new mail, no token), weakest evidence of the three — it's the
-   agent's word, timestamped, nothing more.
-3. **Email reply, read by a human, recorded manually.** The owner replies to the creation notice
-   (§4) saying "go ahead" — an agent reads that reply and marks the work order approved, same weight
-   as option 2 since CoreX does not parse inbound email into a structured decision (no such capability
-   exists anywhere in this codebase, confirmed — see §3.2a's identical finding for tenant reports).
-   Functionally option 2 with an email as the paper trail sitting outside CoreX rather than a note
-   inside it.
+- **`approval_route = 'agency_appoints'`** — the owner approves, the agency assigns a contractor from
+  the existing supplier list (§2), a `rental_work_orders` row is raised
+  (`reported_by_type='fault_report'`, §3.1), the contractor is notified (§4). This is the path this
+  spec already modeled correctly before this amendment.
+- **`approval_route = 'owner_handles'`** — the owner approves, but handles it themselves: their own
+  contractor, or the complex caretaker, per Johan's own wording. **No work order is ever raised.** No
+  supplier from the agency's list is engaged. The fault report reaches `status='resolved'` on its own,
+  with `rental_work_order_id` staying null permanently — not "not yet," permanently. §3a.1 makes this
+  explicit: a fault the owner handled personally is a complete, correct, closed case, not a degenerate
+  one that never got as far as a work order.
 
-**Not decided here.** Whichever is chosen governs what `rental_work_order_approvals` (or the
-equivalent structure) actually needs to store — deliberately not added to §3.1's settled schema yet,
-since committing to option 1's shape before Johan rules would foreclose options 2/3 for no reason.
+**The field that actually matters, independent of either route.** Johan's own words: "the important
+part is capturing if and when the repairs were carried out." That is `repaired_at` (§3a, new this
+amendment) — who appointed the repair (agency vs. owner) and who paid for it remain real, kept facts,
+but they are secondary to whether and when the work was actually done. This is why `repaired_at` lives
+directly on `rental_fault_reports`, not buried inside a work order that may not exist.
 
-### 3.4b The spend threshold below which no approval is needed (open)
+**Approval evidence — settled as always-in-writing, captured as an upload or a pasted record.**
+Same evidentiary standard §3.4 already applies to completion (photo + payer, not a checkbox): an
+approval needs proof of what was sent and what came back, not a bare status flip. Since CoreX has no
+automated WhatsApp capture (§4's standing finding) and — confirmed directly, see §3a.1a — no automated
+email-to-record filing either, the mechanism settled here is the plainest of the three previously-costed
+options, built honestly rather than dressed up as more automated than it is:
 
-Not requested by Johan as a specific number — raised by the conductor, argued for here, not decided.
-Most mandates let an agent spend up to a limit without asking; without one, "email the owner about a
-tap washer" is how a system gets ignored and the gate in §3.4 stops being respected in practice.
+- **New table `rental_approvals`** — an append-only evidence log (same integrity pattern as
+  `rental_work_order_updates`: no `updated_at`, no `deleted_at`), shared between a fault report's own
+  approval (§3a.1, the normal path) and a work order's approval (for the case a work order is raised
+  WITHOUT an upstream fault report — owner-instructed proactive work, or straight from an inspection
+  observation — and still needs its own approval on record). Exactly one of `rental_fault_report_id` /
+  `rental_work_order_id` is set per row, matching this spec's own established "exactly one of" pattern
+  (§3.2).
+- Each row records: `decision` (`'approved'`/`'declined'`), `approval_route` (`'agency_appoints'`/
+  `'owner_handles'`, set only when `decision='approved'` and the row is fault-report-level — meaningless
+  at the work-order level, since a work order's mere existence already means the agency-appoints route
+  was chosen upstream), `evidence_type` (`'whatsapp'`/`'email'`/`'verbal_note'`), `evidence_text`
+  (nullable, the pasted content of the WhatsApp/email), `evidence_file_path` (nullable, an uploaded
+  screenshot or forwarded email saved as a file — reuses the existing storage pattern, not a second
+  pipeline), `decided_at` (when the owner actually decided, which may predate when the agent typed it
+  in), and `recorded_by_user_id`.
+- `evidence_type='verbal_note'` is kept as an honest fallback for a genuinely undocumented phone
+  approval — same sanctioned "the other party didn't formally engage through the system" precedent
+  already accepted for `RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF` — but Johan's ruling is that
+  approval is **always in writing**, so this value should be rare in practice, not the default path an
+  agent reaches for.
+- `rental_fault_reports.owner_approval_status` and the new `rental_fault_reports.approval_route` (§3a)
+  are denormalized CURRENT-value columns, read from the latest `rental_approvals` row for that fault
+  report — the same "current column + append-only log" shape this spec already uses for
+  `rental_work_orders.status` / `rental_work_order_updates`, not a new pattern.
 
-**Proposed shape, matching this spec's own `rental_work_order_settings` pattern (§3.1) and Johan's
-standing rule that nothing is hardcoded:** a new nullable decimal,
-`rental_work_order_settings.no_approval_spend_threshold`, agency-configurable, defaulting to a
-genuinely low, conservative number — **proposed default R500** — so that out of the box every agency
-requires approval for anything beyond a trivial expense, and can raise the number for their own
-mandate/comfort level rather than CoreX guessing at what's appropriate for a given owner relationship.
-When an agent creates or estimates a work order at or under the threshold,
-`owner_approval_status` defaults to `not_required` and the `ordered` gate (§3.4) does not block; above
-it, the gate applies and §3.4a's (also open) capture mechanism is needed before `ordered`.
+### 3.4b The spend threshold — SETTLED IN SHAPE 2026-09-25, one sub-question argued and recommended
 
-**Not decided here**: whether R500 is the right default, whether the threshold should vary by trade
-type rather than being a single agency-wide number, and whether an agent can override the gate with a
-reason (mirroring how `owner_approval_status='declined'` might still need an escape hatch for an
-emergency repair) are all real follow-on questions this proposal surfaces but does not answer.
+Johan's ruling, verbatim: *"we can build spend threshold in, Id say agency setting, then an override per
+lease agreement. agent captures approved no auth amount on property / lease and thats where the
+decision lives?"*
+
+**Settled: an agency-level setting with a sensible default, overridable.** This matches the
+2026-09-22 proposal unchanged — `rental_work_order_settings.no_approval_spend_threshold`, agency-
+configurable, **proposed default R500** — so that out of the box every agency requires approval for
+anything beyond a trivial expense, and raises the number for its own mandate/comfort level rather than
+CoreX guessing at what's appropriate for a given owner relationship. Most mandates let an agent spend
+up to a limit without asking; without one, "email the owner about a tap washer" is how the approval
+gate (§3.4/§3a.1) stops being respected in practice.
+
+**The one open part — Johan himself wrote "property / lease" with a question mark, genuinely unsure.
+Argued and recommended here, not decided unilaterally:**
+
+The override belongs on the **PROPERTY**, not the lease.
+
+The reasoning: the authority to spend without asking comes from the OWNER's mandate — how much an
+owner is comfortable with an agency spending on their behalf without being asked first is a fact about
+that owner's relationship with the agency, mediated through the property they own. It is not a fact
+about any one tenancy. The owner is attached to the property (`Property::sellerOwnerContact()`, §2),
+not to the lease — a lease is who happens to be living there right now, and turns over. If the override
+lived on the lease instead:
+
+- It would need to be **re-entered every time a lease renews or a new tenant moves in**, even though
+  nothing about the owner's comfort level changed — the override has nothing to do with who the tenant
+  is.
+- Worse, it risks staying silently attached to a **stale value from a previous, unrelated tenancy** if
+  an agent forgets to touch it on a new lease — the exact "silent staleness" failure mode this spec's
+  own evidentiary philosophy (§1) argues against everywhere else.
+- A property-level override, by contrast, is set once, by the agency, as a fact about how this owner's
+  mandate works — and it simply keeps applying, correctly, no matter how many tenants come and go,
+  with no extra agent action required at each turnover.
+
+**Recommended shape**: a new nullable decimal, `properties.rental_no_approval_spend_threshold`
+(nullable — null means "use the agency default," matching this spec's own null-means-inherit pattern
+already used elsewhere). When set, it overrides `rental_work_order_settings.no_approval_spend_threshold`
+for that specific property only. **No lease-level override is proposed** — if a genuine future need for
+one surfaces (an unusually cautious owner mid-lease, say), that is a real follow-on question, not
+assumed here, but nothing in the four-situation test (§7) or the approval evidence design (§3.4a) is
+weakened by its absence.
+
+**Build sequencing note, not a spec decision:** per the conductor's own instruction, the agency-level
+setting itself is built first; this property-level override is built only once the recommendation above
+has actually reached Johan, not assumed as approved by this spec alone.
+
+**Still genuinely open, not decided here**: whether R500 is the right default, and whether an agent can
+override the gate outright with a reason (mirroring how `owner_approval_status='declined'` might still
+need an escape hatch for a genuine emergency repair) are real follow-on questions this section surfaces
+but does not answer.
 
 ---
 
-## 3a. Fault reports — their own record, settled 2026-09-24 (§0b/§1a)
+## 3a. Fault reports — their own record, settled 2026-09-24 (§0b/§1a), lifecycle amended 2026-09-25 (§0c)
 
 A fault report is what actually happened during a tenancy that might need repair — a tenant's damp
 patch, a burst geyser, an agent noticing a cracked tile on a routine visit. It exists whether or not a
@@ -682,19 +840,37 @@ rental_fault_reports
                                      --   'tenant' or 'owner_instructed'
   reported_by_user_id                -- nullable FK users — set when reported_by_type is
                                      --   'agent_noticed'
+  reported_channel                   -- NEW, 2026-09-25. enum: 'phone' | 'whatsapp' | 'email' |
+                                     --   'in_person' | 'app' | 'other'. HOW the report reached the
+                                     --   agency — settled by Johan's ruling (§0c/§3.2a). 'app' is a
+                                     --   reserved placeholder for Andre's future tenant-app channel.
+  captured_by_user_id                -- NEW, 2026-09-25, nullable FK users. WHO typed this report
+                                     --   into CoreX on the reporter's behalf. Set on every row
+                                     --   today (every report is agent-captured, §3.2a) — nullable
+                                     --   specifically so a future self-service channel (a tenant
+                                     --   reporting directly through the app) can leave this null
+                                     --   without needing a schema change when that day comes.
   title                              -- short label, e.g. "Damp patch — main bedroom ceiling"
   description                        -- free text, what was reported
   status                             -- enum: 'reported' | 'awaiting_approval' | 'approved' |
-                                     --   'declined' | 'work_order_raised' | 'resolved' |
-                                     --   'cancelled'. Tracks the PROCESS. See below for how this
-                                     --   relates to a linked work order's own status once one
-                                     --   exists.
+                                     --   'declined' | 'work_order_raised' | 'owner_handling' |
+                                     --   'resolved' | 'cancelled'. Tracks the PROCESS. See below for
+                                     --   how this relates to a linked work order's own status once
+                                     --   one exists. 'owner_handling' is NEW, 2026-09-25 (§0c/§3a.1)
+                                     --   — the owner approved and is fixing it themselves; no work
+                                     --   order will ever be raised for this report.
   owner_approval_status               -- enum: 'not_required' | 'pending' | 'approved' | 'declined'
                                      --   — same shape as rental_work_orders' own field (§3.1),
                                      --   applied HERE first: Johan's lifecycle is "reported → owner
                                      --   approval where required → work order raised → outcome" —
                                      --   approval happens at the FAULT-REPORT stage, before a
-                                     --   supplier is ever engaged. See §3a.1.
+                                     --   supplier is ever engaged. Denormalized from the latest
+                                     --   `rental_approvals` row (§3.4a) for this report. See §3a.1.
+  approval_route                     -- NEW, 2026-09-25, nullable enum: 'agency_appoints' |
+                                     --   'owner_handles'. Set only once owner_approval_status
+                                     --   reaches 'approved' — Johan's ruling that "approved" is not
+                                     --   one outcome but two (§0c/§3.4a). Denormalized from the
+                                     --   latest `rental_approvals` row, same as owner_approval_status.
   outcome                            -- nullable enum: 'repaired' | 'repaired_partially' |
                                      --   'not_repaired' | 'owner_declined' | 'tenant_liable'. Set
                                      --   only once status='resolved'. See §3a.2 — this is the field
@@ -706,8 +882,21 @@ rental_fault_reports
                                      --   'not_repaired' or 'tenant_liable' with no explanation is
                                      --   exactly the kind of bare label this whole spec's evidence
                                      --   philosophy (§1) argues against.
+  repaired_at                        -- NEW, 2026-09-25, nullable date. WHEN the repair actually
+                                     --   happened, as reported — independent of who did it or who
+                                     --   paid. Johan's own words: "the important part is capturing
+                                     --   if and when the repairs were carried out." This is that
+                                     --   field — the spine of the record (§0c/§3a.1). Meaningful
+                                     --   only when outcome is 'repaired' or 'repaired_partially';
+                                     --   null for every other outcome. Distinct from resolved_at
+                                     --   below: an agent may record a repair days after it actually
+                                     --   happened — the date that matters at move-out is when the
+                                     --   geyser was actually fixed, not when CoreX found out.
   reported_at
-  resolved_at                        -- nullable, when outcome was set
+  resolved_at                        -- nullable, when the record itself was marked resolved in
+                                     --   CoreX (i.e. when outcome was set) — see repaired_at above
+                                     --   for the separate, more important "when did it actually
+                                     --   happen" fact.
   cancelled_at, cancelled_by_user_id, cancel_reason  -- nullable, for a report logged in error
   created_by_user_id
   created_at, updated_at, deleted_at   -- soft-delete, gated identically to rental_work_orders
@@ -737,21 +926,128 @@ rental_fault_report_photos           -- evidence at the time of report — "a te
                                        --   photos once one exists, keeping the two evidence trails
                                        --   cleanly separated by which record they belong to, not by
                                        --   a type flag on a shared table.
+
+rental_approvals                      -- NEW, 2026-09-25 (§0c/§3.4a) — append-only evidence log for
+                                      --   an owner's approval decision, shared between fault reports
+                                      --   (the normal path, §3a.1) and work orders raised directly
+                                      --   without an upstream fault report. Same evidence-integrity
+                                      --   shape as rental_work_order_updates: no updated_at, no
+                                      --   deleted_at, never edited after the fact.
+  id
+  agency_id
+  rental_fault_report_id                -- nullable FK. Exactly one of this and the next column is
+                                        --   set, matching this spec's own established "exactly one
+                                        --   of" pattern (§3.2).
+  rental_work_order_id                  -- nullable FK. Set only for a work order raised WITHOUT an
+                                        --   upstream fault report (owner-instructed proactive work,
+                                        --   or straight from an inspection observation) — a work
+                                        --   order raised FROM an already-approved fault report never
+                                        --   gets its own row here; it inherits the fault report's
+                                        --   decision instead (§3a.1).
+  decision                              -- enum: 'approved' | 'declined'
+  approval_route                        -- nullable enum: 'agency_appoints' | 'owner_handles'.
+                                        --   Required when decision='approved' AND
+                                        --   rental_fault_report_id is set; meaningless (always null)
+                                        --   at the work-order level, since a work order's mere
+                                        --   existence already means the agency-appoints route was
+                                        --   chosen — Johan's two-outcomes ruling is a fault-report-
+                                        --   stage decision (§0c/§3.4a).
+  evidence_type                         -- enum: 'whatsapp' | 'email' | 'verbal_note' — Johan's
+                                        --   ruling: approval is always in writing. 'verbal_note' is
+                                        --   the honest fallback for an undocumented phone approval,
+                                        --   kept rare by design, not the default path (§3.4a).
+  evidence_text                         -- nullable text — the pasted content of the WhatsApp
+                                        --   message or email, when there's no file to attach.
+  evidence_file_path                    -- nullable string — an uploaded screenshot or forwarded
+                                        --   email saved as a file. Reuses the existing storage
+                                        --   pattern (no second pipeline).
+  decided_at                            -- when the owner actually decided — may predate when the
+                                        --   agent typed this row in.
+  recorded_by_user_id                   -- the agent who captured this evidence.
+  created_at                            -- immutable, no updated_at, no deleted_at — the
+                                        --   "comprehensive log" evidence-integrity reasoning applied
+                                        --   to approval the same way it already applies to
+                                        --   rental_work_order_updates and every photo table here.
 ```
 
-### 3a.1 Owner approval happens here, before a work order exists
+### 3a.1 Owner approval happens here, before a work order exists — and splits into two routes, 2026-09-25
 
 Johan's lifecycle, verbatim: "reported → owner approval where required → work order raised → outcome."
 This means `owner_approval_status` on the FAULT REPORT (not only on the work order) is where the gate
 actually first applies — an agent cannot move a fault report to `work_order_raised` while approval is
 `pending`/`declined`, mirroring exactly the gate already built for `rental_work_orders.status='ordered'`
-(§3.4). **When a work order IS raised from an already-approved fault report, its own
-`owner_approval_status` is set to `approved` directly, inherited from the fault report** — the owner
-is not asked twice for one decision. A work order raised WITHOUT a fault report (owner-instructed
-proactive work, or directly from an inspection observation) still goes through its own approval gate
-independently, since there was no upstream fault report to have already asked the question. §3.4a's
-open question (HOW an approval is captured) applies identically at this earlier stage — nothing about
-moving the gate here changes what's still undecided about the mechanism.
+(§3.4). §3.4a has the full evidence mechanism (the `rental_approvals` table); this section is about
+what happens to the fault report itself once a decision is recorded.
+
+**Approval is not one outcome, it is two** (§0c, Johan's ruling): recording `decision='approved'` on a
+`rental_approvals` row also requires `approval_route`:
+
+- **`approval_route='agency_appoints'`** — the fault report moves to `status='work_order_raised'` once
+  the agency actually raises a `rental_work_orders` row from it (`reported_by_type='fault_report'`,
+  §3.1). **When a work order IS raised from an already-approved fault report, its own
+  `owner_approval_status` is set to `approved` directly, inherited from the fault report** — the owner
+  is not asked twice for one decision.
+- **`approval_route='owner_handles'`** — the fault report moves to `status='owner_handling'` instead.
+  **No `rental_work_orders` row is ever created for this report.** This is not a waiting state pending
+  a work order that might still come — it is the terminal working state for this route, and it stays
+  there, correctly, until the agent later records the outcome (§3a.2), at which point `repaired_at`
+  captures the one fact that actually matters (§0c): whether and when the owner's own contractor or
+  caretaker actually did the work.
+
+A work order raised WITHOUT an upstream fault report (owner-instructed proactive work, or directly from
+an inspection observation) still goes through its own approval gate independently, via its own
+`rental_approvals` row (`rental_work_order_id` set instead of `rental_fault_report_id`) — since there
+was no upstream fault report to have already asked the question. `approval_route` is not meaningful at
+that level (a work order's existence already implies the agency-appoints path); only `decision` matters
+there.
+
+### 3a.1a Investigated, not built: could an owner's approval email file itself?
+
+Per the conductor's explicit instruction, this is a read-only investigation, reported for Johan's
+information — nothing here is built by this amendment.
+
+**The question**: CoreX already polls agency mailboxes and archives inbound mail (confirmed:
+`app/Console/Commands/Communications/PollMailboxes.php` → `PollMailboxJob` →
+`ImapMailboxPoller` — plain IMAP, not Microsoft Graph or Gmail API, nothing else exists). Could an
+owner's "approved" reply be filed against a `rental_fault_reports` row through that existing machinery,
+instead of the agent uploading a screenshot or pasting the text by hand into `rental_approvals`
+(§3.4a)?
+
+**What the archive already does, checked directly against the code**: every polled email is dedup'd,
+stored, and matched to a sender `Contact` where possible
+(`app/Services/Communications/EmailArchiveIngestor.php`). The linking table,
+`communication_links` (`communication_id`, `linkable_type`, `linkable_id`, `link_method`,
+`confidence`), is a genuine polymorphic association — it is not schema-restricted to any one model.
+Today it only ever points at `Contact::class` (fully automatic, by matching the sender's email address)
+or `DealV2::class` (manual, or attorney-correspondence-suggested). Nothing in the pipeline parses email
+CONTENT — there is no keyword or NLP step anywhere that would recognise "approved" or "go ahead" in a
+message body; matching today is entirely about WHO sent it, never WHAT it says.
+
+**The verdict: this is a small reuse, not a from-scratch build, IF an agent still confirms the link —
+true content-based automation is a real, separate build.**
+
+- **What already covers most of the gap**: `communication_links.linkable_type/linkable_id` needs no
+  migration to accept a new target — pointing it at `RentalFaultReport::class` (or `RentalApproval`
+  directly) is a config/code change, not a schema change. The IMAP polling, dedup, storage, and
+  contact-matching machinery is entirely channel-agnostic and needs no changes at all.
+  A screen modeled directly on the existing `Dr2CommunicationLinkController` (search the archive, pick
+  the email, link it) would let an agent file an already-archived owner email against a fault report's
+  `rental_approvals` row in a few clicks, instead of re-uploading or re-typing content CoreX already
+  has a copy of. **This alone is a real, worthwhile win over today's plan, and is cheap.**
+- **What is genuinely missing for TRUE automation** (the owner's reply files itself with no agent
+  action): the archive has no reply-thread or reply-token correlation today — nothing ties an inbound
+  reply back to the specific outbound approval-request email it answers. Building that would need a
+  unique reply-to address, `In-Reply-To`/thread-key tracking, or a token embedded in the outbound
+  request (the same shape §3.2a's tokened-link option already costs for tenant reporting) — and even
+  then, still no content parsing exists to distinguish "approved" from "declined" from "what's this
+  about?" without either a human confirming the link or a much larger investment in structured reply
+  parsing. This is a real build, not a small one, and is not proposed here.
+
+**Recommendation, for Johan, not decided by this spec**: the cheap half (an agent linking an
+already-archived email to a fault report's approval, reusing `communication_links`) is a genuine
+improvement worth doing at some point — it turns "screenshot and re-upload" into "search and click" —
+but full hands-off automation is a separate, larger decision with its own cost, not a natural extension
+of this feature. Neither is built by this amendment.
 
 ### 3a.2 Outcome, not status — the field this whole amendment is actually about
 
@@ -762,12 +1058,15 @@ owner's problem) — "closed" tells that agent nothing. Five outcomes, each chos
 the conclusion an out-inspection draws differently from every other one:
 
 - **`repaired`** — fully fixed. The fault is resolved and, absent a NEW later observation, the item's
-  current condition is trusted.
+  current condition is trusted. `repaired_at` (§3a) is required with this outcome — Johan's own
+  framing of what matters ("if and when the repairs were carried out") is answered by outcome + this
+  date, independent of `approval_route`: a `repaired` outcome reached via `owner_handles` (owner's own
+  plumber) is exactly as complete and correct a record as one reached via a completed work order.
 - **`repaired_partially`** — some of the problem was addressed, not all of it (a supplier fixed the
   burst pipe but the water-damaged ceiling board itself was never replaced). Distinct from
   `repaired` specifically because an out-inspection reading `repaired` and finding damage anyway would
   wrongly conclude the tenant caused NEW damage, when in fact it's the SAME damage, never fully closed
-  out.
+  out. `repaired_at` is required here too — for the part that WAS done.
 - **`not_repaired`** — nothing was done. `outcome_note` must say why (no supplier available, ran out
   of time before move-out, genuinely forgotten) — this is the direct evidentiary answer to situation 3
   in §1's table, now anchored on the fault report rather than inferred from a work order that may
@@ -955,10 +1254,11 @@ branch scoping via `BelongsToAgency`+`AgencyScope`).
 
 **Attached to the out-inspection screen** — the piece Johan actually asked for (§3a.5): when an
 out-inspection is open, a "Fault & Repair History" block queries `rental_fault_reports` scoped to
-`lease_id = <this lease>` (§3a.4) and renders each one — title, outcome, outcome note, dated —
-alongside, never inside, the out-inspection's own item/observation recording. This is the "sub report"
-Johan described, and it is read-only from the out-inspection screen — a fault report is resolved from
-its own screen or the property tab, not edited from inside someone else's inspection.
+`lease_id = <this lease>` (§3a.4) and renders each one — title, outcome, **`repaired_at`** (the spine
+field, §0c/§3a.1 — shown even when no work order was ever raised), outcome note, dated — alongside,
+never inside, the out-inspection's own item/observation recording. This is the "sub report" Johan
+described, and it is read-only from the out-inspection screen — a fault report is resolved from its own
+screen or the property tab, not edited from inside someone else's inspection.
 
 ---
 
@@ -975,11 +1275,15 @@ creates a fault report first.
    out-inspection's attached fault-report block (§3a.5), scoped to `lease_id = <this lease>` (§3a.4),
    finds nothing in that window — the absence is itself the record. The current tenant is responsible.
 2. **Tenant broke it, reported it, repaired, owner already paid.** A `rental_fault_reports` row exists:
-   `reported_by_type='tenant'`, `status='resolved'`, `outcome='repaired'`, linked via `lease_id` to the
-   relevant tenancy, with a linked `rental_work_orders` row (`reported_by_type='fault_report'`,
-   `status='completed'`, `paid_by='owner'`, a `completed` photo attached). The out-inspection's attached
-   block shows `outcome='repaired'` against the item before the agent even looks at its current
-   condition — the tenant is not charged again for something already settled.
+   `reported_by_type='tenant'`, `status='resolved'`, `outcome='repaired'`, `repaired_at` set, linked via
+   `lease_id` to the relevant tenancy. **Two equally valid ways this reaches that state, per the
+   2026-09-25 ruling (§0c/§3a.1):** `approval_route='agency_appoints'` with a linked `rental_work_orders`
+   row (`reported_by_type='fault_report'`, `status='completed'`, `paid_by='owner'`, a `completed` photo
+   attached) — the path this spec already modeled — OR `approval_route='owner_handles'` with **no work
+   order at all**, the owner's own plumber having done the work, `outcome_note` naming who. Either way,
+   the out-inspection's attached block shows `outcome='repaired'` and `repaired_at` against the item
+   before the agent even looks at its current condition — the tenant is not charged again for something
+   already settled, and "who fixed it" no longer decides whether the record can reach this state.
 3. **Tenant reported it, nobody fixed it.** A `rental_fault_reports` row exists: `reported_by_type
    ='tenant'`, `reported_at` set, but `status` never reaches `resolved` (or reaches it with
    `outcome='not_repaired'`, `outcome_note` explaining why). No linked work order needs to exist at all
@@ -1010,11 +1314,14 @@ flagged for Johan to confirm or adjust at build time, same treatment `lease_sett
 window_days` gets for its own unconfirmed number in `leases.md` §5.2, though that one is pending legal
 confirmation and this one is pending only an operational preference).
 
-**Proposed, not yet settled (§3.4b):** `no_approval_spend_threshold`, agency-configurable, proposed
-default **R500**. Not added to the table above because the whole mechanism is still open — this row
-exists here only so the settings screen this spec eventually ships (§6) is designed with a slot for it
-from the start, per the standing "every new setting reaches the wizard, designed in, not requested
-later" rule, rather than bolting it on after Johan rules.
+**Settled in shape, 2026-09-25 (§3.4b):** `rental_work_order_settings.no_approval_spend_threshold`,
+agency-configurable, default **R500**. **Plus a recommended, not-yet-Johan-confirmed property-level
+override**: `properties.rental_no_approval_spend_threshold`, nullable, null meaning "use the agency
+default." Per §3.4b's own build-sequencing note, the agency-level setting is built straight away; the
+property-level override is built once the recommendation has actually reached Johan. Setup Wizard entry
+for the agency-level setting is designed in from the start (non-negotiable #10a) — the override, being
+per-property rather than an agency-wide onboarding choice, belongs on the property record itself, not
+the wizard.
 
 ---
 
@@ -1046,12 +1353,11 @@ convention already established by the two sibling specs:
   grant than "anyone who can log a fault." Collapsing it into `.create` at build time is a one-line
   change if this distinction is unwanted.
 - `rental_work_orders.record_approval` — **new, 2026-09-22**, `[cc4 design call, flagged for Johan]`:
-  whoever records that an owner approved (whichever mechanism §3.4a settles on) is making the same
+  whoever records an approval decision (writing a `rental_approvals` row, §3.4a) is making the same
   weight of call as resolving a discrepancy or completing a job — separate from `.create` for the same
-  reason those two already are. If §3.4a resolves toward the tokened-link option, this permission
-  governs who may manually override/record a decision on the owner's behalf (e.g. a phoned-in
-  approval); if it resolves toward the internal-note-only option, this is the ONLY gate on recording
-  an approval at all, and matters more, not less.
+  reason those two already are. Now, 2026-09-25, this is the ONLY gate on recording an approval at all
+  (the mechanism settled toward agent-captured evidence, not a tokened link, §3.4a) — matters more, not
+  less, than when this key was first proposed.
 - `rental_work_orders.cancel`
 
 **New, 2026-09-24 — fault reports get their own keys**, same naming convention, since they're now
@@ -1085,12 +1391,6 @@ their own record rather than a work-order status:
   `RentalWorkOrderService`. CRUD, status actions, photo upload.
 - `app/Mail/Rentals/RentalWorkOrderOwnerMail.php`, `RentalWorkOrderTenantMail.php`,
   `RentalWorkOrderSupplierMail.php` — the three external notifications (§4).
-- **Conditional on §3.4a's resolution, not written now**: if the tokened-link option is chosen,
-  `database/migrations/xxxx_create_rental_work_order_approvals_table.php`,
-  `app/Models/RentalWorkOrderApproval.php`, `app/Mail/Rentals/RentalWorkOrderOwnerApprovalMail.php`,
-  and the public token-gated route/controller pair (mirroring
-  `RentalApplicationSigningController`'s shape). If the internal-note option is chosen instead, no new
-  files — `owner_approval_status` plus a `rental_work_order_updates` note-type entry already covers it.
 - `resources/views/corex/rental-work-orders/index.blade.php` — the new list screen (§6).
 - `resources/views/corex/properties/partials/rental-tab-work-orders.blade.php` — the property-level
   button + history (§6).
@@ -1112,26 +1412,40 @@ their own record rather than a work-order status:
   - The out-inspection's "Fault & Repair History" attached block (§3a.5, §6a) — a read query added to
     the existing out-inspection screen (`rental-inspections.md`'s rebuilt tab), not a new screen of its
     own.
-- **Conditional on §3.4a's resolution, not written now**: if the tokened-link option is chosen,
-  `database/migrations/xxxx_create_rental_fault_report_approvals_table.php` (or a shared
-  `rental_approvals` table used by both fault reports and work orders, worth considering at build time
-  since §3a.1 has the same open mechanism as §3.4a — one table, not two, if both resolve the same way),
-  `app/Models/RentalFaultReportApproval.php`, `app/Mail/Rentals/RentalFaultReportOwnerApprovalMail.php`,
-  and the public token-gated route/controller pair (mirroring `RentalApplicationSigningController`'s
-  shape). If the internal-note option is chosen instead, no new files — `owner_approval_status` plus a
-  note-type log entry already covers it.
+- **New, 2026-09-25 — the approval evidence log, settled shape (§3.4a):**
+  - `database/migrations/xxxx_create_rental_approvals_table.php` — the single shared table for both
+    fault-report-level and work-order-level approval evidence. No conditional branch any more — the
+    mechanism is settled, not a fork on an open question.
+  - `database/migrations/xxxx_add_approval_route_and_repaired_at_to_rental_fault_reports_table.php` —
+    `reported_channel`, `captured_by_user_id`, `approval_route`, `repaired_at`, and the
+    `'owner_handling'` status enum value (§3a).
+  - `app/Models/RentalApproval.php` — `use BelongsToAgency`.
+  - No mail class, no public token-gated route — the settled mechanism is an agent-driven upload/paste
+    into an authenticated CoreX screen, not an owner-facing link.
 - `config/corex-permissions.php` — new permission keys (§10).
 - Sidebar entry for the new list screens (same-day, non-negotiable #2) — Rental Work Orders AND Rental
   Fault Reports both, under the existing Rentals section.
-- Setup Wizard entry for `no_approval_spend_threshold` (§3.4b) if and once that setting is built —
-  same "designed in, not requested later" rule as every other agency setting (non-negotiable #10a).
+- Setup Wizard entry for `rental_work_order_settings.no_approval_spend_threshold` (§3.4b/§8) — same
+  "designed in, not requested later" rule as every other agency setting (non-negotiable #10a). The
+  property-level override (`properties.rental_no_approval_spend_threshold`) is NOT a wizard entry — it
+  is per-property, not an agency-wide onboarding choice — and is built only once Johan has confirmed the
+  property-vs-lease recommendation in §3.4b, per that section's own build-sequencing note.
 - `tests/Feature/RentalWorkOrders/*` — the four-situation test in §7 as real fixtures at minimum, plus
   completion-gate enforcement, the approval gate refusing `ordered` while pending/declined, agency
   scoping, and notification dispatch (internal vs external split).
-- `tests/Feature/RentalFaultReports/*` — **new, 2026-09-24**: the outcome-required-note enforcement
+- `tests/Feature/RentalFaultReports/*` — **updated, 2026-09-25**: the outcome-required-note enforcement
   (§3a), the lease-scoping of the out-inspection's attached block (§3a.4 — proving a PREVIOUS tenancy's
-  fault report does NOT appear), the approval gate blocking `work_order_raised`, and the reverse FK
-  (`rental_work_orders.reported_fault_report_id`) round-tripping correctly.
+  fault report does NOT appear), the reverse FK (`rental_work_orders.reported_fault_report_id`)
+  round-tripping correctly, PLUS: a fault report reaching `status='resolved'`/`outcome='repaired'` via
+  `approval_route='owner_handles'` with `rental_work_order_id` staying null throughout (the case this
+  amendment exists to make work), `repaired_at` required whenever outcome is `repaired`/
+  `repaired_partially`, and the spend-threshold default (`no_approval_spend_threshold`) suppressing the
+  approval gate at or under it.
+- `tests/Feature/RentalApprovals/*` — **new, 2026-09-25**: exactly-one-of `rental_fault_report_id`/
+  `rental_work_order_id` enforced, `approval_route` required when `decision='approved'` at the
+  fault-report level and always null at the work-order level, and a work order raised from an
+  already-approved fault report inheriting `owner_approval_status` without writing a second
+  `rental_approvals` row.
 - Re-run `php artisan schema:dump`, commit refreshed `database/schema/mysql-schema.sql`
   (non-negotiable #12a).
 
@@ -1143,15 +1457,19 @@ their own record rather than a work-order status:
   not a future-question flag any more. REOS handles the money.
 - A deposit ledger or deposit-deduction processing (§5.1a) — settled OUT except advertising deposits;
   named as a real, current gap, not solved here.
-- The EXACT mechanism for capturing owner approval — on a fault report (§3a.1) and on a work order
-  (§3.4a) — and the spend threshold below which it isn't required (§3.4b). The GATE is settled and
-  built into both schemas; how it's satisfied is not.
-- **How a tenant actually reports a fault (§3.2a) — SETTLED that fault reports are their own record
-  (§0b/§1a/§3a), STILL OPEN what the tenant's actual front door into one is.** Tenants remain `Contact`
-  rows with no CoreX login, confirmed directly against the code. The three costed options in §3.2a
-  (tokened link, self-filing inbound email, or the agent capturing it on the tenant's behalf) are
-  unchanged by this amendment — this spec still builds to the third (zero new mechanism) by default,
-  absent a ruling otherwise.
+- **How a tenant actually reports a fault (§3.2a) — SETTLED 2026-09-25.** The agent captures it; no
+  tokened link, no self-filing inbound email. Both of those are out of scope by decision now, not by
+  default — see §3.2a for why they're named but not built.
+- **The exact mechanism for capturing owner approval (§3.4a) — SETTLED 2026-09-25**, and larger than
+  originally specified (two distinct approval routes, not one). What remains genuinely out of scope:
+  TRUE hands-off automation of filing an owner's approval email against the record — §3a.1a's
+  investigation found the cheap half (an agent linking an already-archived email) is a real, small
+  reuse of existing machinery, worth doing at some point, but not built by this amendment; full
+  content-based auto-filing is a real, separate, larger build, not proposed here at all.
+- **The spend-threshold property-vs-lease override — argued and recommended (§3.4b: property), NOT
+  unilaterally decided.** The agency-level setting itself is settled and in scope to build now; the
+  property-level override is out of scope for this build pass specifically until Johan has confirmed
+  the recommendation (§3.4b's own build-sequencing note).
 - A supplier-facing reply/secure-link mechanism to self-report completion (§4) — named as a future
   upgrade path (DR2's `DealSecureLinkMail` is the existing pattern to copy when wanted), not built here.
 - Automated WhatsApp notification of anyone (§4) — does not exist in CoreX and is not built here; a
@@ -1161,7 +1479,8 @@ their own record rather than a work-order status:
 - Any change to `leases.md` or `rental-inspections.md` themselves — both are read and depended on,
   neither is edited by this spec.
 - Building the mobile app itself — Andre's job, per §13. This spec's job is only to make sure nothing
-  built here makes that job harder later.
+  built here makes that job harder later — including, now, the `reported_channel`/`captured_by_user_id`
+  seam §3.2a adds specifically so that job is easier, not harder, when it starts.
 
 ---
 
@@ -1196,9 +1515,16 @@ table rather than starting a second one:
 
 | Method | Route | Calls |
 |---|---|---|
-| `POST` | `/api/v1/mobile/properties/{property}/fault-reports` | `RentalFaultReportService::report()` — this is the tenant-originated front door §12/Q2 is still deciding the auth story for; whichever way that's settled, this is the route it lands on, since the service call underneath doesn't change. |
+| `POST` | `/api/v1/mobile/properties/{property}/fault-reports` | `RentalFaultReportService::report()` — today, an agent calls this standing in the property, with `captured_by_user_id` set to themselves. **Settled 2026-09-25 (§3.2a): this is also the exact route Andre's future tenant-app work lands on** — same method, same endpoint, called with `captured_by_user_id` simply omitted and `reported_channel='app'`. No second endpoint is ever built for tenant self-service; this is the seam. |
 | `POST` | `/api/v1/mobile/fault-reports/{faultReport}/photos` | Reuses `PropertyImageStorer` directly — same reasoning as the work-order photo row above and `rental-inspections.md` §14.5. One photo pipeline, not three. |
-| `POST` | `/api/v1/mobile/fault-reports/{faultReport}/outcome` | `RentalFaultReportService::setOutcome()` — the outcome-requires-a-note-unless-repaired rule (§3a.2) enforced once, in the service. |
+| `POST` | `/api/v1/mobile/fault-reports/{faultReport}/approval` | **New, 2026-09-25.** `RentalFaultReportService::recordApproval()` — writes a `rental_approvals` row (§3.4a) with `decision`/`approval_route`/evidence. An agent captures this standing with the owner or reading a WhatsApp/email reply, same as the web path; no separate implementation of the two-route logic in a controller. |
+| `POST` | `/api/v1/mobile/fault-reports/{faultReport}/outcome` | `RentalFaultReportService::setOutcome()` — the outcome-requires-a-note-unless-`repaired` rule and the `repaired_at`-required-when-repaired rule (§3a.2) enforced once, in the service. |
+
+**Multi-agency, always (non-negotiable #9, 2026-09-19).** Nothing in this table, or anywhere else in
+this spec, may assume HFC. `reported_channel`'s options, the approval-route wording, the outcome
+values, and every notification template built from §4 must read correctly for the Cape Town rentals
+agency starting October 2026 as much as for HFC — no agency ID, no agency-specific copy, anywhere in
+the service layer these mobile endpoints call into.
 
 **Offline**: `rental_work_order_photos.client_idempotency_key` (§3.1) and `rental_fault_report_photos`'
 own copy of the same column (§3a) already exist for the same reason `rental_inspection_photos`' does

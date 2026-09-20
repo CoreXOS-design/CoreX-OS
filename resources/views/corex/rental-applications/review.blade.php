@@ -841,21 +841,45 @@
                         // only a field with a real answer earns a row here;
                         // an empty custom field is nothing the agent needs
                         // to see on this curated glance-box.
+                        // §7, piece (c)(4) — a file-type field's own
+                        // custom_field_values entry is a Document id, never
+                        // a display-ready value — resolved the SAME scoped
+                        // way as everywhere else (source + custom_field_key
+                        // together), never the raw id printed as-is.
                         $customFieldRows = collect($fieldConfig)
                             ->where('is_custom', true)
                             ->sortBy('order')
-                            ->map(fn ($cf) => [
-                                'label' => $cf['label'],
-                                'value' => $rentalApplication->custom_field_values[$cf['key']] ?? null,
-                                'field_type' => $cf['field_type'],
-                            ])
+                            ->map(function ($cf) use ($rentalApplication) {
+                                $value = $rentalApplication->custom_field_values[$cf['key']] ?? null;
+                                $doc = $cf['field_type'] === 'file' && $value
+                                    ? \App\Models\Document::where('id', $value)
+                                        ->where('source_type', 'rental_application')
+                                        ->where('source_id', $rentalApplication->id)
+                                        ->where('custom_field_key', $cf['key'])
+                                        ->first()
+                                    : null;
+
+                                return [
+                                    'label' => $cf['label'],
+                                    'value' => $cf['field_type'] === 'file' ? $doc : $value,
+                                    'field_type' => $cf['field_type'],
+                                ];
+                            })
                             ->filter(fn ($row) => $row['value'] !== null && $row['value'] !== '');
                     @endphp
                     @if($customFieldRows->isNotEmpty())
                         <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mt-2 pt-2" style="border-top: 1px solid var(--border);">
                             @foreach($customFieldRows as $row)
                                 <dt style="color: var(--text-muted);">{{ $row['label'] }}</dt>
-                                <dd>{{ $row['field_type'] === 'yes_no' ? ($row['value'] == '1' ? 'Yes' : 'No') : $row['value'] }}</dd>
+                                <dd>
+                                    @if($row['field_type'] === 'file')
+                                        <a href="{{ route('corex.rental-applications.documents.download', [$rentalApplication, $row['value']]) }}" target="_blank" rel="noopener" style="color: var(--ds-blue, #2563eb);">✓ {{ $row['value']->original_name }}</a>
+                                    @elseif($row['field_type'] === 'yes_no')
+                                        {{ $row['value'] == '1' ? 'Yes' : 'No' }}
+                                    @else
+                                        {{ $row['value'] }}
+                                    @endif
+                                </dd>
                             @endforeach
                         </dl>
                     @endif

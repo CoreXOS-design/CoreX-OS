@@ -546,10 +546,58 @@
                         $cfOldKey = 'custom_field_values.' . $cf['key'];
                         $cfValue = old($cfOldKey, $rentalApplication->custom_field_values[$cf['key']] ?? null);
                         $cfError = $errors->has($cfOldKey);
+                        $cfDoc = $cf['field_type'] === 'file' && $cfValue
+                            ? \App\Models\Document::where('id', $cfValue)
+                                ->where('source_type', 'rental_application')
+                                ->where('source_id', $rentalApplication->id)
+                                ->where('custom_field_key', $cf['key'])
+                                ->first()
+                            : null;
                     @endphp
-                    <div class="{{ $cf['field_type'] === 'text' ? 'sm:col-span-2' : '' }}">
+                    <div class="{{ in_array($cf['field_type'], ['text', 'file']) ? 'sm:col-span-2' : '' }}">
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $cf['label'] }}</label>
-                        @if($cf['field_type'] === 'yes_no')
+                        @if($cf['field_type'] === 'file')
+                            {{-- Upload only, matching this whole screen's existing
+                                 document ceiling (no replace/remove for ANY
+                                 document here — see uploadCustomFieldDocument()'s
+                                 own docblock). Plain DOM state update on success,
+                                 never a page reload — this screen's own "typed
+                                 info disappeared on upload" bug (see the header
+                                 comment above, `dirty` tracking) is exactly what
+                                 a reload here would reintroduce. --}}
+                            <div x-data="{
+                                    uploading: false,
+                                    error: null,
+                                    doc: {{ Js::from($cfDoc ? ['id' => $cfDoc->id, 'name' => $cfDoc->original_name, 'view_url' => route('corex.rental-applications.documents.download', [$rentalApplication, $cfDoc])] : null) }},
+                                }">
+                                <template x-if="doc">
+                                    <a :href="doc.view_url" class="text-sm" style="color: var(--brand-icon, #2563eb);" target="_blank" rel="noopener" x-text="'✓ ' + doc.name"></a>
+                                </template>
+                                <template x-if="!doc">
+                                    <div>
+                                        <label class="inline-block px-3 py-2 rounded-md text-sm cursor-pointer" style="border: 1px solid var(--border);" :class="uploading ? 'opacity-50' : ''">
+                                            <span x-text="uploading ? 'Uploading…' : 'Choose file'"></span>
+                                            <input type="file" class="hidden" :disabled="uploading" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                                                   @change="
+                                                        uploading = true; error = null;
+                                                        const formData = new FormData();
+                                                        formData.append('file', $event.target.files[0]);
+                                                        formData.append('_token', document.querySelector('meta[name=csrf-token]').content);
+                                                        fetch({{ Js::from(route('corex.rental-applications.custom-fields.upload', [$rentalApplication, $cf['key']])) }}, {
+                                                            method: 'POST', headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content }, body: formData,
+                                                        }).then(res => res.json().then(data => ({ ok: res.ok, data }))).then(({ ok, data }) => {
+                                                            uploading = false;
+                                                            if (!ok) { error = data.message || 'Upload failed.'; return; }
+                                                            doc = data.document;
+                                                        }).catch(() => { uploading = false; error = 'Network error — please try again.'; });
+                                                        $event.target.value = '';
+                                                   ">
+                                        </label>
+                                        <p class="text-xs mt-1" x-show="error" x-text="error" style="color: var(--ds-red, #dc2626);"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        @elseif($cf['field_type'] === 'yes_no')
                             <select name="{{ $cfName }}" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid {{ $cfError ? 'var(--ds-red, #dc2626)' : 'var(--border)' }};">
                                 <option value="">— Select —</option>
                                 <option value="1" @selected($cfValue == '1')>Yes</option>

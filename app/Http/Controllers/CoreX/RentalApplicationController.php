@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\Document;
 use App\Models\Property;
+use App\Models\RentalApplicationCustomField;
 use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationStatusHistory;
@@ -873,7 +874,7 @@ class RentalApplicationController extends Controller
         // shipped field (this form never enforces requiredness — that's
         // the applicant's own signed submission's job) — reusing
         // customFieldAutosaveRulesFor()'s always-nullable rule shape.
-        $customFieldRules = RentalApplication::customFieldAutosaveRulesFor($rentalApplication->agency_id);
+        $customFieldRules = RentalApplication::customFieldAutosaveRulesFor($rentalApplication->agency_id, $rentalApplication->id);
         if (! empty($customFieldRules)) {
             $customNumberKeys = RentalApplication::customNumberFieldKeysFor($rentalApplication->agency_id);
             $request->merge([
@@ -1527,10 +1528,25 @@ class RentalApplicationController extends Controller
      * agent guessing a document id that belongs to a DIFFERENT application.
      * The own/branch/agency guard below covers the finer-grained visibility
      * tier on top of that agency-level check.
+     *
+     * .ai/specs/rental-application-field-config.md §7, piece (c)(4) — the
+     * route param is a plain id, explicitly looked up withTrashed(), not
+     * Laravel's implicit route-model-binding (which excludes soft-deleted
+     * rows by default). Real gap found building this: a custom field's
+     * file, replaced on a later generation, soft-deletes the OLD document
+     * — but that generation's own historical screen (generation-show.
+     * blade.php) still links to it, per Johan's "an uploaded file
+     * survives its field being retired... the record shows what was
+     * asked and what was given at the time" ruling. The link would
+     * otherwise render correctly and 404 the moment it's clicked. Never a
+     * security relaxation — the SAME ownership check below still applies
+     * to a trashed row exactly as it does to a live one.
      */
-    public function downloadDocument(RentalApplication $rentalApplication, Document $document)
+    public function downloadDocument(RentalApplication $rentalApplication, int $document)
     {
         $this->guardRentalApplication($rentalApplication);
+
+        $document = Document::withTrashed()->findOrFail($document);
 
         abort_unless(
             $document->source_type === 'rental_application' && (int) $document->source_id === $rentalApplication->id,
@@ -1606,6 +1622,81 @@ class RentalApplicationController extends Controller
         }
 
         return back()->with('success', count($filedDocuments) === 1 ? 'Document added.' : count($filedDocuments) . ' documents added.');
+    }
+
+    /**
+     * .ai/specs/rental-application-field-config.md §7, piece (c)(4) — a
+     * custom field's own single-slot file, agent side. Upload only — this
+     * screen has no replace/remove for ANY document, custom-field or
+     * generic (see uploadDocument() above and downloadDocument()'s own
+     * neighbours); matching that existing ceiling exactly rather than
+     * building replace/remove ad hoc for just this one field type. If an
+     * agency wants agent-side replace/remove for documents generally,
+     * that is a bigger ask than this piece and applies to the generic
+     * list too — not built here.
+     */
+    public function uploadCustomFieldDocument(Request $request, RentalApplication $rentalApplication, string $customFieldKey)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $field = RentalApplicationCustomField::activeFor($rentalApplication->agency_id)->firstWhere('key', $customFieldKey);
+        abort_unless($field && $field->field_type === RentalApplicationCustomField::TYPE_FILE, 404);
+
+        $existing = ($rentalApplication->custom_field_values[$customFieldKey] ?? null) !== null
+            ? Document::where('id', $rentalApplication->custom_field_values[$customFieldKey])
+                ->where('source_type', 'rental_application')
+                ->where('source_id', $rentalApplication->id)
+                ->where('custom_field_key', $customFieldKey)
+                ->exists()
+            : false;
+
+        if ($existing) {
+            $message = "'{$field->label}' already has a file — there's no replace on this screen yet; remove it from the applicant's own link, or ask them to replace it.";
+
+            return $request->wantsJson()
+                ? response()->json(['message' => $message], 422)
+                : back()->with('error', $message);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,doc,docx', 'max:15360'],
+        ]);
+
+        $file = $request->file('file');
+        $path = $file->store("rental-applications/{$rentalApplication->id}/documents", 'local');
+
+        $document = Document::create([
+            'original_name' => $file->getClientOriginalName(),
+            'storage_path' => $path,
+            'disk' => 'local',
+            'mime_type' => $file->getClientMimeType(),
+            'size' => $file->getSize(),
+            'source_type' => 'rental_application',
+            'source_id' => $rentalApplication->id,
+            'branch_id' => $rentalApplication->branch_id,
+            'uploaded_by' => $request->user()->id,
+            'custom_field_key' => $customFieldKey,
+        ]);
+
+        $document->contacts()->syncWithoutDetaching([$rentalApplication->contact_id]);
+        if ($rentalApplication->property_id) {
+            $document->properties()->syncWithoutDetaching([$rentalApplication->property_id]);
+        }
+
+        $rentalApplication->custom_field_values = array_merge($rentalApplication->custom_field_values ?? [], [$customFieldKey => $document->id]);
+        $rentalApplication->save();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'document' => [
+                    'id' => $document->id,
+                    'name' => $document->original_name,
+                    'view_url' => route('corex.rental-applications.documents.download', [$rentalApplication, $document]),
+                ],
+            ]);
+        }
+
+        return back()->with('success', 'File uploaded.');
     }
 
     /**

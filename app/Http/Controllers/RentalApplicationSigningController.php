@@ -769,7 +769,7 @@ class RentalApplicationSigningController extends Controller
         // field, an option no longer on the list) is dropped the same
         // best-effort way an invalid shipped field already is, rather
         // than failing the whole autosave.
-        $customFieldRules = RentalApplication::customFieldAutosaveRulesFor($application->agency_id);
+        $customFieldRules = RentalApplication::customFieldAutosaveRulesFor($application->agency_id, $application->id);
         if (! empty($customFieldRules)) {
             $customNumberKeys = RentalApplication::customNumberFieldKeysFor($application->agency_id);
             $input['custom_field_values'] = RentalApplication::sanitizeNumericInput(
@@ -886,7 +886,7 @@ class RentalApplicationSigningController extends Controller
         // the server, invisible on the form, no way for the applicant to
         // ever pass it.
         $requiredKeys = \App\Models\RentalApplicationQualifyingSetting::effectiveRequiredFieldKeysFor($application->agency_id);
-        [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id);
+        [$rules, $attributes] = RentalApplication::submissionValidationRules($requiredKeys, $request->all(), $application->agency_id, $application->id);
         $validated = $request->validate($rules, [], $attributes);
 
         $fields = collect($validated)->except(['declaration_signature', 'tpn_consent_signature'])->all();
@@ -1516,6 +1516,270 @@ class RentalApplicationSigningController extends Controller
 
         return redirect()->route('rental-applications.public.show', $token)
             ->with('success', 'Document replaced.');
+    }
+
+    // ── Custom field file upload — §7, piece (c)(4) ─────────────────────
+    //
+    // Reuses the SAME Document model, storage convention, allowlist, and
+    // soft-delete rule as the generic supporting-documents methods above —
+    // deliberately NOT a second upload path. What's genuinely different,
+    // and the only reason these three methods exist rather than adding a
+    // branch to the generic ones: a custom field has exactly ONE document
+    // slot (keyed by the field's own key), not an open-ended list, so
+    // "upload" must refuse when the slot is already filled (use replace),
+    // and "replace"/"remove" must also update custom_field_values, which
+    // the generic list has no reason to touch. The GATES — expiry, upload-
+    // window, the return/identity mutation gate, the post-submission lock
+    // — are the exact same private methods the generic ones already call;
+    // looked once at merging the endpoint bodies themselves and concluded
+    // it would tangle two genuinely different concerns (an open list vs a
+    // single named slot) into one method's conditionals, so those stay
+    // separate.
+
+    private function resolveActiveFileCustomField(RentalApplication $application, string $key): \App\Models\RentalApplicationCustomField
+    {
+        $field = \App\Models\RentalApplicationCustomField::activeFor($application->agency_id)
+            ->firstWhere('key', $key);
+
+        abort_unless($field && $field->field_type === \App\Models\RentalApplicationCustomField::TYPE_FILE, 404);
+
+        return $field;
+    }
+
+    /**
+     * The current document for a custom field's slot, or null if empty —
+     * scoped by source AND custom_field_key together (never trusts the
+     * raw custom_field_values[key] id alone), same reasoning as the
+     * validation closure in RentalApplication::customFieldValidationRule().
+     */
+    private function resolveCustomFieldDocument(RentalApplication $application, string $key): ?\App\Models\Document
+    {
+        $documentId = $application->custom_field_values[$key] ?? null;
+        if ($documentId === null) {
+            return null;
+        }
+
+        return \App\Models\Document::where('id', $documentId)
+            ->where('source_type', 'rental_application')
+            ->where('source_id', $application->id)
+            ->where('custom_field_key', $key)
+            ->first();
+    }
+
+    public function uploadCustomFieldDocument(Request $request, string $token, string $customFieldKey)
+    {
+        $application = $this->findByToken($token);
+
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'This link has expired.'], 410);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
+        }
+
+        if ($application->status === 'draft') {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => "This application hasn't been sent to you yet."], 410);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token);
+        }
+
+        if ($gated = $this->documentMutationGate($application, $token, $request)) {
+            return $gated;
+        }
+
+        $field = $this->resolveActiveFileCustomField($application, $customFieldKey);
+
+        // One slot — uploading again over an already-filled slot is a
+        // replace, not an upload. Refused rather than silently creating a
+        // second, orphaned Document nothing ever points back to.
+        if ($this->resolveCustomFieldDocument($application, $customFieldKey)) {
+            $message = "'{$field->label}' already has a file — use Replace instead.";
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message], 422);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', $message);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:' . self::UPLOAD_MIMES, 'max:' . self::MAX_UPLOAD_SIZE_KB],
+        ], $this->humanUploadValidationMessages());
+
+        $file = $request->file('file');
+        $path = $file->store("rental-applications/{$application->id}/documents", 'local');
+
+        $document = \App\Models\Document::withoutAgencyStamping(fn () => \App\Models\Document::create([
+            'original_name' => $file->getClientOriginalName(),
+            'storage_path' => $path,
+            'disk' => 'local',
+            'mime_type' => $file->getClientMimeType(),
+            'size' => $file->getSize(),
+            'source_type' => 'rental_application',
+            'source_id' => $application->id,
+            'agency_id' => $application->agency_id,
+            'branch_id' => $application->branch_id,
+            'custom_field_key' => $customFieldKey,
+        ]));
+
+        $document->contacts()->syncWithoutDetaching([$application->contact_id]);
+        if ($application->property_id) {
+            $document->properties()->syncWithoutDetaching([$application->property_id]);
+        }
+
+        $application->custom_field_values = array_merge($application->custom_field_values ?? [], [$customFieldKey => $document->id]);
+        if ($application->status === 'sent') {
+            $application->status = 'in_progress';
+        }
+        $application->save();
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'document' => [
+                    'id' => $document->id,
+                    'name' => $document->original_name,
+                    'view_url' => route('rental-applications.public.documents.view', [$token, $document->id]),
+                ],
+            ]);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('success', 'File uploaded.');
+    }
+
+    public function replaceCustomFieldDocument(Request $request, string $token, string $customFieldKey)
+    {
+        $application = $this->findByToken($token);
+
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'This link has expired.'], 410);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
+        }
+
+        if ($gated = $this->documentMutationGate($application, $token, $request)) {
+            return $gated;
+        }
+
+        $field = $this->resolveActiveFileCustomField($application, $customFieldKey);
+
+        if ($locked = $this->assertDocumentsNotLocked($application, $token)) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => "The documents you submitted with your application are locked and can't be changed."], 423);
+            }
+
+            return $locked;
+        }
+
+        $oldDoc = $this->resolveCustomFieldDocument($application, $customFieldKey);
+        if (! $oldDoc) {
+            $message = "'{$field->label}' has no file yet — use Upload instead.";
+            if ($request->wantsJson()) {
+                return response()->json(['message' => $message], 422);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', $message);
+        }
+
+        $request->validate([
+            'file' => ['required', 'file', 'mimes:' . self::UPLOAD_MIMES, 'max:' . self::MAX_UPLOAD_SIZE_KB],
+        ], $this->humanUploadValidationMessages());
+
+        $newDoc = DB::transaction(function () use ($request, $application, $oldDoc, $customFieldKey) {
+            $file = $request->file('file');
+            $path = $file->store("rental-applications/{$application->id}/documents", 'local');
+
+            $newDoc = \App\Models\Document::withoutAgencyStamping(fn () => \App\Models\Document::create([
+                'original_name' => $file->getClientOriginalName(),
+                'storage_path' => $path,
+                'disk' => 'local',
+                'mime_type' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+                'source_type' => 'rental_application',
+                'source_id' => $application->id,
+                'agency_id' => $application->agency_id,
+                'branch_id' => $application->branch_id,
+                'custom_field_key' => $customFieldKey,
+            ]));
+
+            $newDoc->contacts()->syncWithoutDetaching([$application->contact_id]);
+            if ($application->property_id) {
+                $newDoc->properties()->syncWithoutDetaching([$application->property_id]);
+            }
+
+            $oldDoc->delete();
+
+            $application->custom_field_values = array_merge($application->custom_field_values ?? [], [$customFieldKey => $newDoc->id]);
+            $application->save();
+
+            return $newDoc;
+        });
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'document' => [
+                    'id' => $newDoc->id,
+                    'name' => $newDoc->original_name,
+                    'view_url' => route('rental-applications.public.documents.view', [$token, $newDoc->id]),
+                ],
+                'replaced_id' => $oldDoc->id,
+            ]);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('success', 'File replaced.');
+    }
+
+    public function removeCustomFieldDocument(Request $request, string $token, string $customFieldKey)
+    {
+        $application = $this->findByToken($token);
+
+        if ($application->token_expires_at && $application->token_expires_at->isPast()) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => 'This link has expired.'], 410);
+            }
+
+            return redirect()->route('rental-applications.public.show', $token)->with('error', 'This link has expired.');
+        }
+
+        if ($closed = $this->assertDocumentUploadsOpen($application, $token, $request)) {
+            return $closed;
+        }
+
+        if ($gated = $this->documentMutationGate($application, $token, $request)) {
+            return $gated;
+        }
+
+        if ($locked = $this->assertDocumentsNotLocked($application, $token)) {
+            if ($request->wantsJson()) {
+                return response()->json(['message' => "The documents you submitted with your application are locked and can't be changed."], 423);
+            }
+
+            return $locked;
+        }
+
+        $doc = $this->resolveCustomFieldDocument($application, $customFieldKey);
+        if ($doc) {
+            $doc->delete();
+            $application->custom_field_values = array_merge($application->custom_field_values ?? [], [$customFieldKey => null]);
+            $application->save();
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json(['message' => 'File removed.']);
+        }
+
+        return redirect()->route('rental-applications.public.show', $token)->with('success', 'File removed.');
     }
 
     /**
