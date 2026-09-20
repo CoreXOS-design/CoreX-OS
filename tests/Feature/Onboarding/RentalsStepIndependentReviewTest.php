@@ -17,6 +17,21 @@ use Tests\TestCase;
  * own acceptance criteria — proving the saver protection the hard way,
  * against the actual production endpoint, not re-asserting the existing
  * suite's own claims.
+ *
+ * Broke on QA1 2026-09-20 when rental-work-orders.md Stage 3 added a 4th
+ * saver (RentalWorkOrderSettingsController::update(), required
+ * no_approval_spend_threshold with no fallback) to this same shared step —
+ * these tests' hand-built POST payloads were never updated to include it,
+ * so they 422'd. Verified this was test staleness, NOT a real product break,
+ * before touching anything: drove the actual live QA1 site with a real
+ * Puppeteer browser session as a genuinely fresh agency that had never
+ * heard of work orders, confirmed the wizard PRE-FILLS
+ * no_approval_spend_threshold with a real default (500) as a normal visible
+ * input, confirmed via the page's own FormData that a real browser
+ * submission includes it automatically, and confirmed clicking the actual
+ * Save & continue button with nothing else touched advances the wizard
+ * cleanly. A real agency going through onboarding is not blocked by this;
+ * only these fixtures, built before Stage 3 existed, were lying about it.
  */
 final class RentalsStepIndependentReviewTest extends TestCase
 {
@@ -57,6 +72,12 @@ final class RentalsStepIndependentReviewTest extends TestCase
                 'expiry_notice_window_days' => 99,
                 'fault_report_window_days' => 88,
                 'out_inspection_signing_window_days' => 45,
+                // rental-work-orders.md Stage 3 joined this same shared step
+                // after this test was first written — required together with
+                // everything above, same as a real browser submits it (the
+                // wizard pre-fills this input with a real default, so a
+                // genuine user's form POST always includes it).
+                'no_approval_spend_threshold' => 500,
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
@@ -93,6 +114,10 @@ final class RentalsStepIndependentReviewTest extends TestCase
                 'expiry_notice_window_days' => 50,
                 'fault_report_window_days' => 60,
                 'out_inspection_signing_window_days' => 15,
+                // rental-work-orders.md Stage 3 joined this same shared step
+                // after this test was first written — required together with
+                // everything above, same as a real browser submits it.
+                'no_approval_spend_threshold' => 500,
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
