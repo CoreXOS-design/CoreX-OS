@@ -4318,6 +4318,33 @@
                     @endif
                 </div>
 
+                {{-- .ai/specs/rental-work-orders.md §6 — "on rentals on a
+                     property we have a work order button," Johan's own words. --}}
+                @php
+                    $recentWorkOrders = \App\Models\RentalWorkOrder::where('property_id', $property->id)
+                        ->orderByDesc('reported_at')->limit(5)->get();
+                @endphp
+                <div class="rounded-md p-3 text-sm space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <div class="flex items-center justify-between">
+                        <strong>Work orders</strong>
+                        @permission('rental_work_orders.create')
+                        <a href="{{ route('corex.rental-work-orders.create', array_filter(['property_id' => $property->id, 'lease_id' => $activeLease?->id])) }}" class="corex-btn-outline text-xs">Work order</a>
+                        @endpermission
+                    </div>
+                    @if($recentWorkOrders->isEmpty())
+                        <span style="color: var(--text-muted);">No work orders yet on this property.</span>
+                    @else
+                        <ul class="space-y-1">
+                            @foreach($recentWorkOrders as $wo)
+                                <li class="flex items-center justify-between">
+                                    <span>{{ $wo->title }} — {{ ucfirst(str_replace('_', ' ', $wo->status)) }}</span>
+                                    <a href="{{ route('corex.rental-work-orders.show', $wo) }}" class="text-xs underline">View</a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+
                 {{-- Settled rental property — dedicated save action
                      (PropertyController::updateRentalDetails()): its own
                      validation, its own DB transaction, the same

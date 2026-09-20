@@ -13,10 +13,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * NEW row, never edited or removed, same evidence-integrity reasoning as
  * every other log/photo table in this feature family.
  *
- * NO workOrder() relation yet — App\Models\RentalWorkOrder does not exist
- * until Stage 4 (same reason RentalFaultReport::workOrder() is deferred,
- * see that model's own note). rental_work_order_id is a plain column,
- * queryable directly, until then.
  */
 class RentalApproval extends Model
 {
@@ -63,6 +59,12 @@ class RentalApproval extends Model
     public function faultReport(): BelongsTo
     {
         return $this->belongsTo(RentalFaultReport::class, 'rental_fault_report_id');
+    }
+
+    /** Stage 4 — App\Models\RentalWorkOrder now exists. */
+    public function workOrder(): BelongsTo
+    {
+        return $this->belongsTo(RentalWorkOrder::class, 'rental_work_order_id');
     }
 
     public function recordedByUser(): BelongsTo

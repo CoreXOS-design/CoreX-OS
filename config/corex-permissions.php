@@ -161,10 +161,21 @@ return [
         // than logging or editing what was reported.
         ['key' => 'rental_fault_reports.record_approval', 'label' => 'Record Owner Approval', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 4],
         ['key' => 'rental_fault_reports.resolve',         'label' => 'Set Fault Outcome',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 5],
+        // Stage 4 — raising a real work order from an already-approved
+        // fault report (the agency_appoints route, §3a.1) is a distinct,
+        // heavier decision than recording the approval itself.
+        ['key' => 'rental_fault_reports.raise_work_order', 'label' => 'Raise Work Order from Fault Report', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 6],
 
-        // ── Rental Work Orders (rental-work-orders.md, Stage 3 — settings only;
-        //    the feature itself is Stage 4, not yet built) ──
-        ['key' => 'rental_work_orders.manage_settings', 'label' => 'Manage Rental Work Order Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 1],
+        // ── Rental Work Orders (rental-work-orders.md §3/§6, Stage 4) ──
+        ['key' => 'rental_work_orders.view',   'label' => 'View Rental Work Orders',   'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_work_orders', 'sort_order' => 1],
+        ['key' => 'rental_work_orders.create', 'label' => 'Log & Edit Work Orders',    'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 2],
+        // Deliberately separate from .create, same reasoning as fault
+        // reports' own .record_approval/.resolve split — a decision or a
+        // final outcome is a heavier call than logging or editing.
+        ['key' => 'rental_work_orders.record_approval', 'label' => 'Record Owner Approval on a Work Order', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 3],
+        ['key' => 'rental_work_orders.complete',        'label' => 'Mark Work Orders Complete',             'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 4],
+        ['key' => 'rental_work_orders.cancel',           'label' => 'Cancel Work Orders',                    'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 5],
+        ['key' => 'rental_work_orders.manage_settings', 'label' => 'Manage Rental Work Order Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 6],
 
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
