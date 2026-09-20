@@ -148,6 +148,29 @@ class AgencySetupWizardController extends Controller
                     ->whereIn('role', ['admin', 'branch_manager', 'agent'])
                     ->orderBy('name')->get(['id', 'name', 'email']),
             ],
+            // .ai/specs/rental-application-field-config.md — the shipped-field
+            // tick grid (shown/required) for the Rentals step's inline partial.
+            // rentalFieldSections drives the grid display via the ONE canonical
+            // resolver (RentalApplication::resolvedFieldConfigFor() — no
+            // consumer is allowed its own field-iteration logic, per that
+            // spec's §6). The three *Overrides/*Order values below are the RAW
+            // per-agency override maps (not the resolved/defaulted view) — the
+            // partial reposts them verbatim as hidden inputs so a save that
+            // only renders shown/required checkboxes can never wipe label,
+            // help-text, or ordering customisation an agency already made via
+            // /corex/settings/rental-applications (the exact incident class
+            // named in agency-onboarding-setup.md §6.1).
+            'leases' => [
+                'rentalFieldSections' => collect(\App\Models\RentalApplication::resolvedFieldConfigFor($agency->id))
+                    ->reject(fn ($f) => $f['is_custom'])
+                    ->groupBy('section')
+                    ->map(fn ($fields) => $fields->sortBy('order')->values()),
+                'rentalFieldLabelOverrides' => \App\Models\RentalApplicationQualifyingSetting::fieldLabelOverridesFor($agency->id),
+                'rentalFieldHelpTextOverrides' => \App\Models\RentalApplicationQualifyingSetting::fieldHelpTextOverridesFor($agency->id),
+                'rentalFieldOrder' => \App\Models\RentalApplicationQualifyingSetting::fieldOrderFor($agency->id),
+                'rentalReturnGateAttemptMax' => \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptMaxFor($agency->id),
+                'rentalReturnGateAttemptWindowMinutes' => \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptWindowMinutesFor($agency->id),
+            ],
             // Same reads settings.prospecting.index itself uses (SettingsController)
             // — the wizard step shows exactly what that page would.
             'market_intelligence' => (function () use ($agency) {
@@ -460,6 +483,15 @@ class AgencySetupWizardController extends Controller
                     'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
+                // .ai/specs/rental-application-field-config.md — every scalar
+                // rental-application setting resolves through its own named
+                // `{camelKey}For($agencyId)` resolver on
+                // RentalApplicationQualifyingSetting, same one-resolver-per-
+                // setting convention as every other model in this codebase.
+                // Dynamic dispatch is safe here because these keys are never
+                // user input — they come only from this file's own hardcoded
+                // control declarations in config/agency-onboarding-copy.php.
+                'rental_application' => \App\Models\RentalApplicationQualifyingSetting::{\Illuminate\Support\Str::camel($key) . 'For'}($agency->id),
                 // AT-395 — the outgoing-mail step reads the CURRENT ADMIN's own
                 // mailbox row, never any other agent's. Password is never
                 // resolved back (write-only, same rule as every mailbox screen).
