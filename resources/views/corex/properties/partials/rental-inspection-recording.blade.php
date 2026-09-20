@@ -82,15 +82,18 @@
 
         <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>
 
-        {{-- §15 (2026-09-20), Stages 2-3 — one shared signing block for
-             both sections: per-tenant rows, the landlord row (if
-             Property::sellerOwnerContact() resolves one — §15.4), then the
-             agent's own signature, which only becomes available once every
-             other required party already has a disposition (§15.2a). No
-             refusal option yet (Stage 4) — markCompleted() does not yet
-             require any of this on either type (Stage 5), so Complete
-             still works unsigned in the meantime; this only ADDS the
-             ability to sign, ready for Stage 5 to start requiring it. --}}
+        {{-- §15 (2026-09-20) — one shared signing block for both sections:
+             per-tenant rows, the landlord row (if Property::
+             sellerOwnerContact() resolves one — §15.4), then the agent's
+             own signature, which only becomes available once every other
+             required party already has a disposition — signed OR refused
+             (§15.2a). Refusal (Stage 4) is a first-class, equally-weighted
+             outcome, never styled as an error or a problem (Johan: "none of
+             these should feel like [an error state] in the UI") — tenant
+             signs, landlord refuses is a normal, complete outcome. The
+             agent alone has no refusal option. markCompleted() does not
+             yet require any of this on either type (Stage 5) — Complete
+             still works unsigned/undispositioned in the meantime. --}}
         <template x-if="currentInspection({{ $sectionJs }}).status !== 'awaiting_signature'">
             <div class="flex justify-end pt-1">
                 <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="startAwaitingSignature({{ $sectionJs }})"
@@ -108,11 +111,16 @@
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-sm" x-text="tenantName(tenant)" style="color:var(--text-primary);"></span>
                             <template x-if="tenantDisposition({{ $sectionJs }}, tenant.contact_id)">
-                                <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Signed</span>
+                                <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
+                                      x-text="tenantDisposition({{ $sectionJs }}, tenant.contact_id).disposition === 'refused' ? 'Refused' : 'Signed'"></span>
                             </template>
                             <template x-if="!tenantDisposition({{ $sectionJs }}, tenant.contact_id)">
-                                <button type="button" @click="openSigningFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
-                                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
+                                <div class="flex items-center gap-2">
+                                    <button type="button" @click="openSigningFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
+                                    <button type="button" @click="openRefusalFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Refuses</button>
+                                </div>
                             </template>
                         </div>
                         <template x-if="activeSigningKey === ({{ $sectionJs }} + '_tenant_' + tenant.contact_id)">
@@ -125,6 +133,7 @@
                                 </div>
                             </div>
                         </template>
+                        @include('corex.properties.partials.rental-inspection-refusal-form', ['key' => "({$sectionJs} + '_tenant_' + tenant.contact_id)", 'saveMethod' => "saveTenantRefusalFor({$sectionJs}, tenant)"])
                     </div>
                 </template>
 
@@ -139,11 +148,16 @@
                             <div class="flex items-center justify-between gap-3">
                                 <span class="text-sm" style="color:var(--text-primary);" x-text="landlordContact.first_name + ' ' + landlordContact.last_name + ' (Landlord)'"></span>
                                 <template x-if="landlordDisposition({{ $sectionJs }})">
-                                    <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Signed</span>
+                                    <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
+                                          x-text="landlordDisposition({{ $sectionJs }}).disposition === 'refused' ? 'Refused' : 'Signed'"></span>
                                 </template>
                                 <template x-if="!landlordDisposition({{ $sectionJs }})">
-                                    <button type="button" @click="openSigningFor({{ $sectionJs }} + '_landlord')"
-                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
+                                    <div class="flex items-center gap-2">
+                                        <button type="button" @click="openSigningFor({{ $sectionJs }} + '_landlord')"
+                                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
+                                        <button type="button" @click="openRefusalFor({{ $sectionJs }} + '_landlord')"
+                                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Refuses</button>
+                                    </div>
                                 </template>
                             </div>
                             <template x-if="activeSigningKey === ({{ $sectionJs }} + '_landlord')">
@@ -156,6 +170,7 @@
                                     </div>
                                 </div>
                             </template>
+                            @include('corex.properties.partials.rental-inspection-refusal-form', ['key' => "({$sectionJs} + '_landlord')", 'saveMethod' => "saveLandlordRefusalFor({$sectionJs})"])
                         </div>
                     </template>
                 </div>

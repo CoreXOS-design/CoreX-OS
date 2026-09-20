@@ -389,6 +389,11 @@ class RentalInspection extends Model
             // can't resolve one — the UI shows that plainly (§15.4) rather
             // than hiding the row or blocking on a party nobody can name.
             'landlord_contact' => $property->sellerOwnerContact(),
+            // §15.5/§15.6, Stage 4 — the one-tap reason list the refusal
+            // form picks from. 'other' always present and always last,
+            // regardless of what the agency has saved (enforced inside
+            // refusalReasonPresetsFor() itself, not here).
+            'refusal_reason_presets' => \App\Models\RentalInspectionSetting::refusalReasonPresetsFor($property->agency_id),
         ];
     }
 }

@@ -4767,6 +4767,10 @@
                 // §15.4, Stage 3 — property-level, shared by both sections. Null
                 // means Property::sellerOwnerContact() couldn't resolve one.
                 landlordContact: config.inspectionData.landlord_contact,
+                // §15.5/§15.6, Stage 4 — agency-configurable one-tap reason
+                // list; 'other' always present and always last (server-side
+                // guarantee — RentalInspectionSetting::refusalReasonPresetsFor()).
+                refusalReasonPresets: config.inspectionData.refusal_reason_presets,
                 itemError: '',
                 itemBusy: false,
                 newItem: { kind: 'space', label: '' },
@@ -4978,6 +4982,7 @@
                 },
 
                 openSigningFor(key) {
+                    this.activeRefusalKey = null;
                     this.activeSigningKey = this.activeSigningKey === key ? null : key;
                 },
                 initSignaturePadFor(key, canvasEl) {
@@ -5010,6 +5015,39 @@
                     }, key);
                 },
 
+                // §15.5, Stage 4 — refusal, tenant/landlord only, never the
+                // agent. One form active at a time, same discipline as
+                // signing (activeRefusalKey mirrors activeSigningKey).
+                activeRefusalKey: null,
+                refusalForm: {},
+                refusalField(key) {
+                    return this.refusalForm[key] || (this.refusalForm[key] = { preset: '', note: '' });
+                },
+                openRefusalFor(key) {
+                    this.activeSigningKey = null;
+                    this.activeRefusalKey = this.activeRefusalKey === key ? null : key;
+                },
+
+                async saveTenantRefusalFor(section, tenant) {
+                    const key = section + '_tenant_' + tenant.contact_id;
+                    const form = this.refusalField(key);
+                    if (!form.preset) return;
+                    await this._saveDisposition(section, {
+                        party_role: 'tenant', disposition: 'refused', party_contact_id: tenant.contact_id,
+                        refusal_reason_preset: form.preset, refusal_reason_note: form.note || null,
+                    }, key);
+                },
+
+                async saveLandlordRefusalFor(section) {
+                    const key = section + '_landlord';
+                    const form = this.refusalField(key);
+                    if (!form.preset) return;
+                    await this._saveDisposition(section, {
+                        party_role: 'landlord', disposition: 'refused', party_contact_id: this.landlordContact?.id,
+                        refusal_reason_preset: form.preset, refusal_reason_note: form.note || null,
+                    }, key);
+                },
+
                 async saveAgentSignatureFor(section) {
                     const key = section + '_agent';
                     const pad = this.signaturePads[key];
@@ -5026,6 +5064,7 @@
                         const signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, payload);
                         insp.signatures.push(signature);
                         if (this.activeSigningKey === key) this.activeSigningKey = null;
+                        if (this.activeRefusalKey === key) this.activeRefusalKey = null;
                     } catch (e) { this.lifecycleError = e.message; }
                 },
 

@@ -196,6 +196,14 @@ class RentalInspectionRecordingController extends Controller
      * the same shared per-party pattern in-inspection already used since
      * Stage 2, so nothing sends the old shape any more — removed rather
      * than left as unreachable dead code.
+     *
+     * §15.5, Stage 4 — `rental_inspections.sign_on_behalf` gates a REFUSED
+     * disposition specifically (never a signed one, never the agent's own
+     * row — the agent has no refusal option at all, §15.2a). Stage 3 found
+     * this permission had no caller left after the old agent_on_behalf
+     * branch was removed; this is its real successor, matching what it was
+     * always for — an agent asserting something ON BEHALF of a party who
+     * isn't signing, which recording a refusal genuinely is.
      */
     public function storeSignature(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
@@ -214,6 +222,10 @@ class RentalInspectionRecordingController extends Controller
             'refusal_reason_preset' => ['nullable', 'string', 'max:60'],
             'refusal_reason_note' => ['nullable', 'string', 'max:2000'],
         ]);
+
+        if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_REFUSED) {
+            abort_unless($request->user()->hasPermission('rental_inspections.sign_on_behalf'), 403);
+        }
 
         if ($validated['party_role'] !== RentalInspectionSignature::PARTY_AGENT) {
             $attributes = [
