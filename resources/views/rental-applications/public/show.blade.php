@@ -1070,14 +1070,30 @@ function rentalApplicationForm() {
                 return;
             }
 
+            // Johan, 2026-09-20 — this used to unconditionally require both
+            // signatures, ignoring both 'shown' AND the agency's own
+            // required-field tick, unlike every other field on this form
+            // (each of which drives its `required`/`required-expr`
+            // attribute from $requiredFieldKeys — already reconciled
+            // against hidden fields server-side via
+            // effectiveRequiredFieldKeysFor()). An agency that hides or
+            // un-ticks either signature would have had a form that could
+            // never be submitted, with no error an applicant could act on
+            // — they just leave. Baked in at render time, same pattern as
+            // every other required-expr on this page, and Js::from() for
+            // safe string escaping into the label array.
+            const declRequired = {{ in_array('declaration_signature', $requiredFieldKeys, true) ? 'true' : 'false' }};
+            const tpnRequired = {{ in_array('tpn_consent_signature', $requiredFieldKeys, true) ? 'true' : 'false' }};
+            const declLabel = {{ \Illuminate\Support\Js::from($fieldConfig['declaration_signature']['label']) }};
+            const tpnLabel = {{ \Illuminate\Support\Js::from($fieldConfig['tpn_consent_signature']['label']) }};
+
             const decl = this.$refs.declaration_signature_input.value;
             const tpn = this.$refs.tpn_consent_signature_input.value;
-            if (!decl || !tpn) {
-                // Johan, 2026-09-20 — "hfc uses tpn so thats why we have
-                // that." Js::from() for safe string escaping, same pattern
-                // already used elsewhere on this page (x-data bindings
-                // above) — never raw Blade interpolation into a JS string.
-                this.error = 'Please sign both the declaration and the ' + {{ \Illuminate\Support\Js::from($fieldConfig['tpn_consent_signature']['label']) }} + ' before submitting.';
+            const missingSignatures = [];
+            if (declRequired && !decl) missingSignatures.push(declLabel);
+            if (tpnRequired && !tpn) missingSignatures.push(tpnLabel);
+            if (missingSignatures.length) {
+                this.error = 'Please sign the following before submitting: ' + missingSignatures.join(', ') + '.';
                 return;
             }
 
