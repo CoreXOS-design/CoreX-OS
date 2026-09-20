@@ -338,15 +338,18 @@ carry-forward and a work-order's future space-history lookup (§3.4) depend on. 
 affects "can a NEW observation be recorded against this item" (no), never "does this item's history
 still show up" (always yes).
 
-`rental_inspections` itself (the event record) DOES get the standard `deleted_at`/restore floor
-(non-negotiable #1, BUILD_STANDARD §1a) — but **only while it has zero observations recorded against
-it**. Once even one observation exists, the inspection cannot be archived/deleted through the normal
-CRUD path; it can only be `cancelled` (a status, not a delete) if it was started in error, and
-cancellation never removes the observations already on it. **[cc5 design call]**: this reconciles the
-full-CRUD-floor requirement with the evidence-integrity requirement — an inspection created by mistake
-with nothing recorded on it yet is ordinary CRUD noise and should be archivable like anything else; an
-inspection with real observations on it is evidence and the floor's own "archive, don't destroy"
-principle already implies it shouldn't vanish either.
+`rental_inspections` itself (the event record) gets the standard `deleted_at`/restore floor
+(non-negotiable #1, BUILD_STANDARD §1a) — ~~but only while it has zero observations recorded against
+it. Once even one observation exists, the inspection cannot be archived/deleted through the normal
+CRUD path; it can only be `cancelled` (a status, not a delete) if it was started in error.~~ **[cc5's
+design call, reversed 2026-09-20]**: a real QA1 walk found this restriction was a dead end, not
+evidentiary rigour — `cancel()` only flips status without hiding the record, so an agent who started an
+inspection on the wrong property had NO way to ever get it off the list. `delete()` on this table is
+already a SOFT delete (`deleted_at` + restore already existed); archiving never destroys the
+observations, it only hides the record from the working list, same as every other entity's
+archive/restore floor. The restriction is removed — any inspection, with or without observations, can
+now be archived and restored, same as any other CoreX record. The record also now carries
+`archived_by_user_id` (who — `deleted_at` already answered when), cleared again on restore.
 
 ### 3.4 The Work Orders link (Johan's ruling §0.13)
 
@@ -458,6 +461,17 @@ New screen, new nav entry, same day as the build (non-negotiable #2). Route grou
   manager sees branch, agency admin sees all). Direct-URL access to another agency's inspection by ID
   is blocked at the query layer (404 via the global scope), not hidden by omitting a link — same
   standard as everywhere else in CoreX.
+- **Archive/restore**: standard `deleted_at` floor, same as any other CoreX record (§3.3, reversed
+  2026-09-20 — no longer conditional on having zero observations). A "Show archived" toggle, same
+  pattern as `rental-applications.index`, swaps the query to `onlyTrashed()`; an archived row shows who
+  archived it and when (`archived_by_user_id` + `deleted_at`) and offers Restore in place of View.
+- **Create**: added 2026-09-20 — a real QA1 walk found this screen had no way to start an inspection at
+  all, only the property's own Rental Images tab did. `corex.rental-inspections.create`/`.store` offer
+  a property (active-lease properties only — `start()` requires one) + type picker, calling the exact
+  same `RentalInspection::start()` the tab's AJAX flow already uses, then redirecting to that property's
+  Rental Images tab (`?tab=rental-images`) to actually record observations — this screen's own `show()`
+  stays read-only, recording still only happens on the tab (§1/§4). Additional entry point, not a
+  replacement.
 
 ---
 
