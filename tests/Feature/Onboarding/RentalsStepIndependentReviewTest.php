@@ -32,6 +32,18 @@ use Tests\TestCase;
  * Save & continue button with nothing else touched advances the wizard
  * cleanly. A real agency going through onboarding is not blocked by this;
  * only these fixtures, built before Stage 3 existed, were lying about it.
+ *
+ * Broke AGAIN on QA1 2026-09-20 when rental-application-field-config.md
+ * added 6 more savers to this same shared step. Same root cause, same
+ * verdict (test staleness, not a product break) — but confirmed this time
+ * that fixing only the newest saver's required fields is NOT sufficient:
+ * updateFieldDisplayConfig()/updateRequiredFields()/4 boolean savers each
+ * has()-guard their own field and flash "That did not save" when absent
+ * rather than throwing, so AgencySetupWizardController::save()'s foreach
+ * keeps running past them — the request can still redirect FORWARD (looking
+ * successful) while a stale flashed error from an earlier saver survives
+ * into the session. Fixed by completing every payload in this file to match
+ * a real full-page form submission, not just the newest saver's fields.
  */
 final class RentalsStepIndependentReviewTest extends TestCase
 {
@@ -72,12 +84,22 @@ final class RentalsStepIndependentReviewTest extends TestCase
                 'expiry_notice_window_days' => 99,
                 'fault_report_window_days' => 88,
                 'out_inspection_signing_window_days' => 45,
-                // rental-work-orders.md Stage 3 joined this same shared step
-                // after this test was first written — required together with
-                // everything above, same as a real browser submits it (the
-                // wizard pre-fills this input with a real default, so a
-                // genuine user's form POST always includes it).
+                // Every field below is a real control this step now renders,
+                // required together with everything above, same as a real
+                // browser submits it (each carries a real pre-filled
+                // default, so a genuine user's form POST always includes it).
                 'no_approval_spend_threshold' => 500,
+                'shown_field_keys' => collect(\App\Models\RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
+                'required_field_keys' => [],
+                'field_display_submitted' => '1',
+                'required_fields_submitted' => '1',
+                'return_gate_method' => 'id_number',
+                'return_gate_attempt_max' => 6,
+                'return_gate_attempt_window_minutes' => 15,
+                'lock_property_after_submission' => '1',
+                'tag_contact_as_tenant_on_approval' => '1',
+                'require_fica_before_authorisation' => '0',
+                'document_uploads_open_after_approval' => '1',
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
@@ -114,10 +136,21 @@ final class RentalsStepIndependentReviewTest extends TestCase
                 'expiry_notice_window_days' => 50,
                 'fault_report_window_days' => 60,
                 'out_inspection_signing_window_days' => 15,
-                // rental-work-orders.md Stage 3 joined this same shared step
-                // after this test was first written — required together with
-                // everything above, same as a real browser submits it.
+                // Every field below is a real control this step now renders,
+                // required together with everything above, same as a real
+                // browser submits it.
                 'no_approval_spend_threshold' => 500,
+                'shown_field_keys' => collect(\App\Models\RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
+                'required_field_keys' => [],
+                'field_display_submitted' => '1',
+                'required_fields_submitted' => '1',
+                'return_gate_method' => 'id_number',
+                'return_gate_attempt_max' => 6,
+                'return_gate_attempt_window_minutes' => 15,
+                'lock_property_after_submission' => '1',
+                'tag_contact_as_tenant_on_approval' => '1',
+                'require_fica_before_authorisation' => '0',
+                'document_uploads_open_after_approval' => '1',
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();

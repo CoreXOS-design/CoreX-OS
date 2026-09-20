@@ -65,8 +65,24 @@ final class RentalsStepSaverIndependenceTest extends TestCase
                 'fault_report_window_days' => 10,
                 'out_inspection_signing_window_days' => 14,
                 'no_approval_spend_threshold' => 750,
+                // rental-application-field-config.md joined this same shared
+                // step after this test was first written — every field
+                // below is a real control this step now renders, so a
+                // genuine form submits it too.
+                'shown_field_keys' => collect(\App\Models\RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
+                'required_field_keys' => [],
+                'field_display_submitted' => '1',
+                'required_fields_submitted' => '1',
+                'return_gate_method' => 'id_number',
+                'return_gate_attempt_max' => 6,
+                'return_gate_attempt_window_minutes' => 15,
+                'lock_property_after_submission' => '1',
+                'tag_contact_as_tenant_on_approval' => '1',
+                'require_fica_before_authorisation' => '0',
+                'document_uploads_open_after_approval' => '1',
             ])
-            ->assertRedirect();
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
 
         $this->assertSame(45, LeaseSetting::expiryNoticeWindowDaysFor($agency->id));
         $this->assertSame(10, RentalInspectionSetting::faultReportWindowDaysFor($agency->id));
