@@ -12955,6 +12955,7 @@ CREATE TABLE `rental_inspections` (
   `cancelled_at` timestamp NULL DEFAULT NULL,
   `cancelled_by_user_id` bigint unsigned DEFAULT NULL,
   `cancel_reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `archived_by_user_id` bigint unsigned DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -12967,7 +12968,9 @@ CREATE TABLE `rental_inspections` (
   KEY `rental_inspections_agency_id_lease_id_type_index` (`agency_id`,`lease_id`,`type`),
   KEY `rental_inspections_agency_id_property_id_index` (`agency_id`,`property_id`),
   KEY `rental_inspections_agency_id_status_index` (`agency_id`,`status`),
+  KEY `rental_inspections_archived_by_user_id_foreign` (`archived_by_user_id`),
   CONSTRAINT `rental_inspections_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_inspections_archived_by_user_id_foreign` FOREIGN KEY (`archived_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_inspections_cancelled_by_user_id_foreign` FOREIGN KEY (`cancelled_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_inspections_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_inspections_lease_id_foreign` FOREIGN KEY (`lease_id`) REFERENCES `leases` (`id`) ON DELETE CASCADE,
@@ -17244,3 +17247,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1388,'2026_09_28_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1389,'2026_09_28_100300_add_work_order_foreign_keys_deferred_from_stage1_2',331);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1390,'2026_09_28_100400_register_rental_work_order_notifications',331);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1391,'2026_09_20_120000_add_credit_bureau_name_to_rental_application_qualifying_settings',332);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1392,'2026_09_29_100000_add_archived_by_to_rental_inspections_table',333);

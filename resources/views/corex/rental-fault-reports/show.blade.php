@@ -21,7 +21,13 @@
         <div>
             <h1 class="text-lg font-semibold">{{ $faultReport->title }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $faultReport->status)) }}</span>
-            <span class="text-xs" style="color: var(--text-muted);">{{ $faultReport->property?->buildDisplayAddress() ?? 'Unknown property' }}</span>
+            <span class="text-xs">
+                @if($faultReport->property)
+                    <a href="{{ route('corex.properties.show', $faultReport->property->id) }}" style="color:var(--brand-icon,#2563eb);">{{ $faultReport->property->buildDisplayAddress() }}</a>
+                @else
+                    <span style="color: var(--text-muted);">Unknown property</span>
+                @endif
+            </span>
         </div>
         <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">&larr; All fault reports</a>
     </div>
