@@ -237,8 +237,13 @@ final class RentalInspectionWorkflowTest extends TestCase
 
     public function test_completion_is_blocked_on_an_outstanding_landlord_even_when_every_tenant_is_done(): void
     {
+        // created_by_user_id set to the acting agent — ContactScope's config
+        // fallback for a bare/unseeded test agency scopes role 'agent' to
+        // 'own' contacts, found by cc1 (2026-09-20) as a real test-fixture
+        // defect elsewhere in this same feature, confirmed NOT a product
+        // bug against real QA1 data.
         $landlord = \App\Models\Contact::create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
             'first_name' => 'Lindiwe', 'last_name' => 'Landlord', 'email' => uniqid() . '@example.test',
         ]);
         \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $this->property->id, 'role' => 'landlord']);
