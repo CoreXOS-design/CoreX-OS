@@ -17,6 +17,33 @@ use Tests\TestCase;
  * own acceptance criteria — proving the saver protection the hard way,
  * against the actual production endpoint, not re-asserting the existing
  * suite's own claims.
+ *
+ * Broke on QA1 2026-09-20 when rental-work-orders.md Stage 3 added a 4th
+ * saver (RentalWorkOrderSettingsController::update(), required
+ * no_approval_spend_threshold with no fallback) to this same shared step —
+ * these tests' hand-built POST payloads were never updated to include it,
+ * so they 422'd. Verified this was test staleness, NOT a real product break,
+ * before touching anything: drove the actual live QA1 site with a real
+ * Puppeteer browser session as a genuinely fresh agency that had never
+ * heard of work orders, confirmed the wizard PRE-FILLS
+ * no_approval_spend_threshold with a real default (500) as a normal visible
+ * input, confirmed via the page's own FormData that a real browser
+ * submission includes it automatically, and confirmed clicking the actual
+ * Save & continue button with nothing else touched advances the wizard
+ * cleanly. A real agency going through onboarding is not blocked by this;
+ * only these fixtures, built before Stage 3 existed, were lying about it.
+ *
+ * Broke AGAIN on QA1 2026-09-20 when rental-application-field-config.md
+ * added 6 more savers to this same shared step. Same root cause, same
+ * verdict (test staleness, not a product break) — but confirmed this time
+ * that fixing only the newest saver's required fields is NOT sufficient:
+ * updateFieldDisplayConfig()/updateRequiredFields()/4 boolean savers each
+ * has()-guard their own field and flash "That did not save" when absent
+ * rather than throwing, so AgencySetupWizardController::save()'s foreach
+ * keeps running past them — the request can still redirect FORWARD (looking
+ * successful) while a stale flashed error from an earlier saver survives
+ * into the session. Fixed by completing every payload in this file to match
+ * a real full-page form submission, not just the newest saver's fields.
  */
 final class RentalsStepIndependentReviewTest extends TestCase
 {
@@ -57,6 +84,22 @@ final class RentalsStepIndependentReviewTest extends TestCase
                 'expiry_notice_window_days' => 99,
                 'fault_report_window_days' => 88,
                 'out_inspection_signing_window_days' => 45,
+                // Every field below is a real control this step now renders,
+                // required together with everything above, same as a real
+                // browser submits it (each carries a real pre-filled
+                // default, so a genuine user's form POST always includes it).
+                'no_approval_spend_threshold' => 500,
+                'shown_field_keys' => collect(\App\Models\RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
+                'required_field_keys' => [],
+                'field_display_submitted' => '1',
+                'required_fields_submitted' => '1',
+                'return_gate_method' => 'id_number',
+                'return_gate_attempt_max' => 6,
+                'return_gate_attempt_window_minutes' => 15,
+                'lock_property_after_submission' => '1',
+                'tag_contact_as_tenant_on_approval' => '1',
+                'require_fica_before_authorisation' => '0',
+                'document_uploads_open_after_approval' => '1',
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
@@ -93,6 +136,21 @@ final class RentalsStepIndependentReviewTest extends TestCase
                 'expiry_notice_window_days' => 50,
                 'fault_report_window_days' => 60,
                 'out_inspection_signing_window_days' => 15,
+                // Every field below is a real control this step now renders,
+                // required together with everything above, same as a real
+                // browser submits it.
+                'no_approval_spend_threshold' => 500,
+                'shown_field_keys' => collect(\App\Models\RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
+                'required_field_keys' => [],
+                'field_display_submitted' => '1',
+                'required_fields_submitted' => '1',
+                'return_gate_method' => 'id_number',
+                'return_gate_attempt_max' => 6,
+                'return_gate_attempt_window_minutes' => 15,
+                'lock_property_after_submission' => '1',
+                'tag_contact_as_tenant_on_approval' => '1',
+                'require_fica_before_authorisation' => '0',
+                'document_uploads_open_after_approval' => '1',
             ])
             ->assertRedirect()
             ->assertSessionHasNoErrors();
@@ -109,19 +167,25 @@ final class RentalsStepIndependentReviewTest extends TestCase
     }
 
     /**
-     * NOT the original incident's shape (no boolean force-default exists
-     * here to trigger), but a real, different finding worth proving either
-     * way: AgencySetupWizardController::save() calls each saver in a plain
-     * foreach with no surrounding DB transaction. If an earlier saver's
-     * write succeeds and a LATER saver's own `required` validation then
-     * throws, the earlier write is already committed — the request reports
-     * failure but is not actually atomic. This does not corrupt a field the
-     * step never rendered (both fields here are always rendered together
-     * and both are `required`), so it does not reproduce the named
-     * incident, but it is a real partial-write-on-failure inconsistency,
-     * reported separately rather than silently folded into "protected."
+     * ORIGINALLY (this test's own history): NOT the named incident's shape,
+     * but a real, different finding worth proving either way —
+     * AgencySetupWizardController::save() called each saver in a plain
+     * foreach with no surrounding DB transaction, so an earlier saver's
+     * write survived even when a later saver's validation then failed the
+     * request as a whole. Reported as a genuine gap, not fixed at the time
+     * (out of scope for that task).
+     *
+     * CLOSED 2026-09-20 (conductor's ruling, after cc1 proved a real user
+     * could be told "Saved." while a saver silently failed): save() now
+     * runs every saver inside one DB transaction, and ANY failure —
+     * thrown directly or converted from a has()-guard's flashed error —
+     * rolls the whole step back. This test now asserts the opposite of
+     * what it originally demonstrated: the gap it once proved is the exact
+     * gap the fix closed, so a stale assertion here would silently regress
+     * back to "partial writes are fine" the moment anyone touched this
+     * file without re-reading why it existed.
      */
-    public function test_a_partial_post_missing_a_required_field_leaves_the_earlier_savers_write_committed(): void
+    public function test_a_partial_post_missing_a_required_field_rolls_back_the_earlier_savers_write_too(): void
     {
         $agency = Agency::create(['name' => 'Agency C', 'slug' => 'agency-c-' . uniqid()]);
         LeaseSetting::create(['agency_id' => $agency->id, 'expiry_notice_window_days' => 60]);
@@ -136,13 +200,14 @@ final class RentalsStepIndependentReviewTest extends TestCase
 
         $response->assertSessionHasErrors();
 
-        // The request as a whole reports failure (validation errors) — but
-        // saver #1 already ran and its write already persisted before
-        // saver #2's validation threw.
+        // The whole step is now one transaction: saver #1's write never
+        // survives a later saver's failure in the same request. The
+        // pre-existing value (60) must be exactly what it was before this
+        // request, not the posted-but-never-fully-saved 45.
         $this->assertSame(
-            45,
+            60,
             LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
-            'demonstrates the partial-write: the failed request still persisted the first saver\'s new value'
+            'the whole step is atomic now — an earlier saver\'s write must not survive a later saver\'s failure in the same request'
         );
     }
 

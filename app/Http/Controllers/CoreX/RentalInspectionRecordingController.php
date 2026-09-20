@@ -55,6 +55,12 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => $e->getMessage()], 409);
         }
 
+        // §15.4 — the per-tenant signing UI reads lease.tenants.contact off
+        // this same-page response (tabPayloadFor()'s own eager-load covers
+        // the full-reload case, but a freshly-started inspection never goes
+        // through that path).
+        $inspection->load('lease.tenants.contact');
+
         return response()->json($inspection, 201);
     }
 
@@ -177,42 +183,68 @@ class RentalInspectionRecordingController extends Controller
         return response()->json($discrepancy->fresh());
     }
 
-    /** POST /corex/rental-inspections/{inspection}/signatures — §0.7, the required-phrase gate lives in the model. */
+    /**
+     * POST /corex/rental-inspections/{inspection}/signatures
+     *
+     * .ai/specs/rental-inspections.md §15.10's canonical shape —
+     * `party_role`/`disposition`/`party_contact_id` — what both sections'
+     * rebuilt signing UI (Stages 2-3) and the future mobile API call.
+     *
+     * Stage 1 briefly kept a translation layer here for the OLD
+     * `signer_role`/`refused_note` request shape the property tab's
+     * pre-§15 out-inspection UI used to send. Stage 3 replaced that UI with
+     * the same shared per-party pattern in-inspection already used since
+     * Stage 2, so nothing sends the old shape any more — removed rather
+     * than left as unreachable dead code.
+     *
+     * §15.5, Stage 4 — `rental_inspections.sign_on_behalf` gates a REFUSED
+     * disposition specifically (never a signed one, never the agent's own
+     * row — the agent has no refusal option at all, §15.2a). Stage 3 found
+     * this permission had no caller left after the old agent_on_behalf
+     * branch was removed; this is its real successor, matching what it was
+     * always for — an agent asserting something ON BEHALF of a party who
+     * isn't signing, which recording a refusal genuinely is.
+     */
     public function storeSignature(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
         $validated = $request->validate([
-            'signer_role' => ['required', 'string', 'in:' . implode(',', [
-                RentalInspectionSignature::SIGNER_TENANT,
-                RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF,
-                RentalInspectionSignature::SIGNER_LANDLORD,
+            'party_role' => ['required', 'string', 'in:' . implode(',', [
+                RentalInspectionSignature::PARTY_TENANT,
+                RentalInspectionSignature::PARTY_LANDLORD,
+                RentalInspectionSignature::PARTY_AGENT,
             ])],
-            'signer_contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
-            'signature_image' => ['nullable', 'string'], // base64 PNG from the canvas capture, §3.6
-            'refused_note' => ['nullable', 'string', 'max:2000'],
+            'disposition' => ['required', 'string', 'in:' . implode(',', [
+                RentalInspectionSignature::DISPOSITION_SIGNED,
+                RentalInspectionSignature::DISPOSITION_REFUSED,
+            ])],
+            'party_contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
+            'signature_image' => ['nullable', 'string'],
+            'refusal_reason_preset' => ['nullable', 'string', 'max:60'],
+            'refusal_reason_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $attributes = [
-            'signer_contact_id' => $validated['signer_contact_id'] ?? null,
-            'refused_note' => $validated['refused_note'] ?? null,
-        ];
-
-        if ($validated['signer_role'] === RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF) {
-            // §6 — sign_on_behalf is gated separately from the base .create
-            // permission because it overrides a party's own consent to sign.
-            // A route-level permission:* middleware can't see the request
-            // body, so this check has to live here, on the one code path
-            // that actually reaches the on-behalf case.
+        if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_REFUSED) {
             abort_unless($request->user()->hasPermission('rental_inspections.sign_on_behalf'), 403);
-            $attributes['signed_by_user_id'] = $request->user()->id;
+        }
+
+        if ($validated['party_role'] !== RentalInspectionSignature::PARTY_AGENT) {
+            $attributes = [
+                'party_contact_id' => $validated['party_contact_id'] ?? null,
+                'refusal_reason_preset' => $validated['refusal_reason_preset'] ?? null,
+                'refusal_reason_note' => $validated['refusal_reason_note'] ?? null,
+                'recorded_by_user_id' => $request->user()->id,
+            ];
+        } else {
+            $attributes = ['recorded_by_user_id' => $request->user()->id];
         }
 
         if (!empty($validated['signature_image'])) {
-            $attributes['signature_path'] = RentalInspectionSignature::storeCanvasImage($validated['signature_image'], $rentalInspection->property_id);
+            $attributes['party_signature_path'] = RentalInspectionSignature::storeCanvasImage($validated['signature_image'], $rentalInspection->property_id);
         }
 
         try {
-            $signature = RentalInspectionSignature::capture($rentalInspection, $validated['signer_role'], $attributes);
-        } catch (\InvalidArgumentException $e) {
+            $signature = RentalInspectionSignature::capture($rentalInspection, $validated['party_role'], $validated['disposition'], $attributes);
+        } catch (\InvalidArgumentException|\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 

@@ -16,6 +16,7 @@ class RentalWorkOrderSetting extends Model
 
     public const DEFAULT_OVERDUE_REMINDER_DAYS = 3;
     public const DEFAULT_NO_APPROVAL_SPEND_THRESHOLD = 500.00;
+    public const DEFAULT_COMPLETION_REQUIRES_PHOTO = true;
 
     protected $fillable = [
         'agency_id',
@@ -29,6 +30,21 @@ class RentalWorkOrderSetting extends Model
         'overdue_reminder_days' => 'integer',
         'no_approval_spend_threshold' => 'decimal:2',
     ];
+
+    /**
+     * §3.4, Stage 4 — Johan's ruling: "photos of the work conducted." An
+     * agency CAN turn this off; the default matches the ruling, not a
+     * weaker posture.
+     */
+    public static function completionRequiresPhotoFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_COMPLETION_REQUIRES_PHOTO;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('completion_requires_photo');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_COMPLETION_REQUIRES_PHOTO;
+    }
 
     public static function overdueReminderDaysFor(?int $agencyId): int
     {

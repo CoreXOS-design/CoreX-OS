@@ -33,7 +33,8 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('corex.settings.rental-inspections.update') }}" class="space-y-4">
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.update') }}" class="space-y-4"
+          x-data="{ presets: {{ Js::from(collect($refusalReasonPresets)->reject(fn($p) => $p['key'] === 'other')->values()) }} }">
         @csrf
 
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
@@ -61,6 +62,35 @@
                         tenant's behalf, with a note recording why.
                     </p>
                 </div>
+            </div>
+        </div>
+
+        {{-- §15.5/§15.6 — the one-tap preset list an agent picks a refusal
+             reason from. "Other" is always available and is never listed
+             here — it can't be removed or reworded, so there's nothing to
+             edit about it. --}}
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Refusal reasons</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    When a tenant or landlord refuses to sign an inspection, the agent picks one of
+                    these reasons (plus "Other", always available, not editable here).
+                </p>
+                <template x-for="(preset, i) in presets" :key="i">
+                    <div class="flex items-center gap-2">
+                        <input type="text" x-model="preset.label" :name="`refusal_reason_presets[${i}][label]`"
+                               maxlength="191" required
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <input type="hidden" :name="`refusal_reason_presets[${i}][key]`" :value="preset.key">
+                        <button type="button" @click="presets.splice(i, 1)"
+                                class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
+                    </div>
+                </template>
+                <button type="button"
+                        @click="presets.push({ key: 'custom_' + Date.now(), label: '' })"
+                        class="corex-btn-outline text-xs">+ Add a reason</button>
             </div>
         </div>
 

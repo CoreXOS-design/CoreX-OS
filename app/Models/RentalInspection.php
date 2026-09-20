@@ -42,6 +42,7 @@ class RentalInspection extends Model
         'cancelled_at',
         'cancelled_by_user_id',
         'cancel_reason',
+        'archived_by_user_id',
         'created_by_user_id',
     ];
 
@@ -83,6 +84,11 @@ class RentalInspection extends Model
         return $this->belongsTo(User::class, 'cancelled_by_user_id');
     }
 
+    public function archivedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'archived_by_user_id');
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
@@ -120,14 +126,50 @@ class RentalInspection extends Model
     }
 
     /**
-     * §3.3 — deletable through the ordinary CRUD path only while nothing has
-     * been recorded against it yet. Once a single observation exists, this
-     * is evidence and may only be cancelled, never deleted — same reasoning
-     * and shape as Lease::isDeletable().
+     * §15.4/§15.7 — every tenant on this inspection's own lease, plus the
+     * landlord if Property::sellerOwnerContact() resolves one, who does NOT
+     * yet have a disposition (signed or refused) row on THIS inspection.
+     * Empty means every required party is accounted for — the one thing
+     * both RentalInspectionSignature::capture()'s agent-signs-last rule
+     * (§15.2a) and the eventual completion guard (§15.7) both ask.
+     *
+     * @return \Illuminate\Support\Collection<int, array{party_role: string, party_contact_id: int}>
      */
-    public function isDeletable(): bool
+    public function outstandingSignatories(): \Illuminate\Support\Collection
     {
-        return $this->observations()->doesntExist();
+        $existing = $this->signatures()
+            ->whereIn('party_role', [RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::PARTY_LANDLORD])
+            ->get(['party_role', 'party_contact_id']);
+
+        $outstanding = collect();
+
+        $tenantContactIds = \App\Models\LeaseTenant::where('lease_id', $this->lease_id)->pluck('contact_id');
+        foreach ($tenantContactIds as $contactId) {
+            $already = $existing->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_TENANT
+                && (int) $s->party_contact_id === (int) $contactId);
+            if (! $already) {
+                $outstanding->push(['party_role' => RentalInspectionSignature::PARTY_TENANT, 'party_contact_id' => $contactId]);
+            }
+        }
+
+        $landlordContactId = $this->property?->sellerOwnerContact()?->id;
+        if ($landlordContactId) {
+            $already = $existing->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_LANDLORD);
+            if (! $already) {
+                $outstanding->push(['party_role' => RentalInspectionSignature::PARTY_LANDLORD, 'party_contact_id' => $landlordContactId]);
+            }
+        }
+
+        return $outstanding;
+    }
+
+    /** §15.1 — the agent always signs; this is the one check for whether they already have. */
+    public function hasAgentSignature(): bool
+    {
+        return $this->signatures()
+            ->where('party_role', RentalInspectionSignature::PARTY_AGENT)
+            ->where('disposition', RentalInspectionSignature::DISPOSITION_SIGNED)
+            ->exists();
     }
 
     /**
@@ -156,15 +198,19 @@ class RentalInspection extends Model
     }
 
     /**
-     * §3.5/§0.7 — an out-inspection moves to awaiting_signature once the
-     * walkthrough is done, opening the tenant's signing window. Guarded the
-     * same way completion is: cannot proceed while a discrepancy is still
-     * unresolved (§11).
+     * §3.5/§0.7, widened by §15.3 (2026-09-20) — an in- or out-inspection
+     * moves to awaiting_signature once the walkthrough is done, opening the
+     * signing step. Previously out-inspection only; Johan's fuller ruling
+     * ("inspections both in and out needs all party signatures") requires
+     * the same step on both. TYPE_AD_HOC stays excluded — §15 names "both
+     * in and out" specifically, and an ad-hoc mid-tenancy check keeps its
+     * existing lighter-weight lifecycle. Guarded the same way completion is:
+     * cannot proceed while a discrepancy is still unresolved (§11).
      */
     public function startAwaitingSignature(): void
     {
-        if ($this->type !== self::TYPE_OUT) {
-            throw new \LogicException('Only an out-inspection has a signing window.');
+        if (! in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
+            throw new \LogicException('Only an in- or out-inspection has a signing window.');
         }
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot start the signing window while a discrepancy is unresolved.');
@@ -177,20 +223,51 @@ class RentalInspection extends Model
     }
 
     /**
-     * §3.5/§11 — completing an in-inspection opens the tenant's fault-report
-     * window from that moment. Completing an out-inspection requires a
-     * signature already on record (tenant's own, or an agent_on_behalf one
-     * carrying the required refusal note, §0.7) — signing is what closes it,
-     * not a separate step. Either way, cannot complete while a discrepancy
-     * is unresolved (§11).
+     * §3.5/§11/§15.7 — completing an in-inspection opens the tenant's
+     * fault-report window from that moment. Johan's fuller 2026-09-20
+     * ruling: "its form part of the lease agreement so without signatures
+     * its not an accepted document" — an in- or out-inspection now
+     * requires EVERY tenant and the landlord (if resolvable) to have a
+     * disposition (signed or refused), AND the agent's own signature,
+     * before it can complete. TYPE_AD_HOC is exempt — §15 names "both in
+     * and out" specifically, and an ad-hoc mid-tenancy check keeps its
+     * existing lighter-weight lifecycle. Cannot complete while a
+     * discrepancy is unresolved either way (§11).
+     *
+     * This CANNOT become a bypass: outstandingSignatories() and
+     * hasAgentSignature() are the same checks RentalInspectionSignature::
+     * capture() itself already enforces when creating a row (§15.2a) — a
+     * disposition satisfying this guard cannot exist without the real
+     * thing (a genuine signature image, or a genuine reason) behind it.
      */
     public function markCompleted(): void
     {
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot complete an inspection while a discrepancy is unresolved.');
         }
-        if ($this->type === self::TYPE_OUT && ! $this->signatures()->exists()) {
-            throw new \LogicException('Cannot complete an out-inspection with no signature on record.');
+
+        if (in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
+            $outstanding = $this->outstandingSignatories();
+            if ($outstanding->isNotEmpty()) {
+                $first = $outstanding->first();
+                if ($first['party_role'] === RentalInspectionSignature::PARTY_TENANT) {
+                    // Contact::find() is scope-sensitive (ContactScope) — this
+                    // is display only, never the guard itself, so a contact
+                    // the completing user's role/agency can't see under its
+                    // own scoping just falls back to a generic label rather
+                    // than erroring. The BLOCK above (outstandingSignatories())
+                    // is unaffected either way: it resolves tenants via
+                    // LeaseTenant, not this scoped Contact lookup. Named
+                    // precisely by cc1 (2026-09-20) after a real test-fixture
+                    // instance of this exact degradation.
+                    $name = \App\Models\Contact::find($first['party_contact_id'])?->full_name ?? 'A tenant';
+                    throw new \LogicException("Cannot complete: {$name} has neither signed nor been marked as refusing.");
+                }
+                throw new \LogicException('Cannot complete: the landlord has neither signed nor been marked as refusing.');
+            }
+            if (! $this->hasAgentSignature()) {
+                throw new \LogicException('Cannot complete an inspection without the agent\'s own signature.');
+            }
         }
 
         $completedAt = now();
@@ -243,6 +320,38 @@ class RentalInspection extends Model
         return self::where('lease_id', $lease->id)
             ->where('type', $type)
             ->whereNotIn('status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED])
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * The most recent out-inspection ever recorded for this property,
+     * regardless of status — including completed — except cancelled (a
+     * cancelled attempt never really happened, so it carries no history).
+     *
+     * Deliberately NOT currentFor(): that method answers "is one currently
+     * under way" and correctly excludes completed/cancelled for that
+     * question — widening it would break the start()/currentFor() guard
+     * against double-starting an inspection. This answers a DIFFERENT
+     * question — "which out-inspection's fault history should the tab
+     * show" — and the answer to that is needed MOST at the exact moment
+     * currentFor() goes null: right after the out-inspection completes,
+     * during a deposit dispute. Found via a real QA1 walk on 2026-09-20 —
+     * the fault-and-repair block (Stage 5, rental-work-orders.md §3a.5/§6a)
+     * was going blank the instant it mattered.
+     *
+     * Not scoped through the property's ACTIVE lease (unlike currentFor()/
+     * start()) — nothing flips a lease's own status on out-inspection
+     * completion, and the whole point is to keep working once that lease is
+     * no longer active. Scoped through the inspection's own lease_id
+     * belonging to this property instead, so the most recent tenancy's
+     * out-inspection is found however lease.status reads by then.
+     */
+    public static function mostRecentOutFor(Property $property): ?self
+    {
+        return self::where('type', self::TYPE_OUT)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->whereHas('lease', fn ($q) => $q->where('property_id', $property->id))
             ->latest('id')
             ->first();
     }
@@ -308,13 +417,52 @@ class RentalInspection extends Model
             ->with(['observations' => fn (HasMany $q) => $q->latest('created_at')])
             ->get();
 
+        // §15.4 — the per-tenant signing UI (Stage 2) needs to know WHO the
+        // lease's tenants are to render one row each; lease.tenants.contact
+        // is the same relation path already proven elsewhere in this module.
         $withDetail = fn (string $type) => self::currentFor($property, $type)
-            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures']);
+            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures', 'lease.tenants.contact']);
+
+        $outInspection = $withDetail(self::TYPE_OUT);
+        // 2026-09-20 fix — deliberately NOT $outInspection above. That value
+        // is scoped by currentFor() ("is one currently open"), which goes
+        // null the instant an out-inspection completes — exactly the moment
+        // the fault history matters most (a deposit dispute after move-out).
+        // mostRecentOutFor() answers "which out-inspection's history should
+        // the tab show" instead, and keeps answering it after completion.
+        $mostRecentOut = self::mostRecentOutFor($property);
 
         return [
             'items' => $items,
             'in_inspection' => $withDetail(self::TYPE_IN),
-            'out_inspection' => $withDetail(self::TYPE_OUT),
+            'out_inspection' => $outInspection,
+            // .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 — Johan's own
+            // reason for this whole feature: "geyser in month 7... an agent
+            // can see what damages there were... and what was not repaired."
+            // Attached here, not merged — a second query alongside the
+            // out-inspection's own data, not a join. Scoped by THIS
+            // out-inspection's own lease_id (§3a.4's deliberate contrast with
+            // items' own property-wide carry-forward) — empty until an
+            // out-inspection actually exists, since there's no lease context
+            // to scope by before then.
+            'out_inspection_fault_history' => $mostRecentOut
+                ? \App\Models\RentalFaultReport::where('lease_id', $mostRecentOut->lease_id)->orderByDesc('reported_at')->get()
+                : collect(),
+            // §15.4, Stage 3 — property-level (unlike tenants, which are
+            // lease-level), so both in_inspection and out_inspection share
+            // this same value. Null when Property::sellerOwnerContact()
+            // can't resolve one — the UI shows that plainly (§15.4) rather
+            // than hiding the row or blocking on a party nobody can name.
+            'landlord_contact' => $property->sellerOwnerContact(),
+            // §15.5/§15.6, Stage 4 — the one-tap reason list the refusal
+            // form picks from. 'other' always present and always last,
+            // regardless of what the agency has saved (enforced inside
+            // refusalReasonPresetsFor() itself, not here).
+            'refusal_reason_presets' => \App\Models\RentalInspectionSetting::refusalReasonPresetsFor($property->agency_id),
+            // Drives the fault-history block's own visibility on the tab —
+            // deliberately separate from out_inspection (above) so the block
+            // stays visible once out_inspection goes null on completion.
+            'out_inspection_recorded' => (bool) $mostRecentOut,
         ];
     }
 }

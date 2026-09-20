@@ -116,12 +116,11 @@ class RentalFaultReport extends Model
         return $this->belongsTo(RentalInspectionObservation::class, 'reported_inspection_observation_id');
     }
 
-    // workOrder(): BelongsTo — added in Stage 4 once App\Models\RentalWorkOrder
-    // exists. Unlike the DB column (present now, §3a schema is spec-complete
-    // from day one), an Eloquent relation method must instantiate its related
-    // model class the moment it's CALLED — not just referenced by ::class —
-    // so this can't be defined against a class that doesn't exist yet without
-    // breaking every eager-load/lazy-access of this model in the meantime.
+    /** Stage 4 — App\Models\RentalWorkOrder now exists; see this class's own docblock. */
+    public function workOrder(): BelongsTo
+    {
+        return $this->belongsTo(RentalWorkOrder::class, 'rental_work_order_id');
+    }
 
     public function reportedByContact(): BelongsTo
     {

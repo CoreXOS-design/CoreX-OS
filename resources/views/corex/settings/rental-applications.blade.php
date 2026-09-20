@@ -161,6 +161,33 @@
         </form>
     </div>
 
+    {{-- Johan, 2026-09-20 — "hfc uses tpn so thats why we have that." Blank
+         reads as generic "Credit Bureau Consent" wording everywhere this
+         name is shown (the applicant form's heading and signature caption,
+         this screen's own field label and section heading, the PDF) —
+         correct both for an agency that hasn't set this yet and for one
+         that genuinely runs no bureau check at all. --}}
+    <div class="rounded-md p-4 mb-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Credit Bureau</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Named in the applicant's consent wording and on the application PDF. Leave blank for
+            generic "Credit Bureau" wording — also correct if your agency doesn't use one.
+        </p>
+        <form method="POST" action="{{ route('corex.settings.rental-applications.credit-bureau') }}" class="flex items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                    Credit bureau name
+                </label>
+                <input type="text" name="credit_bureau_name" maxlength="100"
+                       value="{{ old('credit_bureau_name', $creditBureauName) }}"
+                       placeholder="e.g. TPN"
+                       class="corex-input text-sm" style="width: 220px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save Credit Bureau</button>
+        </form>
+    </div>
+
     {{-- Reopen/resubmit, 2026-09-08 — "every threshold, window and business
          rule an agency-configurable setting with a sensible default. Nothing
          hardcoded." A reopened application's applicant link expires after
@@ -389,7 +416,7 @@
             @endforeach
 
             <p class="text-[11px] mb-3" style="color: var(--text-muted);">
-                Both signatures (Declaration and TPN Consent) are compulsory by default and can be unticked
+                Both signatures (Declaration and {{ \App\Models\RentalApplication::creditBureauConsentLabel($creditBureauName) }}) are compulsory by default and can be unticked
                 like any other field above — but a signature that IS provided must always be a real, drawn
                 signature; a blank or corrupted one is never accepted either way.
             </p>

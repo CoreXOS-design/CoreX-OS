@@ -65,13 +65,61 @@ final class RentalsStepSaverIndependenceTest extends TestCase
                 'fault_report_window_days' => 10,
                 'out_inspection_signing_window_days' => 14,
                 'no_approval_spend_threshold' => 750,
+                // rental-application-field-config.md joined this same shared
+                // step after this test was first written — every field
+                // below is a real control this step now renders, so a
+                // genuine form submits it too.
+                'shown_field_keys' => collect(\App\Models\RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
+                'required_field_keys' => [],
+                'field_display_submitted' => '1',
+                'required_fields_submitted' => '1',
+                'return_gate_method' => 'id_number',
+                'return_gate_attempt_max' => 6,
+                'return_gate_attempt_window_minutes' => 15,
+                'lock_property_after_submission' => '1',
+                'tag_contact_as_tenant_on_approval' => '1',
+                'require_fica_before_authorisation' => '0',
+                'document_uploads_open_after_approval' => '1',
             ])
-            ->assertRedirect();
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
 
         $this->assertSame(45, LeaseSetting::expiryNoticeWindowDaysFor($agency->id));
         $this->assertSame(10, RentalInspectionSetting::faultReportWindowDaysFor($agency->id));
         $this->assertSame(14, RentalInspectionSetting::signingWindowDaysFor($agency->id));
         $this->assertSame(750.0, RentalWorkOrderSetting::spendThresholdFor($agency->id));
+    }
+
+    /**
+     * §15.6's own new field, this stage's own new saver-precondition risk:
+     * the wizard step has no control for refusal_reason_presets at all (no
+     * wizard control type fits a JSON list yet — flagged for the conductor,
+     * not silently decided), so its POST never carries that key. Proves the
+     * has()-guarded saver (RentalInspectionSettingsController::update())
+     * does NOT force-default/wipe an agency's own edited preset list just
+     * because the wizard step doesn't know about it — the exact incident
+     * this whole test file exists to prevent, for a field added today.
+     */
+    public function test_saving_the_wizard_step_never_wipes_an_agencys_own_refusal_reason_presets(): void
+    {
+        $agency = Agency::create(['name' => 'Preset Realty', 'slug' => 'preset-realty-' . uniqid()]);
+        $admin = $this->admin($agency);
+        RentalInspectionSetting::create([
+            'agency_id' => $agency->id,
+            'refusal_reason_presets' => [['key' => 'custom_1', 'label' => 'Our own agency reason']],
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+                'expiry_notice_window_days' => 45,
+                'fault_report_window_days' => 10,
+                'out_inspection_signing_window_days' => 14,
+                'no_approval_spend_threshold' => 750,
+            ])
+            ->assertRedirect();
+
+        $presets = RentalInspectionSetting::refusalReasonPresetsFor($agency->id);
+        $this->assertContains('custom_1', array_column($presets, 'key'), 'the wizard step must never wipe a preset it has no control for');
     }
 
     public function test_saving_the_dedicated_lease_settings_page_never_touches_rental_inspection_settings(): void

@@ -13,6 +13,7 @@ use App\Models\Property;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
+use App\Models\RentalInspectionSignature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -216,6 +217,38 @@ final class RentalInspectionListScreenTest extends TestCase
             ->assertOk()->assertSee('Lounge')->assertSee('Good');
     }
 
+    /**
+     * §15.5/§15.8/§15.12's own acceptance criteria — a signed row and a
+     * refused row must be distinguishable by someone reading the page cold,
+     * not just by code that happens to know which is which.
+     */
+    public function test_show_renders_signed_and_refused_dispositions_unambiguously(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
+        $property = $this->property($this->branchA, 'Signature detail property', $admin);
+        $inspection = $this->inspection($property, $admin, ['type' => RentalInspection::TYPE_OUT]);
+        $tenant = Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id,
+            'first_name' => 'Palesa', 'last_name' => 'Tenant', 'email' => uniqid() . '@example.test',
+        ]);
+        LeaseTenant::create(['lease_id' => $inspection->lease_id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id, 'refusal_reason_preset' => 'not_present', 'recorded_by_user_id' => $admin->id,
+        ]);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('corex.rental-inspections.show', $inspection));
+
+        $response->assertOk()
+            ->assertSee('Palesa Tenant')
+            ->assertSee('Refused to sign')
+            ->assertSee('Not present for the walkthrough')
+            ->assertSee('Signed')
+            ->assertSee('src="signatures/agent.png"', false); // the signed row renders an image, never bare text
+    }
+
     public function test_cancel_requires_a_reason_and_stamps_the_cancelling_user(): void
     {
         $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
@@ -232,7 +265,16 @@ final class RentalInspectionListScreenTest extends TestCase
         $this->assertSame('Tenant withdrew.', $inspection->cancel_reason);
     }
 
-    public function test_an_inspection_with_observations_cannot_be_deleted_only_cancelled(): void
+    /**
+     * 2026-09-20 — reversed on a real QA1 walk: this used to refuse with
+     * "cancel it instead", which left NO way to ever archive an inspection
+     * once it had real evidence — cancel() only flips status, it doesn't
+     * hide the record. delete() here is a SOFT delete with restore()
+     * already existing, so archiving never destroys the observations; it
+     * only hides the record from the working list, same as every other
+     * entity's archive/restore floor.
+     */
+    public function test_an_inspection_with_observations_can_now_be_archived_and_restored(): void
     {
         $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
         $property = $this->property($this->branchA, 'Has evidence', $admin);
@@ -246,8 +288,20 @@ final class RentalInspectionListScreenTest extends TestCase
             'observed_by_user_id' => $admin->id, 'condition' => 'good', 'source' => 'in_inspection',
         ]);
 
-        $this->actingAs($admin)->delete(route('corex.rental-inspections.destroy', $inspection))->assertSessionHasErrors();
-        $this->assertNull($inspection->fresh()->deleted_at);
+        $this->actingAs($admin)->delete(route('corex.rental-inspections.destroy', $inspection))
+            ->assertRedirect(route('corex.rental-inspections.index'));
+
+        $inspection->refresh();
+        $this->assertNotNull($inspection->deleted_at, 'Archiving must be a soft delete — the observation is never destroyed.');
+        $this->assertSame($admin->id, $inspection->archived_by_user_id, 'The record must keep WHO archived it, not just when.');
+        $this->assertSame(1, $inspection->observations()->count(), 'The evidence itself must survive archiving untouched.');
+
+        $this->actingAs($admin)->post(route('corex.rental-inspections.restore', $inspection->id))
+            ->assertRedirect(route('corex.rental-inspections.show', $inspection));
+
+        $inspection->refresh();
+        $this->assertNull($inspection->deleted_at);
+        $this->assertNull($inspection->archived_by_user_id, 'Restoring clears the archived-by attribution — it is no longer archived.');
     }
 
     public function test_an_inspection_with_no_observations_can_be_archived_and_restored(): void
@@ -262,6 +316,50 @@ final class RentalInspectionListScreenTest extends TestCase
         $this->actingAs($admin)->post(route('corex.rental-inspections.restore', $inspection->id))
             ->assertRedirect(route('corex.rental-inspections.show', $inspection));
         $this->assertNull($inspection->fresh()->deleted_at);
+    }
+
+    public function test_archived_inspections_are_hidden_from_the_normal_list_and_shown_behind_the_archived_filter(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
+        $inspection = $this->inspection($this->property($this->branchA, 'Archived property', $admin), $admin);
+        $this->actingAs($admin)->delete(route('corex.rental-inspections.destroy', $inspection));
+
+        $this->actingAs($admin)->get(route('corex.rental-inspections.index'))
+            ->assertOk()->assertDontSee('Archived property');
+
+        $this->actingAs($admin)->get(route('corex.rental-inspections.index', ['archived' => 1]))
+            ->assertOk()->assertSee('Archived property')->assertSee($admin->name);
+    }
+
+    public function test_the_list_screen_can_start_a_new_inspection(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
+        $property = $this->property($this->branchA, 'Create-flow property', $admin);
+        Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'property_id' => $property->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9500, 'start_date' => now(), 'created_by_user_id' => $admin->id,
+        ]);
+
+        $this->actingAs($admin)->get(route('corex.rental-inspections.create'))
+            ->assertOk()->assertSee('Create-flow property');
+
+        $response = $this->actingAs($admin)->post(route('corex.rental-inspections.store'), [
+            'property_id' => $property->id, 'type' => RentalInspection::TYPE_IN,
+        ]);
+
+        $response->assertRedirect(route('corex.properties.show', ['property' => $property->id, 'tab' => 'rental-images']));
+        $this->assertDatabaseHas('rental_inspections', [
+            'property_id' => $property->id, 'type' => RentalInspection::TYPE_IN, 'status' => RentalInspection::STATUS_DRAFT,
+        ]);
+    }
+
+    public function test_the_create_screen_only_offers_properties_with_an_active_lease(): void
+    {
+        $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
+        $this->property($this->branchA, 'No active lease here', $admin);
+
+        $this->actingAs($admin)->get(route('corex.rental-inspections.create'))
+            ->assertOk()->assertDontSee('No active lease here');
     }
 
     public function test_cross_agency_inspection_is_not_reachable_by_id(): void

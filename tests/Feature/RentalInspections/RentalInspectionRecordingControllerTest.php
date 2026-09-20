@@ -15,7 +15,6 @@ use App\Models\RentalInspectionObservation;
 use App\Models\RentalInspectionPhoto;
 use App\Models\RentalInspectionSignature;
 use App\Models\User;
-use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Tests\TestCase;
@@ -75,6 +74,20 @@ final class RentalInspectionRecordingControllerTest extends TestCase
             'agency_id' => $this->agency->id, 'lease_id' => $this->lease->id, 'type' => $type,
             'created_by_user_id' => $this->agent->id,
         ]);
+    }
+
+    /** One tiny valid base64 PNG, reused wherever a test needs a real (if trivial) signature image. */
+    private const TEST_SIGNATURE_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+    private function makeTenant(): \App\Models\Contact
+    {
+        $contact = \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Thabo', 'last_name' => 'Tenant', 'email' => uniqid() . '@example.test',
+        ]);
+        \App\Models\LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $contact->id, 'is_primary' => true]);
+
+        return $contact;
     }
 
     // ── Items ────────────────────────────────────────────────────────
@@ -303,51 +316,226 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     // ── Signatures ──────────────────────────────────────────────────
 
     /**
-     * Grants 'agent' both .view (the route GROUP's own gate — every route
-     * under corex.rental-inspections.* stacks it, this one included) and
-     * .create (this specific route's gate), but NOT .sign_on_behalf. This
-     * isolates the inline check (§6) from both route-level gates: a bare
-     * forceProductionPosture() would deny the whole request before the
-     * inline check ever ran, proving nothing about which check actually
-     * fired — found by direct debugging when granting .create alone still
-     * 403'd, tracing it to the group-level .view middleware.
+     * §15, Stage 3 (2026-09-20) — the old single-tenant, auto-resolving
+     * signer_role/refused_note request shape (and the sign_on_behalf
+     * permission check that lived only inside its agent_on_behalf branch)
+     * is fully retired now that out-inspection uses the same shared
+     * per-party UI in-inspection has used since Stage 2. Replaces three
+     * obsolete tests that covered that old shape's specific limitations
+     * (permission bypass, temporarily-disabled refusal, multi-tenant
+     * refusal) — the multi-tenant case in particular is no longer a
+     * limitation at all: the new shape asks for an explicit
+     * party_contact_id, so it never had to guess which tenant signed.
+     *
+     * NOTE for Stage 4: rental_inspections.sign_on_behalf has no caller at
+     * all right now (its only check lived in the removed old branch) —
+     * real refusal-recording needs to decide whether/how that permission
+     * gates it, not assume it's already wired.
      */
-    private function grantCreateButNotSignOnBehalf(): void
+    public function test_multiple_tenants_on_the_same_out_inspection_each_sign_independently(): void
+    {
+        $tenantOne = $this->makeTenant();
+        $tenantTwo = $this->makeTenant();
+        $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+        $inspection->startAwaitingSignature();
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_TENANT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'party_contact_id' => $tenantOne->id,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(201);
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_TENANT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_REFUSED,
+            'party_contact_id' => $tenantTwo->id,
+            'refusal_reason_preset' => 'not_present',
+        ])->assertStatus(201);
+
+        $this->assertCount(2, $inspection->signatures()->where('party_role', 'tenant')->get());
+    }
+
+    public function test_the_landlord_can_sign_an_out_inspection_over_real_http(): void
+    {
+        $property = $this->property;
+        $landlord = \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'first_name' => 'Lindiwe', 'last_name' => 'Landlord', 'email' => uniqid() . '@example.test',
+        ]);
+        \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $property->id, 'role' => 'landlord']);
+        $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+        $inspection->startAwaitingSignature();
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_LANDLORD,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'party_contact_id' => $landlord->id,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(201)->assertJsonFragment(['disposition' => 'signed', 'party_role' => 'landlord']);
+    }
+
+    public function test_the_new_canonical_signature_shape_works_directly(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_TENANT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_REFUSED,
+            'party_contact_id' => $tenant->id,
+            'refusal_reason_preset' => 'not_present',
+        ])->assertStatus(201)
+          ->assertJsonFragment(['disposition' => 'refused', 'party_role' => 'tenant']);
+    }
+
+    // ── §15.5, Stage 4 — refusal capture, gated on sign_on_behalf ───────
+
+    /**
+     * Seeding .view/.create ONLY (never .sign_on_behalf) flips the table
+     * from unseeded (allow-all fallback) to strictly-enrolled — the same
+     * technique the old agent_on_behalf test used, now proving the real
+     * successor permission genuinely gates the new refusal action.
+     */
+    public function test_a_refusal_requires_the_sign_on_behalf_permission(): void
     {
         \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.view', 'scope' => 'own']);
         \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.create', 'scope' => 'own']);
-        PermissionService::clearCache();
-    }
-
-    public function test_tenant_signature_does_not_require_sign_on_behalf_permission(): void
-    {
-        $this->grantCreateButNotSignOnBehalf();
+        \App\Services\PermissionService::clearCache();
+        $tenant = $this->makeTenant();
         $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'signer_role' => RentalInspectionSignature::SIGNER_TENANT,
-        ])->assertStatus(201);
-    }
-
-    public function test_agent_on_behalf_signature_is_refused_without_the_sign_on_behalf_permission(): void
-    {
-        $this->grantCreateButNotSignOnBehalf();
-        $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
-
-        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'signer_role' => RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF,
-            'refused_note' => 'Called three times — tenant refused to sign out inspection.',
+            'party_role' => RentalInspectionSignature::PARTY_TENANT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_REFUSED,
+            'party_contact_id' => $tenant->id,
+            'refusal_reason_preset' => 'not_present',
         ])->assertStatus(403);
     }
 
-    public function test_agent_on_behalf_signature_without_the_required_phrase_is_rejected(): void
+    public function test_signing_does_not_require_the_sign_on_behalf_permission(): void
+    {
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.view', 'scope' => 'own']);
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.create', 'scope' => 'own']);
+        \App\Services\PermissionService::clearCache();
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_TENANT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'party_contact_id' => $tenant->id,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(201);
+    }
+
+    public function test_the_agent_can_never_be_refused_over_real_http(): void
     {
         $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'signer_role' => RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF,
-            'refused_note' => 'Tenant did not respond.',
+            'party_role' => RentalInspectionSignature::PARTY_AGENT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_REFUSED,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
         ])->assertStatus(422);
+    }
+
+    public function test_tab_payload_exposes_the_refusal_reason_presets(): void
+    {
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+
+        $response->assertOk();
+        $presets = collect($response->json('refusal_reason_presets'));
+        $this->assertSame('other', $presets->last()['key']);
+    }
+
+    // ── §15.3, Stage 2 — in-inspection signing, the whole new path ──────
+
+    public function test_an_in_inspection_can_start_its_own_signing_window_over_real_http(): void
+    {
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+
+        $this->postJson(route('corex.rental-inspections.start-awaiting-signature', $inspection))
+            ->assertOk()
+            ->assertJsonFragment(['status' => RentalInspection::STATUS_AWAITING_SIGNATURE]);
+    }
+
+    public function test_a_tenant_can_sign_an_in_inspection_over_real_http(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $inspection->startAwaitingSignature();
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_TENANT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'party_contact_id' => $tenant->id,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(201)->assertJsonFragment(['disposition' => 'signed', 'party_role' => 'tenant']);
+    }
+
+    public function test_the_agent_cannot_sign_an_in_inspection_until_the_tenant_has_over_real_http(): void
+    {
+        $this->makeTenant();
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $inspection->startAwaitingSignature();
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_AGENT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(422);
+    }
+
+    public function test_the_agent_can_sign_an_in_inspection_once_the_tenant_has_over_real_http(): void
+    {
+        $tenant = $this->makeTenant();
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $inspection->startAwaitingSignature();
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_contact_id' => $tenant->id, 'party_signature_path' => 'signatures/tenant.png',
+        ]);
+
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_AGENT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(201)->assertJsonFragment(['disposition' => 'signed', 'party_role' => 'agent']);
+    }
+
+    /**
+     * Stage 5 (§15.7) is what makes signing MANDATORY on an in-inspection —
+     * this stage only adds the ABILITY to sign. Proving the old, unchanged
+     * guard still lets an unsigned in-inspection complete, exactly as
+     * before, so nothing here silently starts enforcing early.
+     */
+    /**
+     * §15.7, Stage 5 — this is the exact opposite of what this test used to
+     * prove in Stage 2 ("still completes without any signature in THIS
+     * stage"). Now that the completion guard is real, an unsigned
+     * in-inspection must genuinely be refused, over real HTTP, not just at
+     * the model layer.
+     */
+    public function test_an_in_inspection_cannot_complete_over_real_http_without_the_agents_signature(): void
+    {
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+
+        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertStatus(409);
+    }
+
+    public function test_an_in_inspection_completes_over_real_http_once_the_agent_signs(): void
+    {
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $inspection->startAwaitingSignature();
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => RentalInspectionSignature::PARTY_AGENT,
+            'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
+            'signature_image' => self::TEST_SIGNATURE_IMAGE,
+        ])->assertStatus(201);
+
+        $this->postJson(route('corex.rental-inspections.complete', $inspection))
+            ->assertOk()
+            ->assertJsonFragment(['status' => RentalInspection::STATUS_COMPLETED]);
     }
 
     // ── Lifecycle passthroughs ──────────────────────────────────────

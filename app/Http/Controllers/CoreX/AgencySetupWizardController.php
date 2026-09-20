@@ -11,6 +11,7 @@ use App\Models\Proforma\AgencyProformaSettings;
 use App\Models\Prospecting\Town;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -148,6 +149,40 @@ class AgencySetupWizardController extends Controller
                     ->whereIn('role', ['admin', 'branch_manager', 'agent'])
                     ->orderBy('name')->get(['id', 'name', 'email']),
             ],
+            // .ai/specs/rental-application-field-config.md — the shipped-field
+            // tick grid (shown/required) for the Rentals step's inline partial.
+            // rentalFieldSections drives the grid display via the ONE canonical
+            // resolver (RentalApplication::resolvedFieldConfigFor() — no
+            // consumer is allowed its own field-iteration logic, per that
+            // spec's §6). The three *Overrides/*Order values below are the RAW
+            // per-agency override maps (not the resolved/defaulted view) — the
+            // partial reposts them verbatim as hidden inputs so a save that
+            // only renders shown/required checkboxes can never wipe label,
+            // help-text, or ordering customisation an agency already made via
+            // /corex/settings/rental-applications (the exact incident class
+            // named in agency-onboarding-setup.md §6.1).
+            'leases' => [
+                // The "Tenant Profile Network Consent" SECTION LABEL (from the
+                // SUBMISSION_FIELD_SECTIONS constant, unchanged) is renamed here
+                // to the agency's own configured bureau — same technique
+                // RentalApplicationSettingsController::edit() uses for the real
+                // settings screen (credit_bureau_name, 2026-09-20). Renders
+                // "Credit Bureau Consent" for an agency with no bureau
+                // configured, never a hardcoded "TPN" — non-negotiable #9.
+                'rentalFieldSections' => collect(\App\Models\RentalApplication::resolvedFieldConfigFor($agency->id))
+                    ->reject(fn ($f) => $f['is_custom'])
+                    ->groupBy(fn ($f) => $f['section'] === 'Tenant Profile Network Consent'
+                        ? \App\Models\RentalApplication::creditBureauConsentLabel(
+                            \App\Models\RentalApplicationQualifyingSetting::creditBureauNameFor($agency->id)
+                        )
+                        : $f['section'])
+                    ->map(fn ($fields) => $fields->sortBy('order')->values()),
+                'rentalFieldLabelOverrides' => \App\Models\RentalApplicationQualifyingSetting::fieldLabelOverridesFor($agency->id),
+                'rentalFieldHelpTextOverrides' => \App\Models\RentalApplicationQualifyingSetting::fieldHelpTextOverridesFor($agency->id),
+                'rentalFieldOrder' => \App\Models\RentalApplicationQualifyingSetting::fieldOrderFor($agency->id),
+                'rentalReturnGateAttemptMax' => \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptMaxFor($agency->id),
+                'rentalReturnGateAttemptWindowMinutes' => \App\Models\RentalApplicationQualifyingSetting::returnGateAttemptWindowMinutesFor($agency->id),
+            ],
             // Same reads settings.prospecting.index itself uses (SettingsController)
             // — the wizard step shows exactly what that page would.
             'market_intelligence' => (function () use ($agency) {
@@ -171,36 +206,89 @@ class AgencySetupWizardController extends Controller
     }
 
     /** POST /corex/agency-setup/step/{step} — save via canonical paths, advance. */
+    /**
+     * A step's savers succeed together or none of them do, and the user is
+     * NEVER told "Saved." while any of them actually failed.
+     *
+     * Bug found 2026-09-20 (cc1, reproduced live as a real authenticated
+     * admin): a saver following the has()-guard pattern (return
+     * redirect()->withErrors([...]) rather than throwing — e.g.
+     * RentalApplicationSettingsController::updateFieldDisplayConfig() when
+     * its own submitted-marker is absent) was INVISIBLE to this loop, which
+     * only ever reacted to THROWN exceptions and otherwise discarded every
+     * saver's return value. The failing saver's withErrors() call still
+     * flashed to session as a side effect, but nothing consumed it: the
+     * loop kept running, markStepComplete()/advance() below still fired,
+     * flashing session('success', 'Saved.') and redirecting FORWARD to the
+     * next step — which rendered 200 with zero trace of the error. An
+     * agency owner would be told a setting saved when it never did, with no
+     * way to ever connect the two events.
+     *
+     * Fixed by unifying BOTH failure signals into one: immediately after
+     * each saver call, session('errors') is checked (cleared right before,
+     * so a hit can only be THIS saver's own action, never a stale one).
+     * A hit is converted into the same ValidationException a validate()
+     * failure already produces — reusing Laravel's own existing, already-
+     * correct "redirect back with field errors" handling rather than
+     * inventing a second path. The whole step runs inside one DB
+     * transaction, so a failure anywhere rolls back everything this step
+     * would otherwise have written — atomic per-step, not per-saver: this
+     * is the SAME transaction-atomicity gap named and regression-tested in
+     * RentalsStepIndependentReviewTest's partial-write test, now actually
+     * closed rather than merely documented. The user stays on the SAME
+     * step and sees what failed (wizard.blade.php's own top-of-form
+     * @if($errors->any()) banner — added alongside this fix, since no view
+     * rendered the 'errors' bag at all before now; a fix that stages an
+     * error nobody displays is the same bug with extra steps).
+     */
     public function save(Request $request, string $step)
     {
         $this->assertStep($step);
         $setup  = $this->resolveOrCreateSetup();
         $config = config("agency-onboarding-copy.$step");
 
-        foreach (($config['savers'] ?? []) as $saver) {
-            try {
+        DB::transaction(function () use ($config, $request, $step) {
+            foreach (($config['savers'] ?? []) as $saver) {
                 // Some canonical savers take the Agency as a second argument
                 // (e.g. CompanySettingsController@update). Declared per-saver.
                 $args = [$request];
                 if (!empty($saver['pass_agency'])) {
                     $args[] = $this->agency();
                 }
-                app($saver['controller'])->{$saver['method']}(...$args);
-            } catch (ValidationException $e) {
-                // Bubble so the step re-renders with the field error(s).
-                throw $e;
-            } catch (HttpException $e) {
-                if ($e->getStatusCode() === 403) {
-                    // Admin lacks this section's permission — absorb, don't write,
-                    // don't break the flow (spec §8 / BUILD_STANDARD §3).
-                    Log::info('Agency setup wizard: saver skipped (no permission).', [
-                        'step' => $step, 'method' => $saver['method'], 'user' => Auth::id(),
-                    ]);
-                    continue;
+
+                try {
+                    session()->forget('errors');
+                    app($saver['controller'])->{$saver['method']}(...$args);
+
+                    $errors = session('errors');
+                    if ($errors instanceof \Illuminate\Support\ViewErrorBag && $errors->any()) {
+                        // This saver signalled failure by returning an
+                        // error-redirect (has()-guard pattern) instead of
+                        // throwing — converted here so it can never be
+                        // silently absorbed by this loop again. Left
+                        // uncaught below (not caught by the HttpException
+                        // catch), so it propagates out of the transaction
+                        // (which rolls back) and out of this method,
+                        // reaching Laravel's own standard "redirect back
+                        // with errors" handling — identical to what a
+                        // validate() failure already produces.
+                        throw ValidationException::withMessages(
+                            $errors->getBag('default')->getMessages()
+                        );
+                    }
+                } catch (HttpException $e) {
+                    if ($e->getStatusCode() === 403) {
+                        // Admin lacks this section's permission — absorb, don't write,
+                        // don't break the flow (spec §8 / BUILD_STANDARD §3).
+                        Log::info('Agency setup wizard: saver skipped (no permission).', [
+                            'step' => $step, 'method' => $saver['method'], 'user' => Auth::id(),
+                        ]);
+                        continue;
+                    }
+                    throw $e;
                 }
-                throw $e;
             }
-        }
+        });
 
         $setup->markStepComplete($step);
 
@@ -460,6 +548,15 @@ class AgencySetupWizardController extends Controller
                     'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
+                // .ai/specs/rental-application-field-config.md — every scalar
+                // rental-application setting resolves through its own named
+                // `{camelKey}For($agencyId)` resolver on
+                // RentalApplicationQualifyingSetting, same one-resolver-per-
+                // setting convention as every other model in this codebase.
+                // Dynamic dispatch is safe here because these keys are never
+                // user input — they come only from this file's own hardcoded
+                // control declarations in config/agency-onboarding-copy.php.
+                'rental_application' => \App\Models\RentalApplicationQualifyingSetting::{\Illuminate\Support\Str::camel($key) . 'For'}($agency->id),
                 // AT-395 — the outgoing-mail step reads the CURRENT ADMIN's own
                 // mailbox row, never any other agent's. Password is never
                 // resolved back (write-only, same rule as every mailbox screen).

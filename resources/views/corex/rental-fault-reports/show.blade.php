@@ -21,7 +21,13 @@
         <div>
             <h1 class="text-lg font-semibold">{{ $faultReport->title }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $faultReport->status)) }}</span>
-            <span class="text-xs" style="color: var(--text-muted);">{{ $faultReport->property?->buildDisplayAddress() ?? 'Unknown property' }}</span>
+            <span class="text-xs">
+                @if($faultReport->property)
+                    <a href="{{ route('corex.properties.show', $faultReport->property->id) }}" style="color:var(--brand-icon,#2563eb);">{{ $faultReport->property->buildDisplayAddress() }}</a>
+                @else
+                    <span style="color: var(--text-muted);">Unknown property</span>
+                @endif
+            </span>
         </div>
         <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">&larr; All fault reports</a>
     </div>
@@ -35,9 +41,9 @@
             <div><span style="color: var(--text-muted);">Channel:</span> {{ ucfirst(str_replace('_', ' ', $faultReport->reported_channel)) }}</div>
             <div><span style="color: var(--text-muted);">Captured by:</span> {{ $faultReport->capturedByUser?->name ?? 'Self-reported' }}</div>
             <div><span style="color: var(--text-muted);">Reported at:</span> {{ $faultReport->reported_at?->format('Y-m-d H:i') }}</div>
-            {{-- The linked work order display lands in Stage 4 once
-                 App\Models\RentalWorkOrder and its own show route exist —
-                 rental_work_order_id is always null until then. --}}
+            @if($faultReport->workOrder)
+                <div><span style="color: var(--text-muted);">Work order:</span> <a href="{{ route('corex.rental-work-orders.show', $faultReport->rental_work_order_id) }}" class="underline">#{{ $faultReport->rental_work_order_id }}</a></div>
+            @endif
             @if($faultReport->owner_approval_status !== \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)
                 <div><span style="color: var(--text-muted);">Owner approval:</span> {{ ucfirst($faultReport->owner_approval_status) }}{{ $faultReport->approval_route ? ' — ' . str_replace('_', ' ', ucfirst($faultReport->approval_route)) : '' }}</div>
             @endif
@@ -144,6 +150,36 @@
                 @endforeach
             </ul>
         @endif
+
+        {{-- §3a.1/§0c — the agency_appoints route, once approved: raising the
+             actual work order is a distinct, agency-timed decision, never
+             automatic on approval alone. --}}
+        @permission('rental_fault_reports.raise_work_order')
+            @if($faultReport->status === \App\Models\RentalFaultReport::STATUS_APPROVED && $faultReport->approval_route === \App\Models\RentalFaultReport::ROUTE_AGENCY_APPOINTS)
+                <button type="button" onclick="document.getElementById('raise-work-order-form').classList.toggle('hidden')" class="corex-btn-primary text-xs">Raise work order</button>
+                <form id="raise-work-order-form" method="POST" action="{{ route('corex.rental-fault-reports.raise-work-order', $faultReport) }}" class="hidden space-y-3 pt-2">
+                    @csrf
+                    <div>
+                        <label class="text-xs font-medium">Trade type</label>
+                        <select name="trade_type" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                            <option value="">— Not yet known —</option>
+                            @foreach(\App\Models\DealV2\AgencyServiceType::orderBy('label')->get() as $type)
+                                <option value="{{ $type->code }}">{{ $type->label }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium">Title</label>
+                        <input type="text" name="title" required maxlength="191" value="{{ $faultReport->title }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium">Description</label>
+                        <textarea name="description" required rows="3" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ $faultReport->description }}</textarea>
+                    </div>
+                    <button type="submit" class="corex-btn-primary text-xs">Raise work order</button>
+                </form>
+            @endif
+        @endpermission
 
         @permission('rental_fault_reports.record_approval')
             @if($faultReport->owner_approval_status === \App\Models\RentalFaultReport::APPROVAL_NOT_REQUIRED)

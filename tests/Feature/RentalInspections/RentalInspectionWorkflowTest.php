@@ -106,6 +106,12 @@ final class RentalInspectionWorkflowTest extends TestCase
     {
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
         $this->makeObservation($inspection, $this->makeItem(), RentalInspectionObservation::CONDITION_GOOD);
+        // §15.7, Stage 5 — this fixture's lease has no tenants and this
+        // property has no landlord, so the agent's own signature is the
+        // only outstanding requirement.
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
 
         $inspection->markCompleted();
 
@@ -124,6 +130,9 @@ final class RentalInspectionWorkflowTest extends TestCase
     {
         RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'fault_report_window_days' => 14]);
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
 
         $inspection->markCompleted();
 
@@ -145,12 +154,27 @@ final class RentalInspectionWorkflowTest extends TestCase
         $inspection->markCompleted();
     }
 
-    public function test_starting_the_signing_window_is_only_valid_for_an_out_inspection(): void
+    public function test_starting_the_signing_window_is_not_valid_for_an_ad_hoc_inspection(): void
     {
-        $inIns = $this->makeInspection(RentalInspection::TYPE_IN);
+        // §15.3 (2026-09-20) — widened to BOTH in and out; TYPE_AD_HOC stays
+        // excluded, matching its existing lighter-weight lifecycle.
+        $adHoc = $this->makeInspection(RentalInspection::TYPE_AD_HOC);
 
         $this->expectException(\LogicException::class);
+        $adHoc->startAwaitingSignature();
+    }
+
+    public function test_an_in_inspection_can_now_start_its_own_signing_window(): void
+    {
+        // §15.3 — in-inspection signing is a whole new path, built in Stage
+        // 2. Proven here at the model layer that it genuinely works, not
+        // just that the old exception is gone.
+        $inIns = $this->makeInspection(RentalInspection::TYPE_IN);
+
         $inIns->startAwaitingSignature();
+
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inIns->status);
+        $this->assertNotNull($inIns->signing_deadline_at);
     }
 
     public function test_starting_the_signing_window_sets_the_deadline_from_settings(): void
@@ -172,12 +196,87 @@ final class RentalInspectionWorkflowTest extends TestCase
         $outIns->markCompleted();
     }
 
+    // ── §15.7, Stage 5 — the completion guard replaced on both types ────
+
+    public function test_an_in_inspection_cannot_complete_while_a_tenant_is_undispositioned(): void
+    {
+        $tenant = \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'first_name' => 'Naledi', 'last_name' => 'Tenant', 'email' => uniqid() . '@example.test',
+        ]);
+        \App\Models\LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+
+        try {
+            $inspection->markCompleted();
+            $this->fail('Expected a LogicException naming the outstanding tenant.');
+        } catch (\LogicException $e) {
+            $this->assertStringContainsString('Naledi Tenant', $e->getMessage());
+        }
+    }
+
+    public function test_an_in_inspection_completes_once_every_tenant_is_dispositioned_and_the_agent_signs(): void
+    {
+        $tenant = \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'first_name' => 'Naledi', 'last_name' => 'Tenant', 'email' => uniqid() . '@example.test',
+        ]);
+        \App\Models\LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id, 'refusal_reason_preset' => 'not_present',
+        ]);
+        RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
+
+        $inspection->markCompleted();
+
+        $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->status);
+    }
+
+    public function test_completion_is_blocked_on_an_outstanding_landlord_even_when_every_tenant_is_done(): void
+    {
+        // created_by_user_id set to the acting agent — ContactScope's config
+        // fallback for a bare/unseeded test agency scopes role 'agent' to
+        // 'own' contacts, found by cc1 (2026-09-20) as a real test-fixture
+        // defect elsewhere in this same feature, confirmed NOT a product
+        // bug against real QA1 data.
+        $landlord = \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'created_by_user_id' => $this->agent->id,
+            'first_name' => 'Lindiwe', 'last_name' => 'Landlord', 'email' => uniqid() . '@example.test',
+        ]);
+        \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $this->property->id, 'role' => 'landlord']);
+        $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+        // No tenants on this lease at all — landlord is the only outstanding party.
+
+        try {
+            $inspection->markCompleted();
+            $this->fail('Expected a LogicException naming the outstanding landlord.');
+        } catch (\LogicException $e) {
+            $this->assertStringContainsString('landlord', $e->getMessage());
+        }
+    }
+
+    public function test_an_ad_hoc_inspection_is_exempt_from_the_signing_requirement(): void
+    {
+        // §15.3/§15.7 — Johan's ruling names "both in and out" specifically;
+        // ad-hoc keeps its existing lighter-weight lifecycle.
+        $adHoc = $this->makeInspection(RentalInspection::TYPE_AD_HOC);
+
+        $adHoc->markCompleted();
+
+        $this->assertSame(RentalInspection::STATUS_COMPLETED, $adHoc->status);
+    }
+
     public function test_completing_an_out_inspection_succeeds_once_a_signature_exists(): void
     {
+        // markCompleted()'s guard is still "any signature exists" in Stage 1
+        // (§15.7's full 3-party guard replaces it in Stage 5) — this proves
+        // that unchanged guard still works against the new table shape.
         $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
-        RentalInspectionSignature::capture($outIns, RentalInspectionSignature::SIGNER_TENANT, [
-            'signer_contact_id' => null,
-            'signature_path' => 'signatures/test.png',
+        RentalInspectionSignature::capture($outIns, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/test.png',
         ]);
 
         $outIns->markCompleted();
@@ -186,28 +285,45 @@ final class RentalInspectionWorkflowTest extends TestCase
         $this->assertNull($outIns->fault_report_deadline_at, 'the fault-report window belongs to the in-inspection only');
     }
 
-    public function test_agent_on_behalf_signature_requires_the_exact_refusal_phrase(): void
+    /**
+     * §15 — the old agent_on_behalf/REQUIRED_REFUSAL_PHRASE mechanism is
+     * retired. Its real successor, per-party refusal with the agent's own
+     * attestation, is built in Stage 4 (§15.11) — these two tests replace
+     * the old phrase-validation tests with the Stage 1 model's actual
+     * refusal shape, proven directly at the model layer.
+     */
+    public function test_a_tenant_refusal_is_a_real_disposition_not_a_signature(): void
+    {
+        $tenant = \App\Models\Contact::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
+            'first_name' => 'Thabo', 'last_name' => 'Tenant', 'email' => uniqid() . '@example.test',
+        ]);
+        \App\Models\LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+        $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
+
+        $signature = RentalInspectionSignature::capture($outIns, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_REFUSED, [
+            'party_contact_id' => $tenant->id,
+            'refusal_reason_preset' => 'refused_no_reason',
+        ]);
+
+        $this->assertSame(RentalInspectionSignature::DISPOSITION_REFUSED, $signature->disposition);
+        $this->assertNull($signature->party_signature_path);
+        // §15.7, Stage 5 — a refusal satisfies the tenant's own requirement,
+        // but the agent must still sign to attest to the complete record
+        // (§15.2a) before the inspection can actually complete.
+        RentalInspectionSignature::capture($outIns, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
+            'party_signature_path' => 'signatures/agent.png',
+        ]);
+        $outIns->markCompleted();
+        $this->assertSame(RentalInspection::STATUS_COMPLETED, $outIns->status);
+    }
+
+    public function test_agent_signature_requires_a_real_signature_image(): void
     {
         $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
 
         $this->expectException(\InvalidArgumentException::class);
-        RentalInspectionSignature::capture($outIns, RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF, [
-            'signed_by_user_id' => $this->agent->id,
-            'refused_note' => 'Tenant did not respond after several calls.',
-        ]);
-    }
-
-    public function test_agent_on_behalf_signature_succeeds_with_the_exact_refusal_phrase(): void
-    {
-        $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
-
-        $signature = RentalInspectionSignature::capture($outIns, RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF, [
-            'signed_by_user_id' => $this->agent->id,
-            'refused_note' => 'Called three times over the window — tenant refused to sign out inspection.',
-        ]);
-
-        $this->assertNotNull($signature->id);
-        $this->assertSame(RentalInspectionSignature::SIGNER_AGENT_ON_BEHALF, $signature->signer_role);
+        RentalInspectionSignature::capture($outIns, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, []);
     }
 
     public function test_window_decision_can_only_be_recorded_for_a_report_outside_the_window(): void

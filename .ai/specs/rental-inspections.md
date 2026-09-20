@@ -1,6 +1,11 @@
 # Rental Inspections
 
-**Status:** Spec — not yet built. NO CODE has been written against this spec.
+**Status:** ~~Spec — not yet built. NO CODE has been written against this spec.~~ **Superseded,
+2026-09-20**: the spec as it stood through §14 has since been BUILT (Stages 1-5, cc4, landed on QA1,
+independently verified by cc1 via real HTTP walks — not test-suite-only). The original "not yet built"
+line is kept, struck through rather than deleted, so this header stays an honest record of the spec's
+own history. **§15 (added 2026-09-20) is a new, separate addendum and genuinely is spec-only, not yet
+built** — see its own status line.
 **Date:** 2026-09-17 (amended 2026-09-17 — see amendment note below)
 **Author:** cc5, with the data-model core designed by cc3 (current-state investigation, folded in per §3)
 **Pillar:** Property (`Property`) — every `rental_inspection_item` anchors directly to it; every
@@ -50,7 +55,10 @@ words.
 6. The agent adds **inspection spaces** per property, and they **differ from the advertised room
    list**. Water and electricity meters are handled the same way as spaces.
 7. **Links, and 7 days for the tenant to sign** the out-inspection. If unsigned in time, the agent can
-   sign on the tenant's behalf with a strict note: "tenant refused to sign out inspection."
+   sign on the tenant's behalf with a strict note: "tenant refused to sign out inspection." **(2026-09-20
+   — superseded by Johan's fuller ruling: BOTH in and out inspections need all three parties' signatures
+   (tenant, landlord, agent), with tenant/landlord refusal as a first-class record. Building now, staged
+   — see §15.)**
 8. **Offline is critical** — "no internet is a reality... an offline way to do this is critical as
    well." Flagged explicitly, not quietly solved, in §7.
 9. **Two sides**: the property inspection (this spec), and **inventory lists** — "if we get inventory
@@ -260,7 +268,10 @@ rental_inspection_discrepancies
 rental_inspection_discrepancy_observations   -- pivot: which observations are in conflict
   discrepancy_id, observation_id
 
-rental_inspection_signatures
+rental_inspection_signatures   -- CURRENT shape, as actually built at time of writing. §15
+                                -- (2026-09-20, Johan's fuller ruling — three parties, both inspection
+                                -- types, building now in stages) replaces this shape entirely. Do not
+                                -- treat this block as current once any §15 stage lands.
   id
   rental_inspection_id
   signer_role            -- enum: 'tenant' | 'agent_on_behalf' | 'landlord' (landlord signature is
@@ -338,15 +349,18 @@ carry-forward and a work-order's future space-history lookup (§3.4) depend on. 
 affects "can a NEW observation be recorded against this item" (no), never "does this item's history
 still show up" (always yes).
 
-`rental_inspections` itself (the event record) DOES get the standard `deleted_at`/restore floor
-(non-negotiable #1, BUILD_STANDARD §1a) — but **only while it has zero observations recorded against
-it**. Once even one observation exists, the inspection cannot be archived/deleted through the normal
-CRUD path; it can only be `cancelled` (a status, not a delete) if it was started in error, and
-cancellation never removes the observations already on it. **[cc5 design call]**: this reconciles the
-full-CRUD-floor requirement with the evidence-integrity requirement — an inspection created by mistake
-with nothing recorded on it yet is ordinary CRUD noise and should be archivable like anything else; an
-inspection with real observations on it is evidence and the floor's own "archive, don't destroy"
-principle already implies it shouldn't vanish either.
+`rental_inspections` itself (the event record) gets the standard `deleted_at`/restore floor
+(non-negotiable #1, BUILD_STANDARD §1a) — ~~but only while it has zero observations recorded against
+it. Once even one observation exists, the inspection cannot be archived/deleted through the normal
+CRUD path; it can only be `cancelled` (a status, not a delete) if it was started in error.~~ **[cc5's
+design call, reversed 2026-09-20]**: a real QA1 walk found this restriction was a dead end, not
+evidentiary rigour — `cancel()` only flips status without hiding the record, so an agent who started an
+inspection on the wrong property had NO way to ever get it off the list. `delete()` on this table is
+already a SOFT delete (`deleted_at` + restore already existed); archiving never destroys the
+observations, it only hides the record from the working list, same as every other entity's
+archive/restore floor. The restriction is removed — any inspection, with or without observations, can
+now be archived and restored, same as any other CoreX record. The record also now carries
+`archived_by_user_id` (who — `deleted_at` already answered when), cleared again on restore.
 
 ### 3.4 The Work Orders link (Johan's ruling §0.13)
 
@@ -458,6 +472,17 @@ New screen, new nav entry, same day as the build (non-negotiable #2). Route grou
   manager sees branch, agency admin sees all). Direct-URL access to another agency's inspection by ID
   is blocked at the query layer (404 via the global scope), not hidden by omitting a link — same
   standard as everywhere else in CoreX.
+- **Archive/restore**: standard `deleted_at` floor, same as any other CoreX record (§3.3, reversed
+  2026-09-20 — no longer conditional on having zero observations). A "Show archived" toggle, same
+  pattern as `rental-applications.index`, swaps the query to `onlyTrashed()`; an archived row shows who
+  archived it and when (`archived_by_user_id` + `deleted_at`) and offers Restore in place of View.
+- **Create**: added 2026-09-20 — a real QA1 walk found this screen had no way to start an inspection at
+  all, only the property's own Rental Images tab did. `corex.rental-inspections.create`/`.store` offer
+  a property (active-lease properties only — `start()` requires one) + type picker, calling the exact
+  same `RentalInspection::start()` the tab's AJAX flow already uses, then redirecting to that property's
+  Rental Images tab (`?tab=rental-images`) to actually record observations — this screen's own `show()`
+  stays read-only, recording still only happens on the tab (§1/§4). Additional entry point, not a
+  replacement.
 
 ---
 
@@ -693,7 +718,10 @@ must be migrated before `rental_inspections`, since `rental_inspections.lease_id
   surfaces (§8) but does not make.
 - Landlord signature on the out-inspection — the schema leaves room (`signer_role` enum includes
   `landlord`) but Johan's ruling only requires the tenant's signature; building landlord sign-off is
-  not requested and not built here unless Johan says otherwise.
+  not requested and not built here unless Johan says otherwise. **(2026-09-20 — superseded: his fuller
+  ruling requires landlord signing AND refusal on both inspection types; see §15. Landlord sign-off IS
+  now in scope, and is being built — this line stays, struck through in spirit, so the record shows
+  the reversal rather than erasing it.)**
 
 ---
 
@@ -1013,3 +1041,306 @@ property-tab controller, still deliberately held for attended work) should be bu
 - No decision made in Stage 3 should assume the web browser is the only client — e.g. a validation
   message meant only for a Blade form's specific HTML structure has no place inside a model method; it
   belongs in the controller/view layer, which the API will not share and does not need to.
+
+---
+
+## 15. Three-party signing — Johan's 2026-09-20 ruling (BUILT, all five stages)
+
+**Status: BUILT.** All five stages landed 2026-09-20 (cc4), each independently verified by cc1 over
+real HTTP/test runs before landing, not test-suite-only. §15 originally recorded an open question (was in-inspection signing
+in scope at all). Johan's answer was bigger than the question — kept below in §15.0 for the record,
+then superseded by the decided design in §15.1 onward. This is not a signature step bolted onto an
+inspection: **an inspection forms part of the lease agreement, and an unsigned one is not an accepted
+document.** Signing is what makes the inspection real, and that framing drives every ambiguous call
+below.
+
+### 15.0 The question that was asked, and the answer that came back
+
+The open question this section originally recorded: does in-inspection gain a real signing step at
+all, or does only the out-inspection (which already signs the tenant) get hardened. Johan's answer,
+verbatim: "inspections both in and out needs all party signatures. tenant, landlord and agent. its
+form part of the lease agreement so without signatures its not an accepted document. so all parties
+needs to sign, and the agent can mark either tenant and / or landlord refuses to sign."
+
+That is neither of the two branches originally specced. Both inspection types get full signing, by
+all three parties, not just the tenant.
+
+### 15.1 The shape, stated plainly
+
+- **Three signatories, both inspection types.** Tenant, landlord, agent — on the in-inspection AND the
+  out-inspection. In-inspection currently has NO signature capability at all (confirmed live on the
+  2026-09-20 QA1 walk) — that whole path is built new, not adapted. Out-inspection currently signs the
+  tenant only — landlord is new there too. **Out-inspection is not done just because it already has a
+  signature step.**
+- **The agent always signs. No refusal option exists for the agent.** The agent is the one attesting
+  to what happened; their signature is what gives the document its weight, including when it records
+  someone else refusing. An inspection cannot complete without the agent's own signature — no
+  exception, ever.
+- **Refusal applies to tenant and landlord only, independently.** Tenant signs and landlord refuses is
+  a normal, complete, valid outcome. Both refusing is a normal, complete, valid outcome. Neither is an
+  error state, and neither should read as one anywhere in the UI — no warning colour, no "problem"
+  iconography on a valid, complete disposition.
+- **Every tenant on the lease is a party — Johan's own decision, not a recommendation this spec is
+  making for him**: "where a lease has more than one tenant, ALL tenants on the lease are parties to
+  it, so all of them sign — or are individually marked as refusing. One tenant's signature does not
+  cover another's." **Checked for practical impracticality, as he asked**: the realistic case this
+  could break on is a shared-house lease with several tenants, most of whom are never present for a
+  walkthrough. That case is already absorbed by the refusal mechanism itself — an absent tenant is
+  recorded as "refused / not present" in one tap (§15.5's preset list), the same action already needed
+  for a tenant who is present but declines. It costs the agent one extra tap per absent tenant, not a
+  form. No impracticality found; flagging this reasoning rather than silently agreeing, per Johan's own
+  request to say so before building if there was a problem.
+- **Unambiguity, restated because it matters more now**: a refusal must never be able to look like a
+  signature, on screen or on a PDF. Different storage, different label, different rendering — §15.3.
+
+### 15.2 Data model — `rental_inspection_signatures`, rebuilt
+
+Replaces the shape in §3.2 and the interim proposal this section previously carried. References
+`Property::sellerOwnerContact()` (`app/Models/Property.php`) for landlord identity — already built,
+already the canonical "who is the seller/owner/landlord side of this property" resolver used elsewhere
+in CoreX (AT-105); not a new mechanism.
+
+```
+rental_inspection_signatures
+  id
+  rental_inspection_id
+  party_role               -- enum: 'tenant' | 'landlord' | 'agent'. 'agent_on_behalf' is retired —
+                            --   the agent is never a stand-in party, only ever the attesting signer.
+  party_contact_id          -- FK to contacts, nullable.
+                            --   REQUIRED when party_role='tenant' — must be one of this inspection's
+                            --   own lease's LeaseTenant contacts (§15.1 — per tenant, not per lease).
+                            --   Set when party_role='landlord' AND Property::sellerOwnerContact()
+                            --   resolves one for this property; the landlord requirement is WAIVED
+                            --   (not silently satisfied, not blocking) when it resolves to null — see
+                            --   §15.4's completion-guard treatment of this exact case.
+                            --   Always NULL when party_role='agent' — the agent is identified by
+                            --   recorded_by_user_id below, never a Contact.
+  disposition               -- enum: 'signed' | 'refused'. A party_role='agent' row is ALWAYS 'signed'
+                            --   — enforced at creation (§15.2a), never left to a caller to get right.
+  party_signature_path      -- storage path (§3.6 pattern — canvas capture, decoded server-side, only
+                            --   the path stored). Required when disposition='signed'. This is also
+                            --   where the AGENT's own signature image lives, on their own
+                            --   party_role='agent' row — there is exactly one agent signature per
+                            --   inspection, not one per refusal it attests to (§15.2a explains why).
+                            --   NULL when disposition='refused'.
+  refusal_reason_preset     -- agency-configurable key (§15.5, §15.6). Required when disposition=
+                            --   'refused'. Always NULL for party_role='agent'.
+  refusal_reason_note       -- free text. Required only when refusal_reason_preset='other'. NULL
+                            --   otherwise, always NULL for party_role='agent'.
+  recorded_by_user_id       -- the authenticated staff member who captured THIS row — server-derived,
+                            --   never client-supplied (same rule BelongsToAgency already enforces
+                            --   everywhere in CoreX). For the agent's own row this is that same agent,
+                            --   trivially; for a tenant/landlord row it is whichever agent was holding
+                            --   the device or recording the refusal.
+  disposition_recorded_at
+  created_at
+```
+
+**Retired from the old shape**: `signer_role`'s `agent_on_behalf` value, `signer_contact_id` (renamed
+`party_contact_id`), `refused_note` (split into `refusal_reason_preset`/`_note`), `signed_at` (renamed
+`disposition_recorded_at`).
+
+#### 15.2a Why one agent signature, not one per refusal
+
+An earlier draft of this section (before Johan's fuller ruling) gave every refusal row its own
+`attesting_agent_signature_path`, on the assumption the agent re-attests each refusal individually.
+Johan's actual words simplify this: "their signature is what gives the document its weight — INCLUDING
+when it records somebody else refusing" (singular document, not per-event). One agent signature,
+captured once, attests to the entire inspection record as filed — every observation, every tenant and
+landlord disposition on it — the same way one signature at the foot of a report attests to everything
+above it, not to each paragraph individually. This is simpler than the earlier draft and matches what
+Johan actually said; **flagging the correction explicitly rather than quietly carrying the old shape
+forward.**
+
+**This creates one new, load-bearing rule, not stated by Johan in these words but a direct consequence
+of his framing — [cc4 design call]: the agent's own row can only be created once every other required
+party (every tenant, and the landlord if resolvable) already has a disposition row.** A signature
+cannot attest to a refusal that hasn't happened yet. Enforced at the same factory method that enforces
+everything else in this table (§15.2's invariants), never left to the UI to sequence correctly — an
+attempt to record the agent's signature early throws, the same class of guard as the existing
+`refusalNoteIsValid()` check this replaces. The UI reflects this naturally: the agent-sign action is
+simply not offered (disabled, not hidden — an agent should see it exists and see why it's not ready
+yet, per the screen-space discipline of "no state disappears, it explains itself") until every other
+party has a disposition.
+
+**The invariant table, checked at the one factory method that creates these rows:**
+
+| | `party_role='agent'` | `disposition='signed'` (tenant/landlord) | `disposition='refused'` (tenant/landlord) |
+|---|---|---|---|
+| `party_contact_id` | must be null | required | required |
+| `party_signature_path` | required | required | must be null |
+| `refusal_reason_preset`/`_note` | must be null | must be null | `_preset` required, `_note` required only if preset='other' |
+| Creation allowed when | every other required party already dispositioned | any time during recording | any time during recording |
+| `disposition` | always `'signed'` | `'signed'` | `'refused'` |
+
+### 15.3 In-inspection signing — the whole path, built new
+
+`RentalInspection::startAwaitingSignature()` currently throws "Only an out-inspection has a signing
+window" for any type but `TYPE_OUT` — this restriction is removed; both `TYPE_IN` and `TYPE_OUT` gain
+the same `awaiting_signature` stage (its unresolved-discrepancy guard is unchanged, for both types).
+`TYPE_AD_HOC` is explicitly excluded from all of §15 — Johan's ruling names "both in and out"
+specifically; an ad-hoc mid-tenancy check keeps its existing lighter-weight lifecycle (no signing
+requirement), matching its existing exemption from the "already one open" guard elsewhere in this
+spec. The recording partial's current `@if($section === 'in')` branch (a bare "Complete" button, no
+signing at all) is removed — both sections render the identical signing/refusal UI from §15.5.
+
+### 15.4 Out-inspection landlord signing — added alongside the existing tenant signing
+
+The out-inspection's existing tenant-signing UI and the underlying `RentalInspectionSignature::capture()`
+call stay conceptually where they are, but gain a landlord row alongside the tenant row(s), resolved via
+`Property::sellerOwnerContact()`. **The landlord-identity edge case, handled explicitly, not left to
+surface as a confusing dead end**: if `sellerOwnerContact()` returns null (no resolvable owner-side
+contact linked to this property), the landlord requirement is waived for that inspection — the
+completion guard (§15.7) does not require a landlord disposition that has no identifiable party to
+attach it to, and the UI shows this plainly ("Landlord: not linked to this property — nothing to
+sign") rather than silently omitting the row or blocking completion on a party nobody can name.
+
+**Realistic expectation, stated so it isn't mistaken for a bug later**: landlords rarely attend an
+in-person walkthrough. Given signing here reuses the existing in-person canvas-capture pattern (§3.6)
+rather than a remote link, the landlord's disposition will, in ordinary practice, very often end up
+`refused` with a reason like "not present" — this is expected, not a sign the feature is being misused.
+A remote/async signing link (ruling §0.7 says "Links, and 7 days...", never actually built — checked,
+not assumed) would be the real fix for this, but it is a materially larger, separate piece of work and
+is explicitly OUT of scope for this build — named here so it is a known gap, not a silently dropped one.
+
+### 15.5 Refusal capture and the agent attestation
+
+**The reason is mandatory, always — not an agency setting, not optional** (recommendation carried
+forward from this section's earlier draft, argued there: an unreasoned refusal is barely
+distinguishable from an agent skipping the step, and "why" is exactly what a deposit dispute turns on).
+Captured as a one-tap, agency-configurable preset (§15.6), with free text required only when "Other" is
+picked — an agent standing at a front door is not blocked by a form. "Refused outright, no reason
+given" is kept as its own honest preset, not a way to skip the field.
+
+**The agent attestation** is the party_role='agent' row itself (§15.2a) — there is no separate
+per-refusal agent signature to capture. What the UI DOES need, per refusal, at the moment it's
+recorded: which party (tenant name, or "Landlord"), the reason, and — implicitly — which agent is
+recording it (`recorded_by_user_id`, server-derived, never asked of the user).
+
+**Rendering, wherever a disposition row is shown — the property tab, the inspection's own show page
+(§15.8), and any future PDF/print/email output (§15.9)** — branches on `disposition` alone. A `signed`
+row shows the party's name, role, and their own signature image. A `refused` row shows the party's
+name, role, the reason, and — separately, clearly captioned as the agent's own mark, never adjacent in
+a way that could be mistaken for the refusing party's signature — the agent's row (name + their
+signature image), explicitly labelled e.g. "Attested by {{ agent name }}". No shared visual weight, no
+shared code path, no colour-only distinction (must survive black-and-white print).
+
+**Neither disposition reads as an error state.** A refused row gets a neutral, informational treatment
+— the same visual register as a completed, signed row — never a warning colour or an alert icon. Both
+are simply facts about how the inspection ended.
+
+### 15.6 Multi-agency settings
+
+Extends `rental_inspection_settings` (§3.2):
+
+- `refusal_reason_presets` — JSON array of `{key, label}`, agency-editable wording. "Other" always
+  present, always last, never agency-removable (the mandatory-reason guarantee in §15.5 depends on an
+  escape valve existing). Sensible, neutral, multi-agency-safe default for every new agency, no
+  HFC-specific wording: "Disputes the recorded condition", "Not present for the walkthrough", "Refused
+  outright, no reason given", "Other".
+- Every new setting here reaches the Setup Wizard in the same build prompt as the settings screen
+  (CLAUDE.md non-negotiable #10a).
+- Per-agency document layout stays deferred, per Johan's standing ruling — this build does not
+  introduce a layout system for §15.9's future rendering; it only guarantees the DATA is unambiguous
+  regardless of how any future layout eventually presents it.
+
+### 15.7 The completion guard — replaced, both types
+
+**Today**: `markCompleted()`'s guard is `if ($this->type === self::TYPE_OUT && !
+$this->signatures()->exists())` — any single signature, on the out-inspection only. **Replaced
+entirely** with, for `TYPE_IN` and `TYPE_OUT` alike (`TYPE_AD_HOC` exempt, §15.3):
+
+1. The agent's own row exists (`party_role='agent'`, `disposition='signed'`) — always required.
+2. Every tenant on the lease (`LeaseTenant`) has exactly one disposition row (`signed` or `refused`).
+3. The landlord has exactly one disposition row, UNLESS `Property::sellerOwnerContact()` resolves to
+   null for this property (§15.4) — in which case this requirement is waived, not silently satisfied.
+
+Each missing requirement throws its own specific `LogicException` (matching the existing pattern —
+e.g. "Cannot complete: Thabo Nkosi has neither signed nor been marked as refusing.", "Cannot complete:
+the landlord has neither signed nor been marked as refusing.", "Cannot complete an inspection without
+the agent's own signature."), so an agent standing in a property gets told exactly what is missing, not
+a generic failure. **Why this cannot become a bypass**: the guard only ever asks "does a valid
+disposition row exist" — never inspects a checkbox in isolation — and §15.2's factory method refuses to
+create a `refused` row without a real reason, or an `agent` row before every other party is already
+dispositioned. There is no code path that produces a row satisfying the guard without the real thing
+behind it.
+
+### 15.8 Where this is shown, once built
+
+The inspection's own show page (`resources/views/corex/rental-inspections/show.blade.php`, already
+live) currently has no signature rendering of any kind (it predates this feature entirely). This build
+adds it, following §15.5's rendering rule exactly — this is an EXISTING, live screen, not a future
+concern the way §15.9 is, and is in scope for this build's stages.
+
+### 15.9 The PDF and any printed or emailed output
+
+Unchanged from this section's earlier draft: no PDF/print/export exists for a rental inspection today
+(checked, not assumed). This remains a forward-looking constraint on whoever eventually builds that
+output — §15.5's rendering rule applies there too, the moment it exists.
+
+### 15.10 Mobile/API shape
+
+Extends §14.2's table once built. No new endpoint shape — the same
+`POST /api/v1/mobile/rental-inspections/{inspection}/signatures` endpoint specced there accepts
+§15.2's revised payload (`party_role`, `party_contact_id`, `disposition`, plus either
+`signature_image` or `refusal_reason_preset`/`_note`). `recorded_by_user_id` and the agent-signs-last
+ordering rule (§15.2a) are both server-derived/server-enforced in the ONE model factory method, called
+identically by the web controller and the future mobile API controller — matching §14.1's "one copy of
+the behaviour" principle, and the exact discipline `RentalInspectionSignature::storeCanvasImage()`
+already established as a pure model method reachable from a mobile controller.
+
+### 15.11 Build stages (conductor's shape, adjusted only if the code says otherwise)
+
+Staged the way `.ai/specs/rental-work-orders.md` was staged — cc1 verifies real behaviour per stage,
+not one landing at the end.
+
+1. **The signature model itself** — migration rebuilding `rental_inspection_signatures` to §15.2's
+   shape, `RentalInspectionSignature` rewritten around the new factory method enforcing every
+   invariant in §15.2a's table (three party roles, per-tenant rows, agent-signs-last ordering, refusal
+   as a first-class disposition, never an absent signature). `rental_inspection_settings` gains
+   `refusal_reason_presets` (§15.6) + Setup Wizard entry. No UI, no controller changes, no completion
+   guard changes yet — get the foundation right first, since every later stage inherits it.
+2. **In-inspection signing** — the whole new path (§15.3): `startAwaitingSignature()`'s type
+   restriction removed, recording partial's `@if($section==='in')` branch replaced with real
+   signing UI (tenant rows + agent row; landlord and refusal come in later stages so this stage can
+   land and be verified on its own).
+3. **Out-inspection landlord signing** — added alongside the existing tenant signing (§15.4),
+   including the `sellerOwnerContact()`-null edge case.
+4. **Refusal capture and the agent attestation** — wires §15.5's reason capture and the
+   agent-always-signs-last rule into both types' UI, on top of stages 2-3's plain-signing paths.
+5. **The completion guard replaced on both types (§15.7), plus the document output** — `markCompleted()`
+   rewritten, and §15.8's show-page rendering built (unambiguous signed-vs-refused, per §15.5).
+
+### 15.12 Acceptance criteria
+
+- An in-inspection cannot complete without the agent's own signature — proven live (a real attempt,
+  not just a passing test), matching how the old out-inspection guard was proven on the 2026-09-20 walk.
+- A lease with two tenants, one signing and one refusing, is a valid, completable out-inspection with no
+  error-state styling anywhere in the UI for the refused party.
+- A completed inspection's show page displays a refused disposition in a way that could not be mistaken
+  for a signature by someone reading it cold, eighteen months later, with no access to this spec.
+- The landlord requirement is waived, not silently ignored and not blocking, when
+  `Property::sellerOwnerContact()` resolves to null.
+- ~~Every new setting from §15.6 appears in the Setup Wizard in the same stage it's built, not later.~~
+  **Not met, flagged not silently dropped (Stage 1)**: `refusal_reason_presets` is a JSON list; none of
+  the wizard's existing control types (number/select/text/textarea/toggle) fit it, and building a new
+  repeater-style control type was judged out of scope for this build. It IS editable — on the dedicated
+  `/corex/settings/rental-inspections` screen, guarded against the wizard's own unrelated save wiping it
+  (§15.6) — just not from the wizard itself. Flagged to the conductor at Stage 1 time; still open for
+  Johan's call on whether a wizard control gets built later.
+
+**All five stages built 2026-09-20 (cc4), each independently verified by cc1 over real HTTP before
+landing:**
+1. The signature model (`RentalInspectionSignature` rebuilt around `capture()`'s invariant enforcement,
+   `RentalInspection::outstandingSignatories()`/`hasAgentSignature()`).
+2. In-inspection signing — the whole new per-tenant + agent path.
+3. Out-inspection landlord signing — consolidated with in-inspection's shared UI in the same pass,
+   rather than left as a second divergent shape (a deviation from the conductor's own suggested stage
+   split, made because leaving out-inspection without agent-signing while in-inspection already had it
+   would have been real inconsistency, not a deliberate design choice — flagged to her directly at the
+   time).
+4. Refusal capture + the agent attestation, including `rental_inspections.sign_on_behalf` finding its
+   real successor use (gating a refused disposition specifically) after Stage 3's cleanup left it
+   dormant.
+5. The completion guard replaced on both types (§15.7) and the show-page's unambiguous signed-vs-refused
+   rendering (§15.8).

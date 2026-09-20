@@ -4318,6 +4318,33 @@
                     @endif
                 </div>
 
+                {{-- .ai/specs/rental-work-orders.md §6 — "on rentals on a
+                     property we have a work order button," Johan's own words. --}}
+                @php
+                    $recentWorkOrders = \App\Models\RentalWorkOrder::where('property_id', $property->id)
+                        ->orderByDesc('reported_at')->limit(5)->get();
+                @endphp
+                <div class="rounded-md p-3 text-sm space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <div class="flex items-center justify-between">
+                        <strong>Work orders</strong>
+                        @permission('rental_work_orders.create')
+                        <a href="{{ route('corex.rental-work-orders.create', array_filter(['property_id' => $property->id, 'lease_id' => $activeLease?->id])) }}" class="corex-btn-outline text-xs">Work order</a>
+                        @endpermission
+                    </div>
+                    @if($recentWorkOrders->isEmpty())
+                        <span style="color: var(--text-muted);">No work orders yet on this property.</span>
+                    @else
+                        <ul class="space-y-1">
+                            @foreach($recentWorkOrders as $wo)
+                                <li class="flex items-center justify-between">
+                                    <span>{{ $wo->title }} — {{ ucfirst(str_replace('_', ' ', $wo->status)) }}</span>
+                                    <a href="{{ route('corex.rental-work-orders.show', $wo) }}" class="text-xs underline">View</a>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+
                 {{-- Settled rental property — dedicated save action
                      (PropertyController::updateRentalDetails()): its own
                      validation, its own DB transaction, the same
@@ -4574,6 +4601,36 @@
                     </button>
                     <div x-show="open['out_inspection']" x-collapse class="prop-section-body">
                         @include('corex.properties.partials.rental-inspection-recording', ['section' => 'out'])
+
+                        {{-- .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 —
+                             Johan's own reason for the whole feature: "geyser in
+                             month 7... an agent can see what damages there were,
+                             and what was not repaired." Attached, not merged —
+                             a separate block, never inside the recording above.
+                             Read-only: resolved from its own screen, not here. --}}
+                        <template x-if="outInspectionRecorded">
+                            <div class="mt-3 pt-3 space-y-2" style="border-top:1px solid var(--border);">
+                                <h4 class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Fault &amp; Repair History — this tenancy</h4>
+                                <template x-if="!outInspectionFaultHistory.length">
+                                    <div class="text-xs" style="color:var(--text-muted);">No faults reported during this tenancy.</div>
+                                </template>
+                                <template x-for="fault in outInspectionFaultHistory" :key="fault.id">
+                                    <div class="text-sm py-1.5" style="border-bottom:1px solid var(--border);">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <span x-text="fault.title" style="color:var(--text-primary);"></span>
+                                            <span class="text-xs" style="color:var(--text-muted);">
+                                                <span x-text="fault.outcome ? fault.outcome.replace('_',' ') : fault.status.replace('_',' ')" class="uppercase tracking-wide"></span>
+                                                <span x-text="'— ' + fault.reported_at.substring(0, 10)"></span>
+                                            </span>
+                                        </div>
+                                        <div x-show="fault.repaired_at" class="text-xs" style="color:var(--text-muted);">
+                                            Repaired: <span x-text="fault.repaired_at"></span>
+                                        </div>
+                                        <div x-show="fault.outcome_note" class="text-xs" style="color:var(--text-muted);" x-text="fault.outcome_note"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
                     </div>
                 </div>
 
@@ -4703,6 +4760,23 @@
                 items: config.inspectionData.items,
                 inInspection: config.inspectionData.in_inspection,
                 outInspection: config.inspectionData.out_inspection,
+                // .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 — read-only,
+                // never edited from here (a fault report is resolved from its
+                // own screen or the property tab, §6a's own instruction).
+                outInspectionFaultHistory: config.inspectionData.out_inspection_fault_history,
+                // §15.4, Stage 3 — property-level, shared by both sections. Null
+                // means Property::sellerOwnerContact() couldn't resolve one.
+                landlordContact: config.inspectionData.landlord_contact,
+                // §15.5/§15.6, Stage 4 — agency-configurable one-tap reason
+                // list; 'other' always present and always last (server-side
+                // guarantee — RentalInspectionSetting::refusalReasonPresetsFor()).
+                refusalReasonPresets: config.inspectionData.refusal_reason_presets,
+                // 2026-09-20 fix — deliberately NOT derived from outInspection
+                // above (that goes null the moment the out-inspection
+                // completes). Drives the fault-history block's own
+                // visibility so it stays shown after completion, when it
+                // matters most.
+                outInspectionRecorded: config.inspectionData.out_inspection_recorded,
                 itemError: '',
                 itemBusy: false,
                 newItem: { kind: 'space', label: '' },
@@ -4864,8 +4938,11 @@
                     } catch (e) { this.lifecycleError = e.message; }
                 },
 
-                async startAwaitingSignature() {
-                    const insp = this.outInspection;
+                async startAwaitingSignature(section) {
+                    // §15.3 (2026-09-20) — widened from out-only to both
+                    // types; kept the param so Stage 2's new in-section UI
+                    // and the existing out-section UI share one method.
+                    const insp = this.currentInspection(section || 'out');
                     this.lifecycleError = '';
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/start-awaiting-signature`, {});
@@ -4873,43 +4950,127 @@
                     } catch (e) { this.lifecycleError = e.message; }
                 },
 
-                signaturePad: null,
-                signingOnBehalf: false,
-                refusedNote: '',
+                // ── In/out signing, shared (§15, Stages 2-3 — the old
+                // out-only tenant/agent_on_behalf mechanism is fully retired;
+                // both sections now use this one path). One canvas active at
+                // a time (activeSigningKey), matching how an agent actually
+                // hands one device to one person at a time. ──────
+                activeSigningKey: null,
+                signaturePads: {},
 
-                initSignaturePad() {
-                    const canvas = this.$refs.sigCanvas;
-                    if (!canvas || typeof SignaturePad === 'undefined') return;
+                inspectionTenants(section) {
+                    return this.currentInspection(section)?.lease?.tenants || [];
+                },
+                tenantName(tenant) {
+                    return [tenant.contact?.first_name, tenant.contact?.last_name].filter(Boolean).join(' ') || 'Tenant';
+                },
+                tenantDisposition(section, contactId) {
+                    const insp = this.currentInspection(section);
+                    return (insp?.signatures || []).find(s => s.party_role === 'tenant' && s.party_contact_id === contactId) || null;
+                },
+                landlordDisposition(section) {
+                    const insp = this.currentInspection(section);
+                    return (insp?.signatures || []).find(s => s.party_role === 'landlord') || null;
+                },
+                agentDisposition(section) {
+                    const insp = this.currentInspection(section);
+                    return (insp?.signatures || []).find(s => s.party_role === 'agent') || null;
+                },
+                allTenantsDispositioned(section) {
+                    return this.inspectionTenants(section).every(t => this.tenantDisposition(section, t.contact_id));
+                },
+                // §15.4/§15.7 — gates the agent's own "Sign" button: every
+                // tenant, AND the landlord unless sellerOwnerContact()
+                // couldn't resolve one (§15.4's waived-not-blocking rule).
+                allRequiredPartiesDispositioned(section) {
+                    return this.allTenantsDispositioned(section)
+                        && (!this.landlordContact || !!this.landlordDisposition(section));
+                },
+
+                openSigningFor(key) {
+                    this.activeRefusalKey = null;
+                    this.activeSigningKey = this.activeSigningKey === key ? null : key;
+                },
+                initSignaturePadFor(key, canvasEl) {
+                    if (!canvasEl || typeof SignaturePad === 'undefined') return;
                     const ratio = Math.max(window.devicePixelRatio || 1, 1);
-                    canvas.width = canvas.offsetWidth * ratio;
-                    canvas.height = 180 * ratio;
-                    canvas.getContext('2d').scale(ratio, ratio);
-                    this.signaturePad = new SignaturePad(canvas, { backgroundColor: '#fff' });
+                    canvasEl.width = canvasEl.offsetWidth * ratio;
+                    canvasEl.height = 140 * ratio;
+                    canvasEl.getContext('2d').scale(ratio, ratio);
+                    this.signaturePads[key] = new SignaturePad(canvasEl, { backgroundColor: '#fff' });
                 },
-                clearSignature() { this.signaturePad && this.signaturePad.clear(); },
+                clearSignatureFor(key) { this.signaturePads[key]?.clear(); },
 
-                async saveTenantSignature() {
-                    if (!this.signaturePad || this.signaturePad.isEmpty()) {
-                        this.lifecycleError = 'Draw a signature first.';
-                        return;
-                    }
-                    await this._saveSignature('tenant', this.signaturePad.toDataURL('image/png'), null);
-                },
-
-                async saveAgentOnBehalfSignature() {
-                    await this._saveSignature('agent_on_behalf', null, this.refusedNote);
+                async saveTenantSignatureFor(section, tenant) {
+                    const key = section + '_tenant_' + tenant.contact_id;
+                    const pad = this.signaturePads[key];
+                    if (!pad || pad.isEmpty()) { this.lifecycleError = 'Draw a signature first.'; return; }
+                    await this._saveDisposition(section, {
+                        party_role: 'tenant', disposition: 'signed',
+                        party_contact_id: tenant.contact_id, signature_image: pad.toDataURL('image/png'),
+                    }, key);
                 },
 
-                async _saveSignature(signerRole, signatureImage, refusedNote) {
-                    const insp = this.outInspection;
+                async saveLandlordSignatureFor(section) {
+                    const key = section + '_landlord';
+                    const pad = this.signaturePads[key];
+                    if (!pad || pad.isEmpty()) { this.lifecycleError = 'Draw a signature first.'; return; }
+                    await this._saveDisposition(section, {
+                        party_role: 'landlord', disposition: 'signed',
+                        party_contact_id: this.landlordContact?.id, signature_image: pad.toDataURL('image/png'),
+                    }, key);
+                },
+
+                // §15.5, Stage 4 — refusal, tenant/landlord only, never the
+                // agent. One form active at a time, same discipline as
+                // signing (activeRefusalKey mirrors activeSigningKey).
+                activeRefusalKey: null,
+                refusalForm: {},
+                refusalField(key) {
+                    return this.refusalForm[key] || (this.refusalForm[key] = { preset: '', note: '' });
+                },
+                openRefusalFor(key) {
+                    this.activeSigningKey = null;
+                    this.activeRefusalKey = this.activeRefusalKey === key ? null : key;
+                },
+
+                async saveTenantRefusalFor(section, tenant) {
+                    const key = section + '_tenant_' + tenant.contact_id;
+                    const form = this.refusalField(key);
+                    if (!form.preset) return;
+                    await this._saveDisposition(section, {
+                        party_role: 'tenant', disposition: 'refused', party_contact_id: tenant.contact_id,
+                        refusal_reason_preset: form.preset, refusal_reason_note: form.note || null,
+                    }, key);
+                },
+
+                async saveLandlordRefusalFor(section) {
+                    const key = section + '_landlord';
+                    const form = this.refusalField(key);
+                    if (!form.preset) return;
+                    await this._saveDisposition(section, {
+                        party_role: 'landlord', disposition: 'refused', party_contact_id: this.landlordContact?.id,
+                        refusal_reason_preset: form.preset, refusal_reason_note: form.note || null,
+                    }, key);
+                },
+
+                async saveAgentSignatureFor(section) {
+                    const key = section + '_agent';
+                    const pad = this.signaturePads[key];
+                    if (!pad || pad.isEmpty()) { this.lifecycleError = 'Draw a signature first.'; return; }
+                    await this._saveDisposition(section, {
+                        party_role: 'agent', disposition: 'signed', signature_image: pad.toDataURL('image/png'),
+                    }, key);
+                },
+
+                async _saveDisposition(section, payload, key) {
+                    const insp = this.currentInspection(section);
                     this.lifecycleError = '';
                     try {
-                        const signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, {
-                            signer_role: signerRole, signature_image: signatureImage, refused_note: refusedNote,
-                        });
+                        const signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, payload);
                         insp.signatures.push(signature);
-                        this.signingOnBehalf = false;
-                        this.refusedNote = '';
+                        if (this.activeSigningKey === key) this.activeSigningKey = null;
+                        if (this.activeRefusalKey === key) this.activeRefusalKey = null;
                     } catch (e) { this.lifecycleError = e.message; }
                 },
 
