@@ -2849,6 +2849,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.edit');
     Route::post('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'update'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.update');
+    // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — the spend threshold
+    // below which no owner approval is required, agency-configurable.
+    Route::get('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'edit'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.edit');
+    Route::post('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'update'])
+        ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.update');
     // AT-392 Phase 2 — qualifying-formula threshold, same settings screen, separate
     // form/route so it can never interfere with the existing checklist save above.
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])

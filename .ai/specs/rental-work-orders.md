@@ -175,7 +175,8 @@ where the decision lives?"*
 2026-09-22 proposal — `rental_work_order_settings.no_approval_spend_threshold`, proposed default R500),
 overridable. **Johan himself wrote "property / lease" with a question mark — genuinely undecided which,
 and this amendment does not take his lease suggestion at face value.** §3.4b argues it through and
-recommends the override lives on the PROPERTY, not the lease, and says why.
+recommends the override lives on the PROPERTY, not the lease, and says why. **Superseded 2026-09-26 —
+Johan ruled LEASE when asked directly; see §3.4b's own current text, not this historical paragraph.**
 
 ---
 
@@ -530,6 +531,15 @@ rental_work_order_settings            -- one row per agency, §8
                                         --   notification (§4) fires. [cc4 design call — a
                                         --   sensible number, not specified by Johan; agency-
                                         --   configurable exactly because of that.]
+  no_approval_spend_threshold            -- nullable decimal, default 500 (§3.4b, settled 2026-09-26).
+                                        --   Overridden per-lease by leases.rental_no_approval_spend_
+                                        --   threshold (Johan's ruling) — null on THIS row still means
+                                        --   "R500", the read-time default; a lease with no override
+                                        --   falls through to whatever this column resolves to for its
+                                        --   agency. Built, Stage 3 — not yet consumed by any gate,
+                                        --   since fault reports carry no cost figure to compare it
+                                        --   against; Stage 4 wires the actual gate once a work order's
+                                        --   cost_amount exists to check it against.
   created_at, updated_at
 ```
 
@@ -738,7 +748,7 @@ options, built honestly rather than dressed up as more automated than it is:
   report — the same "current column + append-only log" shape this spec already uses for
   `rental_work_orders.status` / `rental_work_order_updates`, not a new pattern.
 
-### 3.4b The spend threshold — SETTLED IN SHAPE 2026-09-25, one sub-question argued and recommended
+### 3.4b The spend threshold — SETTLED, including the override, 2026-09-26 — Johan ruled LEASE, not the property this spec recommended
 
 Johan's ruling, verbatim: *"we can build spend threshold in, Id say agency setting, then an override per
 lease agreement. agent captures approved no auth amount on property / lease and thats where the
@@ -752,39 +762,32 @@ CoreX guessing at what's appropriate for a given owner relationship. Most mandat
 up to a limit without asking; without one, "email the owner about a tap washer" is how the approval
 gate (§3.4/§3a.1) stops being respected in practice.
 
-**The one open part — Johan himself wrote "property / lease" with a question mark, genuinely unsure.
-Argued and recommended here, not decided unilaterally:**
+**The one open part — Johan himself wrote "property / lease" with a question mark, then, asked directly
+2026-09-26, answered it himself: LEASE, with the agency default behind it.**
 
-The override belongs on the **PROPERTY**, not the lease.
+~~This spec previously argued and recommended the PROPERTY instead, on the reasoning that the authority
+to spend without asking comes from the owner's mandate, which is mediated through the property, not the
+tenancy — and that a lease-level override would need re-entering on every renewal and risks silently
+carrying a stale value from a departed tenant.~~ **Johan ruled LEASE. That argument was not wrong on its
+own terms, but it was answering the wrong question — it reasoned from where the owner's authority
+notionally lives in the abstract, not from where the agent actually captures and uses the number.**
+Johan's own phrasing is the tell: *"agent captures approved no auth amount on property / lease and
+thats where the decision lives"* — a spend threshold override isn't a standing fact about the property
+that happens to get looked up; it's a specific approved amount an agent gets from the owner and records
+against the specific tenancy that amount was actually discussed for. A new lease is also, in practice,
+often exactly the moment an agency would revisit that number with the owner anyway — "needing to
+re-enter it on renewal" is not obviously a cost once the override is understood as a decision tied to a
+conversation, not a fact that silently persists on its own. Built to his ruling, not re-argued further.
 
-The reasoning: the authority to spend without asking comes from the OWNER's mandate — how much an
-owner is comfortable with an agency spending on their behalf without being asked first is a fact about
-that owner's relationship with the agency, mediated through the property they own. It is not a fact
-about any one tenancy. The owner is attached to the property (`Property::sellerOwnerContact()`, §2),
-not to the lease — a lease is who happens to be living there right now, and turns over. If the override
-lived on the lease instead:
+**Settled shape**: a new nullable decimal, `leases.rental_no_approval_spend_threshold` (nullable — null
+means "use the agency default," matching this spec's own null-means-inherit pattern used elsewhere).
+When set, it overrides `rental_work_order_settings.no_approval_spend_threshold` for that specific lease
+only — a new lease (renewal or new tenant) starts with no override, inheriting the agency default until
+an agent explicitly sets one for that tenancy.
 
-- It would need to be **re-entered every time a lease renews or a new tenant moves in**, even though
-  nothing about the owner's comfort level changed — the override has nothing to do with who the tenant
-  is.
-- Worse, it risks staying silently attached to a **stale value from a previous, unrelated tenancy** if
-  an agent forgets to touch it on a new lease — the exact "silent staleness" failure mode this spec's
-  own evidentiary philosophy (§1) argues against everywhere else.
-- A property-level override, by contrast, is set once, by the agency, as a fact about how this owner's
-  mandate works — and it simply keeps applying, correctly, no matter how many tenants come and go,
-  with no extra agent action required at each turnover.
-
-**Recommended shape**: a new nullable decimal, `properties.rental_no_approval_spend_threshold`
-(nullable — null means "use the agency default," matching this spec's own null-means-inherit pattern
-already used elsewhere). When set, it overrides `rental_work_order_settings.no_approval_spend_threshold`
-for that specific property only. **No lease-level override is proposed** — if a genuine future need for
-one surfaces (an unusually cautious owner mid-lease, say), that is a real follow-on question, not
-assumed here, but nothing in the four-situation test (§7) or the approval evidence design (§3.4a) is
-weakened by its absence.
-
-**Build sequencing note, not a spec decision:** per the conductor's own instruction, the agency-level
-setting itself is built first; this property-level override is built only once the recommendation above
-has actually reached Johan, not assumed as approved by this spec alone.
+**Built, Stage 3 (2026-09-26):** both the agency-level setting AND the lease-level override, together —
+Johan's ruling settled the sub-question this spec previously left as a build-sequencing gate, so there
+is no reason left to build them separately.
 
 **Still genuinely open, not decided here**: whether R500 is the right default, and whether an agent can
 override the gate outright with a reason (mirroring how `owner_approval_status='declined'` might still
@@ -1330,14 +1333,12 @@ flagged for Johan to confirm or adjust at build time, same treatment `lease_sett
 window_days` gets for its own unconfirmed number in `leases.md` §5.2, though that one is pending legal
 confirmation and this one is pending only an operational preference).
 
-**Settled in shape, 2026-09-25 (§3.4b):** `rental_work_order_settings.no_approval_spend_threshold`,
-agency-configurable, default **R500**. **Plus a recommended, not-yet-Johan-confirmed property-level
-override**: `properties.rental_no_approval_spend_threshold`, nullable, null meaning "use the agency
-default." Per §3.4b's own build-sequencing note, the agency-level setting is built straight away; the
-property-level override is built once the recommendation has actually reached Johan. Setup Wizard entry
-for the agency-level setting is designed in from the start (non-negotiable #10a) — the override, being
-per-property rather than an agency-wide onboarding choice, belongs on the property record itself, not
-the wizard.
+**Settled, including the override, 2026-09-26 (§3.4b):** `rental_work_order_settings.no_approval_spend_threshold`,
+agency-configurable, default **R500**, plus `leases.rental_no_approval_spend_threshold` — nullable, null
+meaning "use the agency default" — as the override, per Johan's own ruling (lease, not the property this
+spec had recommended). Both built together, Stage 3. Setup Wizard entry for the agency-level setting is
+designed in from the start (non-negotiable #10a) — the override, being per-lease rather than an
+agency-wide onboarding choice, belongs on the lease record itself, not the wizard.
 
 ---
 
@@ -1455,14 +1456,34 @@ their own record rather than a work-order status:
   - `resources/views/corex/rental-fault-reports/show.blade.php` gained the approval-recording and
     outcome-setting sections — hidden entirely once the report is `resolved`/`cancelled` (screen-space
     rule: no dead controls for a decision that's already final).
+- **BUILT, Stage 3, 2026-09-26 (the spend threshold — §3.4b, including the override):**
+  - `database/migrations/xxxx_create_rental_work_order_settings_table.php` — the full §3.1 schema
+    (`completion_requires_photo`, `overdue_reminder_days`, `no_approval_spend_threshold`) even though
+    only the threshold is live before Stage 4 — same "spec-complete from day one" discipline Stage 1
+    applied to `rental_fault_reports`.
+  - `database/migrations/xxxx_add_rental_no_approval_spend_threshold_to_leases_table.php` — the
+    lease-level override, per Johan's ruling.
+  - `app/Models/RentalWorkOrderSetting.php` — `use BelongsToAgency`, a
+    `thresholdFor(Lease $lease)` resolver: lease override → agency default → the `DEFAULT_*` constant,
+    same read-time-default pattern as `RentalInspectionSetting`.
+  - `app/Http/Controllers/CoreX/RentalWorkOrderSettingsController.php` — mirrors
+    `RentalInspectionSettingsController` exactly; registered as the THIRD saver on the existing
+    onboarding "Rentals" step (§8, the slot `agency-onboarding-rentals-step.md`'s own placeholder
+    already reserved), alongside `LeaseSettingsController` and `RentalInspectionSettingsController` —
+    never merged into either. `resources/views/corex/settings/rental-work-orders.blade.php` +
+    routes for the same page's own dedicated settings screen, matching rental-inspections' pattern
+    exactly, plus a Settings-hub link (`resources/views/corex/settings.blade.php`).
+  - `config/agency-onboarding-copy.php` — the real `no_approval_spend_threshold` control + saver, in
+    the slot `agency-onboarding-rentals-step.md` already reserved for it.
+  - `resources/views/corex/leases/show.blade.php` / `LeaseController::update()` gained the lease-level
+    override field — this spec's one necessary, minimal touch of a `leases.md`-owned file, additive
+    only (one nullable field, validated and saved alongside the existing ones, nothing else changed).
+  - `tests/Feature/Onboarding/RentalsStepSaverIndependenceTest.php` — extended, not replaced: the
+    combined-step test now posts all four fields, plus a new independence proof for the third saver
+    (matching the two already there).
 - `config/corex-permissions.php` — new permission keys (§10).
 - Sidebar entry for the new list screens (same-day, non-negotiable #2) — Rental Work Orders AND Rental
   Fault Reports both, under the existing Rentals section.
-- Setup Wizard entry for `rental_work_order_settings.no_approval_spend_threshold` (§3.4b/§8) — same
-  "designed in, not requested later" rule as every other agency setting (non-negotiable #10a). The
-  property-level override (`properties.rental_no_approval_spend_threshold`) is NOT a wizard entry — it
-  is per-property, not an agency-wide onboarding choice — and is built only once Johan has confirmed the
-  property-vs-lease recommendation in §3.4b, per that section's own build-sequencing note.
 - `tests/Feature/RentalWorkOrders/*` — the four-situation test in §7 as real fixtures at minimum, plus
   completion-gate enforcement, the approval gate refusing `ordered` while pending/declined, agency
   scoping, and notification dispatch (internal vs external split).
@@ -1499,10 +1520,8 @@ their own record rather than a work-order status:
   investigation found the cheap half (an agent linking an already-archived email) is a real, small
   reuse of existing machinery, worth doing at some point, but not built by this amendment; full
   content-based auto-filing is a real, separate, larger build, not proposed here at all.
-- **The spend-threshold property-vs-lease override — argued and recommended (§3.4b: property), NOT
-  unilaterally decided.** The agency-level setting itself is settled and in scope to build now; the
-  property-level override is out of scope for this build pass specifically until Johan has confirmed
-  the recommendation (§3.4b's own build-sequencing note).
+- ~~The spend-threshold property-vs-lease override — argued and recommended (§3.4b: property), NOT
+  unilaterally decided.~~ **SETTLED 2026-09-26 — Johan ruled lease, both built (§3.4b/§11, Stage 3).**
 - A supplier-facing reply/secure-link mechanism to self-report completion (§4) — named as a future
   upgrade path (DR2's `DealSecureLinkMail` is the existing pattern to copy when wanted), not built here.
 - Automated WhatsApp notification of anyone (§4) — does not exist in CoreX and is not built here; a

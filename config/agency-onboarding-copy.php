@@ -8,6 +8,7 @@ use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
+use App\Http\Controllers\CoreX\RentalWorkOrderSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
 /**
@@ -350,12 +351,12 @@ return [
         'savers' => [
             ['controller' => LeaseSettingsController::class, 'method' => 'update'],
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'update'],
-            // Reserved for rental-work-orders.md's settings — completion_requires_photo,
-            // overdue_reminder_days, and no_approval_spend_threshold (the work-order
-            // spend gate cc4 confirmed 2026-09-19, after the first two were named) —
-            // once that spec is built, add its own narrow saver here, alongside these,
-            // never merged into either existing one. Not built yet: the table
-            // (rental_work_order_settings) doesn't exist, per that spec's §8.
+            // rental-work-orders.md §3.4b/§8, Stage 3 (2026-09-26) — the spend
+            // threshold. completion_requires_photo/overdue_reminder_days are
+            // still Stage 4 (work orders themselves aren't built), so this
+            // saver validates and writes ONLY no_approval_spend_threshold —
+            // never merged into either saver above.
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'update'],
         ],
         'controls' => [
             ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
@@ -370,9 +371,13 @@ return [
              'label' => 'Days a tenant has to sign the out-inspection',
              'explain' => 'Once an out-inspection is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
              'affects' => 'How long CoreX waits for the tenant\'s own signature before allowing an agent to close it out on their behalf. 7 days suits most agencies.'],
-            // Reserved for rental-work-orders.md's three settings (completion_requires_photo,
-            // overdue_reminder_days, no_approval_spend_threshold) — same pattern as above,
-            // added here once that spec is built, not before.
+            ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
+             'label' => 'No-approval spend threshold (R)',
+             'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
+             'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific tenancy can be set higher or lower on the lease itself.'],
+            // Reserved for rental-work-orders.md's two remaining settings
+            // (completion_requires_photo, overdue_reminder_days) — added here
+            // once work orders themselves are built (Stage 4), not before.
         ],
     ],
 

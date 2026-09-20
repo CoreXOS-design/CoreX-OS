@@ -162,6 +162,10 @@ return [
         ['key' => 'rental_fault_reports.record_approval', 'label' => 'Record Owner Approval', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 4],
         ['key' => 'rental_fault_reports.resolve',         'label' => 'Set Fault Outcome',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 5],
 
+        // ── Rental Work Orders (rental-work-orders.md, Stage 3 — settings only;
+        //    the feature itself is Stage 4, not yet built) ──
+        ['key' => 'rental_work_orders.manage_settings', 'label' => 'Manage Rental Work Order Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 1],
+
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
         ['key' => 'daily_activity.create',   'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 43],

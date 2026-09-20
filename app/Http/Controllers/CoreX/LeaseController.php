@@ -187,6 +187,10 @@ class LeaseController extends Controller
             'end_date' => ['nullable', 'date', 'after:' . $lease->start_date->format('Y-m-d')],
             'is_month_to_month' => ['nullable', 'boolean'],
             'lease_type' => ['nullable', 'string', 'max:40'],
+            // .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-26
+            // — the spend-threshold override lives here, on the lease. Null
+            // (cleared) means "use the agency default."
+            'rental_no_approval_spend_threshold' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $lease->update([
@@ -194,6 +198,7 @@ class LeaseController extends Controller
             'end_date' => array_key_exists('end_date', $validated) ? $validated['end_date'] : $lease->end_date,
             'is_month_to_month' => $request->boolean('is_month_to_month'),
             'lease_type' => $validated['lease_type'] ?? $lease->lease_type,
+            'rental_no_approval_spend_threshold' => array_key_exists('rental_no_approval_spend_threshold', $validated) ? $validated['rental_no_approval_spend_threshold'] : $lease->rental_no_approval_spend_threshold,
         ]);
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease updated.');

@@ -32,6 +32,10 @@ class Lease extends Model
         'property_id',
         'status',
         'rental_amount',
+        // .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-26 —
+        // the spend-threshold override lives on the lease, not the property.
+        // Null means "use the agency default" (RentalWorkOrderSetting).
+        'rental_no_approval_spend_threshold',
         'deposit_amount',
         'start_date',
         'end_date',
@@ -52,6 +56,7 @@ class Lease extends Model
 
     protected $casts = [
         'rental_amount' => 'decimal:2',
+        'rental_no_approval_spend_threshold' => 'decimal:2',
         'deposit_amount' => 'decimal:2',
         'start_date' => 'date',
         'end_date' => 'date',

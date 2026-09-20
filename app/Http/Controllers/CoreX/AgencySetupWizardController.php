@@ -434,6 +434,9 @@ class AgencySetupWizardController extends Controller
                 // (the constant default when unset), never null, matching
                 // LeaseSetting::expiryNoticeWindowDaysFor()'s own contract.
                 'leases'    => LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
+                // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — same
+                // always-a-real-number contract as 'leases' above.
+                'rental_work_orders' => \App\Models\RentalWorkOrderSetting::spendThresholdFor($agency->id),
                 // AT-395 — the outgoing-mail step reads the CURRENT ADMIN's own
                 // mailbox row, never any other agent's. Password is never
                 // resolved back (write-only, same rule as every mailbox screen).

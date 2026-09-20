@@ -110,6 +110,9 @@
                     $can('rental_inspections.manage_settings')
                         ? ['key'=>'rental-inspections-settings', 'label'=>'Rental Inspections', 'type'=>'link', 'href'=>route('corex.settings.rental-inspections.edit'), 'keywords'=>'inspection fault report window signing window tenant out inspection']
                         : null,
+                    $can('rental_work_orders.manage_settings')
+                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault']
+                        : null,
                     ['key'=>'feature-contacts',      'label'=>'Contacts',              'type'=>'section', 'keywords'=>'contact types sources tags labels phone email personal business dial code country prefix'],
                     ['key'=>'feature-properties',    'label'=>'Properties & Listings', 'type'=>'section', 'keywords'=>'syndication portals marketing'],
                     ['key'=>'feature-presentations', 'label'=>'Presentations',         'type'=>'section', 'keywords'=>'cma coverage thresholds comps period rich moderate thin comparable selection price band radius erf percentile range widen anchor'],
