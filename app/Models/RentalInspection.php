@@ -311,10 +311,24 @@ class RentalInspection extends Model
         $withDetail = fn (string $type) => self::currentFor($property, $type)
             ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures']);
 
+        $outInspection = $withDetail(self::TYPE_OUT);
+
         return [
             'items' => $items,
             'in_inspection' => $withDetail(self::TYPE_IN),
-            'out_inspection' => $withDetail(self::TYPE_OUT),
+            'out_inspection' => $outInspection,
+            // .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 — Johan's own
+            // reason for this whole feature: "geyser in month 7... an agent
+            // can see what damages there were... and what was not repaired."
+            // Attached here, not merged — a second query alongside the
+            // out-inspection's own data, not a join. Scoped by THIS
+            // out-inspection's own lease_id (§3a.4's deliberate contrast with
+            // items' own property-wide carry-forward) — empty until an
+            // out-inspection actually exists, since there's no lease context
+            // to scope by before then.
+            'out_inspection_fault_history' => $outInspection
+                ? \App\Models\RentalFaultReport::where('lease_id', $outInspection->lease_id)->orderByDesc('reported_at')->get()
+                : collect(),
         ];
     }
 }

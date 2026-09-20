@@ -1,10 +1,12 @@
 # Rental Work Orders (and Fault Reports)
 
-**Status:** Stages 1-4 BUILT (the fault report record, its lifecycle, the spend threshold, and the work
-orders themselves — see §11 for exactly what and when). Stage 5 (§3a.5, the out-inspection's attached
-"Fault & Repair History" block) remains spec only.
+**Status:** BUILT, all five stages — the fault report record, its lifecycle, the spend threshold, the
+work orders themselves, and the attached out-inspection history (see §11 for exactly what and when).
+Two questions remain genuinely open, not silently resolved: the fault-report-level owner/tenant mail
+gap and the mailbox-polling automation question (§3a.1a) — both named where they're discussed, neither
+blocking anything else here.
 **Date:** 2026-09-14 (amended 2026-09-22, amended 2026-09-24, amended 2026-09-25, amended again
-2026-09-26, built Stages 1-4 through 2026-09-25/2026-09-28 — see below)
+2026-09-26, built Stages 1-5 through 2026-09-25/2026-09-20 — see below)
 **Author:** cc4
 **Pillar:** Property (`Property`) — every work order and fault report anchors to a property; Contact
 (owner, tenant, supplier's own contact person) is who is notified and who reported it; touches Lease
@@ -1399,7 +1401,7 @@ their own record rather than a work-order status:
 
 ---
 
-## 11. Files (fault reports Stages 1-3 and work orders Stage 4 now BUILT and landed — see inline notes; only the out-inspection attached view, §3a.5/Stage 5, remains)
+## 11. Files (ALL FIVE STAGES now BUILT and landed — see inline notes for exactly what and when)
 
 - **BUILT, Stage 1, 2026-09-25 (fault reports §3a — the record itself):**
   - `database/migrations/2026_09_25_100000_create_rental_fault_reports_table.php` — includes the
@@ -1521,6 +1523,34 @@ their own record rather than a work-order status:
     not add one either. A work order raised FROM a fault report never sends its own tenant mail
     (correctly — the tenant was already told at fault-report stage) but that fault-report-stage mail
     still does not exist. Still real, still undecided, still Johan's call.
+- **BUILT, Stage 5, 2026-09-20 (§3a.5/§6a — the attached out-inspection history, Johan's own reason for
+  the whole feature):**
+  - `app/Models/RentalInspection.php`'s `tabPayloadFor()` gained a fourth key,
+    `out_inspection_fault_history` — a second query alongside the existing `items`/`in_inspection`/
+    `out_inspection` keys, not a join or a merge, exactly as §3a.5 specifies. Scoped to
+    `rental_fault_reports.lease_id = <the current out-inspection's own lease_id>` (§3a.4) — empty,
+    not an error, until an out-inspection actually exists to attach to. The single-resolver
+    architecture this method already had (serving both the initial Blade render and the JSON
+    `tabData()` endpoint) meant this needed no separate wiring for the two call sites — both get the
+    new key automatically.
+  - `resources/views/corex/properties/show.blade.php` — a read-only "Fault & Repair History — this
+    tenancy" block rendered via Alpine `x-for`, sitting inside the same Out Inspection section but
+    visually AFTER the existing item/observation recording (§3a.5's own "alongside, never inside"),
+    showing title, outcome, `repaired_at` (the spine field, shown even when no work order was ever
+    raised — the `owner_handles` route's own `repaired` outcome renders identically to one reached via
+    a completed work order, exactly as §7 situation 2 argues), outcome note, and reported date. A real
+    empty state ("No faults reported during this tenancy") when the history is genuinely clean —
+    matching this whole spec's own evidentiary philosophy that an absence is itself informative, not
+    something to leave blank and ambiguous.
+  - `tests/Feature/RentalWorkOrders/OutInspectionFaultHistoryTest.php` — the two facts this stage exists
+    to prove: a PREVIOUS tenancy's fault report does not appear (the lease-scoping test §11's own
+    earlier draft explicitly named), and the existing `tabPayloadFor()` keys are completely undisturbed
+    by the addition.
+  - **This closes the spec.** All five stages are now built: the fault report record, its lifecycle,
+    the spend threshold, the work orders themselves, and this attached view. The two questions this
+    spec leaves genuinely open — the mailbox-polling automation question (§3a.1a, investigated not
+    built) and the fault-report-level owner/tenant mail gap (named above and in Stage 1) — remain
+    exactly that: open, not silently resolved by finishing the rest of the build.
 - `config/corex-permissions.php` — new permission keys (§10).
 - Sidebar entry for the new list screens (same-day, non-negotiable #2) — Rental Work Orders AND Rental
   Fault Reports both, under the existing Rentals section.

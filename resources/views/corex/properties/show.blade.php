@@ -4601,6 +4601,36 @@
                     </button>
                     <div x-show="open['out_inspection']" x-collapse class="prop-section-body">
                         @include('corex.properties.partials.rental-inspection-recording', ['section' => 'out'])
+
+                        {{-- .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 —
+                             Johan's own reason for the whole feature: "geyser in
+                             month 7... an agent can see what damages there were,
+                             and what was not repaired." Attached, not merged —
+                             a separate block, never inside the recording above.
+                             Read-only: resolved from its own screen, not here. --}}
+                        <template x-if="currentInspection('out')">
+                            <div class="mt-3 pt-3 space-y-2" style="border-top:1px solid var(--border);">
+                                <h4 class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Fault &amp; Repair History — this tenancy</h4>
+                                <template x-if="!outInspectionFaultHistory.length">
+                                    <div class="text-xs" style="color:var(--text-muted);">No faults reported during this tenancy.</div>
+                                </template>
+                                <template x-for="fault in outInspectionFaultHistory" :key="fault.id">
+                                    <div class="text-sm py-1.5" style="border-bottom:1px solid var(--border);">
+                                        <div class="flex items-center justify-between gap-3">
+                                            <span x-text="fault.title" style="color:var(--text-primary);"></span>
+                                            <span class="text-xs" style="color:var(--text-muted);">
+                                                <span x-text="fault.outcome ? fault.outcome.replace('_',' ') : fault.status.replace('_',' ')" class="uppercase tracking-wide"></span>
+                                                <span x-text="'— ' + fault.reported_at.substring(0, 10)"></span>
+                                            </span>
+                                        </div>
+                                        <div x-show="fault.repaired_at" class="text-xs" style="color:var(--text-muted);">
+                                            Repaired: <span x-text="fault.repaired_at"></span>
+                                        </div>
+                                        <div x-show="fault.outcome_note" class="text-xs" style="color:var(--text-muted);" x-text="fault.outcome_note"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
                     </div>
                 </div>
 
@@ -4730,6 +4760,10 @@
                 items: config.inspectionData.items,
                 inInspection: config.inspectionData.in_inspection,
                 outInspection: config.inspectionData.out_inspection,
+                // .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 — read-only,
+                // never edited from here (a fault report is resolved from its
+                // own screen or the property tab, §6a's own instruction).
+                outInspectionFaultHistory: config.inspectionData.out_inspection_fault_history,
                 itemError: '',
                 itemBusy: false,
                 newItem: { kind: 'space', label: '' },
