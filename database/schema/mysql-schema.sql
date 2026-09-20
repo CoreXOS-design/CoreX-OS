@@ -12905,6 +12905,7 @@ CREATE TABLE `rental_inspection_settings` (
   `agency_id` bigint unsigned NOT NULL,
   `fault_report_window_days` smallint unsigned DEFAULT NULL,
   `out_inspection_signing_window_days` smallint unsigned DEFAULT NULL,
+  `refusal_reason_presets` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -12919,23 +12920,25 @@ CREATE TABLE `rental_inspection_signatures` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `rental_inspection_id` bigint unsigned NOT NULL,
-  `signer_role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `signer_contact_id` bigint unsigned DEFAULT NULL,
-  `signed_by_user_id` bigint unsigned DEFAULT NULL,
-  `signature_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `refused_note` text COLLATE utf8mb4_unicode_ci,
-  `signed_at` timestamp NOT NULL,
+  `party_role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `disposition` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'signed',
+  `party_contact_id` bigint unsigned DEFAULT NULL,
+  `recorded_by_user_id` bigint unsigned DEFAULT NULL,
+  `party_signature_path` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `refusal_reason_preset` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `refusal_reason_note` text COLLATE utf8mb4_unicode_ci,
+  `disposition_recorded_at` timestamp NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `rental_inspection_signatures_rental_inspection_id_foreign` (`rental_inspection_id`),
-  KEY `rental_inspection_signatures_signer_contact_id_foreign` (`signer_contact_id`),
-  KEY `rental_inspection_signatures_signed_by_user_id_foreign` (`signed_by_user_id`),
+  KEY `rental_inspection_signatures_signer_contact_id_foreign` (`party_contact_id`),
+  KEY `rental_inspection_signatures_signed_by_user_id_foreign` (`recorded_by_user_id`),
   KEY `ri_signatures_agency_inspection_idx` (`agency_id`,`rental_inspection_id`),
   CONSTRAINT `rental_inspection_signatures_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rental_inspection_signatures_rental_inspection_id_foreign` FOREIGN KEY (`rental_inspection_id`) REFERENCES `rental_inspections` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `rental_inspection_signatures_signed_by_user_id_foreign` FOREIGN KEY (`signed_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `rental_inspection_signatures_signer_contact_id_foreign` FOREIGN KEY (`signer_contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL
+  CONSTRAINT `rental_inspection_signatures_signed_by_user_id_foreign` FOREIGN KEY (`recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_inspection_signatures_signer_contact_id_foreign` FOREIGN KEY (`party_contact_id`) REFERENCES `contacts` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_inspections`;
@@ -17248,3 +17251,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1389,'2026_09_28_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1390,'2026_09_28_100400_register_rental_work_order_notifications',331);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1391,'2026_09_20_120000_add_credit_bureau_name_to_rental_application_qualifying_settings',332);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1392,'2026_09_29_100000_add_archived_by_to_rental_inspections_table',333);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1393,'2026_09_30_100000_rebuild_rental_inspection_signatures_for_three_party_signing',334);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1394,'2026_09_30_100100_add_refusal_reason_presets_to_rental_inspection_settings_table',334);
