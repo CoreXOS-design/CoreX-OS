@@ -12496,6 +12496,7 @@ CREATE TABLE `rental_application_qualifying_settings` (
   `return_gate_attempt_window_minutes` smallint unsigned DEFAULT NULL,
   `required_field_keys` json DEFAULT NULL,
   `marital_status_options` json DEFAULT NULL,
+  `credit_bureau_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `hidden_field_keys` json DEFAULT NULL,
   `field_label_overrides` json DEFAULT NULL,
   `field_help_text_overrides` json DEFAULT NULL,
@@ -17242,3 +17243,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1387,'2026_09_28_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1388,'2026_09_28_100200_create_rental_work_order_photos_table',331);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1389,'2026_09_28_100300_add_work_order_foreign_keys_deferred_from_stage1_2',331);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1390,'2026_09_28_100400_register_rental_work_order_notifications',331);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1391,'2026_09_20_120000_add_credit_bureau_name_to_rental_application_qualifying_settings',332);

@@ -618,12 +618,17 @@
             @endif
 
             @if($fieldConfig['tpn_consent_signature']['shown'])
-            <section data-progress-section="Tenant Profile Network Consent">
+            <section data-progress-section="{{ $fieldConfig['tpn_consent_signature']['label'] }}">
                 <h2 class="font-semibold text-slate-700 mb-2">{{ $fieldConfig['tpn_consent_signature']['label'] }} @if(in_array('tpn_consent_signature', $requiredFieldKeys, true)) *@endif</h2>
                 <p class="text-xs text-slate-500 mb-2">
                     {{ $fieldConfig['tpn_consent_signature']['help_text'] ?? 'The tenant hereby consents that, and authorises the Landlord or agent to, at all times contact, request and obtain information from any credit provider or registered credit bureau relevant to an assessment of the tenant\'s creditworthiness.' }}
                 </p>
-                @include('rental-applications.public._signature-pad', ['field' => 'tpn_consent_signature', 'label' => 'TPN consent'])
+                {{-- Johan, 2026-09-20 — "hfc uses tpn so thats why we have
+                     that." Reuses the SAME resolved label as the heading
+                     above (agency override, or the bureau-aware registry
+                     default) rather than a second hardcoded 'TPN consent'
+                     string, so the two can never say different things. --}}
+                @include('rental-applications.public._signature-pad', ['field' => 'tpn_consent_signature', 'label' => $fieldConfig['tpn_consent_signature']['label']])
                 @error('tpn_consent_signature') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
             </section>
             @endif
@@ -1065,10 +1070,30 @@ function rentalApplicationForm() {
                 return;
             }
 
+            // Johan, 2026-09-20 — this used to unconditionally require both
+            // signatures, ignoring both 'shown' AND the agency's own
+            // required-field tick, unlike every other field on this form
+            // (each of which drives its `required`/`required-expr`
+            // attribute from $requiredFieldKeys — already reconciled
+            // against hidden fields server-side via
+            // effectiveRequiredFieldKeysFor()). An agency that hides or
+            // un-ticks either signature would have had a form that could
+            // never be submitted, with no error an applicant could act on
+            // — they just leave. Baked in at render time, same pattern as
+            // every other required-expr on this page, and Js::from() for
+            // safe string escaping into the label array.
+            const declRequired = {{ in_array('declaration_signature', $requiredFieldKeys, true) ? 'true' : 'false' }};
+            const tpnRequired = {{ in_array('tpn_consent_signature', $requiredFieldKeys, true) ? 'true' : 'false' }};
+            const declLabel = {{ \Illuminate\Support\Js::from($fieldConfig['declaration_signature']['label']) }};
+            const tpnLabel = {{ \Illuminate\Support\Js::from($fieldConfig['tpn_consent_signature']['label']) }};
+
             const decl = this.$refs.declaration_signature_input.value;
             const tpn = this.$refs.tpn_consent_signature_input.value;
-            if (!decl || !tpn) {
-                this.error = 'Please sign both the declaration and the TPN consent before submitting.';
+            const missingSignatures = [];
+            if (declRequired && !decl) missingSignatures.push(declLabel);
+            if (tpnRequired && !tpn) missingSignatures.push(tpnLabel);
+            if (missingSignatures.length) {
+                this.error = 'Please sign the following before submitting: ' + missingSignatures.join(', ') + '.';
                 return;
             }
 
