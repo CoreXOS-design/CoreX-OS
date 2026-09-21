@@ -1859,13 +1859,39 @@ Problem 3 (§16.3) had flagged as worth checking. Investigated directly rather t
   || (a.room.id - b.room.id)` in `roomGroups()` — matching the box-wide convention already used for
   exactly this reason elsewhere (`Contact.php:275`, `RentalInventory.php:71,77`,
   `ProformaInvoice.php:48`, and others).
-- **Why 5792 itself never changed on click:** unconfirmed, and stated as such rather than guessed as
-  fact. The deployed JS and route are byte-identical to source; the resolver is proven correct by direct
-  execution. The strongest remaining candidate: `applyDefaultRoomOrder()`'s confirm dialog
-  (`window.confirm(...)`) — if dismissed or missed, the function returns before any request is sent,
-  which is indistinguishable from "the button doing nothing": no console error, no visible state change,
-  because nothing was asked of the server at all. Flagged for Johan to watch for specifically on the
-  re-test, not asserted as the cause.
+- **Why 5792 appeared unchanged when Johan clicked:** resolved, and it was not a code bug. cc1 was
+  working the same property in the same window and ran a manual reorder that landed inside Johan's own
+  fourteen-minute test — he pressed "Apply default order," cc1's manual reorder persisted moments later,
+  and the order Johan read back afterward was cc1's deliberate reorder, not a failure of the button.
+  cc1 re-pressed the same button on the same property independently afterward and confirmed Bedroom 1
+  sorted ahead of bedroom 2 correctly. No code changed as a result of this half of the report — nothing
+  needed to. Recorded here so the "two lanes changing the same property's data at the same time look
+  like a contradiction" lesson isn't lost: say so in the shared channel before changing state on a real
+  property.
+
+### 16.6 The real bug — cc1 found it testing live, and it is fixed
+
+cc1's own test on 5792 surfaced a genuine, distinct defect in `defaultRoomSortOrderFor()`: the original
+`preg_match('/(\d+)/', $label)` matches the FIRST digit anywhere in the label, not a trailing room
+number. A leftover test room labelled "Bedroom CC1 Verify" resolved to the identical `sort_order` as a
+real "Bedroom 1", because the regex matched the "1" inside "CC1". Harmless against Johan's own clean
+labels today ("Bedroom 1", "bedroom 2") — but a real bug the moment any agent types a label with an
+incidental digit anywhere in it: a unit number, a floor, "Flat 2 Bedroom", "Garage B1", an agency's own
+naming convention. Not exotic — expected, ordinary usage.
+
+**Fix:** anchored the regex to the END of the label — `preg_match('/(\d+)\s*$/', $label, $matches)` —
+so a genuinely trailing instance number ("Bedroom 1", "Garage B1") is still read correctly, while an
+incidental digit earlier in the label ("Flat 2 Bedroom", "Bedroom CC1 Verify") is correctly ignored and
+falls back to the untrailing-numbered tiebreak (0), same as a label with no number at all. Verified
+directly against every named scenario: `Bedroom 1`→15001, `bedroom 2`→15002, `BEDROOM 10`→15010,
+`Bedroom CC1 Verify`→15000 (no longer collides with `Bedroom 1`), `Flat 2 Bedroom`→15000, `Garage
+B1`→correctly reads trailing `1`. Two new regression tests
+(`RentalInspectionFeatureAndRoomTypeSettingsTest.php`) lock in the incidental-digit case and the
+trailing-after-letter case directly. §16.5's `id`-tiebreak fix is unaffected and still required — two
+labels that both fall back to 0 (no trailing number) still need it to stay stable.
+
+Room names are never normalised or rewritten by this fix — the regex only reads the label to compute a
+sort position; Johan's ruling on whether room names should ever be normalised remains open and untouched.
 
 ## 17. N/A, room notes, overall notes (2026-09-21) — three gaps evidenced on Retha's real paper form
 

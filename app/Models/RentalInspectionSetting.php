@@ -387,18 +387,32 @@ class RentalInspectionSetting extends Model
      * NOT alphabetical: alphabetical gives 1, 10, 2." No sibling-room query
      * needed; the tiebreak comes only from this room's own label text.
      *
+     * 2026-09-21, cc1 (found live on property 5792, testing this exact
+     * method): the number MUST come from the END of the label, never the
+     * first digit anywhere in it. The original `/(\d+)/` matched the "1"
+     * inside test data labelled "Bedroom CC1 Verify", colliding it with a
+     * real "Bedroom 1" — harmless against Johan's own clean labels today,
+     * but a real bug the moment any agent types a label with an incidental
+     * digit in it: a unit number, a floor, "Flat 2 Bedroom", "Garage B1".
+     * Anchored to the end of the string (`\s*$`) so a genuinely trailing
+     * instance number ("Bedroom 1", "Garage B1") is read correctly while an
+     * incidental digit earlier in the label ("Flat 2 Bedroom", "Bedroom
+     * CC1 Verify") is correctly ignored.
+     *
      * The numeric tiebreak is cosmetic ordering only, clamped to 0-999 and
      * never persisted as the room's identity or its `type` — a room with
-     * no number in its label (e.g. bare "Study") sorts first within its
-     * type, which reads correctly for the common case of a single
-     * instance of that type.
+     * no trailing number in its label (e.g. bare "Study") ties at 0 with
+     * every other untrailing-numbered room of the same type; callers that
+     * order by this value MUST add `id` as a secondary sort key (already
+     * done everywhere this is consumed) so that tie has a stable,
+     * predictable resolution rather than flipping between page loads.
      */
     public static function defaultRoomSortOrderFor(?int $agencyId, string $type, string $label): int
     {
         $position = self::roomTypeWalkingPositionFor($agencyId, $type);
 
         $numeric = 0;
-        if (preg_match('/(\d+)/', $label, $matches)) {
+        if (preg_match('/(\d+)\s*$/', $label, $matches)) {
             $numeric = min((int) $matches[1], 999);
         }
 

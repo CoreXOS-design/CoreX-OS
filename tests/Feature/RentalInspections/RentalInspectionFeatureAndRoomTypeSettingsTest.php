@@ -433,6 +433,42 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $this->assertLessThan($bedroom1, $kitchen, 'Kitchen sits before Bedroom in the default walking order');
     }
 
+    /**
+     * cc1's real find, testing live on property 5792: the original
+     * `/(\d+)/` grabbed the FIRST digit anywhere in the label, so a
+     * leftover test room "Bedroom CC1 Verify" collided with a real
+     * "Bedroom 1" — both resolved to the same sort_order, because the "1"
+     * inside "CC1" matched. Fixed by anchoring to the END of the label
+     * (`/(\d+)\s*$/`) — an incidental digit earlier in the label must never
+     * be read as the room's instance number. Not exotic: "Flat 2 Bedroom",
+     * a unit or floor number, any agency's own naming convention.
+     */
+    public function test_an_incidental_digit_earlier_in_the_label_is_never_read_as_the_room_number(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        $bedroom1 = RentalInspectionSetting::defaultRoomSortOrderFor($agency->id, 'Bedroom', 'Bedroom 1');
+        $ccVerify = RentalInspectionSetting::defaultRoomSortOrderFor($agency->id, 'Bedroom', 'Bedroom CC1 Verify');
+        $flatTwoBedroom = RentalInspectionSetting::defaultRoomSortOrderFor($agency->id, 'Bedroom', 'Flat 2 Bedroom');
+
+        $this->assertNotSame($bedroom1, $ccVerify, 'the "1" inside "CC1" must never collide with a real "Bedroom 1"');
+        // Neither label has a TRAILING number, so both must resolve to the
+        // same untrailing-numbered tiebreak (0) — distinguishing them from
+        // "Bedroom 1" is what matters, not distinguishing them from each other.
+        $this->assertSame($ccVerify, $flatTwoBedroom);
+    }
+
+    /** A trailing number after a letter (a real, plausible naming convention) still reads correctly. */
+    public function test_a_trailing_number_after_a_letter_is_still_read_as_the_room_number(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        $garageB1 = RentalInspectionSetting::defaultRoomSortOrderFor($agency->id, 'Garage', 'Garage B1');
+        $garageB2 = RentalInspectionSetting::defaultRoomSortOrderFor($agency->id, 'Garage', 'Garage B2');
+
+        $this->assertLessThan($garageB2, $garageB1);
+    }
+
     // ── Job Four: condition states — 2026-09-21, from Retha's real paper form ──
 
     public function test_default_condition_states_include_the_existing_six_and_na(): void
