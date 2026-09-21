@@ -8,7 +8,10 @@
 
 @section('content')
 <div class="p-6 max-w-2xl mx-auto space-y-4"
-     x-data="faultReportContactPicker('{{ route('corex.properties.contacts.search-global') }}')">
+     x-data="faultReportContactPicker('{{ route('corex.properties.contacts.search-global') }}', {
+        {{ \App\Models\RentalFaultReport::REPORTED_BY_TENANT }}: {{ Js::from($leaseTenants->map(fn ($c) => ['id' => $c->id, 'name' => trim($c->first_name.' '.$c->last_name)])) }},
+        {{ \App\Models\RentalFaultReport::REPORTED_BY_OWNER_INSTRUCTED }}: {{ Js::from($landlordContact ? [['id' => $landlordContact->id, 'name' => trim($landlordContact->first_name.' '.$landlordContact->last_name)]] : []) }}
+     })">
     <h1 class="text-lg font-semibold">Report a Fault</h1>
 
     <form method="POST" action="{{ route('corex.rental-fault-reports.store') }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
@@ -66,17 +69,32 @@
 
         <div x-show="reportedByType !== '{{ \App\Models\RentalFaultReport::REPORTED_BY_AGENT_NOTICED }}'" x-cloak>
             <label class="text-xs font-medium">Which contact reported it</label>
-            <input type="text" x-model="query" @input.debounce.300ms="search()" placeholder="Search contacts by name, phone, or email…"
-                   class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-            <div class="mt-1 rounded-md" style="border: 1px solid var(--border);" x-show="results.length > 0" x-cloak>
-                <template x-for="r in results" :key="r.id">
-                    <button type="button" @click="select(r)" class="block w-full text-left px-3 py-2 text-sm" style="border-bottom: 1px solid var(--border);" x-text="r.name + (r.email ? ' — ' + r.email : '')"></button>
+
+            {{-- Already known from the lease/property — the default, not a search. --}}
+            <div class="mt-1 text-sm rounded px-2 py-1.5" style="background: var(--surface-2);" x-show="selected && !searching" x-cloak>
+                <span x-text="selected?.name"></span>
+                <button type="button" @click="clearSelection()" class="text-xs ml-2" style="color: var(--brand-icon, #2563eb);">Not them? Search instead</button>
+            </div>
+
+            {{-- Joint tenancy — more than one tenant on the lease is a real choice, not a search. --}}
+            <div x-show="!searching && !selected && knownFor(reportedByType).length > 1" x-cloak class="mt-1 flex flex-wrap gap-2">
+                <template x-for="c in knownFor(reportedByType)" :key="c.id">
+                    <button type="button" @click="select(c)" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background: var(--surface-2); color: var(--text-primary);" x-text="c.name"></button>
                 </template>
             </div>
-            <div class="mt-2 text-sm rounded px-2 py-1" style="background: var(--surface-2);" x-show="selected" x-cloak>
-                <span x-text="selected?.name"></span>
-                <button type="button" @click="clearSelection()" class="text-xs ml-2" style="color: var(--ds-crimson);">Clear</button>
+
+            {{-- Nobody known for this role (e.g. no lease on file, or no landlord resolved) —
+                 falls back to exactly today's search, never worse than before. --}}
+            <div x-show="searching || (!selected && knownFor(reportedByType).length === 0)" x-cloak>
+                <input type="text" x-model="query" @input.debounce.300ms="search()" placeholder="Search contacts by name, phone, or email…"
+                       class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                <div class="mt-1 rounded-md" style="border: 1px solid var(--border);" x-show="results.length > 0" x-cloak>
+                    <template x-for="r in results" :key="r.id">
+                        <button type="button" @click="select(r)" class="block w-full text-left px-3 py-2 text-sm" style="border-bottom: 1px solid var(--border);" x-text="r.name + (r.email ? ' — ' + r.email : '')"></button>
+                    </template>
+                </div>
             </div>
+
             <input type="hidden" name="reported_by_contact_id" :value="selected?.id ?? ''">
         </div>
 
@@ -109,12 +127,33 @@
 </div>
 
 <script>
-function faultReportContactPicker(searchUrl) {
+function faultReportContactPicker(searchUrl, knownContactsByType) {
     return {
+        // Johan, 2026-09-21: the lease already knows the tenant, the
+        // property already knows the owner — default to that, don't make
+        // the agent search for someone we already have on file. Search
+        // stays available underneath for a genuine override.
+        knownContactsByType,
         reportedByType: '{{ \App\Models\RentalFaultReport::REPORTED_BY_TENANT }}',
         query: '',
         results: [],
         selected: null,
+        searching: false,
+        init() {
+            this.applyKnownDefault();
+            this.$watch('reportedByType', () => this.applyKnownDefault());
+        },
+        knownFor(type) { return this.knownContactsByType[type] || []; },
+        applyKnownDefault() {
+            this.selected = null;
+            this.searching = false;
+            const known = this.knownFor(this.reportedByType);
+            // Exactly one known contact for this role (the common case — one
+            // tenant, one landlord) — default straight to them. More than
+            // one (a joint tenancy) is a real choice, not a search; offer
+            // them as quick picks instead, handled in the template below.
+            if (known.length === 1) { this.selected = known[0]; }
+        },
         async search() {
             if (this.query.trim().length < 2) { this.results = []; return; }
             const url = new URL(searchUrl, window.location.origin);
@@ -129,11 +168,13 @@ function faultReportContactPicker(searchUrl) {
         },
         select(contact) {
             this.selected = contact;
+            this.searching = false;
             this.query = '';
             this.results = [];
         },
         clearSelection() {
             this.selected = null;
+            this.searching = true;
         },
     };
 }

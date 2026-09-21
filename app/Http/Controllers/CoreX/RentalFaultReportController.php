@@ -96,14 +96,26 @@ class RentalFaultReportController extends Controller
      * §3.2a/§6a — "Report a Fault" form, reachable from the property tab
      * (pre-filled property_id/lease_id) or the list screen's own "New" button.
      */
+    /**
+     * Johan, 2026-09-21: "the lease already knows the tenant and the
+     * property already knows the owner. Selecting 'tenant' should resolve
+     * the tenant from the lease, not open a contact search." leaseTenants/
+     * landlordContact are the known, already-on-file people this form
+     * defaults to; the free-text search stays available underneath for a
+     * genuine override (sublet, family member reporting on the tenant's
+     * behalf).
+     */
     public function create(Request $request): View
     {
         $property = $request->get('property_id') ? Property::findOrFail($request->get('property_id')) : null;
         $lease = $request->get('lease_id') ? Lease::findOrFail($request->get('lease_id')) : null;
+        $lease?->load('tenants.contact');
 
         return view('corex.rental-fault-reports.create', [
             'property' => $property,
             'lease' => $lease,
+            'leaseTenants' => $lease ? $lease->tenants->pluck('contact')->filter()->values() : collect(),
+            'landlordContact' => $property?->sellerOwnerContact(),
         ]);
     }
 
