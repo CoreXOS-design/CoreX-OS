@@ -25,7 +25,13 @@
         'declined' => ['label' => 'Declined', 'bg' => 'color-mix(in srgb, var(--ds-red, #dc2626) 14%, transparent)', 'fg' => 'var(--ds-red, #dc2626)'],
         'withdrawn' => ['label' => 'Withdrawn', 'bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)'],
     ];
-    $currentStatus = $rentalStatusLabels[$contact->rental_application_status] ?? $rentalStatusLabels['none'];
+    // Johan, 2026-09-21 — an approved-and-linked application reads as a
+    // further state, not just "Approved". $currentlyTenanted/$tenantedLabel
+    // (ContactController::show()) are computed live, never cached, so this
+    // can never drift the way rental_application_status's own cache did.
+    $currentStatus = $currentlyTenanted
+        ? ['label' => $tenantedLabel, 'bg' => 'color-mix(in srgb, var(--ds-green, #16a34a) 14%, transparent)', 'fg' => 'var(--ds-green, #16a34a)']
+        : ($rentalStatusLabels[$contact->rental_application_status] ?? $rentalStatusLabels['none']);
     // AT-392 — viewer-scoped (own/branch/agency, agency-configurable in
     // Role Manager, default agency-wide). $visibleRentalApplications is
     // now a real paginator (server-side search/filter/date-range already
@@ -152,9 +158,13 @@
                                 'withdrawn' => ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)'],
                             ];
                             $sc = $statusColors[$app->status] ?? ['bg' => 'color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent)', 'fg' => 'var(--ds-amber, #f59e0b)'];
+                            // Johan, 2026-09-21 — same further-state, same
+                            // agency-configurable label as the summary badge
+                            // above and the applications list/detail screen.
+                            $appTenanted = $app->isTenanted();
                         @endphp
                         <span class="text-[10px] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap" style="background:{{ $sc['bg'] }}; color:{{ $sc['fg'] }};">
-                            {{ str_replace('_', ' ', $app->status) }}
+                            {{ $appTenanted ? $app->tenantedLabel() : str_replace('_', ' ', $app->status) }}
                         </span>
                     </div>
                 </div>

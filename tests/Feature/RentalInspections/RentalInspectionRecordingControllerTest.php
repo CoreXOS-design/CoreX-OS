@@ -8,11 +8,13 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Lease;
 use App\Models\Property;
+use App\Models\PropertyRoom;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionDiscrepancy;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
 use App\Models\RentalInspectionPhoto;
+use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -92,15 +94,227 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
     // ── Items ────────────────────────────────────────────────────────
 
-    public function test_agent_can_add_an_item_to_the_property(): void
+    public function test_agent_can_add_a_meter_item_to_the_property(): void
     {
         $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
-            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Geyser cupboard',
+            'kind' => RentalInspectionItem::KIND_METER, 'label' => 'Water meter',
         ])->assertOk();
 
         $this->assertDatabaseHas('rental_inspection_items', [
-            'property_id' => $this->property->id, 'label' => 'Geyser cupboard', 'agency_id' => $this->agency->id,
+            'property_id' => $this->property->id, 'label' => 'Water meter', 'agency_id' => $this->agency->id,
         ]);
+        $this->assertSame(0, PropertyRoom::where('property_id', $this->property->id)->count());
+    }
+
+    /**
+     * AT-current (2026-09-21) — root cause: this manual add path never
+     * carried a space_type, so RentalInspectionSetting::roomTypeItemsFor()
+     * was never reachable and a manually-added space got zero checklist
+     * items. This is THE regression test for that fix.
+     */
+    public function test_adding_a_space_without_a_room_type_is_rejected(): void
+    {
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Bedroom 2',
+        ])->assertStatus(422);
+    }
+
+    public function test_adding_a_space_with_an_unrecognised_room_type_is_rejected(): void
+    {
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Bedroom 2', 'space_type' => 'Made Up Room',
+        ])->assertStatus(422);
+    }
+
+    public function test_adding_a_space_with_a_room_type_creates_a_real_room_and_seeds_its_checklist(): void
+    {
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Bedroom 2', 'space_type' => 'Bedroom',
+        ])->assertOk();
+
+        $room = PropertyRoom::where('property_id', $this->property->id)->where('label', 'Bedroom 2')->first();
+        $this->assertNotNull($room, 'a real PropertyRoom must be created for a manually-added space');
+        $this->assertSame('Bedroom', $room->type);
+
+        $items = RentalInspectionItem::where('property_room_id', $room->id)->pluck('label')->all();
+        $this->assertEqualsCanonicalizing(['Ceiling', 'Walls', 'Floors', 'Windows', 'Doors'], $items);
+    }
+
+    /**
+     * The actual complaint from the field: an agency configures its own
+     * checklist for a room type on /corex/settings/rental-inspections, and
+     * the manual add path must pull those defaults through, not the
+     * generic baseline — exactly what was unreachable before this fix.
+     */
+    public function test_adding_a_space_pulls_the_agencys_own_configured_room_type_defaults(): void
+    {
+        RentalInspectionSetting::create([
+            'agency_id' => $this->agency->id,
+            'room_type_item_defaults' => ['Bedroom' => ['Built-in Cupboard', 'Aircon']],
+        ]);
+
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Bedroom 1', 'space_type' => 'Bedroom',
+        ])->assertOk();
+
+        $room = PropertyRoom::where('property_id', $this->property->id)->where('label', 'Bedroom 1')->first();
+        $items = RentalInspectionItem::where('property_room_id', $room->id)->pluck('label')->all();
+        $this->assertEqualsCanonicalizing(['Built-in Cupboard', 'Aircon'], $items);
+    }
+
+    public function test_assigning_a_room_type_to_a_legacy_typeless_space_creates_a_room_and_retires_the_old_item(): void
+    {
+        $legacy = $this->makeItem(); // kind=space, no property_room_id, no space_type — the pre-fix shape
+
+        $this->postJson(
+            route('corex.properties.rental-inspection-items.assign-type', [$this->property, $legacy]),
+            ['space_type' => 'Bedroom']
+        )->assertOk();
+
+        $this->assertTrue($legacy->fresh()->is_retired, 'the legacy item must be retired, never deleted (§3.3)');
+        $this->assertNull($legacy->fresh()->property_room_id, 'the legacy item itself is left untouched, preserving any observation history');
+
+        $room = PropertyRoom::where('property_id', $this->property->id)->where('label', $legacy->label)->first();
+        $this->assertNotNull($room);
+        $this->assertSame('Bedroom', $room->type);
+        $this->assertSame(5, RentalInspectionItem::where('property_room_id', $room->id)->count());
+    }
+
+    public function test_assign_type_is_refused_for_an_item_that_already_has_a_room(): void
+    {
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Bedroom 1', 'space_type' => 'Bedroom',
+        ])->assertOk();
+        $typedItem = RentalInspectionItem::where('space_type', 'Bedroom')->first();
+
+        $this->postJson(
+            route('corex.properties.rental-inspection-items.assign-type', [$this->property, $typedItem]),
+            ['space_type' => 'Kitchen']
+        )->assertStatus(422);
+    }
+
+    public function test_assign_type_is_refused_for_a_meter(): void
+    {
+        $meter = RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'kind' => RentalInspectionItem::KIND_METER, 'label' => 'Water meter', 'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->postJson(
+            route('corex.properties.rental-inspection-items.assign-type', [$this->property, $meter]),
+            ['space_type' => 'Bedroom']
+        )->assertStatus(422);
+    }
+
+    // ── Room walking order — 2026-09-21, Johan on property 5792 ────────
+
+    public function test_adding_a_space_gets_a_sort_order_from_the_walking_order_not_creation_order(): void
+    {
+        // Kitchen sits earlier than Bedroom in DEFAULT_ROOM_TYPE_WALKING_ORDER,
+        // so adding it SECOND must still sort BEFORE the bedroom added first —
+        // proving sort_order comes from the walking order, not from an
+        // append-to-the-end counter.
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Bedroom 1', 'space_type' => 'Bedroom',
+        ])->assertOk();
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Kitchen', 'space_type' => 'Kitchen',
+        ])->assertOk();
+
+        $bedroom = PropertyRoom::where('property_id', $this->property->id)->where('type', 'Bedroom')->first();
+        $kitchen = PropertyRoom::where('property_id', $this->property->id)->where('type', 'Kitchen')->first();
+
+        $this->assertLessThan($bedroom->sort_order, $kitchen->sort_order);
+    }
+
+    public function test_bedrooms_sort_naturally_by_number_not_alphabetically(): void
+    {
+        foreach (['Bedroom 10', 'Bedroom 2', 'Bedroom 1'] as $label) {
+            $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+                'kind' => RentalInspectionItem::KIND_SPACE, 'label' => $label, 'space_type' => 'Bedroom',
+            ])->assertOk();
+        }
+
+        $labelsInOrder = PropertyRoom::where('property_id', $this->property->id)
+            ->orderBy('sort_order')->pluck('label')->all();
+
+        // Natural-numeric: 1, 2, 10 — never alphabetical (which would give 1, 10, 2).
+        $this->assertSame(['Bedroom 1', 'Bedroom 2', 'Bedroom 10'], $labelsInOrder);
+    }
+
+    public function test_apply_default_room_order_recomputes_existing_rooms_without_touching_items(): void
+    {
+        // Simulate pre-fix creation-order rooms — Kitchen created first
+        // (sort_order 0) even though it should walk before Bedroom by type,
+        // and a Bedroom created second (sort_order 1) sitting "wrong" already
+        // by luck. Use a case where creation order actively disagrees with
+        // the walking order: Bedroom first, then Kitchen.
+        $bedroom = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom 1', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $kitchen = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Kitchen', 'label' => 'Kitchen', 'source' => 'manual', 'sort_order' => 1,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id, 'property_room_id' => $bedroom->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Ceiling', 'space_type' => 'Bedroom',
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->postJson(route('corex.properties.rental-inspection-rooms.apply-default-order', $this->property))
+            ->assertOk();
+
+        // Kitchen walks before Bedroom in the default order — apply-default-order
+        // must flip their relative sort_order.
+        $this->assertLessThan($bedroom->fresh()->sort_order, $kitchen->fresh()->sort_order);
+        $this->assertDatabaseHas('rental_inspection_items', ['id' => RentalInspectionItem::first()->id, 'label' => 'Ceiling']);
+    }
+
+    public function test_reorder_rooms_persists_the_agents_own_chosen_order(): void
+    {
+        $roomA = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom A', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $roomB = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom B', 'source' => 'manual', 'sort_order' => 1,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        // Agent moves B above A, against the walking order's own natural read.
+        $this->postJson(route('corex.properties.rental-inspection-rooms.reorder', $this->property), [
+            'room_ids' => [$roomB->id, $roomA->id],
+        ])->assertOk();
+
+        $this->assertLessThan($roomA->fresh()->sort_order, $roomB->fresh()->sort_order);
+    }
+
+    public function test_reorder_rejects_a_room_id_from_a_different_property(): void
+    {
+        $room = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom A', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $foreignRoom = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $otherProperty->id,
+            'type' => 'Kitchen', 'label' => 'Kitchen', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->postJson(route('corex.properties.rental-inspection-rooms.reorder', $this->property), [
+            'room_ids' => [$room->id, $foreignRoom->id],
+        ])->assertStatus(422);
     }
 
     public function test_retiring_an_item_from_a_different_property_404s(): void

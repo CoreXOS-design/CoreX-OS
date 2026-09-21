@@ -69,18 +69,81 @@ class RentalInspectionSetting extends Model
     /**
      * Johan, 2026-09-20: "we should have a setting somewhere on rentals that
      * defines room types and what gets added - ceiling, walls, floors,
-     * windows, doors - that should be a std." Agreed with cc4 (owns the
-     * seeder that consumes this): ship this exact baseline IDENTICALLY for
-     * every space type rather than guess per-type variations ("if its a
-     * patio as example there are still things to check" — the agency edits
-     * a type down from here if it doesn't apply, the system never guesses
-     * it away first). Keyed on config('property-spaces.all_space_types')'s
-     * own strings — never duplicated here as a separate hardcoded list —
-     * built at read time in roomTypeItemDefaultsFor() below, not stored as
-     * a static array, so a future addition to that config is covered
-     * automatically without a migration.
+     * windows, doors - that should be a std." The generic fallback for any
+     * space type below that isn't in DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE — a
+     * type Retha's real vocabulary doesn't cover, or a future addition to
+     * config('property-spaces.all_space_types') this constant never has to
+     * be updated for.
      */
     public const DEFAULT_ROOM_TYPE_ITEMS = ['Ceiling', 'Walls', 'Floors', 'Windows', 'Doors'];
+
+    /**
+     * 2026-09-21, conductor (transcribed from Retha's real inspection form) —
+     * "we are seeding a skeleton and calling it a checklist" once actual
+     * agent numbers showed under 6 items/room against her real 18-line
+     * kitchen. These are the SYSTEM default for these five types — used
+     * only where an agency has not configured its own list for that type
+     * (roomTypeItemDefaultsFor()'s array_merge always lets an agency's own
+     * customRoomTypeOverridesFor() entry win outright, unchanged by this).
+     * Transcribed exactly as given, not assumed to be a superset of the
+     * generic baseline above — her Bedroom has no separate Floors/Windows/
+     * Doors lines at all, so it genuinely doesn't get them here either.
+     */
+    public const DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE = [
+        'Kitchen' => [
+            'Walls', 'Ceiling', 'Ceiling Fans', 'Aircon', 'Light Fittings', 'Light Switches',
+            'Carpet', 'Tiles', 'Blinds', 'Curtain Rails', 'Plug Sockets', 'Stoves',
+            'Stove Plates', 'Oven', 'Tops', 'Hinges', 'Cupboard Doors', 'Door Frames',
+        ],
+        'Bathroom' => [
+            'Ceiling', 'Extractor Fan', 'Walls', 'Tiles', 'Light Fittings', 'Light Switches',
+            'Bath', 'Shower', 'Basin', 'Toilet', 'Taps', 'Towel Rails', 'Blinds',
+            'Curtain Rails', 'Door',
+        ],
+        'Bedroom' => [
+            'Walls', 'Ceilings', 'Ceiling Fans', 'Aircon', 'Light Fittings', 'Light Switches',
+            'Carpet', 'Tiles', 'Blinds', 'Curtain Rails', 'Plug Sockets', 'Cupboard Doors',
+            'Hinges', 'Mirror',
+        ],
+        'Garage' => ['Ceiling', 'Doors', 'Floors', 'Lights', 'Light Fittings', 'Walls', 'Windows'],
+        'Yard' => ['Fences and Gates', 'Retaining Wall', 'Garden', 'Gutters', 'Downspouts', 'Roof'],
+    ];
+
+    /**
+     * Johan, 2026-09-21, property 5792: rooms rendered in creation order —
+     * "no logical way to line up the rooms as the inspection goes" —
+     * despite rooms now carrying a real type (the room-type picker fix).
+     * A sensible DEFAULT is a walking order by type: entrance/reception,
+     * living/social, kitchen/domestic, bedrooms/private, bathrooms,
+     * outside/leisure, then utility/storage/vehicle. Agency-configurable
+     * (§16.4, `/corex/settings/rental-inspections`) — this is a starting
+     * point for every new agency, never a single order forced on all of
+     * them.
+     *
+     * Verified to cover config('property-spaces.all_space_types') exactly —
+     * every one of its 50 types appears here once, no gaps, no extras — so
+     * roomTypeWalkingOrderFor() never has to guess a fallback position for
+     * a type this constant simply forgot.
+     */
+    public const DEFAULT_ROOM_TYPE_WALKING_ORDER = [
+        // Entrance & Reception
+        'Entrance Hall', 'Reception Room',
+        // Living & Social
+        'Lounge', 'TV Room', 'Dining Room', 'Bar', 'Boardroom', 'Braai Room', 'Lapa',
+        // Kitchen & Domestic
+        'Kitchen', 'Scullery', 'Laundry Room', 'Domestic Room', 'Domestic Bathroom', 'Linen Room',
+        // Bedrooms & Private
+        'Bedroom', 'Study', 'Office', 'Loft', 'Flatlet',
+        // Bathrooms
+        'Bathroom', 'Outside Toilet',
+        // Outside & Leisure
+        'Garden', 'Pool', 'Pool Shed', 'Jacuzzi', 'Patio', 'Veranda', 'Courtyard', 'Gazebo',
+        'Greenhouse', 'Sauna', 'Gym', 'Squash Court', 'Tennis Court', 'Clubhouse', 'Boat Launch',
+        'Boathouse', 'Jetty', 'Wendy House',
+        // Utility, Storage & Vehicle
+        'Garage', 'Parking', 'Storeroom', 'Shed', 'Workshop', 'Cellar', 'Stable',
+        'Changing Room', 'Studio', 'Yard',
+    ];
 
     protected $fillable = [
         'agency_id',
@@ -89,6 +152,7 @@ class RentalInspectionSetting extends Model
         'refusal_reason_presets',
         'inspection_feature_labels',
         'room_type_item_defaults',
+        'room_type_walking_order',
     ];
 
     protected $casts = [
@@ -97,6 +161,7 @@ class RentalInspectionSetting extends Model
         'refusal_reason_presets' => 'array',
         'inspection_feature_labels' => 'array',
         'room_type_item_defaults' => 'array',
+        'room_type_walking_order' => 'array',
     ];
 
     public static function faultReportWindowDaysFor(?int $agencyId): int
@@ -209,7 +274,7 @@ class RentalInspectionSetting extends Model
 
         $defaults = [];
         foreach (config('property-spaces.all_space_types', []) as $type) {
-            $defaults[$type] = self::DEFAULT_ROOM_TYPE_ITEMS;
+            $defaults[$type] = self::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
         }
 
         return array_merge($defaults, $overrides);
@@ -230,5 +295,82 @@ class RentalInspectionSetting extends Model
         $defaults = self::roomTypeItemDefaultsFor($agencyId);
 
         return $defaults[$spaceType] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
+    }
+
+    /**
+     * The agency's own room-type walking order — every space type, in the
+     * order an inspector should walk them. Read-time default pattern like
+     * every other resolver here: an agency that hasn't customized this
+     * gets DEFAULT_ROOM_TYPE_WALKING_ORDER outright, never a partial or
+     * empty list.
+     *
+     * A saved order can go stale in two directions as the catalog changes
+     * over time: a type the agency ordered that the catalog has since
+     * dropped is silently excluded (array_intersect — never sorts by a
+     * type that no longer exists), and a type the catalog gained after the
+     * agency last saved is appended, in the DEFAULT order's own relative
+     * position, rather than left with no position to sort by at all.
+     *
+     * @return array<int, string>
+     */
+    public static function roomTypeWalkingOrderFor(?int $agencyId): array
+    {
+        $order = null;
+        if ($agencyId) {
+            $order = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('room_type_walking_order');
+            $order = is_string($order) ? json_decode($order, true) : $order;
+        }
+        $order = is_array($order) && $order !== [] ? $order : self::DEFAULT_ROOM_TYPE_WALKING_ORDER;
+
+        $catalog = config('property-spaces.all_space_types', []);
+        $order = array_values(array_intersect($order, $catalog));
+
+        $missing = array_values(array_diff($catalog, $order));
+        if ($missing !== []) {
+            $defaultMissing = array_values(array_intersect(self::DEFAULT_ROOM_TYPE_WALKING_ORDER, $missing));
+            $order = array_merge($order, $defaultMissing);
+        }
+
+        return $order;
+    }
+
+    /**
+     * Where a room of this $type sits in the agency's walking order. A
+     * type absent even after roomTypeWalkingOrderFor()'s own catalog
+     * reconciliation (shouldn't happen given a real PropertyRoom.type, but
+     * defends against a hand-edited/legacy value) sorts last rather than
+     * throwing.
+     */
+    public static function roomTypeWalkingPositionFor(?int $agencyId, string $type): int
+    {
+        $order = self::roomTypeWalkingOrderFor($agencyId);
+        $position = array_search($type, $order, true);
+
+        return $position === false ? count($order) : $position;
+    }
+
+    /**
+     * A room's default sort_order: its type's walking-order position,
+     * combined with a natural-numeric read of its own label ("Bedroom 2"
+     * -> 2) as a tiebreak among same-type rooms — Johan: "natural-numeric,
+     * NOT alphabetical: alphabetical gives 1, 10, 2." No sibling-room query
+     * needed; the tiebreak comes only from this room's own label text.
+     *
+     * The numeric tiebreak is cosmetic ordering only, clamped to 0-999 and
+     * never persisted as the room's identity or its `type` — a room with
+     * no number in its label (e.g. bare "Study") sorts first within its
+     * type, which reads correctly for the common case of a single
+     * instance of that type.
+     */
+    public static function defaultRoomSortOrderFor(?int $agencyId, string $type, string $label): int
+    {
+        $position = self::roomTypeWalkingPositionFor($agencyId, $type);
+
+        $numeric = 0;
+        if (preg_match('/(\d+)/', $label, $matches)) {
+            $numeric = min((int) $matches[1], 999);
+        }
+
+        return ($position * 1000) + $numeric;
     }
 }

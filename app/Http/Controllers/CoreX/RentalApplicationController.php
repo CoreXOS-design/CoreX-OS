@@ -183,10 +183,17 @@ class RentalApplicationController extends Controller
                 ->count();
         }
 
+        // Johan, 2026-09-21 — the ONE agency-configurable label, resolved
+        // once here and used identically wherever this state is shown
+        // (this list's tile, the application detail screen, the contact
+        // record) — RentalApplicationQualifyingSetting::tenantedLabelFor()'s
+        // own docblock has the full reasoning.
+        $tenantedLabel = \App\Models\RentalApplicationQualifyingSetting::tenantedLabelFor($user->effectiveAgencyId());
+
         return view('corex.rental-applications.index', compact(
             'applications', 'archived', 'canSeeBranch', 'canSeeAgency', 'perPage',
             'tile', 'counts', 'isAuthoriser', 'authorisationQueueCount', 'canViewReturned',
-            'resolvedScope', 'scopeOptions',
+            'resolvedScope', 'scopeOptions', 'tenantedLabel',
         ));
     }
 
@@ -218,6 +225,20 @@ class RentalApplicationController extends Controller
         'under_assessment' => ['label' => 'Under Assessment', 'statuses' => ['under_assessment'], 'submitted_for_approval' => false],
         'sent_for_authorisation' => ['label' => 'Sent for Authorisation', 'statuses' => ['under_assessment'], 'submitted_for_approval' => true],
         'approved' => ['label' => 'Approved', 'statuses' => ['approved'], 'submitted_for_approval' => null],
+        // Johan, from his own live walk, 2026-09-21 — an approved
+        // application linked to an active lease is a further state, not a
+        // status competing with 'approved' (RentalApplication::isTenanted()'s
+        // own docblock has the full reasoning). Same underlying status set
+        // as 'approved' above, filtered further by applyTileFilter()'s
+        // 'tenanted' branch — and 'approved' itself now EXCLUDES these rows
+        // (see applyTileFilter()) so a row reads as exactly one of the two,
+        // never both: Johan's own instruction that an agent seeing
+        // "approved" in one place and "tenant" in another is worse than
+        // either alone. 'label' here is a placeholder only — the real,
+        // agency-configurable wording (RentalApplicationQualifyingSetting::
+        // tenantedLabelFor()) is resolved in the view, same pattern
+        // $tileLabels there already uses for every other tile's text.
+        'tenanted' => ['label' => 'Rented Out', 'statuses' => ['approved'], 'submitted_for_approval' => null, 'tenanted' => true],
         'declined' => ['label' => 'Declined', 'statuses' => ['declined'], 'submitted_for_approval' => null],
         'withdrawn' => ['label' => 'Withdrawn', 'statuses' => ['withdrawn'], 'submitted_for_approval' => null],
         'reopened' => ['label' => 'Reopened', 'statuses' => ['reopened'], 'submitted_for_approval' => null],
@@ -256,7 +277,7 @@ class RentalApplicationController extends Controller
     public const RETURNED_STATUSES = ['returned', 'reopened', 'under_assessment', 'approved', 'declined'];
 
     /** Tile keys that surface any of RETURNED_STATUSES — hidden/redirected away for a user lacking view_returned. */
-    public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'reopened', 'fica_waiting_applicant', 'fica_waiting_us'];
+    public const VIEW_RETURNED_TILES = ['returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'tenanted', 'declined', 'reopened', 'fica_waiting_applicant', 'fica_waiting_us'];
 
     /**
      * REGRESSION FIX (2026-09-11) — merging index()/returned() into one list
@@ -297,6 +318,23 @@ class RentalApplicationController extends Controller
                     });
             });
             $this->applyFicaBucketFilter($query, $def['fica_bucket']);
+
+            return;
+        }
+        // Johan, 2026-09-21 — an approved application linked to an active
+        // lease belongs to the 'tenanted' tile, not 'approved'. The two are
+        // deliberately mutually exclusive (unlike the FICA pair above,
+        // which double-count on purpose) — see the 'tenanted' entry's own
+        // docblock in TILES.
+        if (! empty($def['tenanted'])) {
+            $query->whereIn('rental_applications.status', $def['statuses'])
+                ->whereHas('activeLease');
+
+            return;
+        }
+        if ($tile === 'approved') {
+            $query->whereIn('rental_applications.status', $def['statuses'])
+                ->whereDoesntHave('activeLease');
 
             return;
         }
@@ -1525,6 +1563,9 @@ class RentalApplicationController extends Controller
         }
         if ($application->status === 'under_assessment') {
             return $application->submitted_for_approval_at ? 'sent_for_authorisation' : 'under_assessment';
+        }
+        if ($application->status === 'approved' && $application->isTenanted()) {
+            return 'tenanted';
         }
 
         return $application->status;

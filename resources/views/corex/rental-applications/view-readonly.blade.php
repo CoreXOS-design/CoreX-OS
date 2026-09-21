@@ -46,7 +46,7 @@
                     {{ $rentalApplication->contact->full_name ?? 'Rental Application' }}
                 </h1>
                 <span class="ds-badge ds-badge-info">
-                    {{ \App\Models\RentalApplication::displayStatusLabel($rentalApplication->status) }} — read-only, as submitted and signed
+                    {{ $rentalApplication->displayStatusLabel() }} — read-only, as submitted and signed
                 </span>
                 {{-- cc4 walk, finding 5, 2026-09-13 — the approved amount was
                      saved but never surfaced anywhere an agent's eye actually
@@ -167,7 +167,7 @@
         </form>
         @include('corex.rental-applications._record-withdrawn', ['application' => $rentalApplication])
         @else
-            <span class="ds-badge ds-badge-info">{{ \App\Models\RentalApplication::displayStatusLabel($rentalApplication->status) }}</span>
+            <span class="ds-badge ds-badge-info">{{ $rentalApplication->displayStatusLabel() }}</span>
         @endif
 
         @if($rentalApplication->status === 'approved')
