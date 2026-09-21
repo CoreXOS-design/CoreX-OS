@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -127,10 +128,27 @@ class RentalApplication extends Model
      */
     public const WITHDRAWN_LABEL = 'Applicant withdrawn';
 
-    /** The one place a status's plain-language display label diverges from a simple str_replace('_', ' ', $status). */
-    public static function displayStatusLabel(string $status): string
+    /**
+     * The one place a status's plain-language display label is decided —
+     * every status badge on every rental-application screen calls this,
+     * never re-derives its own text. Converted from a static
+     * string-in-string-out helper to an instance method 2026-09-21 (Johan,
+     * from his own live walk) specifically so it can check isTenanted():
+     * an approved application linked to an active lease is a further
+     * state, not a new status, and this is the single place that further
+     * state has to be reflected for every one of its callers to stay in
+     * sync automatically — the bug this exists to prevent is exactly what
+     * was found building this: the list's tile said "tenanted" while this
+     * SAME application's own status badge, driven by a different, un-
+     * updated call site, still said "approved" two clicks later.
+     */
+    public function displayStatusLabel(): string
     {
-        return $status === 'withdrawn' ? self::WITHDRAWN_LABEL : str_replace('_', ' ', ucfirst($status));
+        if ($this->isTenanted()) {
+            return $this->tenantedLabel();
+        }
+
+        return $this->status === 'withdrawn' ? self::WITHDRAWN_LABEL : str_replace('_', ' ', ucfirst($this->status));
     }
 
     /** Statuses at/after which a hand-set judgement call makes sense. */
@@ -1036,6 +1054,44 @@ class RentalApplication extends Model
     public function documents(): HasMany
     {
         return $this->hasMany(Document::class, 'source_id')->where('source_type', 'rental_application');
+    }
+
+    /**
+     * Johan, from his own live walk, 2026-09-21 — an approved application
+     * linked to a property and a lease still read as merely "Approved"
+     * everywhere. The fact already exists in the data (Lease::
+     * rental_application_id); nothing new needed inventing there.
+     *
+     * Deliberately NOT a new value on `status` — approved is the decision,
+     * made once, and every historical field_config_snapshot/generation
+     * record this whole module builds on depends on a past decision never
+     * being reinterpreted by a later, unrelated fact. This is a further
+     * state the application has reached, derived fresh from Lease.status
+     * every time it's asked, never cached, never a flag that has to be
+     * remembered and cleared — which is exactly how the module got here:
+     * Contact::rental_application_status IS a cache (RecomputeRental
+     * ApplicationStatus), and nothing tells it a lease happened, so it
+     * never moves off "approved". Deriving live means a lease ending,
+     * being cancelled, or a tenant being replaced (Lease::previous_lease_id/
+     * renewed_lease_id — a new lease, new row, own status) all correctly
+     * fall back out of "tenanted" the moment Lease.status leaves 'active',
+     * with nothing to unset by hand anywhere.
+     */
+    public function activeLease(): HasOne
+    {
+        return $this->hasOne(Lease::class, 'rental_application_id')->where('status', Lease::STATUS_ACTIVE);
+    }
+
+    /** True only for an approved application currently linked to an active lease — see activeLease(). */
+    public function isTenanted(): bool
+    {
+        return $this->status === 'approved' && $this->activeLease()->exists();
+    }
+
+    /** The one agency-configurable label used identically everywhere this state is shown. */
+    public function tenantedLabel(): string
+    {
+        return \App\Models\RentalApplicationQualifyingSetting::tenantedLabelFor($this->agency_id);
     }
 
     /**

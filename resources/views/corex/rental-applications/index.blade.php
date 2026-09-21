@@ -35,6 +35,11 @@
         'under_assessment' => 'Under Assessment',
         'sent_for_authorisation' => 'Sent for Authorisation',
         'approved' => 'Approved',
+        // Johan, 2026-09-21 — the one agency-configurable label
+        // (RentalApplicationQualifyingSetting::tenantedLabelFor(), resolved
+        // by the controller into $tenantedLabel), used identically here,
+        // on the application detail screen, and on the contact record.
+        'tenanted' => $tenantedLabel,
         'declined' => 'Declined',
         // 2026-09-13 — Johan: the bare word read as if the applicant acted
         // for themselves; matches the control's own rename below and
@@ -70,7 +75,7 @@
     // also excludes the underlying rows — this is belt-and-braces, not the
     // only guard).
     $primaryTiles = $canViewReturned
-        ? ['all', 'not_yet_submitted', 'returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'declined', 'fica_waiting_applicant', 'fica_waiting_us']
+        ? ['all', 'not_yet_submitted', 'returned', 'under_assessment', 'sent_for_authorisation', 'approved', 'tenanted', 'declined', 'fica_waiting_applicant', 'fica_waiting_us']
         : ['all', 'not_yet_submitted'];
     $secondaryTiles = $canViewReturned ? ['withdrawn', 'reopened'] : ['withdrawn'];
     // The two FICA tiles are a pair, not a random pair of adjacent
@@ -90,6 +95,7 @@
         'under_assessment' => 'Nothing currently with an agent for assessment.',
         'sent_for_authorisation' => 'Nothing currently sitting with the authoriser.',
         'approved' => 'No approved applications yet.',
+        'tenanted' => "No applications where the tenant has actually moved in yet — link an approved applicant to a property and lease and it'll show here.",
         'declined' => 'No declined applications.',
         'withdrawn' => 'No withdrawn applications.',
         'reopened' => 'No reopened applications right now.',
@@ -311,13 +317,13 @@
                             @elseif($application->status === 'approved' && ! $application->applicant_notified_at)
                                 <span class="ds-badge" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b); font-weight:600;">Approved — ready to send</span>
                             @else
-                                <span class="ds-badge {{ $application->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">{{ \App\Models\RentalApplication::displayStatusLabel($application->status) }}</span>
+                                <span class="ds-badge {{ $application->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">{{ $application->displayStatusLabel() }}</span>
                             @endif
                         @else
                             @if($application->status === 'approved' && ! $application->applicant_notified_at)
                                 <span class="ds-badge" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent); color:var(--ds-amber, #f59e0b); font-weight:600;">Approved — ready to send</span>
                             @else
-                                <span class="ds-badge {{ $application->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">{{ \App\Models\RentalApplication::displayStatusLabel($application->status) }}</span>
+                                <span class="ds-badge {{ $application->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">{{ $application->displayStatusLabel() }}</span>
                             @endif
                         @endpermission
                         {{-- AT-402 — the under_assessment split, visible even in
