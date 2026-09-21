@@ -4492,8 +4492,27 @@
                     seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
                     // Base for the inspection-scoped actions below — each one appends
-                    // /{id}/... itself, since which inspection is "current" changes at
+                    // /{id}/... itself, since which inspection is current changes at
                     // runtime (a new one can be started without a page reload).
+                    //
+                    // 2026-09-21 — this whole x-data value lives inside an HTML
+                    // attribute delimited by double-quote characters. A LITERAL
+                    // double-quote anywhere in this block, no matter how deeply
+                    // nested in a comment, ends the attribute right there as far
+                    // as the browser's HTML parser is concerned — long before
+                    // Alpine, Blade, or PHP ever get a say. This comment used to
+                    // wrap the word current in a pair of literal double-quotes
+                    // for emphasis; that single character silently truncated the
+                    // entire rentalImages() config, so every binding in this
+                    // component threw ReferenceError in every real browser for as
+                    // long as that comment existed. Every server-side check
+                    // (view:clear, route:list, a raw HTTP fetch, even executing
+                    // the extracted JS through Node) passed regardless, because
+                    // none of them re-parse the response as HTML the way a
+                    // browser does — only an actual browser console caught it.
+                    // Rule going forward: never a literal double-quote character
+                    // anywhere between this attribute's own opening and closing
+                    // quote — use single quotes or plain words instead.
                     inspectionsBase: '{{ url('/corex/rental-inspections') }}'
                 },
                 inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }}
