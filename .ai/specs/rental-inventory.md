@@ -244,7 +244,20 @@ rental-inspections`, for the same unlanded-branch-collision reason as §8.1), ga
 `rental_inventories.manage_settings` permission, linked from the main Settings index alongside every
 other rental_* settings page.
 
----
+### 8.4 NOT in the Setup Wizard — flagged, not silently decided (2026-10-01, cc1's catch)
+
+`disposition_presets` does not appear in `config/agency-onboarding-copy.php`, and this spec did not
+originally record an explicit ruling either way — an omission caught by cc1 during landing, not decided
+here. CLAUDE.md non-negotiable #10a requires either the wizard entry or an explicit, Johan-approved
+"deliberately NOT in the wizard" line — silence is not a legitimate third option.
+
+The likely-correct answer, stated plainly so it isn't mistaken for the actual ruling: `disposition_presets`
+is a repeater/list control, architecturally identical in shape to `refusal_reason_presets`
+(`rental-inspections.md` §15.6), which already carries exactly this exemption — *"editable here, NOT in
+the Setup Wizard: the wizard's generic control types (number/select/text/textarea/toggle) have no
+repeater/list type, and building one is out of scope."* The same constraint almost certainly applies here.
+**But this is Johan's call to make explicit, not this spec's to assume** — recorded as open, per cc1's
+flag to the conductor, until he rules on it.
 
 ## 9. Files
 
