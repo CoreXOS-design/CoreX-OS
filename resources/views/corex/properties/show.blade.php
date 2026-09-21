@@ -4213,8 +4213,11 @@
                         <label class="prop-label">Lease Type</label>
                         <select name="lease_type" form="prop-update-form" class="prop-select prop-field-enum">
                             <option value="">— Select —</option>
-                            @foreach(['N Triple Net', 'Gross', 'Modified Gross', 'Percentage'] as $lt)
-                                <option value="{{ $lt }}" {{ old('lease_type', $property->lease_type) === $lt ? 'selected' : '' }}>{{ $lt }}</option>
+                            {{-- .ai/specs/rental-property-tab.md §5, Part 4 — agency-editable
+                                 list, was a hardcoded array (including "N Triple Net", never
+                                 matched anywhere else). Same list feeds the lease screens. --}}
+                            @foreach($settingItems['leaseTypes'] ?? [] as $lt)
+                                <option value="{{ $lt->name }}" {{ old('lease_type', $property->lease_type) === $lt->name ? 'selected' : '' }}>{{ $lt->name }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -4414,8 +4417,11 @@
                             <label class="prop-label">Lease Type</label>
                             <select name="lease_type" class="prop-select prop-field-enum">
                                 <option value="">— Select —</option>
-                                @foreach(['N Triple Net', 'Gross', 'Modified Gross', 'Percentage'] as $lt)
-                                    <option value="{{ $lt }}" {{ old('lease_type', $property->lease_type) === $lt ? 'selected' : '' }}>{{ $lt }}</option>
+                                {{-- .ai/specs/rental-property-tab.md §5, Part 4 — agency-editable
+                                     list, was a hardcoded array (including "N Triple Net", never
+                                     matched anywhere else). Same list feeds the lease screens. --}}
+                                @foreach($settingItems['leaseTypes'] ?? [] as $lt)
+                                    <option value="{{ $lt->name }}" {{ old('lease_type', $property->lease_type) === $lt->name ? 'selected' : '' }}>{{ $lt->name }}</option>
                                 @endforeach
                             </select>
                         </div>

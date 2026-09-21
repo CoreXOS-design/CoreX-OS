@@ -2244,6 +2244,13 @@
                     ['key' => 'condition_level', 'label' => 'Condition Levels',  'items' => $propConditionLevels ?? collect(), 'placeholder' => 'e.g. To Renovate, Excellent'],
                     // AT-402 — Rental tab's Furnished Status list.
                     ['key' => 'furnished_status', 'label' => 'Furnished Status', 'items' => $propFurnishedStatuses ?? collect(), 'placeholder' => 'e.g. Unfurnished, Furnished, Part-Furnished'],
+                    // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type
+                    // select. Gap fixed in Part 4: this section was missing entirely, so an
+                    // agency had no way to actually edit the list the dropdown reads from.
+                    ['key' => 'rental_price_type', 'label' => 'Rental Price Type', 'items' => $propRentalPriceTypes ?? collect(), 'placeholder' => 'e.g. Per Month, Per Week'],
+                    // .ai/specs/rental-property-tab.md §5, Part 4 — one list feeding both
+                    // the property screen's and the lease screens' Lease Type select.
+                    ['key' => 'lease_type', 'label' => 'Lease Type', 'items' => $propLeaseTypes ?? collect(), 'placeholder' => 'e.g. Net, Gross, Percentage'],
                 ];
                 $conditionBaselineName = \App\Models\PropertySettingItem::CONDITION_BASELINE_NAME;
                 $reorderUrl  = route('corex.settings.property-items.reorder');

@@ -703,6 +703,88 @@ it only makes the field reachable by the system that will need it,
 which is the concrete meaning of "shape it with that in mind" without
 speculatively building the feature it will eventually serve.
 
+### 5.3 As built, Part 4 — and the one wording call flagged, not made
+
+Built exactly per §5.2: `PropertySettingItem::GROUP_LEASE_TYPE`, one
+agency-editable list, replacing BOTH `properties/show.blade.php`'s
+`['N Triple Net', 'Gross', 'Modified Gross', 'Percentage']` array and
+`leases/create.blade.php` + `leases/show.blade.php`'s own separate
+`['Net', 'Gross', 'Modified Gross', 'Percentage']` array — three call
+sites, one source from now on (`LeaseController::create()`/`show()` and
+`PropertyController`'s `$settingItems`, all reading the same
+`PropertySettingItem::group('lease_type')`).
+
+**Flagging, not deciding, per instruction:** the default seeded list is
+the union of both old lists' real wording (`Net`/`Gross`/`Modified
+Gross`/`Percentage`, unchanged) plus the three Property24 `LeaseType`
+enum values neither old list could reach (`Double Net`/`Triple Net`/
+`Fully Serviced Gross`). **"N Triple Net" is not carried forward** — the
+property screen's own value is dropped in favour of "Triple Net" (no
+leading "N"), which is both the industry-standard term and the one that
+resolves to P24's real enum. This is exactly the wording call Johan
+asked to keep as his own: if "N Triple Net" was intentional (an
+abbreviation for something specific to HFC's own leases, not a typo),
+tell me the intended label and I change the one shared list in one
+place — no re-migration needed, an agency's `PropertySettingItem` rows
+are just renamed in place.
+
+**Made real, two ways, both concrete and both verified against the real
+downstream code, not assumed:**
+1. **Property24 syndication** — `Property24ListingMapper::mapLeaseType()`
+   (new), wired into the existing `commercialInfo` block alongside
+   `grossPrice`/`netPrice`/`availabilityDate`. Closes the documented
+   P24-G4 gap (`.ai/audits/syndication-mapping-audit-2026-07-05.md:45`)
+   for the five types that map cleanly onto P24's real `LeaseType` enum
+   (confirmed directly against `storage/p24_swagger.json:4116-4126`:
+   `Percentage`/`Net`/`DoubleNet`/`TripleNet`/`FullyServicedLeaseGross`).
+   `Gross` and `Modified Gross` — both carried forward unchanged from
+   the pre-existing lease-screen wording — have no P24 equivalent and
+   resolve to `null`, so they are simply not sent, same discipline as
+   `mapRentalRate()`'s own unmatched-value fallback (§3.4). An agency
+   free to keep using "Gross"/"Modified Gross" for its own paperwork
+   loses nothing; it just doesn't get a P24 `leaseType` on that listing.
+2. **DocuPerfect merge field** — `lease_type` resolves in all three of
+   `WebTemplateDataService`'s resolver paths (`resolve()`,
+   `resolveBase()`, `resolveDealFromKey()`) with the same precedence as
+   `deposit`/`monthly_rental`: an explicit step value wins over the
+   property's stored value. Registered in `WebTemplateFieldPartyMap`
+   alongside `lease_start`/`lease_end`, and given real preview sample
+   data in `WebTemplateController`. No lease-document generation logic
+   built — same "resolvable, not consumed yet" state as
+   `electricity_deposit` already sits in, exactly per §5.2's "shape it,
+   don't build the future feature early" instruction.
+
+**Real Part 3 gap found and fixed in this same commit, not left for
+later:** the generic Settings → Properties & Listings CRUD
+(`SettingsController::storePropertySettingItem()`/
+`batchToggleDefaultItems()`) validates `group` against a hardcoded
+whitelist that Part 3 never extended for `rental_price_type` — so even
+though the Rental tab's price-type dropdown correctly read from
+`PropertySettingItem`, an agency had no working "add a new price type"
+or "batch enable/disable" control, because both endpoints would reject
+the request outright with "Invalid group." The settings page's own
+Properties section was also missing a rendered block for
+`rental_price_type` entirely (`$propGroups` never included it), so the
+control did not even appear to click. Both whitelists and the missing
+`$propGroups`/`SettingsController` entries are fixed in this commit for
+BOTH `rental_price_type` and `lease_type` together — verified by two
+new tests posting directly to both endpoints for both groups.
+
+Verify: both hardcoded arrays are gone from all three Blade files; the
+property screen and both lease screens render the same agency list;
+saving `lease_type` persists correctly from both the property Rental
+tab and the lease edit form; a real commercial rental's mappable
+`lease_type` value reaches `Property24ListingMapper`'s real
+`commercialInfo.leaseType` field via its actual private method (not
+assumed); `Gross`/`Modified Gross` are confirmed to resolve to `null`
+rather than a guessed value; the merge field resolves with the correct
+precedence in a direct `WebTemplateDataService::resolve()` call; the
+settings hub's add and batch-toggle endpoints accept both new groups.
+16 tests, `tests/Feature/Properties/LeaseTypeSettingTest.php`, all
+passing. Regression check: Part 2/Part 3's own test files (11+10
+tests) and the pre-existing `LeaseEditTest`/`LeaseCoreTest` (4+6 tests)
+all still pass unchanged — 31 tests, no regressions.
+
 ---
 
 ## 6. Bond repayment calculator on a rental listing — CLOSED (Johan, 2026-09-21)
@@ -935,16 +1017,52 @@ already exercises the real rendered markup; flagging per instruction
 that no browser tool is available in this worktree, so a live click-
 through remains cc1's to run alongside migration.
 
-**Part 4 — `lease_type` made real.** `GROUP_LEASE_TYPE`
-`PropertySettingItem` group replacing both hardcoded dropdowns (§5.2);
-`Property24ListingMapper` starts sending it against P24's real
-`LeaseType` enum, closing the P24-G4 gap; registered as a resolvable
-DocuPerfect merge field alongside `electricity_deposit`. Does not block
-or depend on Parts 1-3/5-6. Verify: both property and lease forms
-source their dropdown from the same agency list; a real commercial
-rental's `lease_type` value reaches the actual P24 submission payload;
-the merge field resolves in a test document render with no lease
-generation logic attached.
+**Part 4 — BUILT, PUSHED, AWAITING LANDING (2026-09-21).** `lease_type`
+made real. Full detail in §5.3 — summary here: `GROUP_LEASE_TYPE`
+`PropertySettingItem` group replacing BOTH hardcoded dropdowns (the
+property screen's `['N Triple Net', 'Gross', 'Modified Gross',
+'Percentage']` and the lease screens' own separate `['Net', 'Gross',
+'Modified Gross', 'Percentage']`) with one agency-editable list feeding
+all three forms. `Property24ListingMapper::mapLeaseType()` (new) sends
+it in `commercialInfo.leaseType` for the five types with a real P24
+enum match, closing the P24-G4 gap; the two types with no P24
+equivalent (`Gross`/`Modified Gross`, carried forward unchanged from
+the old lease-screen wording) resolve to `null` and are simply not
+sent. Registered as a resolvable DocuPerfect merge field in all three
+`WebTemplateDataService` resolver paths, alongside `electricity_deposit`
+— no lease-document generation logic attached.
+
+**"N Triple Net" flagged, not silently fixed, per instruction** — see
+§5.3 for the exact wording and why "Triple Net" (no leading "N") was
+used as the default instead: it is the term that maps to P24's real
+enum, but Johan may have meant something specific by the original
+wording and gets to say so before it's final; changing it afterward is
+a one-place rename, not a re-migration.
+
+**Real Part 3 gap found and fixed in the same commit:** the Settings →
+Properties & Listings hub's generic CRUD (`storePropertySettingItem()`/
+`batchToggleDefaultItems()`) had a hardcoded `group` whitelist that Part
+3 never extended for `rental_price_type`, and the settings page never
+rendered a section for it at all — so despite the Rental tab's
+price-type dropdown correctly reading from `PropertySettingItem`, an
+agency had no actual way to add, disable, or reorder its own price
+types. Fixed for both `rental_price_type` and `lease_type` together in
+this commit.
+
+Verify: 16 tests, `tests/Feature/Properties/LeaseTypeSettingTest.php`
+— agency-scoped seeding/idempotency/isolation (matching Part 3's own
+pattern), both property-screen and both lease-screen dropdowns render
+the agency's list, saving persists from both the property and lease
+forms, a mappable type reaches the real P24 mapper method via
+reflection, `Gross`/`Modified Gross` confirmed to resolve to `null`
+rather than a guess, the merge field resolves with the correct
+explicit-wins-over-stored precedence, and the settings hub's add/
+batch-toggle endpoints now accept both new groups. Regression: Part
+2/3's own test files plus the pre-existing `LeaseEditTest`/
+`LeaseCoreTest` — 31 tests total, all still passing, no changes needed.
+No browser tool available in this worktree — same as Part 3, a live
+click-through of the lease screens and the settings hub remains cc1's
+to run alongside migration.
 
 **Part 5 — The advert block itself, opt-in per property.** The
 property-level master tick (§4.0), the per-field `advertise` ticks on

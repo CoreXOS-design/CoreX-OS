@@ -115,6 +115,9 @@ class WebTemplateDataService
         $leaseEnd   = $details['lease_end'] ?? '';
         $rental     = $details['monthly_rental'] ?? $property['rental_amount'] ?? '';
         $deposit    = $details['deposit'] ?? $property['deposit_amount'] ?? '';
+        // .ai/specs/rental-property-tab.md §5, Part 4 — first real consumer of
+        // lease_type: resolvable in a lease document template.
+        $leaseType  = $details['lease_type'] ?? $property['lease_type'] ?? '';
 
         // Sales fields
         $price = $details['price'] ?? $property['price'] ?? '';
@@ -341,6 +344,8 @@ class WebTemplateDataService
             // Lease dates
             'lease_start'           => $leaseStart,
             'lease_end'             => $leaseEnd,
+            // .ai/specs/rental-property-tab.md §5, Part 4
+            'lease_type'            => $leaseType,
             'lease_start_formatted' => $leaseStartFormatted,
             'lease_end_formatted'   => $leaseEndFormatted,
             'lease_start_day'       => $leaseStart ? (int) date('d', strtotime($leaseStart)) : '',
@@ -1176,6 +1181,8 @@ class WebTemplateDataService
             'mandate_expiry'   => $details['mandate_expiry'] ?? '',
             'lease_start'      => $details['lease_start'] ?? '',
             'lease_end'        => $details['lease_end'] ?? '',
+            // .ai/specs/rental-property-tab.md §5, Part 4
+            'lease_type'       => $details['lease_type'] ?? $property['lease_type'] ?? '',
             'marketing_fee'    => $details['marketing_fee'] ?? '',
             'price_in_words'   => ($details['price'] ?? '') ? $this->numberToWords(($details['price'] ?? 0)) : '',
             'commission_amount' => $this->computeCommissionAmount($details, $property),
@@ -1481,6 +1488,8 @@ class WebTemplateDataService
         $leaseEnd   = $details['lease_end'] ?? '';
         $rental     = $details['monthly_rental'] ?? $property['rental_amount'] ?? '';
         $deposit    = $details['deposit'] ?? $property['deposit_amount'] ?? '';
+        // .ai/specs/rental-property-tab.md §5, Part 4
+        $leaseType  = $details['lease_type'] ?? $property['lease_type'] ?? '';
 
         $commission = $details['commission'] ?? $details['commission_percent'] ?? '';
         $commissionAmount = ($rental && $commission) ? round((float) $rental * (float) $commission / 100, 2) : '';
@@ -1563,6 +1572,8 @@ class WebTemplateDataService
             'vat_amount' => $vatAmount, 'service_fee' => $serviceFee,
             'net_to_owner' => $netToOwner, 'net_to_lessor' => $netToOwner,
             'lease_start' => $leaseStart, 'lease_end' => $leaseEnd,
+            // .ai/specs/rental-property-tab.md §5, Part 4
+            'lease_type' => $leaseType,
             'lease_start_formatted' => $leaseStartFormatted, 'lease_end_formatted' => $leaseEndFormatted,
             'price_in_words' => ($details['price'] ?? '') ? $this->numberToWords($details['price']) : '',
             'mandate_start' => $details['mandate_start'] ?? '',

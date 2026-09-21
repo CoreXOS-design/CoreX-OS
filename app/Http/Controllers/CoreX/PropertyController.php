@@ -599,6 +599,8 @@ class PropertyController extends Controller
             'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
             // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type select.
             'rentalPriceTypes' => PropertySettingItem::group('rental_price_type')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §5, Part 4 — Rental tab's Lease Type select.
+            'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
         ];
 
         $branches = Branch::orderBy('name')->get();
@@ -892,6 +894,8 @@ class PropertyController extends Controller
             'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
             // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type select.
             'rentalPriceTypes' => PropertySettingItem::group('rental_price_type')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §5, Part 4 — Rental tab's Lease Type select.
+            'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
         ];
         $branches  = Branch::orderBy('name')->get();
         $agents    = $this->agentList($property);

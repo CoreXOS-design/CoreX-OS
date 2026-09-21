@@ -38,6 +38,13 @@ class PropertySettingItem extends Model
     // price") — replaces the hardcoded 5-option dropdown that used to live
     // directly in the Blade view.
     const GROUP_RENTAL_PRICE_TYPE = 'rental_price_type';
+    // .ai/specs/rental-property-tab.md §5, Part 4 (Johan, 2026-09-21: "make
+    // it real... one option list, defined once, agency-editable — the two
+    // hardcoded divergent lists are a bug in themselves and both go") —
+    // replaces BOTH properties.show.blade.php's ['N Triple Net', 'Gross',
+    // 'Modified Gross', 'Percentage'] AND leases/create+show.blade.php's
+    // ['Net', 'Gross', 'Modified Gross', 'Percentage'].
+    const GROUP_LEASE_TYPE = 'lease_type';
 
     /** 'Average' is the baseline (0%) and cannot be deleted. The controller
      *  enforces this; the UI surfaces it so the agent knows. */
@@ -170,6 +177,30 @@ class PropertySettingItem extends Model
             ['name' => 'Per Week'],
             ['name' => 'Per Day'],
             ['name' => 'Per Sqm'],
+        ],
+
+        // .ai/specs/rental-property-tab.md §5, Part 4 — union of both
+        // drifted lists' REAL wording (Net/Gross/Modified Gross/Percentage
+        // was already live on the lease screens, unchanged here) PLUS the
+        // three Property24 LeaseType enum values neither old list could
+        // reach (DoubleNet/TripleNet/FullyServicedLeaseGross — confirmed
+        // directly against storage/p24_swagger.json:4116-4126), so an
+        // agency now has a single list that can express everything both
+        // portals and both old screens could. The property screen's
+        // "N Triple Net" is NOT carried forward — flagged for Johan's own
+        // ruling in this Part's build report, not decided here; "Triple
+        // Net" (no leading "N") is the industry-standard term and the one
+        // that maps to P24's real enum, so it is what a consolidated list
+        // needs, but this is exactly the kind of relabelling Johan asked
+        // to keep as his own call, not a unilateral "fix."
+        self::GROUP_LEASE_TYPE => [
+            ['name' => 'Net'],
+            ['name' => 'Gross'],
+            ['name' => 'Modified Gross'],
+            ['name' => 'Percentage'],
+            ['name' => 'Double Net'],
+            ['name' => 'Triple Net'],
+            ['name' => 'Fully Serviced Gross'],
         ],
     ];
 

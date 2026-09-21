@@ -95,10 +95,11 @@
             <label class="text-xs font-medium">Lease type</label>
             <select name="lease_type" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 <option value="">—</option>
-                <option>Net</option>
-                <option>Gross</option>
-                <option>Modified Gross</option>
-                <option>Percentage</option>
+                {{-- .ai/specs/rental-property-tab.md §5, Part 4 — agency-editable
+                     list, same source as the property screen's Lease Type select. --}}
+                @foreach($leaseTypes ?? [] as $lt)
+                    <option value="{{ $lt->name }}">{{ $lt->name }}</option>
+                @endforeach
             </select>
         </div>
 
