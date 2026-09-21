@@ -269,6 +269,7 @@ class TvController extends Controller
 
         // TV Messages — global only (branch_id IS NULL)
         $tvMessagesRaw = \App\Models\TvMessage::query()
+            ->where('agency_id', $agencyId) // AT-424 — this agency's messages only
             ->where('is_enabled', true)
             ->whereNull('branch_id')
             ->where(function ($x) {

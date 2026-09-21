@@ -28,6 +28,17 @@ class OversightService
 
         $query = User::query()->where('id', '!=', $manager->id);
 
+        // Explicit agency clamp. The hourly OversightDigestJob runs with no
+        // authenticated user, so AgencyScope does not apply there — without
+        // this an 'agency'-scoped manager oversaw every user on the platform
+        // (AT-424). An unswitched owner keeps the platform-wide view.
+        $agencyId = $manager->effectiveAgencyId();
+        if ($agencyId) {
+            $query->where('agency_id', $agencyId);
+        } elseif (!$manager->isOwnerRole()) {
+            return collect();
+        }
+
         if ($scope === 'branch') {
             $branchId = $manager->branch_id;
             if (!$branchId) {
@@ -201,10 +212,11 @@ class OversightService
         $properties = Property::query()
             ->whereIn('agent_id', $agentIds)
             ->where('updated_at', '<=', $cutoff)
-            ->whereNull('expiry_date')
-            ->orWhere(function ($q) use ($cutoff) {
-                $q->where('expiry_date', '>', Carbon::now()->addDays(30))
-                  ->where('updated_at', '<=', $cutoff);
+            // Grouped: an ungrouped orWhere here matched every listing on the
+            // platform with a far-off expiry, whoever the agent (AT-424).
+            ->where(function ($q) {
+                $q->whereNull('expiry_date')
+                  ->orWhere('expiry_date', '>', Carbon::now()->addDays(30));
             })
             ->limit(200)
             ->get();

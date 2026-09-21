@@ -8,6 +8,31 @@ use Illuminate\Http\Request;
 
 class TvMessageController extends Controller
 {
+    /**
+     * AT-424 — the agency a TV message belongs to. A branch message takes its
+     * branch's agency, and the branch must be one this user can see (Branch is
+     * agency-scoped, so another agency's branch id resolves to nothing). An
+     * "all branches" message takes the viewer's agency, or $fallback when
+     * editing an existing message. An owner who has not switched into an
+     * agency must pick one first — a global message needs an owner.
+     */
+    private function resolveAgencyForBranch($branchId, ?int $fallback = null): int
+    {
+        if ($branchId) {
+            $branch = Branch::find((int) $branchId);
+            if (!$branch) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['branch_id' => 'That branch is not in your agency.']);
+            }
+            return (int) $branch->agency_id;
+        }
+
+        $agencyId = $fallback ?: (int) auth()->user()?->effectiveAgencyId();
+        if (!$agencyId) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['branch_id' => 'Switch into an agency before adding an all-branches message.']);
+        }
+        return $agencyId;
+    }
+
     // -------------------------
     // Admin (all branches + global)
     // -------------------------
@@ -44,7 +69,7 @@ class TvMessageController extends Controller
     public function adminStore(Request $request)
     {
         $data = $request->validate([
-            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'branch_id' => ['nullable', 'integer'],
             'title' => ['nullable', 'string', 'max:255'],
             'message' => ['required', 'string'],
             'display_area' => ['nullable', 'in:hero,ticker,both'],
@@ -53,6 +78,7 @@ class TvMessageController extends Controller
             'ends_at' => ['nullable', 'date'],
         ]);
 
+        $data['agency_id'] = $this->resolveAgencyForBranch($data['branch_id'] ?? null);
         $data['created_by_user_id'] = auth()->id();
         $data['is_enabled'] = (bool)($data['is_enabled'] ?? false);
         $data['display_area'] = $data['display_area'] ?? 'both';
@@ -66,7 +92,7 @@ class TvMessageController extends Controller
     public function adminUpdate(Request $request, TvMessage $tvMessage)
     {
         $data = $request->validate([
-            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'branch_id' => ['nullable', 'integer'],
             'title' => ['nullable', 'string', 'max:255'],
             'message' => ['required', 'string'],
             'display_area' => ['nullable', 'in:hero,ticker,both'],
@@ -78,6 +104,11 @@ class TvMessageController extends Controller
         $data['is_enabled'] = (bool)($data['is_enabled'] ?? false);
         $data['display_area'] = $data['display_area'] ?? 'both';
 
+
+        // A message stays with its agency; a branch may only be one of that agency's.
+        $agencyId = $this->resolveAgencyForBranch($data['branch_id'] ?? null, (int) $tvMessage->agency_id);
+        abort_unless($agencyId === (int) $tvMessage->agency_id, 403);
+        unset($data['agency_id'], $data['created_by_user_id']);
 
         $tvMessage->update($data);
 
@@ -117,6 +148,7 @@ class TvMessageController extends Controller
             ->get();
 
         $globalMessages = TvMessage::query()
+            ->where('agency_id', (int) \DB::table('branches')->where('id', $branchId)->value('agency_id'))
             ->whereNull('branch_id')
             ->with(['branch', 'creator'])
             ->orderBy('id', 'desc')
@@ -144,6 +176,7 @@ class TvMessageController extends Controller
         ]);
 
         $data['branch_id'] = $branchId;
+        $data['agency_id'] = $this->resolveAgencyForBranch($branchId);
         $data['created_by_user_id'] = auth()->id();
         $data['is_enabled'] = (bool)($data['is_enabled'] ?? false);
         $data['display_area'] = $data['display_area'] ?? 'both';

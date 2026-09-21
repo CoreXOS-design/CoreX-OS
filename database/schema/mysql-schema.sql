@@ -12587,6 +12587,7 @@ DROP TABLE IF EXISTS `rentals`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `rentals` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
   `branch_id` bigint unsigned NOT NULL,
   `lease_address` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `lease_start_date` date NOT NULL,
@@ -12602,6 +12603,8 @@ CREATE TABLE `rentals` (
   KEY `rentals_created_by_user_id_foreign` (`created_by_user_id`),
   KEY `rentals_branch_id_is_active_index` (`branch_id`,`is_active`),
   KEY `rentals_lease_start_date_lease_end_date_index` (`lease_start_date`,`lease_end_date`),
+  KEY `idx_rentals_agency_id` (`agency_id`),
+  CONSTRAINT `rentals_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `rentals_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rentals_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -14398,6 +14401,7 @@ DROP TABLE IF EXISTS `tv_messages`;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `tv_messages` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
   `branch_id` bigint unsigned DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -14415,7 +14419,9 @@ CREATE TABLE `tv_messages` (
   KEY `tv_messages_created_by_user_id_index` (`created_by_user_id`),
   KEY `tv_messages_is_enabled_index` (`is_enabled`),
   KEY `tv_messages_starts_at_index` (`starts_at`),
-  KEY `tv_messages_ends_at_index` (`ends_at`)
+  KEY `tv_messages_ends_at_index` (`ends_at`),
+  KEY `idx_tv_messages_agency_id` (`agency_id`),
+  CONSTRAINT `tv_messages_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `tva_contact_capture_items`;
@@ -16640,3 +16646,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1343,'2026_09_16_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1344,'2026_09_15_100000_add_p24_imported_at_to_properties_table',253);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1345,'2026_09_17_000000_add_deleted_at_to_rental_application_document_validity_windows',254);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1346,'2026_09_17_000100_backfill_contact_matches_agent_id',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1347,'2026_09_21_000001_add_agency_id_to_rentals_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1348,'2026_09_21_000002_add_agency_id_to_tv_messages_table',255);
