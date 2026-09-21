@@ -1565,3 +1565,85 @@ creation/seed order, which is Johan's second, larger complaint (rooms don't line
 walking order, and can't be reordered) — tracked separately, not solved by this grouping change. Once a
 sensible default and agent-driven reordering land on `sort_order`, this same `roomGroups()` reflects it
 automatically, with no further change to either view.
+
+### 16.4 Room walking order (2026-09-21) — Johan on property 5792, continued
+
+**The problem, in his own words:** "then we can also allow sorting of rooms. currently it just adds
+rooms at the bottom. but theres no logical way to line up the rooms as the inspection goes. Im pretty
+sure bedroom 1, bedroom 2, etc would be a logica sort order?" — plus his explicit correction after
+seeing the first cut of this design: grouping alone would have left 5792 reading Bedroom 2 / Study /
+Bedroom 1 forever, because existing rooms correctly keep whatever `sort_order` they already have (never
+silently recomputed by a deploy). The fix needed three parts together, not one:
+
+1. **A sensible, agency-configurable default order for NEW rooms.** `RentalInspectionSetting::
+   DEFAULT_ROOM_TYPE_WALKING_ORDER` — every one of `config('property-spaces.all_space_types')`'s types
+   (verified 1:1, no gaps, no extras), bucketed: Entrance & Reception, Living & Social, Kitchen &
+   Domestic, Bedrooms & Private, Bathrooms, Outside & Leisure, then Utility/Storage/Vehicle — matching
+   Johan's own stated order ("entrance/reception first, living spaces, kitchen, bedrooms, bathrooms,
+   then outside spaces"), with every type Johan didn't name placed in the most defensible remaining
+   bucket. `RentalInspectionSetting::roomTypeWalkingOrderFor($agencyId)` is the read-time-default
+   resolver (same pattern as every other setting on this model); `room_type_walking_order` (new JSON
+   column, migration `2026_09_21_150000_...`) is the agency's own override — a FULL reordering of every
+   type, not a sparse list. A saved order that predates a later catalog addition gets the missing
+   type appended automatically, in the default order's own relative position — never left unsortable.
+   Editable at `/corex/settings/rental-inspections` (up/down controls, `updateRoomTypeWalkingOrder()`).
+
+   **Ruling — Setup Wizard exemption, granted 2026-09-21:** same reasoning already applied to
+   `refusal_reason_presets` (§15.6) — a full-permutation reorder of every space type has no fitting
+   wizard control type (number/select/text/textarea/toggle). Deliberately NOT in the wizard.
+
+2. **Natural-numeric tiebreak within a type, computed, never stored as a sort key.**
+   `RentalInspectionSetting::defaultRoomSortOrderFor($agencyId, $type, $label)` = `(walking position ×
+   1000) + min(first number found in $label, 999)`. Johan: "natural-numeric, NOT alphabetical:
+   alphabetical gives 1, 10, 2." No sibling-room query needed — the tiebreak reads only this room's own
+   label text. A label with no number (e.g. bare "Study") sorts first within its type. Wired into both
+   `storeItem()` and `assignType()` in place of the old `max(sort_order) + 1` append-to-the-end counter.
+
+3. **Existing rooms are never silently recomputed — but the agent gets both an explicit one-click fix
+   AND manual control.** `POST .../rental-inspection-rooms/apply-default-order`
+   (`RentalInspectionRecordingController::applyDefaultRoomOrder()`) recomputes every one of a property's
+   EXISTING rooms through the exact same `defaultRoomSortOrderFor()` formula, agent-triggered, one
+   click, idempotent — this is 5792's actual fix. `POST .../rental-inspection-rooms/reorder`
+   (`reorderRooms()`) takes the agent's own full ordering of the property's room IDs and rewrites
+   `sort_order` to match exactly — up/down controls on each room heading in the Inspection Items panel.
+   Both write the SAME column `roomGroups()` (§16.3) already sorts by, so neither view needs its own
+   change to reflect either action. Johan: "the button is a starting point, the same way seeding is a
+   starting point" — an agent can always reorder further by hand afterwards.
+
+   **Known, deliberate simplification:** a manual reorder (`reorderRooms()`) assigns plain `0..N-1`
+   positions to the rooms it's given, a different numeric range than the default-order formula's
+   `position × 1000 + tiebreak`. A brand new room added after a manual reorder lands wherever its own
+   type's walking position computes to, which can in principle interleave into the middle of an
+   agent's hand-curated order rather than always appending at the end. Not solved here — flagged as a
+   known interaction, not a silent gap, since Johan's own framing of manual reorder as "a starting
+   point, not the be all and end all" means an agent re-checking/re-nudging order after adding a new
+   room to an already-hand-ordered property is an acceptable, expected step, not a defect.
+
+**Ruling — `PropertyRoom.sort_order` reuse, approved 2026-09-21.** This column was documented (its own
+migration's docblock, §3.2-adjacent) as "also used by sales" as a future possibility; nothing in Sales
+currently reads or writes it (verified by search), and it is already the exact field the room-type-
+picker fix (§16.1) populates for precisely this ordering purpose. Adding a second parallel ordering
+column would have been worse. Logged here for Johan and Andre's record: **inspections now drives this
+column** — a future Sales feature that also wants to order rooms needs to either share this same
+ordering or coordinate before introducing a second, conflicting one.
+
+**Multi-agency note:** `DEFAULT_ROOM_TYPE_WALKING_ORDER` is one neutral starting order shared by every
+agency — same architecture as `DEFAULT_ROOM_TYPE_ITEMS` and `DEFAULT_INSPECTION_FEATURE_LABELS`. No
+agency's wording, branding, or a single hardcoded order is forced on another agency; every agency edits
+its own copy from here.
+
+**Two things from Johan's real paper documents (2026-09-21) that confirm/bear on this work — noted here
+as evidence, not acted on further; cc5 owns `.ai/specs/rental-inspection-form.md`, the spec for whatever
+the recording screen becomes once Johan rules on rebuilding it to match those documents:**
+
+1. **Natural-numeric ordering within a type is the common case, not an edge case.** Johan's real room
+   list for one flat: Kitchen, En Suite Bathroom, Main Bedroom, Bedroom 1, Bedroom 2, Bedroom 3,
+   Bedroom 4, Bathroom 1, Garage, Yard — ten rooms, four of them numbered bedrooms. Confirms
+   `defaultRoomSortOrderFor()`'s natural-numeric tiebreak (§16.4 point 2) was the right call, not
+   over-engineering for a rare case.
+2. **The inspection and the inventory do not share a room list.** His inventory document covers rooms
+   his inspection doesn't: Sunroom, Rubbish bin room, Entrance from glass front door, Dining
+   room/Balcony, Lounge, Laundry Room, Outside front of house. If an inventory feature is ever built on
+   top of `PropertyRoom` (already noted, §3.2-adjacent, as a table Sales may also use), it must not
+   assume it inherits whatever rooms an inspection happens to have — the two are separate room sets in
+   Johan's own real usage, not one list viewed two ways.

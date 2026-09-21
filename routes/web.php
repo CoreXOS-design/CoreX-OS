@@ -2856,6 +2856,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.features');
     Route::post('/settings/rental-inspections/room-type-defaults', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeItemDefaults'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-defaults');
+    // Johan, 2026-09-21, property 5792 — the default room-walking order.
+    Route::post('/settings/rental-inspections/room-type-order', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeWalkingOrder'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-order');
     // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — the spend threshold
     // below which no owner approval is required, agency-configurable.
     Route::get('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'edit'])
@@ -4130,6 +4133,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
         Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->name('rental-inspection-items.assign-type');
         Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->name('rental-inspection-items.seed-from-advertising');
+        // 2026-09-21, Johan on property 5792 — room walking order. apply-default-order
+        // is the explicit, agent-triggered one-click fix for a property's EXISTING
+        // rooms; reorder persists the agent's own manual up/down moves.
+        Route::post('/{property}/rental-inspection-rooms/apply-default-order', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'applyDefaultRoomOrder'])->name('rental-inspection-rooms.apply-default-order');
+        Route::post('/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->name('rental-inspection-rooms.reorder');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new
         // property or a type-change draft still saves its rental fields
