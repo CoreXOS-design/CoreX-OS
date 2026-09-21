@@ -2855,6 +2855,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.edit');
     Route::post('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'update'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.update');
+    // .ai/specs/rental-property-tab.md §2/§8, Part 1 — agency-defined fields on
+    // the property Rental Details tab. Price type (Part 3) and lease type
+    // (Part 4) lists join this same page as they're built.
+    Route::get('/settings/rental-details', [\App\Http\Controllers\CoreX\RentalDetailsSettingsController::class, 'edit'])
+        ->middleware('permission:rental_details.manage_settings')->name('corex.settings.rental-details.edit');
+    Route::prefix('settings/rental-details/custom-fields')->middleware('permission:rental_details.manage_settings')
+        ->name('corex.settings.rental-details.custom-fields.')->group(function () {
+        Route::post('/', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'store'])->name('store');
+        Route::put('/{customField}', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'update'])->name('update');
+        Route::post('/{customField}/archive', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'archive'])->name('archive');
+        Route::post('/{customField}/restore', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'restore'])->name('restore');
+        Route::post('/reorder', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'reorder'])->name('reorder');
+    });
     // AT-392 Phase 2 — qualifying-formula threshold, same settings screen, separate
     // form/route so it can never interfere with the existing checklist save above.
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
