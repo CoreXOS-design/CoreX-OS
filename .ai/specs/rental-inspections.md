@@ -722,6 +722,15 @@ must be migrated before `rental_inspections`, since `rental_inspections.lease_id
   ruling requires landlord signing AND refusal on both inspection types; see §15. Landlord sign-off IS
   now in scope, and is being built — this line stays, struck through in spirit, so the record shows
   the reversal rather than erasing it.)**
+- **Splitting a secure parking bay from an open parking bay on an individual inspection.** 2026-09-21,
+  the legacy `spaces_json` conversion (`LegacySpacesJsonConverter`) sums old `parking_spaces` +
+  `secure_parkings` into one combined Parking count, per Johan's ruling ("secure parking will sit under
+  parking"). The conductor noted explicitly that this is faithful, not a decision to leave unexamined:
+  Johan's own reasoning for *why* secure parking is its own space rather than folded into Garage — "a
+  garage door and a garage floor are not paving with oil stains on it" — applies just as much to a
+  secure bay versus an *open* bay once both sit under the same Parking type and an agent is actually
+  walking the inspection. Not building a split now. Recorded here so it is a deliberate deferral, not an
+  oversight, if an agent later asks for the two to be told apart on the form.
 
 ---
 
