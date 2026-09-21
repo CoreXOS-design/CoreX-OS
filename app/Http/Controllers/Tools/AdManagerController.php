@@ -113,10 +113,13 @@ class AdManagerController extends Controller
         // §15.1 round 4) — nullable, passed through to CoreXAd.configureBgRemoval().
         $agency = $user->effectiveAgencyId() ? \App\Models\Agency::find($user->effectiveAgencyId()) : null;
 
-        // Only ACTIVE listings that are LIVE somewhere (company website / P24 / PP) —
-        // never drafts, sold or rented. "Live somewhere" mirrors Property::portalLinks().
-        $websiteLiveIds = \App\Models\PropertyWebsiteSyndication::where('enabled', true)
-            ->pluck('property_id')->all();
+        // EVERY active listing of every agent the user may see (ad-manager.md §20.2) —
+        // never sold, let or otherwise off-market. A listing that is not (yet) published
+        // on the company website / P24 / PP is still included, and flagged `is_live = false`
+        // so its card can say so. "Live somewhere" mirrors Property::portalLinks().
+        $websiteLiveIds = array_flip(
+            \App\Models\PropertyWebsiteSyndication::where('enabled', true)->pluck('property_id')->all()
+        );
 
         // Property queries are agency-scoped (AgencyScope). Within the agency the
         // data scope narrows further: 'all' = every agent, 'branch' = own branch
@@ -145,16 +148,6 @@ class AdManagerController extends Controller
                 . implode(',', array_fill(0, count($adDeadStatuses), '?')) . ')',
                 $adDeadStatuses
             )
-            ->where(function ($q) use ($websiteLiveIds) {
-                $q->where(function ($w) {
-                    $w->whereNotNull('p24_ref')->where('p24_ref', '<>', '')->where('p24_syndication_status', 'active');
-                })->orWhere(function ($w) {
-                    $w->whereNotNull('pp_ref')->where('pp_ref', '<>', '')->where('pp_syndication_status', 'active');
-                });
-                if (! empty($websiteLiveIds)) {
-                    $q->orWhereIn('properties.id', $websiteLiveIds);
-                }
-            })
             ->orderBy('title');
 
         if ($scope === 'own') {
@@ -169,10 +162,14 @@ class AdManagerController extends Controller
             });
         }
 
-        $props = $query->get()->map(function (Property $p) {
+        $props = $query->get()->map(function (Property $p) use ($websiteLiveIds) {
             $imgs = $p->displayImages();
             return [
                 'id'         => $p->id,
+                // Published on the website, Property24 or Private Property right now?
+                'is_live'    => (filled($p->p24_ref) && $p->p24_syndication_status === 'active')
+                                || (filled($p->pp_ref) && $p->pp_syndication_status === 'active')
+                                || isset($websiteLiveIds[$p->id]),
                 'title'      => $p->title,
                 'address'    => trim((string) ($p->street_address ?? $p->address ?? '')),
                 'suburb'     => trim(((string) $p->suburb) . ($p->city ? ', ' . $p->city : ''), ', '),

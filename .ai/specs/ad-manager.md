@@ -2565,7 +2565,93 @@ apply.
 
 ---
 
+## 20. Ad Manager restyle — "Guided Steps" + every active property in each agent's list
+
+> Added 2026-09-21. Johan picked **Option 1 (Guided Steps)** from a five-option design
+> canvas and added: "be sure that it shows all the agents active properties in the
+> dropdown."
+
+### 20.1 What changes for the user
+
+The bulk Ad Manager page (`/tools/ad-manager`) is restyled; the three-step flow
+(Properties → Template → Ads), the generator, the render kernel and every route are
+**unchanged**.
+
+- **Header:** the Ad Manager | Template Manager switcher (§19) moves into the branded header
+  (right-hand side) on **both** pages, so it does not jump between them.
+- **Left rail** (stacks above the content on a phone):
+  - *Your progress* — the three steps, the current one highlighted, finished ones ticked.
+    Display only (not clickable).
+  - *Where will you post?* — four picture tiles (Facebook · Instagram · Story · WhatsApp),
+    each drawn in its real aspect ratio and labelled with its pixel size, replacing the
+    dropdown. Shown on step 1 only; on steps 2–3 a read-only summary of the chosen size is
+    shown instead (previews are rendered for that size, so it must not change mid-flow).
+  - A one-line tip (only for users who see other agents): use *Select all* on an agent.
+- **Step 1 content:** agents are collapsible groups (avatar, name, "N active · M selected",
+  *Select all*, *Skip*); opening one shows that agent's properties as photo cards.
+  A **search box** narrows by title, address, suburb or agent (client-side, over the list the
+  page already loaded); while a search is typed, agents with no match are hidden and agents
+  with a match are opened.
+- **Selection bar:** a sticky bar under the list shows thumbnails of the first four ticked
+  properties, "N properties selected", the chosen size, and **Next: Choose template →**.
+- Steps 2 and 3 keep their content and behaviour, laid into the same column so the page
+  reads as one tool.
+- All `data-tour` anchors are kept; the guided-tour wording is updated to match the new layout.
+
+### 20.2 Which properties appear — **every ACTIVE property of every agent the user may see**
+
+Previously a property also had to be *live somewhere* (website, Property24 or Private
+Property). That silently hid active listings that are not (yet) published — on QA2 data,
+9 of 185 active properties, spread across 4 agents. Now:
+
+- **In:** every property whose status is not off-market (`Property::OFF_MARKET_STATUSES`
+  + `rented` — unchanged), regardless of whether it is currently published.
+- **Still out:** sold / let / withdrawn / expired / other off-market statuses, and anything
+  outside the user's data scope (`ad_manager.view` → Own / Branch / All — unchanged, and
+  still enforced server-side in `index()`, `previews()` and `generate()`).
+- **No cap:** an agent's group lists every one of that agent's properties — no paging, no
+  "show more" truncation.
+- A card whose listing is **not published anywhere yet** carries a small "Not published yet"
+  tag so an agent is never surprised that an ad promotes something not yet live.
+  The tag is informational; the property can still be ticked and advertised.
+
+`previews()` / `generate()` never applied the live rule (they only check data scope), so this
+needs no change on the generation path.
+
+### 20.3 Data, permissions, wizard
+
+No migration, no new permission (still `access_ad_manager` + `ad_manager.view`), no setting
+(Setup Wizard n/a), no new route or endpoint. Pillars unchanged (Property/Agent read).
+
+### 20.4 Acceptance criteria
+
+- [ ] An agent group's count equals the number of that agent's active properties and every
+      one of them is shown when the group is opened.
+- [ ] An active property that is not published anywhere appears, tagged "Not published yet";
+      a sold/withdrawn/let one does not.
+- [ ] Own / Branch / All scoping is unchanged (`AdManagerScopeTest`).
+- [ ] The four size tiles select the size; the chosen one is highlighted and is the size
+      used for previews and generation.
+- [ ] Search filters cards and agent groups; clearing it restores everything and the
+      user's ticks are never lost by searching.
+- [ ] Steps 2 and 3 still work end to end (previews, generate, download, copy).
+- [ ] Looks right in light and dark theme and at phone width.
+
+---
+
 ## 11. Files to create / modify
+
+### Ad Manager restyle — Guided Steps (§20)
+- `app/Http/Controllers/Tools/AdManagerController.php` — `index()`: drop the "live somewhere"
+  requirement; add `is_live` to each property's payload.
+- `resources/views/tools/ad-manager.blade.php` — new layout (rail, agent groups, search,
+  selection bar) + Alpine state for search / size tiles / selected thumbnails.
+- `resources/views/tools/_ad-manager-property-card.blade.php` — restyled card + "Not published yet" tag.
+- `resources/views/tools/ad-manager/_switcher.blade.php` — `onBanner` variant; used in the
+  header of the Ad Manager and Template Manager pages (`templates.blade.php`).
+- `app/Support/Tours/defs/agency-tracker-tools.php` — tour wording matched to the new layout.
+- `tests/Feature/Tools/AdManagerActivePropertiesTest.php` — active-but-unpublished appears and
+  is flagged; off-market never appears; scope unchanged.
 
 ### Template Manager (§19)
 - `app/Http/Controllers/Tools/AdTemplateManagerController.php` — new: `index`, `archive`, `restore`.

@@ -442,18 +442,18 @@ return [
                 'element' => '[data-tour="tools-ad-manager-header"]',
                 'section' => 'Choosing your properties',
                 'title'   => 'Ad Manager',
-                'body'    => 'Turn your live listings into ready-to-post ads — a sized image and a written description — without leaving CoreX. You can do several properties in one go.',
+                'body'    => 'Turn your listings into ready-to-post ads — a sized image and a written description — without leaving CoreX. You can do several properties in one go.',
             ],
             [
                 'element' => '[data-tour="tools-ad-manager-steps"]',
                 'title'   => 'Three simple steps',
-                'body'    => 'It runs in three steps: pick your properties, choose a template, then collect your finished ads. The tracker up here always shows where you are.',
+                'body'    => 'It runs in three steps: pick your properties, choose a template, then collect your finished ads. The progress panel on the left always shows where you are.',
             ],
             [
                 'element' => '[data-tour="tools-ad-manager-size"]',
                 'do'      => ['action' => 'choose', 'say' => 'Pick where you will post the ads — or press Skip this step to keep the size shown.'],
                 'title'   => 'Pick the ad size first',
-                'body'    => 'Where will you post these — Facebook, Instagram, WhatsApp? Your choice sets the image dimensions so each ad fits the platform perfectly.',
+                'body'    => 'Where will you post these — Facebook, Instagram, Story or WhatsApp? Tap a size tile: it sets the image dimensions so each ad fits the platform perfectly.',
             ],
             [
                 // Moves on once at least one property is ticked — Next only
@@ -461,7 +461,7 @@ return [
                 'element' => '[data-tour="tools-ad-manager-select"]',
                 'do'      => ['action' => 'appear', 'say' => 'Tick the properties you want to advertise, or click Select all.', 'until' => '[data-tour="tools-ad-manager-next"]:not([disabled])'],
                 'title'   => 'Choose your properties',
-                'body'    => 'Only your active listings that are live on the website, Property24 or Private Property show here. Tick the ones you want to advertise — or use Select all.',
+                'body'    => 'Every active listing shows here, grouped by agent if you can advertise for others — open an agent to see all of theirs. Tick the ones you want to advertise, or use Select all.',
             ],
             [
                 'element' => '[data-tour="tools-ad-manager-next"]',

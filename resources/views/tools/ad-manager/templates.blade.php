@@ -29,16 +29,17 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Template Manager</h1>
                 <p class="text-sm text-white/60">Create, edit and manage your agency's custom ad templates.</p>
             </div>
-            @if($canBuild)
-                <a href="{{ route('corex.ad-templates.builder', ['from' => 'templates']) }}" class="corex-btn-primary text-sm px-4 py-2 inline-flex items-center gap-1.5 self-start md:self-auto">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
-                    New Template
-                </a>
-            @endif
+            <div class="flex items-center gap-3 flex-wrap">
+                @include('tools.ad-manager._switcher', ['onBanner' => true])
+                @if($canBuild)
+                    <a href="{{ route('corex.ad-templates.builder', ['from' => 'templates']) }}" class="corex-btn-primary text-sm px-4 py-2 inline-flex items-center gap-1.5 self-start md:self-auto">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+                        New Template
+                    </a>
+                @endif
+            </div>
         </div>
     </div>
-
-    @include('tools.ad-manager._switcher')
 
     {{-- ── Search + filters ────────────────────────────────────── --}}
     <form method="GET" action="{{ route('tools.ad-manager.templates') }}"

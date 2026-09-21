@@ -38,74 +38,135 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">Ad Manager</h1>
-                <p class="text-sm text-white/60">Generate ready-to-post ads for multiple properties — image and grounded AI description.</p>
+                <p class="text-sm text-white/60">Turn your listings into ready-to-post ads — an image and a written description, in three steps.</p>
             </div>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-3 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
-                <div class="flex items-center gap-2 text-xs font-semibold text-white/70" data-tour="tools-ad-manager-steps">
-                    <span :class="step==='select' ? 'text-white' : ''">1. Properties</span>
-                    <span class="text-white/40">›</span>
-                    <span :class="step==='template' ? 'text-white' : ''">2. Template</span>
-                    <span class="text-white/40">›</span>
-                    <span :class="step==='results' ? 'text-white' : ''">3. Ads</span>
-                </div>
+                @include('tools.ad-manager._switcher', ['onBanner' => true])
             </div>
         </div>
     </div>
 
-    @include('tools.ad-manager._switcher')
+    <div class="flex flex-col lg:flex-row gap-6 items-start">
+
+        {{-- ════════ LEFT RAIL — progress · ad size · tip (ad-manager.md §20.1) ════════ --}}
+        <aside class="w-full lg:w-72 shrink-0 space-y-4 lg:sticky lg:top-4">
+
+            <div class="rounded-xl p-2 lg:p-4 flex lg:block gap-1 lg:space-y-1" data-tour="tools-ad-manager-steps" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="hidden lg:block text-[11px] font-bold uppercase tracking-wider px-3 pb-2" style="color:var(--text-muted);">Your progress</div>
+                @foreach([['select', 'Properties', 'Pick what to advertise'], ['template', 'Template', 'Choose a design'], ['results', 'Ads', 'Download and copy']] as $i => [$stepKey, $stepName, $stepHint])
+                    <div class="flex flex-1 lg:flex-none items-center gap-2 lg:gap-3 p-2 lg:p-3 rounded-lg"
+                         :style="step === '{{ $stepKey }}' ? 'background:color-mix(in srgb, var(--brand-button,#0ea5e9) 12%, transparent); border:1px solid color-mix(in srgb, var(--brand-button,#0ea5e9) 40%, transparent);' : 'border:1px solid transparent;'"
+                         :aria-current="step === '{{ $stepKey }}' ? 'step' : null">
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 box-border"
+                             :style="stepIndex > {{ $i }} ? 'background:var(--ds-green,#059669); color:#fff;' : (step === '{{ $stepKey }}' ? 'background:var(--brand-button,#0ea5e9); color:#fff;' : 'background:var(--surface); color:var(--text-muted); border:2px solid var(--border);')">
+                            <svg x-show="stepIndex > {{ $i }}" x-cloak class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+                            <span x-show="stepIndex <= {{ $i }}">{{ $i + 1 }}</span>
+                        </div>
+                        <div>
+                            <div class="text-sm font-bold" :style="step === '{{ $stepKey }}' ? 'color:var(--text-primary);' : 'color:var(--text-secondary);'">{{ $stepName }}</div>
+                            <div class="hidden lg:block text-xs" style="color:var(--text-muted);">{{ $stepHint }}</div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+
+            {{-- Ad size — step 1 only: previews are rendered for the chosen size, so it must not change mid-flow. --}}
+            <div x-show="step==='select'" class="rounded-xl p-4" data-tour="tools-ad-manager-size" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="text-sm font-bold" style="color:var(--text-primary);">Where will you post?</div>
+                <div class="text-xs mb-3" style="color:var(--text-muted);">This sets the image size.</div>
+                <div class="grid grid-cols-2 gap-2.5">
+                    <template x-for="(p, key) in platforms" :key="key">
+                        <button type="button" @click="platform = key" :aria-pressed="platform === key"
+                                class="rounded-lg px-2 py-3 flex flex-col items-center gap-2 transition-all duration-200"
+                                :style="platform === key ? 'border:2px solid var(--brand-button,#0ea5e9); background:color-mix(in srgb, var(--brand-button,#0ea5e9) 8%, transparent);' : 'border:1px solid var(--border); background:var(--surface-2);'">
+                            <div class="flex items-center" style="height:40px;">
+                                <div :style="tileShape(p) + 'border-radius:3px; background:' + (platform === key ? 'var(--brand-button,#0ea5e9)' : 'var(--text-muted,#94a3b8)') + '; opacity:' + (platform === key ? '1' : '.45') + ';'"></div>
+                            </div>
+                            <div class="text-xs font-bold" style="color:var(--text-primary);" x-text="platformName(p)"></div>
+                            <div class="text-[11px]" style="color:var(--text-muted); margin-top:-4px;" x-text="p.w + ' × ' + p.h"></div>
+                        </button>
+                    </template>
+                </div>
+            </div>
+
+            <div x-show="step!=='select'" x-cloak class="rounded-xl p-4" style="background:var(--surface); border:1px solid var(--border);">
+                <div class="text-[11px] font-bold uppercase tracking-wider" style="color:var(--text-muted);">Ad size</div>
+                <div class="text-sm font-bold mt-1" style="color:var(--text-primary);" x-text="platforms[platform].label"></div>
+                <div class="text-xs mt-1" style="color:var(--text-muted);"><span x-text="selected.length"></span> propert<span x-text="selected.length===1?'y':'ies'"></span> selected · use <em>Start over</em> to change either.</div>
+            </div>
+
+            @if($allAgents)
+            <div x-show="step==='select'" class="hidden lg:block rounded-xl px-4 py-3 text-xs leading-relaxed"
+                 style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 35%, transparent); color:var(--text-primary);">
+                <strong>Tip:</strong> use <em>Select all</em> on an agent to tick every one of their active listings in one go.
+            </div>
+            @endif
+        </aside>
+
+        <div class="flex-1 min-w-0 w-full">
 
     {{-- ════════ STEP 1 — SELECT PROPERTIES ════════ --}}
     <div x-show="step==='select'" class="space-y-4">
 
-        {{-- Ad size selector --}}
-        <div class="rounded-md p-4 flex flex-col sm:flex-row sm:items-center gap-3" data-tour="tools-ad-manager-size" style="background:var(--surface); border:1px solid var(--border);">
-            <div class="flex-1">
-                <div class="text-sm font-semibold" style="color:var(--text-primary);">Ad size</div>
-                <div class="text-xs" style="color:var(--text-muted);">Where will you post these ads? This sets the image dimensions.</div>
-            </div>
-            <select x-model="platform" class="rounded-md px-3 py-2 text-sm w-full sm:w-auto"
-                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                <template x-for="(p, key) in platforms" :key="key">
-                    <option :value="key" x-text="p.label"></option>
-                </template>
-            </select>
-        </div>
-
         @if($properties->isEmpty())
             {{-- Empty state --}}
-            <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">
+            <div class="rounded-xl py-12 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                      style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
                     <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="m3 11 18-5v12L3 14v-3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
                 </div>
-                <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No live listings to advertise</h3>
-                <p class="text-sm mb-4" style="color:var(--text-muted);">Only active listings that are live on the website, Property24 or Private Property appear here.</p>
+                <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No active listings to advertise</h3>
+                <p class="text-sm mb-4" style="color:var(--text-muted);">Only active listings appear here — sold, let and withdrawn ones are left out.</p>
                 <a href="{{ route('corex.properties.index') }}" class="corex-btn-outline text-sm">Go to Properties</a>
             </div>
         @else
 
-        @if($allAgents)
-            {{-- Agent-by-agent grouping --}}
-            <div class="flex items-center justify-between flex-wrap gap-2" data-tour="tools-ad-manager-select">
-                <div class="text-sm font-semibold" style="color:var(--text-primary);">Select properties by agent</div>
-                <button type="button" @click="selectAllEverything()" class="corex-btn-outline text-xs">Select all properties</button>
+        {{-- Heading + search + select-all --}}
+        <div class="flex items-center gap-3 flex-wrap" data-tour="tools-ad-manager-select">
+            <div class="mr-auto">
+                <div class="text-lg font-extrabold" style="color:var(--text-primary);">{{ $allAgents ? 'Select properties by agent' : 'Select your properties' }}</div>
+                <div class="text-sm" style="color:var(--text-secondary);">Every active listing is here — open an agent to see all of theirs.</div>
             </div>
+            <label class="flex items-center gap-2 rounded-lg px-3 h-10 w-full sm:w-56" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted);">
+                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path stroke-linecap="round" d="M20 20l-3.5-3.5"/></svg>
+                <input type="search" x-model="search" placeholder="Search properties" aria-label="Search properties"
+                       class="w-full bg-transparent border-0 outline-none text-sm p-0 focus:ring-0" style="color:var(--text-primary);">
+            </label>
+            <button type="button" @click="selectAllEverything()" class="corex-btn-outline text-xs h-10">
+                <span x-text="search.trim() ? 'Select all ' + visibleProperties.length + ' matches' : 'Select all properties'"></span>
+            </button>
+        </div>
+
+        <div x-show="search.trim() && !visibleProperties.length" x-cloak class="rounded-xl py-10 px-6 text-center text-sm"
+             style="background:var(--surface); border:1px solid var(--border); color:var(--text-muted);">
+            No properties match "<span x-text="search"></span>". <button type="button" @click="search=''" class="font-semibold underline" style="color:var(--brand-icon,#0ea5e9);">Clear search</button>
+        </div>
+
+        @if($allAgents)
+            {{-- Agent-by-agent grouping — every active property of every agent the user may see (§20.2) --}}
             <div class="space-y-3">
-                <template x-for="ag in agents" :key="ag.id">
-                    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);"
+                <template x-for="ag in visibleAgents" :key="ag.id">
+                    <div class="rounded-xl overflow-hidden" style="background:var(--surface); border:1px solid var(--border);"
                          :style="skippedAgents.includes(ag.id) ? 'opacity:0.55;' : ''">
-                        <div class="flex items-center gap-3 px-4 py-3 cursor-pointer" @click="toggleAgent(ag.id)">
-                            <svg class="w-4 h-4 transition-transform duration-300" :style="openAgents.includes(ag.id) ? 'transform:rotate(90deg);' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
-                            <div class="flex-1 min-w-0">
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);" x-text="ag.name"></div>
-                                <div class="text-xs" style="color:var(--text-muted);"><span x-text="ag.count"></span> live · <span x-text="agentSelectedCount(ag.id)"></span> selected</div>
+                        <div class="flex items-center gap-3 px-4 py-3 cursor-pointer flex-wrap" role="button" tabindex="0"
+                             :aria-expanded="isOpen(ag.id)" @click="toggleAgent(ag.id)" @keydown.enter.prevent="toggleAgent(ag.id)" @keydown.space.prevent="toggleAgent(ag.id)">
+                            <svg class="w-4 h-4 shrink-0 transition-transform duration-300" :style="isOpen(ag.id) ? 'transform:rotate(90deg);' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color:var(--text-muted);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                            <div class="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                                 style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 14%, transparent); color:var(--brand-icon,#0ea5e9);" x-text="initials(ag.name)"></div>
+                            <div class="flex-1 min-w-[10rem]">
+                                <div class="text-sm font-bold" style="color:var(--text-primary);" x-text="ag.name"></div>
+                                <div class="text-xs" style="color:var(--text-muted);">
+                                    <span x-text="agentAll(ag.id).length"></span> active · <span x-text="agentSelectedCount(ag.id)"></span> selected<span x-show="search.trim()"> · <span x-text="agentProperties(ag.id).length"></span> match</span>
+                                </div>
                             </div>
-                            <button type="button" @click.stop="selectAllForAgent(ag.id)" class="corex-btn-outline text-xs">Select all</button>
-                            <button type="button" @click.stop="skipAgent(ag.id)" class="corex-btn-outline text-xs">Skip</button>
+                            <div class="flex items-center gap-2 ml-auto">
+                                <button type="button" @click.stop="selectAllForAgent(ag.id)" class="corex-btn-outline text-xs">Select all</button>
+                                <button type="button" @click.stop="skipAgent(ag.id)" class="corex-btn-outline text-xs">Skip</button>
+                            </div>
                         </div>
-                        <div x-show="openAgents.includes(ag.id)" x-cloak class="px-4 pb-4">
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div x-show="isOpen(ag.id)" x-cloak class="px-4 pb-4">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
                                 <template x-for="p in agentProperties(ag.id)" :key="p.id">
                                     @include('tools._ad-manager-property-card')
                                 </template>
@@ -116,20 +177,29 @@
             </div>
         @else
             {{-- Own properties --}}
-            <div class="flex items-center justify-between flex-wrap gap-2" data-tour="tools-ad-manager-select">
-                <div class="text-sm font-semibold" style="color:var(--text-primary);">Select your properties</div>
-                <button type="button" @click="selectAllEverything()" class="corex-btn-outline text-xs">Select all</button>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                <template x-for="p in properties" :key="p.id">
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3.5">
+                <template x-for="p in visibleProperties" :key="p.id">
                     @include('tools._ad-manager-property-card')
                 </template>
             </div>
         @endif
 
-        {{-- Footer --}}
-        <div class="sticky bottom-0 z-20 py-3 flex items-center justify-between gap-3" style="background:var(--bg,#0d0f14);">
-            <div class="text-sm" style="color:var(--text-muted);"><span class="font-bold" style="color:var(--text-primary);" x-text="selected.length"></span> propert<span x-text="selected.length===1?'y':'ies'"></span> selected</div>
+        {{-- Selection bar --}}
+        <div class="sticky bottom-3 z-20 rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
+             style="background:var(--surface); border:1px solid var(--border); box-shadow:0 10px 30px rgba(0,0,0,.18);">
+            <div class="flex items-center gap-3 min-w-0">
+                <div class="flex pl-2.5" x-show="selected.length" x-cloak>
+                    <template x-for="(t, i) in selectedThumbs" :key="i">
+                        <div class="w-9 h-9 rounded-lg overflow-hidden -ml-2.5" style="border:2px solid var(--surface); background:var(--surface-2);">
+                            <img x-show="t" :src="t" alt="" loading="lazy" class="w-full h-full object-cover block">
+                        </div>
+                    </template>
+                </div>
+                <div>
+                    <div class="text-sm font-extrabold" style="color:var(--text-primary);"><span x-text="selected.length"></span> propert<span x-text="selected.length===1?'y':'ies'"></span> selected</div>
+                    <div class="text-xs" style="color:var(--text-muted);" x-text="platforms[platform].label"></div>
+                </div>
+            </div>
             <button type="button" @click="goTemplate()" :disabled="!selected.length"
                     data-tour="tools-ad-manager-next"
                     class="corex-btn-primary text-base px-5 py-2.5 disabled:opacity-40 disabled:cursor-not-allowed">
@@ -150,7 +220,7 @@
         </div>
 
         <div class="text-sm font-semibold" style="color:var(--text-primary);">Pre-built templates <span class="font-normal" style="color:var(--text-muted);">— previewed with your first selected property</span></div>
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" data-tour="tools-ad-manager-templates">
+        <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3" data-tour="tools-ad-manager-templates">
             <template x-for="t in prebuilt" :key="t.key">
                 <button type="button" @click="template = t.key"
                         class="rounded-md overflow-hidden text-left transition-all duration-300" style="background:var(--surface);"
@@ -170,7 +240,7 @@
         <template x-if="custom.length">
             <div class="space-y-3">
                 <div class="text-sm font-semibold" style="color:var(--text-primary);">Your agency's custom templates</div>
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
                     <template x-for="t in custom" :key="t.id">
                         <button type="button" @click="template = t.id"
                                 class="rounded-md overflow-hidden text-left transition-all duration-300" style="background:var(--surface);"
@@ -271,6 +341,8 @@
             </template>
         </div>
     </div>
+        </div>{{-- /main column --}}
+    </div>{{-- /rail + main --}}
 
 </div>
 
@@ -306,6 +378,7 @@ function adManager() {
         previewLoading: false,
         previewCanvas: { w: 1200, h: 628 },
         resultAgentFilter: '',
+        search: '',
 
         init() {
             window.addEventListener('resize', () => this.fitCanvases());
@@ -321,8 +394,40 @@ function adManager() {
             return [...rows].sort((a, b) => (a.agent_name || '').localeCompare(b.agent_name || ''));
         },
 
-        agentProperties(agentId) { return this.properties.filter(p => p.agent_id === agentId); },
-        agentSelectedCount(agentId) { const ids = this.agentProperties(agentId).map(p => p.id); return this.selected.filter(s => ids.includes(s)).length; },
+        get stepIndex() { return ['select', 'template', 'results'].indexOf(this.step); },
+
+        // ── Search (client-side, over the list already loaded — ad-manager.md §20.1) ──
+        matchesSearch(p) {
+            const q = this.search.trim().toLowerCase();
+            if (!q) return true;
+            return [p.title, p.address, p.suburb, p.agent_name].join(' ').toLowerCase().includes(q);
+        },
+        get visibleProperties() { return this.properties.filter(p => this.matchesSearch(p)); },
+        // While a search is typed, agents with no match are hidden.
+        get visibleAgents() { return this.agents.filter(a => !this.search.trim() || this.agentProperties(a.id).length); },
+        isOpen(agentId) { return this.search.trim() !== '' || this.openAgents.includes(agentId); },
+
+        // ALL of an agent's active properties, never trimmed — counts, Skip and "N selected" use this.
+        agentAll(agentId) { return this.properties.filter(p => p.agent_id === agentId); },
+        // What the open group displays: all of them, or just the matches while searching.
+        agentProperties(agentId) { return this.agentAll(agentId).filter(p => this.matchesSearch(p)); },
+        agentSelectedCount(agentId) { const ids = this.agentAll(agentId).map(p => p.id); return this.selected.filter(s => ids.includes(s)).length; },
+
+        // First four ticked properties' photos for the selection bar.
+        get selectedThumbs() {
+            return this.selected.slice(0, 4).map(id => (this.properties.find(p => p.id === id) || {}).thumb || null);
+        },
+
+        // Ad-size tiles: each drawn in its real aspect ratio inside a 44 × 36 box.
+        tileShape(p) {
+            const k = Math.min(44 / p.w, 36 / p.h);
+            return 'width:' + Math.round(p.w * k) + 'px; height:' + Math.round(p.h * k) + 'px;';
+        },
+        platformName(p) { return String(p.label).split(' — ')[0]; },
+        initials(name) {
+            const parts = String(name || '?').replace(/\./g, '').trim().split(/\s+/);
+            return ((parts[0] || '?')[0] + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase();
+        },
 
         /** "Last generated" tooltip on a property card's ad-count badge. */
         formatAdDate(iso) {
@@ -340,13 +445,14 @@ function adManager() {
             this.skippedAgents = this.skippedAgents.filter(a => a !== id);
         },
         skipAgent(id) {
-            const ids = this.agentProperties(id).map(p => p.id);
+            const ids = this.agentAll(id).map(p => p.id);
             this.selected = this.selected.filter(s => !ids.includes(s));
             if (!this.skippedAgents.includes(id)) this.skippedAgents.push(id);
             this.openAgents = this.openAgents.filter(a => a !== id);
         },
         selectAllEverything() {
-            this.properties.map(p => p.id).forEach(i => { if (!this.selected.includes(i)) this.selected.push(i); });
+            // With a search typed this ticks the matches; otherwise every listing.
+            this.visibleProperties.map(p => p.id).forEach(i => { if (!this.selected.includes(i)) this.selected.push(i); });
         },
 
         async goTemplate() {
