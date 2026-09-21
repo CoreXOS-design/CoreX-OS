@@ -174,6 +174,41 @@ corrected area even on a property still carrying a stale `town` from before this
 
 ---
 
+## Sale price stays live on a rental listing — Live (2026-09-21, QA1)
+
+**`price` is not exclusive to sale listings — do not remove it from a rental
+thinking it's dead data.** A rental's ongoing income is `rental_amount`, but
+an owner who would sell at a given figure while currently renting the
+property out needs somewhere to record that figure now, so it's ready and
+correct if the listing is later duplicated as a sale
+(`PropertyController::makeClone()` — a rental→sale duplicate carries `price`
+forward instead of clearing it; every other direction still zeroes it, since
+there's no sale-price history to inherit).
+
+**Display, not storage, was the bug.** `Property::effectivePrice()` already
+read the right field per listing type (`rental_amount` for rentals, `price`
+for sales) everywhere it's consumed — syndication mappers, publish-readiness,
+formatted display. The defect was the Pricing & Costs edit panel rendering an
+unlabelled "Price" input on every listing regardless of type, so a rental's
+sale price could be edited and saved correctly while nothing on screen ever
+reflected the change (nothing reads raw `price` for a rental's display). Fixed
+by labelling the field honestly instead of hiding or repurposing it:
+- Rental: the field reads **"Sale Price (ZAR)"** with a one-line pointer
+  ("Not in use while let — see Monthly Rental"), not required, and the panel
+  gains a second field, **"Monthly Rental (ZAR)"** — the same `rental_amount`
+  column the Rental Details tab already edits, not a copy of it.
+- Sale: unchanged — still "Price (ZAR)", required, no second field.
+
+**Files:** `resources/views/corex/properties/show.blade.php` (Pricing &
+Costs section, `#sec-pricing`), `app/Http/Controllers/CoreX/PropertyController.php`
+(`makeClone()`).
+
+**Existing stray `price` values on rentals** (typed in before the field was
+labelled) are handled by a backfill run separately against real data, not
+folded into this change.
+
+---
+
 ## Pending Spec Items
 
 The following require full spec before build:
