@@ -2849,6 +2849,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.edit');
     Route::post('/settings/rental-inspections', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'update'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.update');
+    // Johan, 2026-09-20 — which property feature labels count as inspection
+    // items, and each room type's default items. Own narrow savers, same
+    // reasoning as every other section on this settings screen.
+    Route::post('/settings/rental-inspections/features', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateInspectionFeatures'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.features');
+    Route::post('/settings/rental-inspections/room-type-defaults', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeItemDefaults'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-defaults');
     // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — the spend threshold
     // below which no owner approval is required, agency-configurable.
     Route::get('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'edit'])

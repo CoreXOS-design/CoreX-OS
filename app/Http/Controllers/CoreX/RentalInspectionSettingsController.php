@@ -35,6 +35,26 @@ class RentalInspectionSettingsController extends Controller
             // for this stage. Flagged for the conductor rather than silently
             // decided — see this stage's own report.
             'refusalReasonPresets' => RentalInspectionSetting::refusalReasonPresetsFor($agencyId),
+            // Johan, 2026-09-20 — which of the EXISTING, unchanged property
+            // feature catalog's labels this agency wants carried into an
+            // inspection checklist. featureCategories mirrors the property
+            // edit screen's own grouping exactly (The Property / Security /
+            // Connectivity / Sustainability) — same catalog, same labels,
+            // never a second vocabulary.
+            'featureCategories' => config('property-spaces.feature_categories', []),
+            'includedFeatureLabels' => RentalInspectionSetting::inspectionFeatureLabelsFor($agencyId),
+            // Room types and their default inspection items — agreed with
+            // cc4 (owns the seeder that consumes roomTypeItemsFor()) before
+            // building. allSpaceTypes is the SAME catalog the property
+            // edit screen's space picker already uses, never duplicated.
+            'allSpaceTypes' => config('property-spaces.all_space_types', []),
+            // RAW overrides only (not the merged view) — the edit form's
+            // row list is exactly what this agency has customized; every
+            // OTHER type stays on the standard baseline shown below as a
+            // reference, and is added as its own row only when the agent
+            // picks it to customize.
+            'roomTypeOverrides' => RentalInspectionSetting::customRoomTypeOverridesFor($agencyId),
+            'standardRoomTypeItems' => RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS,
         ]);
     }
 
@@ -69,5 +89,86 @@ class RentalInspectionSettingsController extends Controller
         RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Rental inspection settings saved.');
+    }
+
+    /**
+     * Johan, 2026-09-20 — which of the existing property feature catalog's
+     * labels count as inspection items. Deliberately its own narrow saver
+     * (not folded into update() above) — same one-concern-per-endpoint
+     * discipline as the rental-application field-config screen, so this
+     * section can never force-default the window/refusal-reason fields it
+     * doesn't render, or vice versa.
+     *
+     * Submitted labels are filtered against the LIVE catalog, never trusted
+     * as-is — an agency's browser can only ever check boxes the server
+     * itself rendered, but this guards against a stale/replayed form too.
+     */
+    public function updateInspectionFeatures(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('inspection_features_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['inspection_feature_labels' => 'That did not save — please try again.']);
+        }
+
+        $catalog = collect(config('property-spaces.feature_categories', []))
+            ->flatMap(fn ($category) => $category['features'] ?? [])
+            ->all();
+
+        $submitted = $request->input('inspection_feature_labels', []);
+        $labels = array_values(array_intersect($catalog, is_array($submitted) ? $submitted : []));
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['inspection_feature_labels' => $labels],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Inspection features saved.');
+    }
+
+    /**
+     * Johan, 2026-09-20 — the default inspection items for each room type,
+     * agreed with cc4 (rental-inspections rework) before building: an
+     * ordered array of item labels per space type, keyed on the SAME
+     * strings config('property-spaces.all_space_types') already uses.
+     * Own narrow saver, same reasoning as updateInspectionFeatures() above.
+     *
+     * Space types are filtered against the LIVE catalog; item labels are
+     * trimmed, empty ones dropped, and order is preserved exactly as
+     * submitted — that order is the checklist's own walk-order once seeded,
+     * per cc4's own seeder contract.
+     */
+    public function updateRoomTypeItemDefaults(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('room_type_item_defaults_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['room_type_item_defaults' => 'That did not save — please try again.']);
+        }
+
+        $knownTypes = config('property-spaces.all_space_types', []);
+        $submitted = $request->input('room_type_item_defaults', []);
+
+        $defaults = [];
+        foreach ((array) $submitted as $type => $items) {
+            if (! in_array($type, $knownTypes, true)) {
+                continue;
+            }
+            $cleaned = array_values(array_filter(array_map(
+                fn ($item) => trim((string) $item),
+                is_array($items) ? $items : []
+            ), fn ($item) => $item !== ''));
+
+            $defaults[$type] = $cleaned;
+        }
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['room_type_item_defaults' => $defaults],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Room type defaults saved.');
     }
 }
