@@ -10,6 +10,7 @@ use App\Models\RentalInspectionDiscrepancy;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
 use App\Models\RentalInspectionPhoto;
+use App\Models\RentalInspectionRoomNote;
 use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
 use App\Services\Images\PropertyImageStorer;
@@ -63,7 +64,7 @@ class RentalInspectionRecordingController extends Controller
         // this same-page response (tabPayloadFor()'s own eager-load covers
         // the full-reload case, but a freshly-started inspection never goes
         // through that path).
-        $inspection->load('lease.tenants.contact');
+        $inspection->load('lease.tenants.contact', 'createdBy');
 
         return response()->json($inspection, 201);
     }
@@ -115,7 +116,7 @@ class RentalInspectionRecordingController extends Controller
                 'type' => $validated['space_type'],
                 'label' => $validated['label'],
                 'source' => 'manual',
-                'sort_order' => ((int) PropertyRoom::where('property_id', $property->id)->max('sort_order')) + 1,
+                'sort_order' => RentalInspectionSetting::defaultRoomSortOrderFor($property->agency_id, $validated['space_type'], $validated['label']),
                 'created_by_user_id' => $request->user()->id,
             ]);
 
@@ -156,7 +157,7 @@ class RentalInspectionRecordingController extends Controller
                 'type' => $validated['space_type'],
                 'label' => $item->label,
                 'source' => 'manual',
-                'sort_order' => ((int) PropertyRoom::where('property_id', $property->id)->max('sort_order')) + 1,
+                'sort_order' => RentalInspectionSetting::defaultRoomSortOrderFor($property->agency_id, $validated['space_type'], $item->label),
                 'created_by_user_id' => $request->user()->id,
             ]);
 
@@ -210,6 +211,77 @@ class RentalInspectionRecordingController extends Controller
     }
 
     /**
+     * POST /corex/properties/{property}/rental-inspection-rooms/apply-default-order
+     * — Johan, 2026-09-21, property 5792: existing rooms keep whatever
+     * sort_order they already have (never silently recomputed by a deploy —
+     * an agency may have deliberately ordered a property already), but he
+     * needs an explicit, one-click way to bring an existing property's
+     * rooms onto the agency's current walking order. Idempotent — safe to
+     * call more than once, and safe to call again after the agency edits
+     * its walking order in settings.
+     */
+    public function applyDefaultRoomOrder(Request $request, Property $property): JsonResponse
+    {
+        $rooms = PropertyRoom::where('property_id', $property->id)->get();
+
+        foreach ($rooms as $room) {
+            $room->update([
+                'sort_order' => RentalInspectionSetting::defaultRoomSortOrderFor($property->agency_id, $room->type, $room->label),
+            ]);
+        }
+
+        return response()->json([
+            // 2026-09-21, Johan on property 5792 — `id` is a required secondary
+            // sort key, not decoration: two rooms of the same type that both
+            // lack a number in their label (or share the same number) resolve
+            // to the EXACT SAME sort_order from defaultRoomSortOrderFor(), and
+            // MySQL does not guarantee tie-break order is stable across
+            // requests. Matches the box-wide `orderBy('sort_order')->orderBy('id')`
+            // convention already used everywhere else sort_order drives a query
+            // (e.g. Contact.php:275, RentalInventory.php:71/77).
+            'rooms' => PropertyRoom::where('property_id', $property->id)->orderBy('sort_order')->orderBy('id')->get(),
+        ]);
+    }
+
+    /**
+     * POST /corex/properties/{property}/rental-inspection-rooms/reorder —
+     * Johan, 2026-09-21: "the agent must be able to reorder rooms
+     * themselves and have it stick." Takes the agent's own full ordering of
+     * this property's rooms and rewrites sort_order to match it exactly —
+     * an explicit, persisted action on the SAME column the default-order
+     * logic uses, so every consumer (roomGroups() in both views) reflects
+     * it automatically with no further change on their side. A room id
+     * that isn't this property's own is rejected outright rather than
+     * silently ignored or allowed to move another property's data.
+     */
+    public function reorderRooms(Request $request, Property $property): JsonResponse
+    {
+        $validated = $request->validate([
+            'room_ids' => ['required', 'array', 'min:1'],
+            'room_ids.*' => ['integer', 'distinct'],
+        ]);
+
+        $rooms = PropertyRoom::where('property_id', $property->id)->whereIn('id', $validated['room_ids'])->get()->keyBy('id');
+        abort_if($rooms->count() !== count($validated['room_ids']), 422, 'One or more rooms do not belong to this property.');
+
+        foreach (array_values($validated['room_ids']) as $index => $roomId) {
+            $rooms[$roomId]->update(['sort_order' => $index]);
+        }
+
+        return response()->json([
+            // 2026-09-21, Johan on property 5792 — `id` is a required secondary
+            // sort key, not decoration: two rooms of the same type that both
+            // lack a number in their label (or share the same number) resolve
+            // to the EXACT SAME sort_order from defaultRoomSortOrderFor(), and
+            // MySQL does not guarantee tie-break order is stable across
+            // requests. Matches the box-wide `orderBy('sort_order')->orderBy('id')`
+            // convention already used everywhere else sort_order drives a query
+            // (e.g. Contact.php:275, RentalInventory.php:71/77).
+            'rooms' => PropertyRoom::where('property_id', $property->id)->orderBy('sort_order')->orderBy('id')->get(),
+        ]);
+    }
+
+    /**
      * POST /corex/properties/{property}/rental-inspection-items/seed-from-advertising
      * — Stage 2, Johan: "use the advertising details to build the
      * inspection report as a basic." One-time only — RentalInspectionFormSeeder
@@ -233,8 +305,41 @@ class RentalInspectionRecordingController extends Controller
             // button end-to-end in a real browser, not by any server-side
             // check.
             'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->with('room')->orderBy('id')->get(),
-            'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->get(),
+            'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->orderBy('id')->get(),
         ]);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/details — §17, the header
+     * block: meter readings (free text — a body corporate property reads
+     * "BODY CORP", not a number), furnished state + property type (agency-
+     * configurable, same PropertySettingItem groups Property itself uses),
+     * keys/remotes as count + description, and — out-inspections only —
+     * the original move-in date. Every field optional per request: an agent
+     * confirming just the meter readings doesn't have to resend everything
+     * else.
+     */
+    public function updateDetails(Request $request, RentalInspection $rentalInspection): JsonResponse
+    {
+        $validated = $request->validate([
+            'electricity_meter_reading' => ['nullable', 'string', 'max:100'],
+            'water_meter_reading' => ['nullable', 'string', 'max:100'],
+            'furnished_status' => ['nullable', 'string', 'max:60'],
+            'property_type' => ['nullable', 'string', 'max:60'],
+            'keys_count' => ['nullable', 'integer', 'min:0'],
+            'keys_description' => ['nullable', 'string', 'max:191'],
+            'remotes_count' => ['nullable', 'integer', 'min:0'],
+            'remotes_description' => ['nullable', 'string', 'max:191'],
+            'move_in_date_recorded' => ['nullable', 'date'],
+        ]);
+
+        try {
+            $rentalInspection->updateDetails($validated);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 400);
+        }
+
+        return response()->json($rentalInspection->fresh());
     }
 
     /**
@@ -244,16 +349,15 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeObservation(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        // 2026-09-21, Johan from Retha's real paper form — the condition
+        // vocabulary itself (which states exist, which need a reason) is
+        // agency-configurable (RentalInspectionSetting::conditionStatesFor()),
+        // never this hardcoded six-item list.
+        $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
+
         $validated = $request->validate([
             'rental_inspection_item_id' => ['required', 'integer', 'exists:rental_inspection_items,id'],
-            'condition' => ['required', 'string', 'in:' . implode(',', [
-                RentalInspectionObservation::CONDITION_GOOD,
-                RentalInspectionObservation::CONDITION_FAIR,
-                RentalInspectionObservation::CONDITION_DAMAGED,
-                RentalInspectionObservation::CONDITION_NOT_WORKING,
-                RentalInspectionObservation::CONDITION_MISSING,
-                RentalInspectionObservation::CONDITION_OTHER,
-            ])],
+            'condition' => ['required', 'string', Rule::in(array_column($conditionStates, 'key'))],
             'notes' => ['nullable', 'string'],
             'source' => ['required', 'string', 'in:' . implode(',', [
                 RentalInspectionObservation::SOURCE_IN_INSPECTION,
@@ -264,9 +368,11 @@ class RentalInspectionRecordingController extends Controller
             'client_idempotency_key' => ['nullable', 'uuid'],
         ]);
 
-        // §0.3 — a bad rating needs a reason on record.
-        if ($validated['condition'] !== RentalInspectionObservation::CONDITION_GOOD && empty($validated['notes'])) {
-            return response()->json(['message' => 'Notes are required when the condition is not "good".'], 422);
+        // §0.3 — a state that needs a reason (per the agency's OWN
+        // vocabulary) must have one on record. Good needs none; N/A needs
+        // none either — Johan: "not an argument at all."
+        if (RentalInspectionSetting::conditionRequiresNotesFor($rentalInspection->agency_id, $validated['condition']) && empty($validated['notes'])) {
+            return response()->json(['message' => 'Notes are required for this condition.'], 422);
         }
 
         $observation = RentalInspectionObservation::record(array_merge($validated, [
@@ -276,6 +382,89 @@ class RentalInspectionRecordingController extends Controller
         ]));
 
         return response()->json($observation->load('item'));
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/rooms/{room}/mark-na —
+     * Johan, 2026-09-21, from Retha's real paper form: she strikes ENTIRE
+     * rooms out with one big N/A across the table (Bedroom 3, Bedroom 4).
+     * Records one N/A observation per active item in the room, through the
+     * exact same atomic record() path a single-item observation uses — a
+     * genuine conflict with an EARLIER observation on the same item in
+     * this inspection (e.g. already graded "Ceiling: Fair") still raises a
+     * real discrepancy, exactly as it should; this is a bulk convenience
+     * over the one real recording path, never a second one.
+     */
+    public function markRoomNa(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
+    {
+        abort_if($room->property_id !== $rentalInspection->property_id, 404);
+
+        $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
+        abort_unless(
+            collect($conditionStates)->contains('key', RentalInspectionObservation::CONDITION_NA),
+            422,
+            'N/A is not a configured condition for this agency.'
+        );
+
+        $source = match ($rentalInspection->type) {
+            RentalInspection::TYPE_IN => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+            RentalInspection::TYPE_OUT => RentalInspectionObservation::SOURCE_OUT_INSPECTION,
+            default => RentalInspectionObservation::SOURCE_AD_HOC,
+        };
+
+        $items = RentalInspectionItem::where('property_room_id', $room->id)->notRetired()->get();
+
+        $observations = $items->map(fn (RentalInspectionItem $item) => RentalInspectionObservation::record([
+            'agency_id' => $rentalInspection->agency_id,
+            'rental_inspection_id' => $rentalInspection->id,
+            'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $request->user()->id,
+            'condition' => RentalInspectionObservation::CONDITION_NA,
+            'source' => $source,
+        ])->load('item'));
+
+        return response()->json(['observations' => $observations->values()]);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/rooms/{room}/notes —
+     * Johan, 2026-09-21, from Retha's real paper form: every room table
+     * has its own notes box, holding evidence that belongs to the whole
+     * room, not any single item. Immutable, same convention as an
+     * observation (§3.3) — a correction is a NEW row, never an edit; "the
+     * room's current note" is simply the latest one for this inspection.
+     */
+    public function storeRoomNote(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
+    {
+        abort_if($room->property_id !== $rentalInspection->property_id, 404);
+
+        $validated = $request->validate(['note' => ['required', 'string', 'max:4000']]);
+
+        $note = RentalInspectionRoomNote::create([
+            'agency_id' => $rentalInspection->agency_id,
+            'rental_inspection_id' => $rentalInspection->id,
+            'property_room_id' => $room->id,
+            'note' => $validated['note'],
+            'created_by_user_id' => $request->user()->id,
+        ]);
+
+        return response()->json($note, 201);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/overall-notes — Johan,
+     * 2026-09-21, from Retha's real paper form: a single free-text summary
+     * for the whole inspection, at the foot. Plain mutable field on the
+     * inspection itself (like cancel_reason) — editable any time before
+     * completion, not an append-only evidentiary history.
+     */
+    public function updateOverallNotes(Request $request, RentalInspection $rentalInspection): JsonResponse
+    {
+        $validated = $request->validate(['overall_notes' => ['nullable', 'string', 'max:4000']]);
+
+        $rentalInspection->update(['overall_notes' => $validated['overall_notes'] ?? null]);
+
+        return response()->json($rentalInspection->fresh());
     }
 
     /** POST /corex/rental-inspections/{inspection}/observations/{observation}/photos — §14.5, reuses PropertyImageStorer, never a second pipeline. */

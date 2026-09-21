@@ -244,5 +244,102 @@
             <button type="submit" class="corex-btn-primary text-sm">Save room type defaults</button>
         </div>
     </form>
+
+    {{-- Johan, 2026-09-21, property 5792 — "theres no logical way to line
+         up the rooms as the inspection goes." The default order a NEW
+         room's sort_order is computed from. This is a full reordering of
+         every space type (not a sparse override like the item defaults
+         above), so every type is always listed and always has a position —
+         nothing to add or remove here, only to reorder. An agent can still
+         reorder any one property's own rooms afterwards from the property
+         screen itself; this only sets where a newly added room starts. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.room-type-order') }}" class="space-y-3"
+          x-data="{
+              order: {{ Js::from($roomTypeWalkingOrder) }},
+              moveUp(i) { if (i === 0) return; const t = this.order[i - 1]; this.order[i - 1] = this.order[i]; this.order[i] = t; },
+              moveDown(i) { if (i === this.order.length - 1) return; const t = this.order[i + 1]; this.order[i + 1] = this.order[i]; this.order[i] = t; },
+          }">
+        @csrf
+        <input type="hidden" name="room_type_walking_order_submitted" value="1">
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Room walking order</h3>
+            </div>
+            <div class="p-5 space-y-2">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The order a new room is placed in on a property's inspection checklist — an agent
+                    can always reorder a specific property's own rooms afterwards; this only sets where
+                    a newly added room starts.
+                </p>
+                <template x-for="(type, i) in order" :key="type">
+                    <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
+                        <span class="text-sm" style="color:var(--text-primary);" x-text="(i + 1) + '. ' + type"></span>
+                        <div class="flex items-center gap-1">
+                            <button type="button" @click="moveUp(i)" :disabled="i === 0"
+                                    class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--text-secondary);">Move up</button>
+                            <button type="button" @click="moveDown(i)" :disabled="i === order.length - 1"
+                                    class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--text-secondary);">Move down</button>
+                        </div>
+                        <input type="hidden" name="room_type_walking_order[]" :value="type">
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save walking order</button>
+        </div>
+    </form>
+
+    {{-- §17, Johan 2026-09-21, from Retha's real paper out-inspection form:
+         her vocabulary is Good/OK/Bad, ours is Good/Fair/Damaged/Not
+         working/Missing/Other/N/A. Neither is forced on the other agency —
+         this is the SET itself, agency-configurable. An existing row's key
+         is carried as a hidden field, never re-derived from its label, so
+         it can never drift out from under observations already recorded
+         against it; only a brand-new row gets a freshly generated key. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.condition-states') }}" class="space-y-3"
+          x-data="{
+              states: {{ Js::from($conditionStates) }},
+              addState() { this.states.push({ key: 'custom_' + Date.now(), label: '', requires_notes: true }); },
+          }">
+        @csrf
+        <input type="hidden" name="condition_states_submitted" value="1">
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Condition states</h3>
+            </div>
+            <div class="p-5 space-y-2">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    What an inspector can grade an item as, in the order offered. "Needs a reason"
+                    means the agent must type a note before that state can be saved — a Good rating
+                    or something genuinely not applicable to the property need no explanation, but
+                    anything else does.
+                </p>
+                <template x-for="(state, i) in states" :key="state.key">
+                    <div class="flex items-center gap-2">
+                        <input type="text" x-model="state.label" :name="`condition_states[${i}][label]`"
+                               maxlength="60" required placeholder="Label"
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <label class="flex items-center gap-1.5 text-xs whitespace-nowrap" style="color: var(--text-secondary);">
+                            <input type="checkbox" x-model="state.requires_notes">
+                            Needs a reason
+                        </label>
+                        <input type="hidden" :name="`condition_states[${i}][key]`" :value="state.key">
+                        <input type="hidden" :name="`condition_states[${i}][requires_notes]`" :value="state.requires_notes ? '1' : '0'">
+                        <button type="button" @click="states.splice(i, 1)" :disabled="states.length <= 1"
+                                class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
+                    </div>
+                </template>
+                <button type="button" @click="addState()" class="corex-btn-outline text-xs">+ Add a condition state</button>
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save condition states</button>
+        </div>
+    </form>
 </div>
 @endsection

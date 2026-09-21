@@ -27,6 +27,16 @@ class RentalInspectionObservation extends Model
     public const CONDITION_NOT_WORKING = 'not_working';
     public const CONDITION_MISSING = 'missing';
     public const CONDITION_OTHER = 'other';
+    /**
+     * Johan, 2026-09-21, from Retha's real paper form: distinct from
+     * MISSING — "should be here and isn't" (a deposit argument) — N/A
+     * means "was never here" (not an argument at all). These constants are
+     * the shipped DEFAULT vocabulary's keys (RentalInspectionSetting::
+     * DEFAULT_CONDITION_STATES); the actual valid set for a given agency
+     * is agency-configurable and resolved via conditionStatesFor(), never
+     * hardcoded to this list at the point of use.
+     */
+    public const CONDITION_NA = 'n_a';
 
     public const SOURCE_IN_INSPECTION = 'in_inspection';
     public const SOURCE_TENANT_FAULT_REPORT = 'tenant_fault_report';
@@ -99,10 +109,16 @@ class RentalInspectionObservation extends Model
         return $this->hasMany(RentalInspectionPhoto::class);
     }
 
-    /** §0.3 — a bad rating needs a reason on record. */
+    /**
+     * §0.3 — does this condition need a reason on record. Delegates to the
+     * agency's own configured vocabulary (RentalInspectionSetting::
+     * conditionRequiresNotesFor()) rather than a hardcoded "anything but
+     * Good" check — an agency's reduced/renamed condition set (Retha's
+     * Good/OK/Bad, 2026-09-21) still expresses this rule correctly.
+     */
     public function requiresNotes(): bool
     {
-        return $this->condition !== self::CONDITION_GOOD;
+        return RentalInspectionSetting::conditionRequiresNotesFor($this->agency_id, $this->condition);
     }
 
     /**

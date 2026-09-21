@@ -44,6 +44,24 @@ class RentalInspection extends Model
         'cancel_reason',
         'archived_by_user_id',
         'created_by_user_id',
+        // §17 — the header block. Snapshotted onto the inspection at start,
+        // editable (updateDetails()) until the inspection completes.
+        'electricity_meter_reading',
+        'water_meter_reading',
+        'furnished_status',
+        'property_type',
+        'keys_count',
+        'keys_description',
+        'remotes_count',
+        'remotes_description',
+        'move_in_date_recorded',
+        // Johan, 2026-09-21, from Retha's real paper out-inspection form:
+        // a single free-text summary for the whole inspection, at the
+        // foot — hers reads "OVERALL - APARTMENT CLEAN - FAIR - PARTIALLY
+        // FURNISHED". Plain mutable column, like cancel_reason — this is
+        // the inspection's own summary, not an append-only evidentiary
+        // fact like an Observation.
+        'overall_notes',
     ];
 
     protected $casts = [
@@ -52,6 +70,9 @@ class RentalInspection extends Model
         'signing_deadline_at' => 'datetime',
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'keys_count' => 'integer',
+        'remotes_count' => 'integer',
+        'move_in_date_recorded' => 'date',
     ];
 
     protected static function boot(): void
@@ -102,6 +123,18 @@ class RentalInspection extends Model
     public function discrepancies(): HasMany
     {
         return $this->hasMany(RentalInspectionDiscrepancy::class);
+    }
+
+    /**
+     * §17, Johan 2026-09-21 — one free-text note per room, per walkthrough
+     * (Retha's paper form: a notes box under every room table). Every note
+     * ever recorded, oldest first, same as observations() — "current" for
+     * a given room is the latest one, resolved by the caller (same pattern
+     * as an item's currentObservation()), never a mutable column here.
+     */
+    public function roomNotes(): HasMany
+    {
+        return $this->hasMany(RentalInspectionRoomNote::class);
     }
 
     public function signatures(): HasMany
@@ -386,7 +419,37 @@ class RentalInspection extends Model
             'lease_id' => $lease->id,
             'type' => $type,
             'created_by_user_id' => $by->id,
+            // §17 — "pull what we already know" (Johan): defaulted from the
+            // property/lease record so the agent confirms rather than
+            // retypes. Deliberately NOT defaulting keys_count/remotes_count/
+            // meter readings from anything — those are the whole point of a
+            // fresh physical check; pre-filling them would let an agent
+            // accept a stale default instead of actually counting.
+            'property_type' => $property->property_type,
+            'furnished_status' => $property->furnished_status,
+            'move_in_date_recorded' => $type === self::TYPE_OUT ? $lease->start_date : null,
         ]);
+    }
+
+    /**
+     * §17 — the header block, editable any time before the inspection
+     * completes (matching how a room's observed condition stays correctable
+     * up to that same point) — never after; the completed document is
+     * evidence, not a form left open for revision.
+     */
+    public function updateDetails(array $attributes): void
+    {
+        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException('Cannot edit inspection details once the inspection is completed or cancelled.');
+        }
+
+        $this->update(array_intersect_key($attributes, array_flip([
+            'electricity_meter_reading', 'water_meter_reading',
+            'furnished_status', 'property_type',
+            'keys_count', 'keys_description',
+            'remotes_count', 'remotes_description',
+            'move_in_date_recorded',
+        ])));
     }
 
     /**
@@ -428,8 +491,13 @@ class RentalInspection extends Model
         // §15.4 — the per-tenant signing UI (Stage 2) needs to know WHO the
         // lease's tenants are to render one row each; lease.tenants.contact
         // is the same relation path already proven elsewhere in this module.
+        // §17 — createdBy loaded for the header block's "Inspection done by"
+        // display; roomNotes eager-loaded so the tab renders an existing
+        // room note without a second round-trip (the frontend resolves
+        // "current" as the latest row per room, same pattern as
+        // conditionFor() already does for item observations).
         $withDetail = fn (string $type) => self::currentFor($property, $type)
-            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures', 'lease.tenants.contact']);
+            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
 
         $outInspection = $withDetail(self::TYPE_OUT);
         // 2026-09-20 fix — deliberately NOT $outInspection above. That value
@@ -471,6 +539,12 @@ class RentalInspection extends Model
             // deliberately separate from out_inspection (above) so the block
             // stays visible once out_inspection goes null on completion.
             'out_inspection_recorded' => (bool) $mostRecentOut,
+            // §17, Johan 2026-09-21, from Retha's real paper out-inspection
+            // form — the agency's own condition vocabulary (Good/Fair/
+            // Damaged/Not working/Missing/Other/N/A by default), rendered
+            // into the recording UI's condition picker instead of a
+            // hardcoded set of <option> tags.
+            'condition_states' => \App\Models\RentalInspectionSetting::conditionStatesFor($property->agency_id),
         ];
     }
 }

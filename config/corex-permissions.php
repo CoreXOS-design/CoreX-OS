@@ -157,6 +157,10 @@ return [
         // call, not a routine recording action.
         ['key' => 'rental_inspections.review_deposit_comparison', 'label' => 'Review Deposit Comparison Findings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 6],
 
+        // ── Rental Inventory (rental-inventory.md) — its own document, not a tab on rental_inspections ──
+        ['key' => 'rental_inventories.view',   'label' => 'View Rental Inventories',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inventories', 'sort_order' => 1],
+        ['key' => 'rental_inventories.create', 'label' => 'Record Inventories & Sign',          'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inventories', 'sort_order' => 2],
+
         // ── Rental Fault Reports (rental-work-orders.md §3a, 2026-09-24/25) ──
         ['key' => 'rental_fault_reports.view',   'label' => 'View Rental Fault Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_fault_reports', 'sort_order' => 1],
         ['key' => 'rental_fault_reports.create', 'label' => 'Report & Edit Faults',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 2],

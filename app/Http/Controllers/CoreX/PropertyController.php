@@ -10,6 +10,7 @@ use App\Models\Property;
 use App\Models\PropertyNote;
 use App\Models\PropertyAdTemplate;
 use App\Models\DocumentType;
+use App\Models\PropertyRentalDetailsCustomField;
 use App\Models\PropertySettingItem;
 use App\Models\PerformanceSetting;
 use App\Models\User;
@@ -794,10 +795,23 @@ class PropertyController extends Controller
             }
         }
 
+        // .ai/specs/rental-property-tab.md §2/§8, Part 2 — agency-defined
+        // rental-details fields, in the agency's configured sort order.
+        // Resolved from the PROPERTY's own agency, not the viewing user's —
+        // a property always belongs to exactly one agency, and this is the
+        // tamper-proof source for which field list applies (never the
+        // creating/current-agency field list of the viewing agent, in the
+        // rare case those ever differ). Only the settled-property Rental
+        // tab renders these (Part 2 scope) — the new/draft-property path
+        // (this controller's create-redirect response, a separate return
+        // further down) deliberately does not yet, flagged in the spec as
+        // a follow-up, not an oversight.
+        $rentalDetailsCustomFields = PropertyRentalDetailsCustomField::activeFor((int) $property->agency_id);
+
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId'
+            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId', 'rentalDetailsCustomFields'
         ));
     }
 
@@ -2517,6 +2531,60 @@ class PropertyController extends Controller
             // existing column, not a new one (see the migration's docblock).
             'occupation_date'   => 'nullable|date',
         ]);
+
+        // .ai/specs/rental-property-tab.md §2/§8, Part 2 — agency-defined
+        // rental-details fields. Built dynamically per-agency (there is no
+        // static rule set — every agency's field list differs), merged into
+        // the SAME $request->validate() call as everything above so a
+        // failure throws the SAME ValidationException Laravel already
+        // handles correctly (redirect back, $errors->any() renders on this
+        // page — see the top-of-page banner) — never a second, hand-rolled
+        // failure path that could silently report "Saved." the way the
+        // onboarding wizard's per-saver loop did (fixed 2026-09-20). No
+        // property update happens until validation for BOTH the shipped
+        // fields above and every custom field below has passed.
+        $customFields = PropertyRentalDetailsCustomField::activeFor((int) $property->agency_id);
+        $customFieldRules = [];
+        foreach ($customFields as $customField) {
+            $inputName = "custom_fields.{$customField->key}";
+            // Array-format rules take ONE rule per element — a pipe-delimited
+            // string mixed in as a single element ('numeric|min:0') is NOT
+            // re-split by Laravel and throws "Method ...validateNumeric|min
+            // does not exist" the moment it's evaluated (caught live: this
+            // exact mistake 500'd every save touching a number/currency
+            // field during Part 2's own real-HTTP verification). Each rule
+            // is its own array element via array_merge, never concatenated.
+            $rules = [$customField->required ? 'required' : 'nullable'];
+            $rules = array_merge($rules, match ($customField->field_type) {
+                PropertyRentalDetailsCustomField::TYPE_NUMBER,
+                PropertyRentalDetailsCustomField::TYPE_CURRENCY => ['numeric', 'min:0'],
+                PropertyRentalDetailsCustomField::TYPE_YES_NO => ['boolean'],
+                default => ['string', 'max:1000'],
+            });
+            $customFieldRules[$inputName] = $rules;
+        }
+        $customData = $request->validate($customFieldRules);
+
+        if ($customFields->isNotEmpty()) {
+            // Merge into whatever's already stored, never replace wholesale
+            // — this form only ever renders ACTIVE (shown, not-retired)
+            // fields, so a wholesale overwrite would silently wipe the
+            // already-captured value of any field an agency has since
+            // hidden or retired. yes_no fields need $request->boolean() the
+            // same reason has_deposit/water_included etc. do above: an
+            // unticked checkbox submits nothing at all, and validate()
+            // above would leave it out of $customData entirely.
+            $incomingCustomValues = $customData['custom_fields'] ?? [];
+            foreach ($customFields as $customField) {
+                if ($customField->field_type === PropertyRentalDetailsCustomField::TYPE_YES_NO) {
+                    $incomingCustomValues[$customField->key] = $request->boolean("custom_fields.{$customField->key}");
+                }
+            }
+            $data['rental_details_custom_field_values'] = array_merge(
+                $property->rental_details_custom_field_values ?? [],
+                $incomingCustomValues,
+            );
+        }
 
         // has_deposit / water_included / electricity_included / levies_included
         // are all checkboxes: an unchecked box submits nothing at all, not
