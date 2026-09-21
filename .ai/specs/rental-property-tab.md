@@ -785,27 +785,63 @@ verified live on QA1 before the next starts, each with its own "what
 was built" + "verified live" record). Sequencing follows dependency
 order — later parts read what earlier parts create.
 
-**Part 1 — `PropertyRentalDetailsCustomField` model, migration,
-controller, settings-page CRUD.** Mirrors
+**Part 1 — LANDED ON QA1, 2026-09-21.** `PropertyRentalDetailsCustomField`
+model, migration, controller, settings-page CRUD. Mirrors
 `RentalApplicationCustomField`'s shape exactly (§2), including the new
 `TYPE_CURRENCY` type and the `advertise` column. No UI on the property
 screen yet — this part only builds the agency's ability to define
 fields, on its own settings page, under Settings → Rentals (per Johan's
-own words, "under settings rentals"). Verify: an agency can create,
-reorder, archive, and restore a field of each of the four types;
-archived fields don't appear in `activeFor()`; two agencies' field lists
-never leak into each other.
+own words, "under settings rentals"). 16 isolated tests + verified live
+via real HTTP against the landed database, not just the test suite:
+store/archive/restore each independently confirmed by a direct database
+check, not assumed from a 200 status.
 
-**Part 2 — Agency-defined fields render and save on the property Rental
-tab.** The custom fields defined in Part 1 render as real inputs on the
-existing Rental tab (`show.blade.php`), values save into the new
-`rental_details_custom_field_values` json column via the existing
-`updateRentalDetails()` action. No advert-block behaviour yet. Verify: a
-Lets Assist yes/no field set up for one agency does not appear for
-another; values round-trip correctly for all four types; a sale
-property's raw HTML still has zero occurrences of any rental-only
-markup (matching the standard every prior Rental-tab part already
-proved).
+**Part 2 — BUILT, PUSHED, AWAITING LANDING (2026-09-21).** Agency-defined
+fields render and save on the property Rental tab. The custom fields
+defined in Part 1 render as real inputs on the existing Rental tab
+(`show.blade.php`), in the agency's configured sort order, only on a
+SETTLED rental property (`updateRentalDetails()`'s existing scope) — the
+new/draft-property creation path is a deliberate deferral, not an
+oversight, flagged below. Values save into the new
+`rental_details_custom_field_values` json column, MERGED into whatever's
+already stored rather than replacing it wholesale, so a field an agency
+has since hidden or retired keeps its historical value even though the
+form no longer renders it. Required fields are enforced via the same
+`$request->validate()` call as the shipped fields — one failure, one
+`ValidationException`, one already-correct redirect-with-errors path, no
+second hand-rolled failure mode that could silently report "Saved."
+(the onboarding-wizard class of bug, fixed 2026-09-20). A required
+yes/no field uses the hidden-input-plus-checkbox pattern so an explicit
+"No" (submits "0") satisfies `required`, distinct from the field being
+left unanswered entirely.
+
+**Real bug found and fixed before this shipped, worth recording:** the
+first draft built each custom field's validation rule as a single
+pipe-delimited string (`'numeric|min:0'`) pushed into an array-format
+rule set. Laravel does not re-split a pipe-string that arrives as ONE
+array element — it throws `Method ...validateNumeric|min does not
+exist` the moment that rule is evaluated, a real 500 on any save
+touching a number or currency custom field. Caught by the isolated test
+suite before any real-HTTP attempt, not by manual testing — exactly the
+value of writing the test first. Fixed by building each rule as its own
+array element via `array_merge()`, never a joined string.
+
+**No advert-block behaviour yet** (Part 5). Verify: an agency with no
+fields defined renders nothing extra and the page still loads (the
+common case today); a defined field renders, in order, respecting
+`shown`; another agency's field never appears; all four types save and
+round-trip correctly; a missing required field fails visibly and
+persists NOTHING from the whole request, not a partial write; retiring
+or hiding a field never touches its own already-captured value on any
+property. 11 isolated tests, all passing.
+
+**Deliberately deferred, not an oversight:** the new/draft-property
+creation path (this controller's create-redirect response, a separate
+`show.blade.php` render reached only from `store()`) does not yet render
+custom fields — Part 2's scope, per Johan's own morning example
+("walking property 427"), is the SETTLED property's Rental tab. Whether
+a brand-new rental listing should also capture these fields before its
+first save is a real, open follow-up, not decided here.
 
 **Part 3 — Rental price type: agency-editable list, single-select, real
 gating.** `GROUP_RENTAL_PRICE_TYPE` `PropertySettingItem` group +

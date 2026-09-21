@@ -4466,6 +4466,44 @@
                             <input type="checkbox" id="rental_levies_included_settled" name="levies_included" value="1" {{ old('levies_included', $property->levies_included) ? 'checked' : '' }} class="rounded">
                             <label for="rental_levies_included_settled" class="prop-label !mb-0">Levies Included</label>
                         </div>
+                        {{--
+                            .ai/specs/rental-property-tab.md §2/§8, Part 2 —
+                            agency-defined fields, in the agency's configured
+                            order. Renders nothing at all for an agency with
+                            no fields defined — the common case today
+                            (empty collection, @foreach produces no markup).
+                        --}}
+                        @foreach($rentalDetailsCustomFields ?? [] as $customField)
+                            @php
+                                $cfInputName = "custom_fields[{$customField->key}]";
+                                $cfOldKey = "custom_fields.{$customField->key}";
+                                $cfValue = old($cfOldKey, $property->rental_details_custom_field_values[$customField->key] ?? null);
+                            @endphp
+                            @if($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_YES_NO)
+                                <div class="flex items-center gap-2">
+                                    {{-- Hidden + checkbox, not a bare checkbox — an unticked
+                                         box must still submit "0" so a REQUIRED yes/no field
+                                         is answered (explicitly No), not merely absent. --}}
+                                    <input type="hidden" name="{{ $cfInputName }}" value="0">
+                                    <input type="checkbox" id="cf_{{ $customField->key }}" name="{{ $cfInputName }}" value="1" {{ $cfValue ? 'checked' : '' }} class="rounded">
+                                    <label for="cf_{{ $customField->key }}" class="prop-label !mb-0">{{ $customField->label }}@if($customField->required) *@endif</label>
+                                </div>
+                            @else
+                                <div>
+                                    <label class="prop-label">{{ $customField->label }}{{ $customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_CURRENCY ? ' (R)' : '' }}@if($customField->required) *@endif</label>
+                                    @if($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_CURRENCY)
+                                        <input type="number" name="{{ $cfInputName }}" value="{{ $cfValue }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money" @if($customField->required) required @endif>
+                                    @elseif($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_NUMBER)
+                                        <input type="number" name="{{ $cfInputName }}" value="{{ $cfValue }}" min="0" step="1" class="prop-input" @if($customField->required) required @endif>
+                                    @else
+                                        <input type="text" name="{{ $cfInputName }}" value="{{ $cfValue }}" maxlength="1000" class="prop-input" @if($customField->required) required @endif>
+                                    @endif
+                                </div>
+                            @endif
+                            @if($customField->help_text)
+                                <p class="text-xs -mt-3" style="color: var(--text-muted); grid-column: 1 / -1;">{{ $customField->help_text }}</p>
+                            @endif
+                        @endforeach
                     </div>
                     <div class="flex justify-end">
                         <button type="submit" class="corex-btn-primary text-sm">Save Rental Details</button>
