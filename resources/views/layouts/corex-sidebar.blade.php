@@ -1912,7 +1912,7 @@
         @feature('ad-manager')
         @permission('access_ad_manager')
         @if(\Illuminate\Support\Facades\Route::has('tools.ad-manager'))
-        <a href="{{ route('tools.ad-manager') }}" class="corex-nav-item {{ request()->routeIs('tools.ad-manager') ? 'active' : '' }}">
+        <a href="{{ route('tools.ad-manager') }}" class="corex-nav-item {{ request()->routeIs('tools.ad-manager*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="m3 11 18-5v12L3 14v-3z"/>
                 <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>

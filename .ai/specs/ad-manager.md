@@ -2473,8 +2473,111 @@ template builder" this was asked for.
 
 ---
 
+## 19. Template Manager (Tools → Ad Manager)
+
+> Added 2026-09-21 on Johan's instruction: "Inside the ad manager under the tools section
+> … use the same style as the PDF splitter … add there the template manager where a user
+> can go add / create / manage templates."
+
+### 19.1 What it does and why
+
+Until now a custom ad template could only be created or edited by going *through a
+property* (Property → Create Ad → New Template). There was no single place to see every
+template the agency owns, rename/edit one, retire one, or bring one back. The Template
+Manager is that place, inside the Ad Manager, so an agent or admin can look after the
+agency's template library without first picking a property.
+
+**Format = the PDF Suite pattern.** The PDF tools share one pill switcher across every
+page (`tools/pdf-suite/_switcher.blade.php`). The Ad Manager gets the identical switcher
+with two pills: **Ad Manager** (the existing bulk generator) and **Template Manager**.
+The sidebar keeps its single *Ad Manager* entry (it stays highlighted on both pages).
+
+### 19.2 Pillars
+
+- **Agency** — READ + tenancy. `PropertyAdTemplate` is `BelongsToAgency` (`AgencyScope`);
+  the list, archive and restore are all confined to the user's agency at the query layer.
+- **Agent** — READ (creator's name shown per template).
+- **Property** — none. Templates are reusable across properties by design (§3); the
+  manager never binds a template to a property.
+
+No new table, column or migration. No domain event (nothing cross-pillar reacts to a
+template being archived — archived templates simply drop out of the pickers, which is
+already what `SoftDeletes` does).
+
+### 19.3 Page: `GET /tools/ad-manager/templates` — route `tools.ad-manager.templates`
+
+- **Columns:** Name · Created by · Canvas size (W × H) · Designs (Default + N property-type
+  variants, §18) · Last updated · Actions.
+- **Search:** template name, creator's name.
+- **Sort:** Name, Created by, Created, Last updated. **Default: Last updated, newest first.**
+  Every sort has a deterministic tie-breaker (id).
+- **Filters:** Status (Active — default · Archived · All), Updated-from / Updated-to date
+  range, Created by (Everyone · Only mine).
+- **Pagination:** 15 per page; filters/sort survive page changes.
+- **Empty states:** no templates at all (with a **Create your first template** button); no
+  templates match the filters (with **Clear filters**); no archived templates.
+- **Scoping:** templates are agency-wide by design (§3) — the list shows the user's agency
+  and nothing else (`AgencyScope`, enforced in the query, not the UI). Direct-URL access to
+  another agency's template id is a 404. *Edit / Archive / Restore* on a row is offered
+  only when `canBeManagedBy()` says so (creator, or `properties.ad_templates.manage`),
+  and re-checked server-side in the controller.
+
+### 19.4 Actions (full CRUD, soft-delete only)
+
+| Action | How | Rule |
+|--------|-----|------|
+| **Create** | **New Template** → Ad Builder (`corex.ad-templates.builder?from=templates`) | needs `access_properties` (the builder's own gate, §6) |
+| **Read** | the list itself | `access_ad_manager` |
+| **Update** | **Edit** → Ad Builder (`builder.edit?from=templates`) | creator or `properties.ad_templates.manage`; needs `access_properties` |
+| **Archive** | POST `tools.ad-manager.templates.archive` | creator or `properties.ad_templates.manage`; soft delete; confirm dialog says exactly what happens |
+| **Restore** | POST `tools.ad-manager.templates.restore` | same rule; clears `deleted_at` |
+
+There is **no** hard delete anywhere. Archive copy: *"Archive this template? It disappears
+from the template pickers, but you can restore it from the Archived filter at any time."*
+
+`?from=templates` makes the Ad Builder's **Back** buttons (and post-save return) go to the
+Template Manager instead of the properties list. It is a plain redirect hint — it grants
+nothing and is ignored unless it equals `templates`.
+
+### 19.5 Permissions
+
+No new keys. Reuses `access_ad_manager` (page, archive, restore — plus the existing
+`feature:ad-manager` and `agency.required` middleware) and `properties.ad_templates.manage`
+(acting on others' templates) and `access_properties` (the Ad Builder). Role Manager
+already lists all three. Not a *setting*, so non-negotiable #10a (Setup Wizard) does not
+apply.
+
+### 19.6 Acceptance criteria
+
+- [ ] The Ad Manager page and the Template Manager page both show the same two-pill
+      switcher, styled like the PDF Suite switcher, with the current page highlighted.
+- [ ] The sidebar *Ad Manager* entry is highlighted on both pages.
+- [ ] Search by name and by creator narrows the list; sort by each column works and the
+      default is newest-updated first.
+- [ ] Status filter switches Active / Archived / All; date range and *Only mine* work.
+- [ ] Archive removes a template from the Active list and from the Ad Manager step-2
+      picker; Restore puts it back in both.
+- [ ] A user who is neither creator nor holds `properties.ad_templates.manage` sees no
+      Edit/Archive/Restore on someone else's template, and a forged POST gets 403.
+- [ ] Another agency's template id is a 404 on archive and restore.
+- [ ] `New Template` / `Edit` land in the Ad Builder and Back returns to the manager.
+- [ ] Feature test: `tests/Feature/Tools/AdTemplateManagerTest.php`.
+
+---
+
 ## 11. Files to create / modify
 
+### Template Manager (§19)
+- `app/Http/Controllers/Tools/AdTemplateManagerController.php` — new: `index`, `archive`, `restore`.
+- `resources/views/tools/ad-manager/_switcher.blade.php` — new: pill switcher (PDF Suite style).
+- `resources/views/tools/ad-manager/templates.blade.php` — new: the Template Manager page.
+- `resources/views/tools/ad-manager.blade.php` — includes the switcher.
+- `routes/web.php` — three routes under `/tools/ad-manager/templates`.
+- `resources/views/layouts/corex-sidebar.blade.php` — Ad Manager entry active on `tools.ad-manager*`.
+- `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` + `resources/views/corex/properties/ad-builder.blade.php` — `?from=templates` back-link.
+- `tests/Feature/Tools/AdTemplateManagerTest.php` — new.
+
+### Earlier work
 - `app/Http/Controllers/CoreX/PropertyAdTemplateController.php` — property-aware builder,
   creator-or-permission auth, agency-scoped reads.
 - `app/Http/Controllers/CoreX/PropertyController.php` — `ad()` agency-scoped template query

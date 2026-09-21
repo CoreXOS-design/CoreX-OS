@@ -1291,6 +1291,12 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/ad-manager/previews', [\App\Http\Controllers\Tools\AdManagerController::class, 'previews'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.previews');
     Route::post('/tools/ad-manager/generate', [\App\Http\Controllers\Tools\AdManagerController::class, 'generate'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.generate');
 
+    // Template Manager — spec .ai/specs/ad-manager.md §19. Archive/restore are soft-delete only;
+    // {template} binds through AgencyScope (another agency's id is a 404), restore also sees trashed rows.
+    Route::get('/tools/ad-manager/templates', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates');
+    Route::post('/tools/ad-manager/templates/{template}/archive', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'archive'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.archive')->whereNumber('template');
+    Route::post('/tools/ad-manager/templates/{template}/restore', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'restore'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.restore')->whereNumber('template')->withTrashed();
+
     // Tools History (backend)
     Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');
     Route::post('/tools/history', [ToolsController::class, 'historyStore'])->middleware('permission:access_calculators')->name('tools.history.store');

@@ -53,6 +53,8 @@
         </div>
     </div>
 
+    @include('tools.ad-manager._switcher')
+
     {{-- ════════ STEP 1 — SELECT PROPERTIES ════════ --}}
     <div x-show="step==='select'" class="space-y-4">
 

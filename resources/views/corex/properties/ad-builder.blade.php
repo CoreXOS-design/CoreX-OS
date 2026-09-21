@@ -288,7 +288,7 @@
 {{-- ═══ BRANDED HEADER (UI_DESIGN_SYSTEM.md §2.4 Pattern A) — full width ═══ --}}
 <header style="flex-shrink:0;background:var(--brand-default,#0b2a4a);padding:11px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
     <div style="display:flex;align-items:center;gap:12px;min-width:0;">
-        <a href="{{ $property ? route('corex.properties.ad', $property) : route('corex.properties.index') }}" title="Back"
+        <a href="{{ $fromTemplates ? route('tools.ad-manager.templates') : ($property ? route('corex.properties.ad', $property) : route('corex.properties.index')) }}" title="Back"
            style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.12);color:#fff;text-decoration:none;flex-shrink:0;transition:background 0.15s;"
            onmouseover="this.style.background='rgba(255,255,255,0.22)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
             <svg style="width:15px;height:15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
@@ -309,7 +309,7 @@
 
 {{-- ═══ TOOLBAR — document-level actions ═══ --}}
 <div id="toolbar">
-    <a href="{{ $property ? route('corex.properties.ad', $property) : route('corex.properties.index') }}" class="tb-btn">
+    <a href="{{ $fromTemplates ? route('tools.ad-manager.templates') : ($property ? route('corex.properties.ad', $property) : route('corex.properties.index')) }}" class="tb-btn">
         <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
         Back
     </a>
@@ -2542,7 +2542,10 @@ function builder() {
                 if (!this.savedId) {
                     this.savedId = json.id;
                     const base = @json(route('corex.ad-templates.builder'));      // /corex/ad-templates/builder
-                    const qs   = this.propertyId ? ('?property=' + this.propertyId) : '';
+                    const qsParts = [];
+                    if (this.propertyId) qsParts.push('property=' + this.propertyId);
+                    if (new URLSearchParams(window.location.search).get('from') === 'templates') qsParts.push('from=templates');
+                    const qs   = qsParts.length ? ('?' + qsParts.join('&')) : '';
                     history.replaceState({}, '', base + '/' + json.id + qs);
                 }
                 this.dirty = false;
