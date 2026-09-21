@@ -69,18 +69,45 @@ class RentalInspectionSetting extends Model
     /**
      * Johan, 2026-09-20: "we should have a setting somewhere on rentals that
      * defines room types and what gets added - ceiling, walls, floors,
-     * windows, doors - that should be a std." Agreed with cc4 (owns the
-     * seeder that consumes this): ship this exact baseline IDENTICALLY for
-     * every space type rather than guess per-type variations ("if its a
-     * patio as example there are still things to check" — the agency edits
-     * a type down from here if it doesn't apply, the system never guesses
-     * it away first). Keyed on config('property-spaces.all_space_types')'s
-     * own strings — never duplicated here as a separate hardcoded list —
-     * built at read time in roomTypeItemDefaultsFor() below, not stored as
-     * a static array, so a future addition to that config is covered
-     * automatically without a migration.
+     * windows, doors - that should be a std." The generic fallback for any
+     * space type below that isn't in DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE — a
+     * type Retha's real vocabulary doesn't cover, or a future addition to
+     * config('property-spaces.all_space_types') this constant never has to
+     * be updated for.
      */
     public const DEFAULT_ROOM_TYPE_ITEMS = ['Ceiling', 'Walls', 'Floors', 'Windows', 'Doors'];
+
+    /**
+     * 2026-09-21, conductor (transcribed from Retha's real inspection form) —
+     * "we are seeding a skeleton and calling it a checklist" once actual
+     * agent numbers showed under 6 items/room against her real 18-line
+     * kitchen. These are the SYSTEM default for these five types — used
+     * only where an agency has not configured its own list for that type
+     * (roomTypeItemDefaultsFor()'s array_merge always lets an agency's own
+     * customRoomTypeOverridesFor() entry win outright, unchanged by this).
+     * Transcribed exactly as given, not assumed to be a superset of the
+     * generic baseline above — her Bedroom has no separate Floors/Windows/
+     * Doors lines at all, so it genuinely doesn't get them here either.
+     */
+    public const DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE = [
+        'Kitchen' => [
+            'Walls', 'Ceiling', 'Ceiling Fans', 'Aircon', 'Light Fittings', 'Light Switches',
+            'Carpet', 'Tiles', 'Blinds', 'Curtain Rails', 'Plug Sockets', 'Stoves',
+            'Stove Plates', 'Oven', 'Tops', 'Hinges', 'Cupboard Doors', 'Door Frames',
+        ],
+        'Bathroom' => [
+            'Ceiling', 'Extractor Fan', 'Walls', 'Tiles', 'Light Fittings', 'Light Switches',
+            'Bath', 'Shower', 'Basin', 'Toilet', 'Taps', 'Towel Rails', 'Blinds',
+            'Curtain Rails', 'Door',
+        ],
+        'Bedroom' => [
+            'Walls', 'Ceilings', 'Ceiling Fans', 'Aircon', 'Light Fittings', 'Light Switches',
+            'Carpet', 'Tiles', 'Blinds', 'Curtain Rails', 'Plug Sockets', 'Cupboard Doors',
+            'Hinges', 'Mirror',
+        ],
+        'Garage' => ['Ceiling', 'Doors', 'Floors', 'Lights', 'Light Fittings', 'Walls', 'Windows'],
+        'Yard' => ['Fences and Gates', 'Retaining Wall', 'Garden', 'Gutters', 'Downspouts', 'Roof'],
+    ];
 
     protected $fillable = [
         'agency_id',
@@ -209,7 +236,7 @@ class RentalInspectionSetting extends Model
 
         $defaults = [];
         foreach (config('property-spaces.all_space_types', []) as $type) {
-            $defaults[$type] = self::DEFAULT_ROOM_TYPE_ITEMS;
+            $defaults[$type] = self::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
         }
 
         return array_merge($defaults, $overrides);

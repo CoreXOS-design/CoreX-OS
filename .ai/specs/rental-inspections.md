@@ -1565,3 +1565,61 @@ creation/seed order, which is Johan's second, larger complaint (rooms don't line
 walking order, and can't be reordered) — tracked separately, not solved by this grouping change. Once a
 sensible default and agent-driven reordering land on `sort_order`, this same `roomGroups()` reflects it
 automatically, with no further change to either view.
+
+---
+
+## 18. Real item vocabularies for Kitchen/Bathroom/Bedroom/Garage/Yard (2026-09-21)
+
+The conductor's own numbers exposed the gap: property 4862 seeded 51 items across 9 rooms — under 6
+items/room — against Retha's real kitchen checklist of 18 lines. `RentalInspectionSetting::
+DEFAULT_ROOM_TYPE_ITEMS` (§16's five-item flat baseline — Ceiling/Walls/Floors/Windows/Doors) was being
+applied identically to every space type with nothing more specific, including the highest-traffic ones.
+"We were seeding a skeleton and calling it a checklist."
+
+**The fix:** a new `DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE` map on `RentalInspectionSetting`, transcribed
+directly from Retha's real form for exactly five types — Kitchen (18 items), Bathroom (15), Bedroom
+(14), Garage (7), Yard (6). `roomTypeItemDefaultsFor()` now looks up this map first and only falls back
+to the generic five-item baseline for a type not in it. Transcribed as given, not assumed to be a
+superset of the old baseline — her Bedroom has Walls and Ceilings but no separate Floors/Windows/Doors
+lines at all, so those genuinely are absent from the system default for Bedroom now, where they weren't
+before.
+
+**This is a SYSTEM default, not agency 1's.** `array_merge($defaults, $overrides)` — the existing
+mechanism, unchanged — always lets an agency's own `customRoomTypeOverridesFor()` entry win outright for
+that type. Checked directly before shipping: agency 1 (Johan's own) has **already customised Kitchen,
+Bathroom, Bedroom, and Garage itself** (his own, thinner lists — Bedroom is saved as literally just the
+plain five-item baseline). This change is therefore invisible on agency 1 for those four types — his own
+saved lists keep winning, exactly as the "never overwrite an agency's configured list" rule requires.
+The one type on agency 1 this visibly changes is **Yard**, which Johan has never customised, and any
+future agency (Cape Town, October) that hasn't touched these types yet gets Retha's real vocabulary as
+its starting point instead of the bare baseline. If Johan wants his own Kitchen/Bathroom/Bedroom/Garage
+brought up to Retha's fuller lists, that's a separate, explicit action on his own saved settings — not
+implied by this change.
+
+**Already-seeded properties are untouched, structurally, not just by convention.** `RentalInspectionItem`
+rows are persistent database records created once by `RentalInspectionFormSeeder::seedFromAdvertising()`
+(§2, one-time guarded on `rental_inspection_form_seeded_at`) or by the manual add path (§16) — neither
+path re-reads the settings default after creation. Confirmed directly, not assumed: property 4862's
+active item count was 51 before this change and 51 after; 2061 was 46 and 46; 4954 was 47 and 47.
+
+### 18.1 Two items recorded as open, not resolved (2026-09-21, conductor's ruling)
+
+Converting agency stock (`LegacySpacesJsonConverter`, this session) surfaced old `features_json` keys
+with no home in the new `{spaces, features}` shape. All of it survives untouched in every affected
+property's `spaces_json_legacy_backup` column — nothing is lost — but two of the keys found are
+deliberately **left unmapped and unactioned**, not fixed tonight:
+
+- **`show_location`** (a map-visibility toggle, ~754 properties in the pre-conversion data). Confirmed
+  this is not purely historical: `P24ListingsCsvParser.php:78` still writes it into `features_json` on
+  *current* P24 imports. Backfilling only the historical shape while the importer keeps producing the
+  old shape going forward would just mean new imports land wrong again immediately — this is a decision
+  about the importer, not a data-conversion backfill, and is explicitly not being made here.
+- **`age`** (building age in years, ~345 properties). No existing column or clear destination identified
+  for it in either the spaces/features shape or elsewhere on `Property`. Left alone pending a real
+  decision on where it belongs.
+
+Other unmapped keys found in the same scan (`beds_description` and four sibling `*_description` fields,
+`deposit_requirements` — which duplicates the real, currently-empty `properties.deposit_amount` column
+— and a third `features_json` shape entirely, a plain array of catalog-matching feature label strings)
+were reported in full at the time but are not ruled on in this document; see the session record rather
+than assuming silence here means resolved.
