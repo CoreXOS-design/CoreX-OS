@@ -57,7 +57,7 @@
         <template x-for="item in activeItems()" :key="item.id">
             <div class="py-2 space-y-1.5" style="border-bottom:1px solid var(--border);">
                 <div class="flex items-center justify-between gap-3">
-                    <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                    <span class="text-sm" style="color:var(--text-primary);" x-text="itemDisplayLabel(item)"></span>
                     <span x-show="conditionFor({{ $sectionJs }}, item.id)" class="text-xs uppercase tracking-wide"
                           style="color:var(--text-muted);" x-text="conditionFor({{ $sectionJs }}, item.id)?.condition"></span>
                 </div>

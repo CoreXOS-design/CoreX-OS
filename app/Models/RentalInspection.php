@@ -413,8 +413,11 @@ class RentalInspection extends Model
      */
     public static function tabPayloadFor(Property $property): array
     {
+        // Stage 2 — 'room' is eager-loaded so the (still-flat, pre-Stage-3)
+        // recording UI can show "Bedroom 1 — Ceiling" instead of a bare
+        // "Ceiling" repeated once per room with nothing to tell them apart.
         $items = RentalInspectionItem::where('property_id', $property->id)
-            ->with(['observations' => fn (HasMany $q) => $q->latest('created_at')])
+            ->with(['room', 'observations' => fn (HasMany $q) => $q->latest('created_at')])
             ->get();
 
         // §15.4 — the per-tenant signing UI (Stage 2) needs to know WHO the

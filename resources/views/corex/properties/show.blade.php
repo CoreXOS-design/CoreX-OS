@@ -4578,7 +4578,7 @@
 
                     <template x-for="item in activeItems()" :key="item.id">
                         <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
-                            <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                            <span class="text-sm" style="color:var(--text-primary);" x-text="itemDisplayLabel(item)"></span>
                             <div class="flex items-center gap-3">
                                 <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
                                 <button type="button" :disabled="itemBusy" @click="retireItem(item)"
@@ -4811,6 +4811,14 @@
                 newItem: { kind: 'space', label: '' },
 
                 activeItems() { return this.items.filter(i => !i.is_retired); },
+                // Stage 2 — a seeded facet item's own label is just the
+                // fixture name ("Ceiling"); the room it belongs to is a
+                // separate join (item.room), not baked into the string.
+                // Prefix it here so the still-flat list (pre-Stage-3) reads
+                // as "Bedroom 1 — Ceiling" instead of an unlabelled repeat
+                // of "Ceiling" once per room. A manually-added or pre-Stage-2
+                // item has no room and falls back to its own bare label.
+                itemDisplayLabel(item) { return item.room ? `${item.room.label} — ${item.label}` : item.label; },
 
                 async addItem() {
                     const label = this.newItem.label.trim();
