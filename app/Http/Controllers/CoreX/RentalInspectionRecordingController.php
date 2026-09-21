@@ -107,7 +107,15 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json([
-            'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->orderBy('id')->get(),
+            // 2026-09-21 — without eager-loading room here, a freshly-seeded
+            // item pushed straight into the client's items array has no
+            // item.room to compose itemDisplayLabel() with, so it briefly
+            // shows as a bare "Ceiling" instead of "Bedroom 1 — Ceiling"
+            // until the next full page load re-fetches via tabPayloadFor()
+            // (which already eager-loads it). Caught verifying the seed
+            // button end-to-end in a real browser, not by any server-side
+            // check.
+            'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->with('room')->orderBy('id')->get(),
             'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->get(),
         ]);
     }
