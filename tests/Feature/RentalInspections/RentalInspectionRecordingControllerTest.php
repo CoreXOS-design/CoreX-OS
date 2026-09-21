@@ -206,6 +206,117 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         )->assertStatus(422);
     }
 
+    // ── Room walking order — 2026-09-21, Johan on property 5792 ────────
+
+    public function test_adding_a_space_gets_a_sort_order_from_the_walking_order_not_creation_order(): void
+    {
+        // Kitchen sits earlier than Bedroom in DEFAULT_ROOM_TYPE_WALKING_ORDER,
+        // so adding it SECOND must still sort BEFORE the bedroom added first —
+        // proving sort_order comes from the walking order, not from an
+        // append-to-the-end counter.
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Bedroom 1', 'space_type' => 'Bedroom',
+        ])->assertOk();
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Kitchen', 'space_type' => 'Kitchen',
+        ])->assertOk();
+
+        $bedroom = PropertyRoom::where('property_id', $this->property->id)->where('type', 'Bedroom')->first();
+        $kitchen = PropertyRoom::where('property_id', $this->property->id)->where('type', 'Kitchen')->first();
+
+        $this->assertLessThan($bedroom->sort_order, $kitchen->sort_order);
+    }
+
+    public function test_bedrooms_sort_naturally_by_number_not_alphabetically(): void
+    {
+        foreach (['Bedroom 10', 'Bedroom 2', 'Bedroom 1'] as $label) {
+            $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+                'kind' => RentalInspectionItem::KIND_SPACE, 'label' => $label, 'space_type' => 'Bedroom',
+            ])->assertOk();
+        }
+
+        $labelsInOrder = PropertyRoom::where('property_id', $this->property->id)
+            ->orderBy('sort_order')->pluck('label')->all();
+
+        // Natural-numeric: 1, 2, 10 — never alphabetical (which would give 1, 10, 2).
+        $this->assertSame(['Bedroom 1', 'Bedroom 2', 'Bedroom 10'], $labelsInOrder);
+    }
+
+    public function test_apply_default_room_order_recomputes_existing_rooms_without_touching_items(): void
+    {
+        // Simulate pre-fix creation-order rooms — Kitchen created first
+        // (sort_order 0) even though it should walk before Bedroom by type,
+        // and a Bedroom created second (sort_order 1) sitting "wrong" already
+        // by luck. Use a case where creation order actively disagrees with
+        // the walking order: Bedroom first, then Kitchen.
+        $bedroom = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom 1', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $kitchen = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Kitchen', 'label' => 'Kitchen', 'source' => 'manual', 'sort_order' => 1,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id, 'property_room_id' => $bedroom->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Ceiling', 'space_type' => 'Bedroom',
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->postJson(route('corex.properties.rental-inspection-rooms.apply-default-order', $this->property))
+            ->assertOk();
+
+        // Kitchen walks before Bedroom in the default order — apply-default-order
+        // must flip their relative sort_order.
+        $this->assertLessThan($bedroom->fresh()->sort_order, $kitchen->fresh()->sort_order);
+        $this->assertDatabaseHas('rental_inspection_items', ['id' => RentalInspectionItem::first()->id, 'label' => 'Ceiling']);
+    }
+
+    public function test_reorder_rooms_persists_the_agents_own_chosen_order(): void
+    {
+        $roomA = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom A', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $roomB = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom B', 'source' => 'manual', 'sort_order' => 1,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        // Agent moves B above A, against the walking order's own natural read.
+        $this->postJson(route('corex.properties.rental-inspection-rooms.reorder', $this->property), [
+            'room_ids' => [$roomB->id, $roomA->id],
+        ])->assertOk();
+
+        $this->assertLessThan($roomA->fresh()->sort_order, $roomB->fresh()->sort_order);
+    }
+
+    public function test_reorder_rejects_a_room_id_from_a_different_property(): void
+    {
+        $room = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom A', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $foreignRoom = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $otherProperty->id,
+            'type' => 'Kitchen', 'label' => 'Kitchen', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->postJson(route('corex.properties.rental-inspection-rooms.reorder', $this->property), [
+            'room_ids' => [$room->id, $foreignRoom->id],
+        ])->assertStatus(422);
+    }
+
     public function test_retiring_an_item_from_a_different_property_404s(): void
     {
         $item = $this->makeItem();
