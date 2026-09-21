@@ -126,9 +126,10 @@ class RentalInspection extends Model
     }
 
     /**
-     * §15.4/§15.7 — every tenant on this inspection's own lease, plus the
+     * §15.4/§15.7/§16 — every tenant on this inspection's own lease, plus the
      * landlord if Property::sellerOwnerContact() resolves one, who does NOT
-     * yet have a disposition (signed or refused) row on THIS inspection.
+     * yet have a live disposition (signed, refused, or wet_ink — a
+     * superseded wet_ink row does not count, §16.3) row on THIS inspection.
      * Empty means every required party is accounted for — the one thing
      * both RentalInspectionSignature::capture()'s agent-signs-last rule
      * (§15.2a) and the eventual completion guard (§15.7) both ask.
@@ -137,8 +138,12 @@ class RentalInspection extends Model
      */
     public function outstandingSignatories(): \Illuminate\Support\Collection
     {
+        // §16 — a superseded wet-ink row (a corrected wrong upload) must not
+        // count as "this party is accounted for"; its replacement is the
+        // live disposition.
         $existing = $this->signatures()
             ->whereIn('party_role', [RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::PARTY_LANDLORD])
+            ->whereNull('superseded_at')
             ->get(['party_role', 'party_contact_id']);
 
         $outstanding = collect();
