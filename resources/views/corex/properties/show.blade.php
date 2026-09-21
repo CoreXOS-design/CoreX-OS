@@ -4491,6 +4491,8 @@
                     itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
                     seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
+                    roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
+                    roomsApplyDefaultOrder: '{{ route('corex.properties.rental-inspection-rooms.apply-default-order', $property) }}',
                     // Base for the inspection-scoped actions below — each one appends
                     // /{id}/... itself, since which inspection is current changes at
                     // runtime (a new one can be started without a page reload).
@@ -4595,6 +4597,21 @@
                                 x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
                     </div>
 
+                    {{-- 2026-09-21, Johan on property 5792 — "no logical way to line
+                         up the rooms as the inspection goes." Rooms already default-
+                         order on creation (RentalInspectionSetting::defaultRoomSortOrderFor()),
+                         but existing rooms keep whatever order they already have —
+                         never silently recomputed by a deploy. This is the explicit,
+                         one-click way to bring THIS property's existing rooms onto
+                         the agency's current walking order. Only worth showing once
+                         there's more than one room to reorder. --}}
+                    <div x-show="roomGroups().filter(g => g.room).length > 1" class="flex justify-end">
+                        <button type="button" :disabled="itemBusy" @click="applyDefaultRoomOrder()"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">
+                            Apply default order
+                        </button>
+                    </div>
+
                     {{-- 2026-09-21, Johan on property 5792: a room's name was printed
                          once per facet item (15 rows, 3 rooms, "Bedroom 2 —" repeated
                          5 times) — pure repeated metadata with nothing the agent needs
@@ -4609,8 +4626,18 @@
                          "General" group rather than floating unheaded. --}}
                     <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
                         <div class="space-y-1 pt-2">
-                            <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
-                                x-text="group.room ? group.room.label : 'General'"></h4>
+                            <div class="flex items-center justify-between">
+                                <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
+                                    x-text="group.room ? group.room.label : 'General'"></h4>
+                                {{-- Johan: "the agent must be able to reorder rooms
+                                     themselves and have it stick." --}}
+                                <div x-show="group.room" class="flex items-center gap-1">
+                                    <button type="button" :disabled="itemBusy" @click="moveRoomUp(group.room)"
+                                            class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move up</button>
+                                    <button type="button" :disabled="itemBusy" @click="moveRoomDown(group.room)"
+                                            class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move down</button>
+                                </div>
+                            </div>
                             <template x-for="item in group.items" :key="item.id">
                                 <div class="flex items-center justify-between py-1.5 pl-3" style="border-bottom:1px solid var(--border);">
                                     <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
@@ -4909,6 +4936,56 @@
                     const groups = Array.from(byRoom.values()).sort((a, b) => (a.room.sort_order ?? 0) - (b.room.sort_order ?? 0));
                     if (general.length) groups.push({ room: null, items: general });
                     return groups;
+                },
+
+                // 2026-09-21, Johan on property 5792 — "the agent must be
+                // able to reorder rooms themselves and have it stick."
+                // Swaps this room with its neighbour in the CURRENT rendered
+                // order, then persists the property's full room order in one
+                // call — roomGroups() already sorts by room.sort_order, so
+                // updating each item's embedded room.sort_order locally is
+                // enough to re-render immediately, no full page reload.
+                moveRoomUp(room) { this._moveRoom(room, -1); },
+                moveRoomDown(room) { this._moveRoom(room, 1); },
+                _moveRoom(room, delta) {
+                    const ids = this.roomGroups().filter(g => g.room).map(g => g.room.id);
+                    const from = ids.indexOf(room.id);
+                    const to = from + delta;
+                    if (from === -1 || to < 0 || to >= ids.length) return;
+                    const tmp = ids[from];
+                    ids[from] = ids[to];
+                    ids[to] = tmp;
+                    this._persistRoomOrder(ids);
+                },
+                async _persistRoomOrder(roomIds) {
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.roomsReorder, { room_ids: roomIds });
+                        this._applyRoomSortOrders(result.rooms);
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+                // Johan: existing rooms keep their sort_order until an agent
+                // explicitly asks for this — never silently recomputed by a
+                // deploy. One-click, explicit, idempotent.
+                async applyDefaultRoomOrder() {
+                    if (!window.confirm('Apply the agency default room order to this property\'s existing rooms? This only reorders rooms — nothing else changes.')) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.roomsApplyDefaultOrder, {});
+                        this._applyRoomSortOrders(result.rooms);
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+                _applyRoomSortOrders(rooms) {
+                    const bySortOrder = new Map(rooms.map(r => [r.id, r.sort_order]));
+                    this.items.forEach(item => {
+                        if (item.room && bySortOrder.has(item.room.id)) {
+                            item.room.sort_order = bySortOrder.get(item.room.id);
+                        }
+                    });
                 },
 
                 async addItem() {

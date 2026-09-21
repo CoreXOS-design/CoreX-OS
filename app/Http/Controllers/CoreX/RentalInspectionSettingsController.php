@@ -55,6 +55,12 @@ class RentalInspectionSettingsController extends Controller
             // picks it to customize.
             'roomTypeOverrides' => RentalInspectionSetting::customRoomTypeOverridesFor($agencyId),
             'standardRoomTypeItems' => RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS,
+            // 2026-09-21, Johan on property 5792 — the default order a NEW
+            // room is walked in, agency-editable. Deliberately NOT in the
+            // Setup Wizard (§16.4) — same reasoning already applied to
+            // refusal_reason_presets above: a full-permutation reorder of
+            // every space type has no fitting wizard control type.
+            'roomTypeWalkingOrder' => RentalInspectionSetting::roomTypeWalkingOrderFor($agencyId),
         ]);
     }
 
@@ -170,5 +176,42 @@ class RentalInspectionSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Room type defaults saved.');
+    }
+
+    /**
+     * §16.4, Johan 2026-09-21 on property 5792 — the default walking order
+     * a NEW room's sort_order is computed from
+     * (RentalInspectionSetting::defaultRoomSortOrderFor()). Own narrow
+     * saver, same one-concern-per-endpoint discipline as the two savers
+     * above. This is a full reordering of every known space type, not a
+     * sparse override — the submitted list is intersected against the live
+     * catalog (drops anything stale) and any catalog type the submission
+     * is missing is appended at the end, so a save can never leave a type
+     * with no position to sort by.
+     */
+    public function updateRoomTypeWalkingOrder(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('room_type_walking_order_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['room_type_walking_order' => 'That did not save — please try again.']);
+        }
+
+        $catalog = config('property-spaces.all_space_types', []);
+        $submitted = $request->input('room_type_walking_order', []);
+
+        $order = array_values(array_intersect(is_array($submitted) ? $submitted : [], $catalog));
+        $missing = array_values(array_diff($catalog, $order));
+        if ($missing !== []) {
+            $order = array_merge($order, array_values(array_intersect(RentalInspectionSetting::DEFAULT_ROOM_TYPE_WALKING_ORDER, $missing)));
+        }
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['room_type_walking_order' => $order],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Room walking order saved.');
     }
 }
