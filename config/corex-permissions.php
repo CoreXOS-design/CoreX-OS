@@ -151,6 +151,11 @@ return [
         ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign Out-Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
         // agency-onboarding-rentals-step.md §8 — same role as leases.manage_settings.
         ['key' => 'rental_inspections.manage_settings',     'label' => 'Manage Rental Inspection Settings',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 5],
+        // rental-inspection-form.md §7 — separately gated per the same reasoning
+        // as .resolve_discrepancy: marking an in-vs-out difference as fair wear
+        // and tear (excluding it from the deposit conversation) is a judgement
+        // call, not a routine recording action.
+        ['key' => 'rental_inspections.review_deposit_comparison', 'label' => 'Review Deposit Comparison Findings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 6],
 
         // ── Rental Inventory (rental-inventory.md) — its own document, not a tab on rental_inspections ──
         ['key' => 'rental_inventories.view',   'label' => 'View Rental Inventories',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inventories', 'sort_order' => 1],

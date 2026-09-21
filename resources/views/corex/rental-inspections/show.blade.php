@@ -32,7 +32,13 @@
             <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span>
             <span class="text-xs" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', '-', $inspection->type)) }} inspection</span>
         </div>
-        <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">&larr; All inspections</a>
+        <div class="flex items-center gap-2">
+            @if($inspection->type === 'out')
+                {{-- rental-inspection-form.md §7 — the in-vs-out deposit comparison. --}}
+                <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Move-in vs move-out comparison</a>
+            @endif
+            <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">&larr; All inspections</a>
+        </div>
     </div>
 
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">

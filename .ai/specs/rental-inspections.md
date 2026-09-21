@@ -722,6 +722,15 @@ must be migrated before `rental_inspections`, since `rental_inspections.lease_id
   ruling requires landlord signing AND refusal on both inspection types; see §15. Landlord sign-off IS
   now in scope, and is being built — this line stays, struck through in spirit, so the record shows
   the reversal rather than erasing it.)**
+- **Splitting a secure parking bay from an open parking bay on an individual inspection.** 2026-09-21,
+  the legacy `spaces_json` conversion (`LegacySpacesJsonConverter`) sums old `parking_spaces` +
+  `secure_parkings` into one combined Parking count, per Johan's ruling ("secure parking will sit under
+  parking"). The conductor noted explicitly that this is faithful, not a decision to leave unexamined:
+  Johan's own reasoning for *why* secure parking is its own space rather than folded into Garage — "a
+  garage door and a garage floor are not paving with oil stains on it" — applies just as much to a
+  secure bay versus an *open* bay once both sit under the same Parking type and an agent is actually
+  walking the inspection. Not building a split now. Recorded here so it is a deliberate deferral, not an
+  oversight, if an agent later asks for the two to be told apart on the form.
 
 ---
 
@@ -1347,7 +1356,7 @@ landing:**
 
 ---
 
-## 16. Wet-ink signing — a tenant or landlord who signed on paper (2026-10-01, cc6)
+## 17. Wet-ink signing — a tenant or landlord who signed on paper (2026-10-01, cc6)
 
 **Status: pushed, awaiting landing.** §15 built three-party, in-person, canvas-capture signing. It never
 built a path for a party who signs on a physical page instead — §15.4 named this explicitly as a known,
@@ -1357,7 +1366,7 @@ signing system. It does NOT build §15.4's larger remote/async link (a landlord 
 ever meeting the agent); it builds the narrower, immediately real case: a page someone signed in person
 or handed back later, then photographed or scanned into the system by whoever is holding the device.
 
-### 16.1 Why this stays on `RentalInspectionSignature`, not the DocuPerfect e-sign module
+### 17.1 Why this stays on `RentalInspectionSignature`, not the DocuPerfect e-sign module
 
 Investigated first, per the standing instruction not to build a second signing system if an existing one
 fits. DocuPerfect's full e-sign flow (`SignatureRequest`, `WetInkInspection`, `choose-method.blade.php`)
@@ -1377,7 +1386,7 @@ the disposition directly, same trust level as a canvas signature or a refusal re
 wanted later, that is DocuPerfect's `WetInkInspection` pattern to borrow from, not something silently
 added here.
 
-### 16.2 Data model — three columns added to `rental_inspection_signatures`
+### 17.2 Data model — three columns added to `rental_inspection_signatures`
 
 ```
 rental_inspection_signatures  (adds to §15.2's shape)
@@ -1395,7 +1404,7 @@ rental_inspection_signatures  (adds to §15.2's shape)
 `party_role='agent'` — the agent is always present, always §15's live canvas capture; enforced in
 `capture()`, the same one factory method that enforces every other invariant in this table (§15.2a).
 
-### 16.3 Superseding — evidence, never edited in place, never destroyed
+### 17.3 Superseding — evidence, never edited in place, never destroyed
 
 A wrong or unreadable wet-ink upload is corrected by `RentalInspectionSignature::supersedeWetInk()`:
 marks the existing row `superseded_at` (excluded from `capture()`'s duplicate-disposition check and
@@ -1409,14 +1418,14 @@ complete record as it stood (§15.2a) — replacing a party's evidence after tha
 change what was attested to. Not asked for in this build; correcting evidence on a completed inspection
 is a separate, larger amendment mechanism, not this one.
 
-### 16.4 Permission — evidence-backed, not `sign_on_behalf`
+### 17.4 Permission — evidence-backed, not `sign_on_behalf`
 
 `rental_inspections.sign_on_behalf` (§15.5) gates an agent asserting a REFUSAL — a claim with no evidence
 but the agent's word. A wet-ink upload is the opposite: it arrives WITH evidence, the scan itself, the
 same epistemic weight as a canvas-captured signature. It stays behind only the base
 `rental_inspections.create` permission the whole signing endpoint already requires — not gated further.
 
-### 16.5 Rendering — a third shape, never mistaken for the other two
+### 17.5 Rendering — a third shape, never mistaken for the other two
 
 `resources/views/corex/rental-inspections/show.blade.php`'s disposition branch (§15.5/§15.8) gains a
 third case: no signature-image markup (never presentable as an e-signature, same principle as a refusal
@@ -1427,7 +1436,7 @@ rather than the stale upload. The live recording UI (`rental-inspection-recordin
 already-uploaded wet-ink row, shown only while it is genuinely replaceable (§16.3's guard, mirrored
 client-side in `canReplaceWetInk()` so the UI never offers an action the server will refuse).
 
-### 16.6 Files
+### 17.6 Files
 
 - `database/migrations/2026_10_01_100000_add_wet_ink_to_rental_inspection_signatures.php`
 - `app/Models/RentalInspectionSignature.php` — `DISPOSITION_WET_INK`, `capture()` extended,
@@ -1442,7 +1451,7 @@ client-side in `canReplaceWetInk()` so the UI never offers an action the server 
   `resources/views/corex/properties/show.blade.php` (the shared Alpine component's JS),
   `resources/views/corex/rental-inspections/show.blade.php`.
 
-### 16.7 Verification status — stated plainly, not glossed over
+### 17.7 Verification status — stated plainly, not glossed over
 
 The `2026_10_01_100000` migration was NOT run against the shared `corex_qa1` schema by this build — `php
 artisan migrate` refuses outright from any worktree that isn't `/corex-qa1` itself (Standard −1g,
@@ -1458,10 +1467,10 @@ path — the migration actually running, a real signature capture over real HTTP
 on the live JS — is unverified by this build and needs proving once landed through `/corex-qa1`. No
 browser tool is available in this environment; the console check needs a human or a session that has one.
 
-### 16.8 The real paper form signs in two places, not one — noted, not built (2026-10-01)
+### 17.8 The real paper form signs in two places, not one — noted, not built (2026-10-01)
 
 Johan sent his agency's actual paper documents (the source for `.ai/specs/rental-inspection-form.md`,
-cc5's — this note records the one finding from them that lands directly on §16 and is NOT a duplicate of
+cc5's — this note records the one finding from them that lands directly on §17 and is NOT a duplicate of
 that spec). The real out-inspection form has **five** signature slots, not the three this build assumed:
 **Landlord** Name + Signature and **two separate Tenant** Name + Signature lines partway through the
 document, then, separately, at the foot of the form: **"Inspection done by" + Signature** and
@@ -1486,7 +1495,7 @@ knew was incomplete, without realizing it was a documented, deliberate pause —
 
 ---
 
-## 17. The header block — everything above the room tables (2026-10-01, cc6)
+## 18. The header block — everything above the room tables (2026-10-01, cc6)
 
 **Status: pushed, awaiting landing.** Johan's real paper form has a substantial header above the room
 grading: meter readings, furnished state, property type, keys/remotes handed over, the tenant(s) and
@@ -1494,7 +1503,7 @@ landlord's names, who did the inspection, and — on the out-form — the origin
 was captured before this build; an inspection was a property, a status, a recorder, and an empty
 observations list.
 
-### 17.1 Fields, and where each one's value actually comes from
+### 18.1 Fields, and where each one's value actually comes from
 
 | Field | Shape | Source |
 |---|---|---|
@@ -1527,7 +1536,7 @@ keys_count from the in-inspection's would undermine the exact thing Johan asked 
 countable, comparable values" only works if the out-count is a genuine fresh count, not an accepted
 carry-forward that could silently mask a real loss.
 
-### 17.2 Landlord/tenant/agent names are never re-typed, never re-stored
+### 18.2 Landlord/tenant/agent names are never re-typed, never re-stored
 
 Johan: "do not make an agent retype a name CoreX already holds." These three are rendered directly from
 existing relations (already resolved for §15's signing block) — no new columns, no snapshot. Unlike
@@ -1537,7 +1546,7 @@ inspection — the signing block already captures WHO signed, with its own `part
 actual point-in-time record for identity. The header display is confirmation, not a second source of
 truth.
 
-### 17.3 Keys and remotes are a comparison input, not header decoration
+### 18.3 Keys and remotes are a comparison input, not header decoration
 
 Coordinated directly with cc5 (building the in-vs-out deposit comparison in a separate worktree,
 `cc5-rental-inspection-deposit-comparison`) before landing this shape. Confirmed field names, on
@@ -1549,7 +1558,7 @@ through Eloquent, so neither side needed to wait on the other's migration landin
 back: the int-count shape (rather than the free-text field originally sketched in their own spec) gives a
 clean, direct signal for the comparison — a numeric drop is unambiguous, no parsing required.
 
-### 17.4 Editable until completion, defaulted once, never after
+### 18.4 Editable until completion, defaulted once, never after
 
 `RentalInspection::updateDetails()` — every field optional per call, refuses once the inspection is
 `completed` or `cancelled` (the completed document is evidence, not a form left open for revision, same
@@ -1557,7 +1566,7 @@ principle §16 applies to a wet-ink upload). Defaults are set ONCE, in `start()`
 never re-applied or overwritten by a later "refresh from property" action; once an agent has confirmed or
 corrected a value, that correction is authoritative until the agent changes it again.
 
-### 17.5 Files
+### 18.5 Files
 
 - `database/migrations/2026_10_01_110000_add_header_block_to_rental_inspections.php`
 - `app/Models/RentalInspection.php` — new fillable/casts, `start()` defaulting, `updateDetails()`.
@@ -1569,10 +1578,411 @@ corrected a value, that correction is authoritative until the agent changes it a
   `PropertyController::show()` for the property's own edit form.
 - `resources/views/corex/properties/show.blade.php` — `saveDetailsFor()` and its supporting state.
 
-### 17.6 Verification status
+### 18.6 Verification status
 
 Same limitation as §16.7: `php artisan migrate` refuses from any worktree that isn't `/corex-qa1`
 (Standard −1g) — this migration has been reviewed, not executed against MySQL. All PHP passes `php -l`;
 every touched Blade file compiles via `php artisan view:cache` against this worktree's own independent
 `vendor/`. No browser tool is available in this environment — a real save over HTTP and the browser
 console on the live JS are both unverified by this build.
+
+(Note: §17's own subsections above were originally numbered §16.x by their author before the
+already-landed Room-type picker / grouping section below claimed §16 for itself; this section is
+renumbered §18 for the same reason. See the note ahead of §16 for that section's own history.)
+
+## 16. Room-type picker fix (2026-09-21) — the manual add path never carried a type
+
+**Root cause, found by Johan on a real browser walk of property 5792 (QA1):** the Rental Images tab's
+manual "Add" control (§4, the flat add form below the Inspection Items list) let an agent add a Space
+with only a free-text label and a `kind` of `space`/`meter` — no room type. `RentalInspectionItem.
+space_type` (§3.2) has always existed as a column, but nothing in the UI or
+`RentalInspectionRecordingController::storeItem()` ever populated it. `RentalInspectionSetting::
+roomTypeItemsFor($agencyId, $spaceType)` — the agency's own configured checklist defaults, built at
+`/corex/settings/rental-inspections` (§3.5-adjacent settings screen) — was therefore never reachable
+from this path: it needs a real `$spaceType` to key its lookup, and the manual add never had one to
+give it. A manually-added space like "Bedroom 1" landed with zero checklist items under it, while
+`RentalInspectionFormSeeder::seedFromAdvertising()` (§14.3-adjacent, Stage 2) worked correctly because
+it always had a real space type from `spaces_json`.
+
+This was NOT a second "make a feature its own space" gap (an earlier framing this investigation
+withdrew) — Parking/Garage/Flatlet etc. were already ordinary, working space types. It was specifically
+that the ONE path an agent uses to hand-add a room to the inspection checklist had no type field to
+carry to `roomTypeItemsFor()`.
+
+### 16.1 The fix
+
+- The manual add form (`resources/views/corex/properties/show.blade.php`, the Inspection Items panel)
+  gained a Room Type `<select>`, rendered server-side from `config('property-spaces.all_space_types')`
+  — the authoritative PHP catalog, never the page's own JS copy of that list (a DIFFERENT catalog,
+  `feature_categories`, was found drifted from its JS copy earlier the same day; `all_space_types` was
+  checked and confirmed NOT drifted, but the picker still renders from PHP directly rather than trust
+  the JS copy going forward). Required whenever `kind = space`; not shown for `kind = meter` (a meter
+  has no room, per §3.2's own comment).
+- `RentalInspectionRecordingController::storeItem()` now validates `space_type` against that same
+  catalog (`Rule::in(config('property-spaces.all_space_types'))`) when `kind = space`, then — in one
+  transaction — creates a real `PropertyRoom` (type, label, `source = manual`) and generates that room's
+  default checklist items via `RentalInspectionSetting::roomTypeItemsFor()`, exactly the same call
+  `RentalInspectionFormSeeder` already makes. Both callers now go through one shared private method
+  (`createRoomChecklist()`) so they can never diverge into two different item shapes for the same room
+  type again. `kind = meter` is unchanged — a bare item, no room.
+- **This narrows §3.2's original note** ("space_type... for consistency with the marketing spaces list
+  WITHOUT being constrained to it... free-text label always wins display") — that note is still true of
+  the item's own free-text LABEL ("Bedroom 1" vs "Bedroom 2" stays free text), but the TYPE used to seed
+  a room's checklist must now be constrained to the real catalog, because it is a live lookup key into
+  the agency's own configured defaults, not a display string. An unconstrained type would silently miss
+  an agency's customisation and fall back to `DEFAULT_ROOM_TYPE_ITEMS` instead.
+- **Existing typeless items are not orphaned.** A pre-fix space (`kind = space`, no `property_room_id`,
+  no `space_type` — e.g. "Bedroom 1" on property 5792) gets an inline "Give it a room type…" picker
+  instead of the normal Retire-only row. Choosing a type and confirming
+  (`RentalInspectionRecordingController::assignType()`, `POST .../rental-inspection-items/{item}/
+  assign-type`) creates a real `PropertyRoom` from the item's own label, generates that room's default
+  checklist through the same shared `createRoomChecklist()`, and RETIRES (never deletes, §3.3) the old
+  bare item — any observation history already recorded against it stays exactly where it is and stays
+  queryable (`carryForwardItems()`/`fullHistory()` both explicitly include retired items); the new
+  room's items become the live checklist going forward.
+- Agents can still add, edit (retire), and hand-add further items after either path runs — seeding
+  (whether via "Build from advertising details" or a manual add's auto-generated checklist) is a
+  starting point, never a cage (Johan, §0 rulings: "agents can add their own on inspections as well").
+
+### 16.2 Multi-agency note
+
+`config('property-spaces.all_space_types')` is the same single, agency-neutral catalog the advertising
+Spaces screen already uses for every agency — no change to that contract. What's agency-specific is
+*which default items* a given type resolves to, via `RentalInspectionSetting::roomTypeItemDefaultsFor
+($agencyId)` — already built, already per-agency, already reached correctly through this fix's shared
+`createRoomChecklist()`. No agency-specific type list, wording, or default was introduced.
+
+### 16.3 Room-heading grouping (2026-09-21) — Johan on property 5792
+
+**The problem, in his own words:** "why would we add bedroom 2 such a lot of times - surely that should
+be a heading - bedroom 2. then list everything underneath that we have to check in that room?" Property
+5792's checklist rendered all 15 facet items flat, each row prefixed with its room's name —
+`itemDisplayLabel()`'s `${item.room.label} — ${item.label}` string — so "Bedroom 2" printed once per
+each of its 5 facets. Pure repeated metadata, a direct hit on Johan's standing rule that every row of a
+working screen must be data the agent needs or a control they act on, not decoration.
+
+**The fix:** both the Inspection Items panel and the In/Out Inspection recording checklist
+(`resources/views/corex/properties/show.blade.php`, `resources/views/corex/properties/partials/
+rental-inspection-recording.blade.php`) now render `roomGroups()` — one heading per room (`group.room.
+label`, printed once), its facet items nested underneath showing their own bare `item.label`. Items with
+no room (meters, and legacy spaces still awaiting a room type via §16.1's `assign-type`) land in one
+trailing "General" group. `itemDisplayLabel()` is removed — both its call sites are gone, so nothing
+else in the app used it.
+
+**The grouping key, and why casing is a non-issue:** `roomGroups()` keys strictly on `item.room.id` —
+the real `PropertyRoom` primary key carried through the item's own `property_room_id` foreign key — and
+never on `item.room.label`, the free-text display string. Two items either share the same `room_id` or
+they don't; the label is read only for display, after grouping has already happened. Johan raised a
+real, separate concern — property 5792 has both "bedroom 2" (lowercase) and "Bedroom 1" (capitalised),
+since he typed them as free text — and asked us to confirm grouping doesn't key on that string. It
+doesn't, and never has: there is no code path anywhere in this feature that compares room names to
+decide whether two items belong together. The casing inconsistency is real but purely cosmetic here;
+whether existing free-text room names should ever be normalised is a separate, deliberately un-taken
+decision — Johan's own data, his call, not touched by this fix.
+
+**Ordering note:** groups sort by `group.room.sort_order` ascending — `PropertyRoom`'s own existing
+column. This fix does not change what that column contains or how it's assigned; today that's still
+creation/seed order, which is Johan's second, larger complaint (rooms don't line up in a sensible
+walking order, and can't be reordered) — tracked separately, not solved by this grouping change. Once a
+sensible default and agent-driven reordering land on `sort_order`, this same `roomGroups()` reflects it
+automatically, with no further change to either view.
+
+---
+
+## 19. Real item vocabularies for Kitchen/Bathroom/Bedroom/Garage/Yard (2026-09-21)
+
+_Renumbered from cc4's original §18 during landing — §18 was already claimed by "The header
+block" (cc6, landed earlier the same night). No content changed, only the heading numbers._
+
+The conductor's own numbers exposed the gap: property 4862 seeded 51 items across 9 rooms — under 6
+items/room — against Retha's real kitchen checklist of 18 lines. `RentalInspectionSetting::
+DEFAULT_ROOM_TYPE_ITEMS` (§16's five-item flat baseline — Ceiling/Walls/Floors/Windows/Doors) was being
+applied identically to every space type with nothing more specific, including the highest-traffic ones.
+"We were seeding a skeleton and calling it a checklist."
+
+**The fix:** a new `DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE` map on `RentalInspectionSetting`, transcribed
+directly from Retha's real form for exactly five types — Kitchen (18 items), Bathroom (15), Bedroom
+(14), Garage (7), Yard (6). `roomTypeItemDefaultsFor()` now looks up this map first and only falls back
+to the generic five-item baseline for a type not in it. Transcribed as given, not assumed to be a
+superset of the old baseline — her Bedroom has Walls and Ceilings but no separate Floors/Windows/Doors
+lines at all, so those genuinely are absent from the system default for Bedroom now, where they weren't
+before.
+
+**This is a SYSTEM default, not agency 1's.** `array_merge($defaults, $overrides)` — the existing
+mechanism, unchanged — always lets an agency's own `customRoomTypeOverridesFor()` entry win outright for
+that type. Checked directly before shipping: agency 1 (Johan's own) has **already customised Kitchen,
+Bathroom, Bedroom, and Garage itself** (his own, thinner lists — Bedroom is saved as literally just the
+plain five-item baseline). This change is therefore invisible on agency 1 for those four types — his own
+saved lists keep winning, exactly as the "never overwrite an agency's configured list" rule requires.
+The one type on agency 1 this visibly changes is **Yard**, which Johan has never customised, and any
+future agency (Cape Town, October) that hasn't touched these types yet gets Retha's real vocabulary as
+its starting point instead of the bare baseline. If Johan wants his own Kitchen/Bathroom/Bedroom/Garage
+brought up to Retha's fuller lists, that's a separate, explicit action on his own saved settings — not
+implied by this change.
+
+**Already-seeded properties are untouched, structurally, not just by convention.** `RentalInspectionItem`
+rows are persistent database records created once by `RentalInspectionFormSeeder::seedFromAdvertising()`
+(§2, one-time guarded on `rental_inspection_form_seeded_at`) or by the manual add path (§16) — neither
+path re-reads the settings default after creation. Confirmed directly, not assumed: property 4862's
+active item count was 51 before this change and 51 after; 2061 was 46 and 46; 4954 was 47 and 47.
+
+### 19.1 Two items recorded as open, not resolved (2026-09-21, conductor's ruling)
+
+Converting agency stock (`LegacySpacesJsonConverter`, this session) surfaced old `features_json` keys
+with no home in the new `{spaces, features}` shape. All of it survives untouched in every affected
+property's `spaces_json_legacy_backup` column — nothing is lost — but two of the keys found are
+deliberately **left unmapped and unactioned**, not fixed tonight:
+
+- **`show_location`** (a map-visibility toggle, ~754 properties in the pre-conversion data). Confirmed
+  this is not purely historical: `P24ListingsCsvParser.php:78` still writes it into `features_json` on
+  *current* P24 imports. Backfilling only the historical shape while the importer keeps producing the
+  old shape going forward would just mean new imports land wrong again immediately — this is a decision
+  about the importer, not a data-conversion backfill, and is explicitly not being made here.
+- **`age`** (building age in years, ~345 properties). No existing column or clear destination identified
+  for it in either the spaces/features shape or elsewhere on `Property`. Left alone pending a real
+  decision on where it belongs.
+
+Other unmapped keys found in the same scan (`beds_description` and four sibling `*_description` fields,
+`deposit_requirements` — which duplicates the real, currently-empty `properties.deposit_amount` column
+— and a third `features_json` shape entirely, a plain array of catalog-matching feature label strings)
+were reported in full at the time but are not ruled on in this document; see the session record rather
+than assuming silence here means resolved.
+
+### 16.4 Room walking order (2026-09-21) — Johan on property 5792, continued
+
+**The problem, in his own words:** "then we can also allow sorting of rooms. currently it just adds
+rooms at the bottom. but theres no logical way to line up the rooms as the inspection goes. Im pretty
+sure bedroom 1, bedroom 2, etc would be a logica sort order?" — plus his explicit correction after
+seeing the first cut of this design: grouping alone would have left 5792 reading Bedroom 2 / Study /
+Bedroom 1 forever, because existing rooms correctly keep whatever `sort_order` they already have (never
+silently recomputed by a deploy). The fix needed three parts together, not one:
+
+1. **A sensible, agency-configurable default order for NEW rooms.** `RentalInspectionSetting::
+   DEFAULT_ROOM_TYPE_WALKING_ORDER` — every one of `config('property-spaces.all_space_types')`'s types
+   (verified 1:1, no gaps, no extras), bucketed: Entrance & Reception, Living & Social, Kitchen &
+   Domestic, Bedrooms & Private, Bathrooms, Outside & Leisure, then Utility/Storage/Vehicle — matching
+   Johan's own stated order ("entrance/reception first, living spaces, kitchen, bedrooms, bathrooms,
+   then outside spaces"), with every type Johan didn't name placed in the most defensible remaining
+   bucket. `RentalInspectionSetting::roomTypeWalkingOrderFor($agencyId)` is the read-time-default
+   resolver (same pattern as every other setting on this model); `room_type_walking_order` (new JSON
+   column, migration `2026_09_21_150000_...`) is the agency's own override — a FULL reordering of every
+   type, not a sparse list. A saved order that predates a later catalog addition gets the missing
+   type appended automatically, in the default order's own relative position — never left unsortable.
+   Editable at `/corex/settings/rental-inspections` (up/down controls, `updateRoomTypeWalkingOrder()`).
+
+   **Ruling — Setup Wizard exemption, granted 2026-09-21:** same reasoning already applied to
+   `refusal_reason_presets` (§15.6) — a full-permutation reorder of every space type has no fitting
+   wizard control type (number/select/text/textarea/toggle). Deliberately NOT in the wizard.
+
+2. **Natural-numeric tiebreak within a type, computed, never stored as a sort key.**
+   `RentalInspectionSetting::defaultRoomSortOrderFor($agencyId, $type, $label)` = `(walking position ×
+   1000) + min(first number found in $label, 999)`. Johan: "natural-numeric, NOT alphabetical:
+   alphabetical gives 1, 10, 2." No sibling-room query needed — the tiebreak reads only this room's own
+   label text. A label with no number (e.g. bare "Study") sorts first within its type. Wired into both
+   `storeItem()` and `assignType()` in place of the old `max(sort_order) + 1` append-to-the-end counter.
+
+3. **Existing rooms are never silently recomputed — but the agent gets both an explicit one-click fix
+   AND manual control.** `POST .../rental-inspection-rooms/apply-default-order`
+   (`RentalInspectionRecordingController::applyDefaultRoomOrder()`) recomputes every one of a property's
+   EXISTING rooms through the exact same `defaultRoomSortOrderFor()` formula, agent-triggered, one
+   click, idempotent — this is 5792's actual fix. `POST .../rental-inspection-rooms/reorder`
+   (`reorderRooms()`) takes the agent's own full ordering of the property's room IDs and rewrites
+   `sort_order` to match exactly — up/down controls on each room heading in the Inspection Items panel.
+   Both write the SAME column `roomGroups()` (§16.3) already sorts by, so neither view needs its own
+   change to reflect either action. Johan: "the button is a starting point, the same way seeding is a
+   starting point" — an agent can always reorder further by hand afterwards.
+
+   **Known, deliberate simplification:** a manual reorder (`reorderRooms()`) assigns plain `0..N-1`
+   positions to the rooms it's given, a different numeric range than the default-order formula's
+   `position × 1000 + tiebreak`. A brand new room added after a manual reorder lands wherever its own
+   type's walking position computes to, which can in principle interleave into the middle of an
+   agent's hand-curated order rather than always appending at the end. Not solved here — flagged as a
+   known interaction, not a silent gap, since Johan's own framing of manual reorder as "a starting
+   point, not the be all and end all" means an agent re-checking/re-nudging order after adding a new
+   room to an already-hand-ordered property is an acceptable, expected step, not a defect.
+
+**Ruling — `PropertyRoom.sort_order` reuse, approved 2026-09-21.** This column was documented (its own
+migration's docblock, §3.2-adjacent) as "also used by sales" as a future possibility; nothing in Sales
+currently reads or writes it (verified by search), and it is already the exact field the room-type-
+picker fix (§16.1) populates for precisely this ordering purpose. Adding a second parallel ordering
+column would have been worse. Logged here for Johan and Andre's record: **inspections now drives this
+column** — a future Sales feature that also wants to order rooms needs to either share this same
+ordering or coordinate before introducing a second, conflicting one.
+
+**Multi-agency note:** `DEFAULT_ROOM_TYPE_WALKING_ORDER` is one neutral starting order shared by every
+agency — same architecture as `DEFAULT_ROOM_TYPE_ITEMS` and `DEFAULT_INSPECTION_FEATURE_LABELS`. No
+agency's wording, branding, or a single hardcoded order is forced on another agency; every agency edits
+its own copy from here.
+
+**Two things from Johan's real paper documents (2026-09-21) that confirm/bear on this work — noted here
+as evidence, not acted on further; cc5 owns `.ai/specs/rental-inspection-form.md`, the spec for whatever
+the recording screen becomes once Johan rules on rebuilding it to match those documents:**
+
+1. **Natural-numeric ordering within a type is the common case, not an edge case.** Johan's real room
+   list for one flat: Kitchen, En Suite Bathroom, Main Bedroom, Bedroom 1, Bedroom 2, Bedroom 3,
+   Bedroom 4, Bathroom 1, Garage, Yard — ten rooms, four of them numbered bedrooms. Confirms
+   `defaultRoomSortOrderFor()`'s natural-numeric tiebreak (§16.4 point 2) was the right call, not
+   over-engineering for a rare case.
+2. **The inspection and the inventory do not share a room list.** His inventory document covers rooms
+   his inspection doesn't: Sunroom, Rubbish bin room, Entrance from glass front door, Dining
+   room/Balcony, Lounge, Laundry Room, Outside front of house. If an inventory feature is ever built on
+   top of `PropertyRoom` (already noted, §3.2-adjacent, as a table Sales may also use), it must not
+   assume it inherits whatever rooms an inspection happens to have — the two are separate room sets in
+   Johan's own real usage, not one list viewed two ways.
+
+### 16.5 Real-world bug found live on property 5792 — a missing stability tiebreak, not a casing bug
+
+Johan pressed "Apply default order" on 5792 himself and watched "bedroom 2" (lowercase, created first)
+keep sorting ahead of "Bedroom 1" (capitalised, created second) — the exact case his own correction to
+Problem 3 (§16.3) had flagged as worth checking. Investigated directly rather than assumed:
+
+- **Case sensitivity: ruled out.** `defaultRoomSortOrderFor()`'s natural-numeric extraction
+  (`preg_match('/(\d+)/', $label, $matches)`) matches digits, which have no case — verified directly by
+  calling it against the live agency: `defaultRoomSortOrderFor(1, 'Bedroom', 'bedroom 2')` → `15002`,
+  `defaultRoomSortOrderFor(1, 'Bedroom', 'Bedroom 1')` → `15001`. Bedroom 1 already sorted correctly
+  before bedroom 2 in isolation — casing was never the mechanism.
+- **Silent fallback to the old sort_order: ruled out.** The function always computes a fresh value from
+  the walking position and the label's own digits; it never reads the room's existing `sort_order` at
+  all, so there is no path back to stale creation-order values.
+- **What was actually wrong, found by executing `applyDefaultRoomOrder()` directly against property
+  5792's real data:** the formula and the controller were both already correct — running the exact
+  deployed method fixed 5792's real rows immediately (`Bedroom 1` → `15001`, `bedroom 2` → `15002`,
+  confirmed by direct query). The real, separate defect was requirement #3's own concern: **no secondary
+  tiebreak existed anywhere sort_order was used to order rooms** — neither in the PHP queries returning
+  a property's rooms (`RentalInspectionRecordingController.php`'s three `PropertyRoom::...
+  ->orderBy('sort_order')` call sites) nor in the client-side `roomGroups()` sort
+  (`show.blade.php`) that actually drives what an agent sees. Two rooms of the same type that both lack
+  a number, or share one, resolve to the identical `sort_order` — and without an explicit tiebreak,
+  their relative order is whatever MySQL/the array happens to return, which is not guaranteed stable
+  across requests. Fixed by adding `id` as the secondary sort key everywhere — `orderBy('sort_order')
+  ->orderBy('id')` in every affected PHP query, and `(a.room.sort_order ?? 0) - (b.room.sort_order ?? 0)
+  || (a.room.id - b.room.id)` in `roomGroups()` — matching the box-wide convention already used for
+  exactly this reason elsewhere (`Contact.php:275`, `RentalInventory.php:71,77`,
+  `ProformaInvoice.php:48`, and others).
+- **Why 5792 appeared unchanged when Johan clicked:** resolved, and it was not a code bug. cc1 was
+  working the same property in the same window and ran a manual reorder that landed inside Johan's own
+  fourteen-minute test — he pressed "Apply default order," cc1's manual reorder persisted moments later,
+  and the order Johan read back afterward was cc1's deliberate reorder, not a failure of the button.
+  cc1 re-pressed the same button on the same property independently afterward and confirmed Bedroom 1
+  sorted ahead of bedroom 2 correctly. No code changed as a result of this half of the report — nothing
+  needed to. Recorded here so the "two lanes changing the same property's data at the same time look
+  like a contradiction" lesson isn't lost: say so in the shared channel before changing state on a real
+  property.
+
+### 16.6 The real bug — cc1 found it testing live, and it is fixed
+
+cc1's own test on 5792 surfaced a genuine, distinct defect in `defaultRoomSortOrderFor()`: the original
+`preg_match('/(\d+)/', $label)` matches the FIRST digit anywhere in the label, not a trailing room
+number. A leftover test room labelled "Bedroom CC1 Verify" resolved to the identical `sort_order` as a
+real "Bedroom 1", because the regex matched the "1" inside "CC1". Harmless against Johan's own clean
+labels today ("Bedroom 1", "bedroom 2") — but a real bug the moment any agent types a label with an
+incidental digit anywhere in it: a unit number, a floor, "Flat 2 Bedroom", "Garage B1", an agency's own
+naming convention. Not exotic — expected, ordinary usage.
+
+**Fix:** anchored the regex to the END of the label — `preg_match('/(\d+)\s*$/', $label, $matches)` —
+so a genuinely trailing instance number ("Bedroom 1", "Garage B1") is still read correctly, while an
+incidental digit earlier in the label ("Flat 2 Bedroom", "Bedroom CC1 Verify") is correctly ignored and
+falls back to the untrailing-numbered tiebreak (0), same as a label with no number at all. Verified
+directly against every named scenario: `Bedroom 1`→15001, `bedroom 2`→15002, `BEDROOM 10`→15010,
+`Bedroom CC1 Verify`→15000 (no longer collides with `Bedroom 1`), `Flat 2 Bedroom`→15000, `Garage
+B1`→correctly reads trailing `1`. Two new regression tests
+(`RentalInspectionFeatureAndRoomTypeSettingsTest.php`) lock in the incidental-digit case and the
+trailing-after-letter case directly. §16.5's `id`-tiebreak fix is unaffected and still required — two
+labels that both fall back to 0 (no trailing number) still need it to stay stable.
+
+Room names are never normalised or rewritten by this fix — the regex only reads the label to compute a
+sort position; Johan's ruling on whether room names should ever be normalised remains open and untouched.
+
+## 17. N/A, room notes, overall notes (2026-09-21) — three gaps evidenced on Retha's real paper form
+
+Johan corrected an earlier read of his own: `/corex/rental-inspections/1` is a thin read-only summary of
+an empty draft, not the actual recording surface. The real recording screen — property 5792, Rental
+Images tab, In Inspection expanded — already had room groupings (§16.3), per-item condition grading,
+notes, photos, and three-party signing (§15) working. Comparing that working screen against Retha's two
+real paper documents (a filled-in out-inspection and a separate inventory) surfaced three concrete gaps,
+all directly evidenced on her form, no design ruling needed:
+
+### 17.1 N/A as a condition state, agency-configurable vocabulary
+
+**The problem, in Johan's own words:** "we have 'Missing', which means it should be here and isn't —
+that is a deposit argument. Retha needs 'was never here', which is not an argument at all. Two
+completely different meanings and we can only say one of them." Her paper form uses N/A constantly
+("Ceiling Fans N/A", "Blinds N/A") and strikes entire rooms out with one N/A across the whole table
+(Bedroom 3, Bedroom 4 on her real form).
+
+**The fix:**
+
+- `RentalInspectionSetting::DEFAULT_CONDITION_STATES` — the shipped six (Good/Fair/Damaged/Not
+  working/Missing/Other) plus N/A, each entry `{key, label, requires_notes}`. `requires_notes`
+  generalizes §0.3's old hardcoded "anything but Good needs a reason" rule — N/A needs none either
+  (Johan: "not an argument at all"), and the rule now expresses correctly for an agency that reduces or
+  renames the whole set.
+- **The SET itself is agency-configurable, not just an addition to ours.** Retha's own paper form uses
+  an entirely different vocabulary — Good / OK / Bad — from CoreX's shipped Good / Fair / Damaged / Not
+  working / Missing / Other. Neither is forced on the other agency: `condition_states` (new JSON column
+  on `rental_inspection_settings`, migration `2026_09_21_160000_...`), resolved via
+  `RentalInspectionSetting::conditionStatesFor($agencyId)` (read-time default, same pattern as every
+  other setting on this model) and `conditionRequiresNotesFor($agencyId, $key)`. Editable at
+  `/corex/settings/rental-inspections` — add/remove/relabel/retoggle any row; an existing row's `key` is
+  carried as a hidden field, never re-derived from its label, so it can't drift out from under
+  observations already recorded against it.
+- `RentalInspectionRecordingController::storeObservation()` validates `condition` against the agency's
+  own resolved key list (`Rule::in(array_column(...))`), not a hardcoded six-item enum; the "needs a
+  reason" check calls `conditionRequiresNotesFor()` instead of a literal `!== 'good'` comparison.
+  `RentalInspectionObservation::requiresNotes()` (previously dead code, unused anywhere in `app/`) now
+  delegates to the same resolver, so the concept has exactly one implementation.
+- The recording UI's condition `<select>` (`rental-inspection-recording.blade.php`) now renders from
+  `condition_states` (delivered through `RentalInspection::tabPayloadFor()`), never a hardcoded set of
+  `<option>` tags — an agency that reduces to three states sees exactly three options, not CoreX's six
+  plus theirs.
+- **Room-level bulk N/A** — "she strikes ENTIRE ROOMS out with one big N/A." New endpoint
+  `POST /corex/rental-inspections/{inspection}/rooms/{room}/mark-na`
+  (`RentalInspectionRecordingController::markRoomNa()`) records N/A against every active item in the
+  room through the exact same atomic `RentalInspectionObservation::record()` path a single-item
+  observation uses — a genuine conflict with an earlier, different observation on the same item in the
+  same inspection still raises a real discrepancy (§0.4), exactly as it should; this is a bulk
+  convenience over the one real recording path, never a second one. Only offered in the UI when N/A is
+  actually one of the agency's configured states — an agency that removes it loses the bulk button too.
+
+### 17.2 Room-level notes, in addition to per-item notes
+
+**The problem:** every room table on Retha's paper form carries its own free-text notes box holding
+evidence that belongs to the whole room, not any single item — "3x nails in wall", "can't test aircon no
+batteries", "1x key in door", "damp under windows in corner", "damp on wall under mirror". Per-item notes
+(`rental_inspection_observations.notes`) are finer-grained and stay exactly as they are — this is in
+addition, never instead.
+
+**The fix:** new `rental_inspection_room_notes` table (migration `2026_09_21_160100_...`) and
+`RentalInspectionRoomNote` model, scoped to `(rental_inspection_id, property_room_id)` — never to
+`PropertyRoom` itself, which is a permanent, cross-tenancy record (§3.2) with no natural home for "what
+one specific walkthrough found in this room." Immutable, same convention as an Observation (§3.3): never
+edited, never deleted (`UPDATED_AT = null`); a correction is a NEW row, and "the room's current note" is
+simply the latest one for that inspection — the exact same pattern an item's `currentObservation()`
+already uses. New endpoint `POST /corex/rental-inspections/{inspection}/rooms/{room}/notes`
+(`storeRoomNote()`); rendered as one textarea + Save button per room heading in the recording UI.
+
+### 17.3 Overall notes — one free-text summary per inspection
+
+**The problem:** Retha's paper form ends with a single summary line: "OVERALL - APARTMENT CLEAN - FAIR -
+PARTIALLY FURNISHED."
+
+**The fix:** `overall_notes` — a plain, nullable TEXT column directly on `rental_inspections` (migration
+`2026_09_21_160200_...`), not an append-only history like §17.2's room notes. `RentalInspection` is
+already a mutable lifecycle record (`status`, `cancel_reason`, etc., all plain columns) — this is the
+inspection's own editable summary, not an evidentiary per-event fact, so a plain column with its own
+small update endpoint (`POST /corex/rental-inspections/{inspection}/overall-notes`,
+`updateOverallNotes()`) fits the existing shape rather than inventing a new one. Rendered as one textarea
++ Save button at the foot of each section's checklist.
+
+### 17.4 Multi-agency note
+
+None of the three additions assume Retha's, HFC's, or any single agency's vocabulary or wording. The
+condition-state SET is fully agency-configurable with a neutral default (§17.1); room notes and overall
+notes are freeform text fields with no agency-specific default content at all.
+
+### 17.5 Scope discipline
+
+Johan was explicit: these three are directly evidenced on his real paper documents and needed no design
+ruling — build them now. Everything else visible on Retha's documents (whether the recording screen gets
+a broader rebuild to match her form's full shape) is Johan's decision, still pending, and is cc5's
+`.ai/specs/rental-inspection-form.md` to own — not touched or anticipated here.

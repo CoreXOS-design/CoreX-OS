@@ -42,8 +42,12 @@
                 <h1 class="text-sm font-bold leading-tight truncate" style="color: var(--text-primary);">
                     {{ $rentalApplication->contact->full_name ?? 'Rental Application' }}
                 </h1>
+                {{-- displayStatusLabel() is the one shared place this text is
+                     decided — every rental-application status badge calls
+                     it, so the further-state label (Johan, 2026-09-21)
+                     can never drift out of sync between screens again. --}}
                 <span class="ds-badge {{ $rentalApplication->status === 'draft' ? 'ds-badge-muted' : 'ds-badge-info' }}">
-                    {{ str_replace('_', ' ', $rentalApplication->status) }}
+                    {{ $rentalApplication->displayStatusLabel() }}
                 </span>
             </div>
         </x-slot>

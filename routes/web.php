@@ -2856,6 +2856,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.features');
     Route::post('/settings/rental-inspections/room-type-defaults', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeItemDefaults'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-defaults');
+    // Johan, 2026-09-21, property 5792 — the default room-walking order.
+    Route::post('/settings/rental-inspections/room-type-order', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeWalkingOrder'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-order');
+    // §17, Johan 2026-09-21, from Retha's real paper form — the condition vocabulary.
+    Route::post('/settings/rental-inspections/condition-states', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateConditionStates'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.condition-states');
+
     // .ai/specs/rental-inventory.md §8 — the move-out disposition vocabulary
     // (present/short/damaged/missing), agency-configurable. Own settings
     // model/screen, deliberately separate from rental-inspections above.
@@ -2890,6 +2897,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Johan, 2026-09-20 — agency-level credit bureau name.
     Route::post('/settings/rental-applications/credit-bureau', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateCreditBureau'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.credit-bureau');
+
+    // Johan, 2026-09-21 — agency-level label for an approved-and-tenanted application.
+    Route::post('/settings/rental-applications/tenanted-label', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateTenantedLabel'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.tenanted-label');
 
     // Reopen/resubmit, 2026-09-08.
     Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
@@ -3178,6 +3189,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-awaiting-signature');
         Route::post('/{rentalInspection}/complete', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'complete'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.complete');
+
+        // rental-inspection-form.md §7 — the in-vs-out deposit comparison.
+        // Read gated at the group's own .view; recording a wear-and-tear/
+        // flagged judgement is a separate, narrower grant (§6 of that spec).
+        Route::get('/{rentalInspection}/deposit-comparison', [\App\Http\Controllers\CoreX\RentalInspectionComparisonController::class, 'show'])
+            ->name('corex.rental-inspections.deposit-comparison');
+        Route::post('/{rentalInspection}/deposit-comparison/items/{rentalInspectionItem}/finding', [\App\Http\Controllers\CoreX\RentalInspectionComparisonController::class, 'recordFinding'])
+            ->middleware('permission:rental_inspections.review_deposit_comparison')->name('corex.rental-inspections.deposit-comparison.finding');
+
+        // §17, Johan 2026-09-21, from Retha's real paper form — N/A as a
+        // bulk room action, per-room notes, and one overall-notes summary.
+        Route::post('/{rentalInspection}/rooms/{room}/mark-na', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'markRoomNa'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.mark-na');
+        Route::post('/{rentalInspection}/rooms/{room}/notes', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeRoomNote'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.notes.store');
+        Route::post('/{rentalInspection}/overall-notes', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateOverallNotes'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.overall-notes.update');
     });
 
     // .ai/specs/rental-inventory.md — the counted contents of a furnished
@@ -4167,7 +4195,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
         Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
         Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
+        // 2026-09-21 — retrofit a room type onto a legacy typeless space item
+        // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
+        Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->name('rental-inspection-items.assign-type');
         Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->name('rental-inspection-items.seed-from-advertising');
+        // 2026-09-21, Johan on property 5792 — room walking order. apply-default-order
+        // is the explicit, agent-triggered one-click fix for a property's EXISTING
+        // rooms; reorder persists the agent's own manual up/down moves.
+        Route::post('/{property}/rental-inspection-rooms/apply-default-order', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'applyDefaultRoomOrder'])->name('rental-inspection-rooms.apply-default-order');
+        Route::post('/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->name('rental-inspection-rooms.reorder');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new
         // property or a type-change draft still saves its rental fields

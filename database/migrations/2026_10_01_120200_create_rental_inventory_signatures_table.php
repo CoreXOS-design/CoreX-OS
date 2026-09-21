@@ -37,7 +37,7 @@ return new class extends Migration
 
             $table->timestamps();
 
-            $table->index(['agency_id', 'rental_inventory_id', 'party_role']);
+            $table->index(['agency_id', 'rental_inventory_id', 'party_role'], 'rental_inventory_signatures_agency_inventory_role_idx');
         });
     }
 
