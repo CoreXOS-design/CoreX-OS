@@ -12841,6 +12841,35 @@ CREATE TABLE `rental_inspection_discrepancy_observations` (
   CONSTRAINT `ri_disc_obs_observation_fk` FOREIGN KEY (`observation_id`) REFERENCES `rental_inspection_observations` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_inspection_item_findings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_inspection_item_findings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rental_inspection_id` bigint unsigned NOT NULL,
+  `rental_inspection_item_id` bigint unsigned NOT NULL,
+  `disposition` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `recorded_by_user_id` bigint unsigned NOT NULL,
+  `recorded_at` timestamp NOT NULL,
+  `superseded_at` timestamp NULL DEFAULT NULL,
+  `superseded_by_finding_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_inspection_item_findings_rental_inspection_id_foreign` (`rental_inspection_id`),
+  KEY `riif_item_id_foreign` (`rental_inspection_item_id`),
+  KEY `rental_inspection_item_findings_recorded_by_user_id_foreign` (`recorded_by_user_id`),
+  KEY `riif_superseded_by_foreign` (`superseded_by_finding_id`),
+  KEY `riif_agency_inspection_item_idx` (`agency_id`,`rental_inspection_id`,`rental_inspection_item_id`),
+  CONSTRAINT `rental_inspection_item_findings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_inspection_item_findings_recorded_by_user_id_foreign` FOREIGN KEY (`recorded_by_user_id`) REFERENCES `users` (`id`),
+  CONSTRAINT `rental_inspection_item_findings_rental_inspection_id_foreign` FOREIGN KEY (`rental_inspection_id`) REFERENCES `rental_inspections` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `riif_item_id_foreign` FOREIGN KEY (`rental_inspection_item_id`) REFERENCES `rental_inspection_items` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `riif_superseded_by_foreign` FOREIGN KEY (`superseded_by_finding_id`) REFERENCES `rental_inspection_item_findings` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_inspection_items`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -17291,3 +17320,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1395,'2026_09_30_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1396,'2026_09_30_100400_create_property_rooms_table',328);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1397,'2026_09_30_100500_add_property_room_id_and_source_to_rental_inspection_items_table',328);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1398,'2026_09_30_100600_add_rental_inspection_form_seeded_at_to_properties_table',328);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1399,'2026_09_21_120000_create_rental_inspection_item_findings_table',329);

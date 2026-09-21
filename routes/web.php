@@ -3171,6 +3171,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-awaiting-signature');
         Route::post('/{rentalInspection}/complete', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'complete'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.complete');
+
+        // rental-inspection-form.md §7 — the in-vs-out deposit comparison.
+        // Read gated at the group's own .view; recording a wear-and-tear/
+        // flagged judgement is a separate, narrower grant (§6 of that spec).
+        Route::get('/{rentalInspection}/deposit-comparison', [\App\Http\Controllers\CoreX\RentalInspectionComparisonController::class, 'show'])
+            ->name('corex.rental-inspections.deposit-comparison');
+        Route::post('/{rentalInspection}/deposit-comparison/items/{rentalInspectionItem}/finding', [\App\Http\Controllers\CoreX\RentalInspectionComparisonController::class, 'recordFinding'])
+            ->middleware('permission:rental_inspections.review_deposit_comparison')->name('corex.rental-inspections.deposit-comparison.finding');
     });
 
     // .ai/specs/rental-work-orders.md §3a/§6a — Rental Fault Reports, its own

@@ -1,7 +1,11 @@
 # Rental Inspection Form — the paper document, faithfully specified
 
-**Status:** Spec only. NO CODE has been written against this spec. Johan has not yet ruled on whether
-to build it — this document exists so he can rule on something concrete, not a summary.
+**Status:** Partially built, 2026-09-21. Johan confirmed the gap analysis (§1) himself, in writing, after
+opening the real recording surface directly — the hold on building was lifted for the in-vs-out
+comparison specifically (§7), on his own instruction: build the comparison mechanics if unambiguous, stop
+before anything that turns a difference into a number against a deposit. §7.3 records exactly what
+shipped. Everything else in this document (header-block capture beyond keys/remotes/meters, four-state
+grading, per-room notes, Inventory) remains spec-only, awaiting his ruling.
 **Date:** 2026-09-21
 **Author:** cc5
 **Pillar:** Property (`Property`), Deal (`Lease`), Contact (tenant, landlord), Agent (`User`) — this
@@ -254,29 +258,33 @@ marketing space-type list either.
 
 **[cc5 design call — none of this is Johan-ruled yet; flagged throughout for his decision, not assumed]**
 
-### 4.1 Header block — new table, one row per `rental_inspection`
+### 4.1 Header block — built by cc6 as columns directly on `rental_inspections`, not a new table
+
+**Superseded, 2026-09-21**: this section originally proposed a separate `rental_inspection_intake_details`
+table. cc6 built the header-block fields directly on `rental_inspections` instead (one row per inspection
+event, so "in" and "out" naturally carry their own values, same as everything else on that model) —
+simpler than a join for no real benefit, since it's a strict 1:1 relationship either way. Coordinated
+directly (cc5↔cc6, cross-session) before either side built anything, so the comparison mechanics in §7
+read these exact names:
 
 ```
-rental_inspection_intake_details
-  id
-  agency_id
-  rental_inspection_id       -- FK, unique (one row per inspection event)
-  property_type               -- free text, tick-one on the form but stored as text so an agency's
-                               --   own list (house/flat/townhouse/commercial + whatever else an
-                               --   agency wants) is never hardcoded to HFC's four options (§8)
-  electricity_meter_reading   -- free text — "BODY CORP" is a real, valid value (§2.1)
-  water_meter_reading         -- free text, same reasoning
-  furnished_state             -- free text — "PARTIALLY" is a real, valid value, not a boolean
-  keys_note                   -- free text — "3x SET KEYS"
-  remotes_note                -- free text — "3x REMOTES"
-  move_in_date                -- nullable date
-  created_by_user_id
-  created_at, updated_at
+rental_inspections  (columns added, not a new table)
+  keys_count                  -- nullable int
+  keys_description             -- nullable string
+  remotes_count                -- nullable int
+  remotes_description           -- nullable string
+  electricity_meter_reading    -- nullable string — "BODY CORP" is a real, valid value (§2.1)
+  water_meter_reading          -- nullable string, same reasoning
 ```
 
 Landlord and tenant name/signature are **not** duplicated here — they're already covered by
 `RentalInspectionSignature` (§1.2), which resolves tenants from the lease and already has a `landlord`
-party role. This table is only the fields nothing existing captures.
+party role. `RentalInspectionComparisonService::compareHeaderFacts()` (§7.3) reads these directly off the
+in- and out-inspection rows — safe to call even before this migration lands anywhere, since Eloquent
+attribute access on an absent column returns null rather than erroring, so it degrades to "nothing to
+compare yet" automatically. Property type / furnished state / move-in date were part of the original
+paper-form transcription (§2.1) but are not confirmed built as of this revision — check
+`rental_inspections`' actual columns before assuming they exist.
 
 ### 4.2 Four-state grading, alongside the existing condition enum — not replacing it
 
@@ -429,43 +437,84 @@ For a given lease's `type='out'` inspection, for every `rental_inspection_item` 
      applicable before and does now (or the reverse), which is a fact an agent needs to see plainly
      rather than have silently folded into "declined."
 
-### 7.2 The deposit outcome
+### 7.3 Built now (2026-09-21) — the comparison mechanics, not the money
 
-**[cc5 recommendation, not Johan-ruled]** The comparison above produces a **per-item flag**, not an
-automatic ZAR amount — matching how the paper form itself works: the form's job is to make the *evidence*
-undeniable (what changed, when, with what proof), not to compute a number. Assigning a rand value to a
-scuffed stove-top or a broken cupboard hinge is a judgement call an agent/landlord makes using the
-evidence, not a formula this spec should invent. Proposed shape:
+Per the conductor's explicit instruction: build the comparison if it's unambiguous, stop before anything
+that turns a difference into a number against a deposit. What's actually landed, on branch
+`cc5-rental-inspection-deposit-comparison`:
 
-```
-rental_inspection_deposit_outcomes
-  id
-  agency_id
-  rental_inspection_id        -- the OUT inspection this outcome belongs to
-  rental_inspection_item_id
-  classification               -- unchanged | improved | declined_no_record | declined_on_record |
-                                --   na_mismatch (§7.1's five categories)
-  deposit_action               -- nullable enum: no_action | retain_amount | landlord_responsibility
-                                --   — set by a human, not computed
-  retained_amount               -- nullable decimal, only meaningful when deposit_action='retain_amount'
-  decision_note                 -- text — the human's reasoning, required whenever deposit_action is
-                                 --   anything other than no_action (mirrors the existing
-                                 --   requiresNotes() pattern for a non-good condition, §1.2)
-  decided_by_user_id, decided_at
-  created_at, updated_at
-```
+- **`RentalInspectionComparisonService`** (`app/Services/`) — `compareItems(RentalInspection $out)`
+  returns one row per item that has at least one observation on either side (an item with observations
+  on neither side never existed for this tenancy and isn't returned), each row carrying the item, the
+  classification, both observations (condition/notes/photos), and any recorded finding. Classification is
+  **read-time only** — never a stored column, same "never a column" principle as
+  `RentalInspectionItem::currentObservation()` in the already-built spec, so it can never drift out of
+  sync with the observations it describes.
+- **Matching is by `rental_inspection_item_id`, not fuzzy label matching.** Items are property-scoped and
+  reused across every inspection on that property (already-built spec §3.1), so the SAME item row is
+  automatically the same physical space on both the in- and out-inspection, as long as the agent picked
+  it from the existing list rather than creating a new one. There is no rename/edit path for an item's
+  label anywhere in the built system (checked directly — `RentalInspectionRecordingController` has
+  `storeItem()`, no `updateItem()`) — an agent who wants to call a room something different creates a NEW
+  item row instead. That is the SAME duplicate-item risk already named and left unsolved in
+  `rental-inspections.md` §7.2, not a new one. It surfaces here honestly as one row in `only_at_in` and a
+  separate row in `only_at_out` — the paper form's own "ensuite second bedroom" hand-labelling problem,
+  made visible rather than silently guessed at.
+- **Classification set, actually implemented**: `unchanged` / `improved` / `declined` / `only_at_in` /
+  `only_at_out` / `na_mismatch` — `na_both` is computed internally but never returned as a row at all,
+  per Johan's own wording ("an item N/A at both ends is not a finding"). This is a flatter set than the
+  five-category sketch in the original §7.1 draft above (no separate `declined_on_record` vs
+  `declined_no_record` split) — `declined` always carries the full carry-forward context through the
+  existing out-inspection tab view (`RentalInspection::carryForwardItems()`), so an agent reviewing a
+  `declined` finding already sees whether it was reported mid-tenancy before deciding anything; the
+  service doesn't pre-split that judgement into two labels.
+- **N/A handling is forward-compatible by construction, not by guessing cc2's exact constant name.** The
+  service whitelists the six real condition values that exist today; anything outside that whitelist —
+  including whatever string cc2's in-flight N/A work lands as — is automatically treated as not-gradeable.
+  N/A on both sides is excluded entirely; N/A on one side only is `na_mismatch`, flagged for a human, per
+  Johan's ruling that this needs a plain business decision (§7.4), not a system default.
+- **`RentalInspectionItemFinding`** (new table + model) — the ONE thing that genuinely can't be derived:
+  an agent's own judgement that a `declined` item is fair wear and tear (excluded from the deposit
+  conversation) or should stay flagged as a genuine difference. Required note on every finding (mirrors
+  `requiresNotes()`'s existing standard). Never edited in place — a second judgement on the same item
+  supersedes the first (`superseded_at`/`superseded_by_finding_id`), exactly the pattern already proven by
+  `RentalInspectionSignature::supersedeWetInk()`. Only recordable against a `declined` row — the service
+  refuses a finding on `unchanged`/`improved`/`na_*` outright, since there's nothing to judge.
+- **Header-block facts (keys/remotes/meters, §4.1)** — `compareHeaderFacts()` diffs the in- and
+  out-inspection's `keys_count`/`remotes_count` (a numeric drop is a clean, direct signal) alongside the
+  free-text meter readings (surfaced for the agent to read, never auto-flagged as changed — two
+  independent free-text entries rarely match verbatim, and that alone isn't evidence).
+- **New screen**: `GET .../rental-inspections/{inspection}/deposit-comparison` — read-only comparison
+  table plus the wear-and-tear/flagged form, linked directly from the out-inspection's own detail page
+  (the exact screen Johan looked at when he first raised this, §1.1) — additive, not a new top-level nav
+  entry, matching this whole document's "additive, not a redesign" framing.
+- **No amount, no currency, no deduction anywhere in any of the above.** No column on
+  `RentalInspectionItemFinding` or anywhere else stores a rand value. The comparison page's own footer
+  states this in plain text: "This is a proposal for review, not a deduction — no amount has been
+  calculated or applied against any deposit."
+- **Not built**: the `rental_inspection_deposit_outcomes` table sketched in the original draft of this
+  section (classification + `deposit_action` + `retained_amount`) — that whole table is exactly the "turns
+  a difference into a number" line the conductor named explicitly to stop before. It stays a sketch, not
+  code, until §7.4 is ruled on.
 
-One row per item on the out-inspection, auto-populated with `classification` the moment the out-
-inspection's comparison runs (read-time, regenerable, never hand-typed), with `deposit_action` left null
-until an agent actually makes the call. The **overall deposit outcome for the tenancy** is a read-time
-sum/summary over these rows — again a query, never a separately-maintained total that could drift from
-the rows it's supposed to represent.
+### 7.4 What's Johan's to rule — put as plain business consequences, not technical questions
 
-**Explicitly not specced here, flagged for Johan**: whether a retained-amount total should connect to
-anything in the deposit/trust-account handling elsewhere in CoreX (if such a connection exists) is outside
-what this document was asked to cover — the two paper documents describe recording the *evidence and the
-decision*, not the accounting mechanics of actually withholding money. If Johan wants that connection, it
-is a separate, explicit scoping decision, not assumed here.
+1. **Whether the outcome he sees is an amount, a list of items, or both.** What's built today gives him a
+   list — every `declined` item, side by side, with both photos and both notes, and whether an agent has
+   called it wear-and-tear or flagged it as real. If he wants a rand total on top of that list, someone
+   still has to decide what each item is worth — the system won't do that math for him unless he says he
+   wants it to.
+2. **Whether the tenant sees the list of proposed deductions and has to sign it, the same way they already
+   sign the inspection itself.** Right now, this screen is agent/office-facing only — a tenant has no way
+   to see it or respond to it. If Johan wants the tenant to see what's being proposed against their
+   deposit and agree or dispute it before it's final, that's a new screen and a new signing step, not
+   something this build already does.
+3. **What happens when the in-inspection and the out-inspection disagree about whether something even
+   existed.** Today, an item recorded only at move-out (with nothing to compare it to at move-in) is shown
+   to the agent as its own separate case, clearly marked — the system does not guess whether that item
+   was there all along and just never written down, or is genuinely new. If Johan wants a default stance
+   on that situation (e.g. "no charge unless the agent can show it wasn't there before"), that's his call
+   to make, and nothing in the build assumes an answer either way.
 
 ---
 
@@ -502,8 +551,16 @@ Per BUILD_STANDARD §1a and this repo's non-negotiable #8: every new entity in t
   creation order within a room, matching how the paper form itself reads top to bottom), filter (by
   room, by property), pagination if a property's inventory list grows long, own/branch/agency scoping
   matching the existing rentals pattern, archive/restore (never hard delete) via `is_retired`.
-- **`rental_inspection_deposit_outcomes`** is read through the out-inspection's own detail view (§7),
-  not a separate list screen — it is one inspection's own outcome, not an independently browsable entity.
+- **`rental_inspection_deposit_outcomes`** (still not built, §7.4) would be read through the
+  out-inspection's own detail view, not a separate list screen — it is one inspection's own outcome, not
+  an independently browsable entity.
+- **`rental_inspection_item_findings`** (built, §7.3) follows the identical reasoning: no independent list
+  screen, read only through its parent out-inspection's comparison view
+  (`corex.rental-inspections.deposit-comparison`), `agency_id` + `BelongsToAgency` scoped, reachable only
+  via the already-agency-scoped `rental_inspection_id`/route-model-bound inspection — a cross-agency
+  request 404s at the same global-scope layer as everything else in this module, not a separate check.
+  Recording a finding requires `rental_inspections.review_deposit_comparison`, separately gated from
+  `.view`/`.create` per §6's existing reasoning for `.resolve_discrepancy`.
 - Every threshold this spec introduces (none numeric beyond what's already agency-configurable in the
   existing spec) stays agency-configurable; this spec adds no new hardcoded number.
 - No hard deletes anywhere in this document — `is_retired` (matching the existing spec's own reasoning
@@ -529,8 +586,9 @@ Per BUILD_STANDARD §1a and this repo's non-negotiable #8: every new entity in t
 
 ---
 
-## 11. Files referenced (read, not modified, in producing this spec)
+## 11. Files referenced / created
 
+**Read, not modified, in producing the original version of this spec:**
 - `.ai/specs/rental-inspections.md` — the existing built spec, source of everything in §1.2.
 - `app/Models/RentalInspection.php`, `RentalInspectionItem.php`, `RentalInspectionObservation.php`,
   `RentalInspectionDiscrepancy.php`, `RentalInspectionSignature.php`, `RentalInspectionSetting.php`,
@@ -540,5 +598,16 @@ Per BUILD_STANDARD §1a and this repo's non-negotiable #8: every new entity in t
 - `resources/views/corex/rental-inspections/show.blade.php` (the exact screen Johan looked at, §1.1)
 - `database/migrations/..._create_rental_inspections_table.php`
 - `config/property-spaces.php` (`all_space_types`, §1.4)
+
+**Created for §7.3 (comparison mechanics, 2026-09-21):**
+- `database/migrations/2026_09_21_120000_create_rental_inspection_item_findings_table.php`
+- `app/Models/RentalInspectionItemFinding.php`
+- `app/Services/RentalInspectionComparisonService.php`
+- `app/Http/Controllers/CoreX/RentalInspectionComparisonController.php`
+- `resources/views/corex/rental-inspections/partials/deposit-comparison-page.blade.php`
+- `routes/web.php` (two new routes, appended to the existing `rental-inspections` group)
+- `config/corex-permissions.php` (`rental_inspections.review_deposit_comparison`)
+- `resources/views/corex/rental-inspections/show.blade.php` (one new conditional link, out-inspections only)
+- `tests/Feature/RentalInspections/RentalInspectionComparisonServiceTest.php`
 
 No files were created or modified other than this spec document itself.
