@@ -301,47 +301,78 @@ property-setting-item CRUD on Settings → Properties & Listings
 existing `provisionDefaultsFor()` pattern so every current and future
 agency gets a sensible default list with zero new observer code.
 
-**Recommendation: add `GROUP_RENTAL_PRICE_TYPE` as a new
-`PropertySettingItem` group**, seeded with the current five values
-(`Per Month`, `Per Sqm`, `Per Day`, `Per Week`, `Per Year`) as every
-agency's starting default, editable/reorderable/archivable per-agency
-from that point on exactly like Furnished Status already is. This is
+**As built: `GROUP_RENTAL_PRICE_TYPE` added as a new
+`PropertySettingItem` group**, seeded with four values only — `Per
+Month`, `Per Week`, `Per Day`, `Per Sqm` — as every agency's starting
+default, editable/reorderable/archivable per-agency from that point on
+exactly like Furnished Status already is. `Per Year` is deliberately
+**not** in the default list even though Property24 supports it: Private
+Property's enum has no yearly rate at all and its mapper silently falls
+back to `PerMonth` for anything unrecognised, so seeding a default that
+silently mismaps on one of the two portals would recreate the exact
+"doesn't match what the portals accept" problem this feature exists to
+fix (§3.4). An agency that only syndicates to P24 is free to add "Per
+Year" itself — this is the default, not a ceiling. This mechanism is
 **not** the `RentalApplicationCustomField`-style mechanism from §2 —
 different problem (closed list of option strings vs. typed field
 definitions), same reasoning as the cc2 note above: use the tool that
 already fits, don't force one mechanism to do both jobs.
 
-### 3.3 On the property — select ONE type, enter ONE price
+### 3.3 On the property — select ONE type, enter ONE price (as actually built, Part 3)
 
-The dropdown's options come from the agency's `PropertySettingItem`
-list (§3.2) instead of the hardcoded array — the only change to the
-control itself. Selecting a type reveals exactly one value input for
-that type; changing the selection swaps which single input shows,
-clearing whatever was previously entered rather than leaving a stale
-value sitting in a now-hidden field. This fixes the confirmed bug
-(§3.1) — `price_per_day`/`price_per_week`/`price_per_year` were
-always-visible, independent optional inputs with no relationship to the
-dropdown at all — as a direct consequence of building what Johan asked
-for, not as separate work.
+**Investigation first changed the shape of the build.** Re-reading both
+mappers directly (not from memory) before writing any code showed
+neither portal has ever read `price_per_day`/`price_per_week`/
+`price_per_year` at all — both `Property24ListingMapper::mapRentalRate()`
+and `PrivatePropertyListingMapper::mapRentalPriceType()` send only
+`Property::effectivePrice()` (== `rental_amount` for a rental) as "the
+price", always, regardless of which cadence is selected. The three
+per-cadence columns were dead weight for syndication from the day they
+were added — the grid wasn't half-wired to the portals, it was entirely
+unwired. That collapses the design in §3.3's original draft: **no
+`price_per_sqm` column is needed, and no per-type input needs to be
+revealed or hidden**, because there was never more than one price
+column doing real work.
 
-**`price_per_sqm` must be added** if "Per Sqm" survives in the agency's
-default seeded list (§3.2) — a single-select model with one input per
-type needs a real column behind every selectable option, and "Per Sqm"
-is the one type with none today. "Per Month" continues to map onto the
-existing `rental_amount` core field (§1) rather than gaining a parallel
-`price_per_month` column, since monthly rental is already a guaranteed
-core field and a second column for the identical fact would be exactly
-the "captured twice" problem this whole initiative exists to eliminate.
+What was actually built: the `rental_price_type` dropdown now sources
+its options from the agency's `PropertySettingItem` list (§3.2) instead
+of a hardcoded array — unchanged from the original plan. But there is
+now only ever **one** value input on the panel, labelled "Rental Price
+(R)", which always writes `rental_amount` regardless of which type is
+selected. The three `price_per_day`/`price_per_week`/`price_per_year`
+input fields were removed from both Rental Details tab blocks (new/
+draft and settled) entirely — not hidden, not conditionally shown,
+gone — along with their validation rules in all three controller call
+sites (`store()`, `update()`, `updateRentalDetails()`). The underlying
+DB columns are left in place (untouched, no migration drops them) since
+they may hold historical data and dropping them is a separate, unasked-
+for decision; the screen and the controllers simply never write to them
+again.
 
-### 3.4 Syndication — unchanged, and now trivially true
+Because "Rental Price" no longer means "monthly" once a type selector
+exists, the field's label was corrected in two places: the Rental
+Details tab's own `rental_amount` input, and cc6's landed Pricing &
+Costs panel input (commit `330167c87`) which edits the exact same
+column from the property's info tab. Both now read "Rental Price (R)"/
+"Rental Price (ZAR)" — wording only, no behaviour change, and cc6's
+panel is otherwise untouched (still writes `rental_amount`, still
+relabels `price` to "Sale Price" on a rental, still leaves `price`
+optional).
 
-`Property24ListingMapper::mapRentalRate()` (lines 189-200) and
-`PrivatePropertyListingMapper::mapRentalPriceType()` (lines 932-949,
-citing "PP Agency Feed Service Rev 4.6 §2.3.1") keep mapping the single
-selected type exactly as they do today — with exactly one type and one
-price selected, there was never a second value to reconcile. Only the
-*source* of the option list changes (agency-definable instead of
-hardcoded); the mapping logic itself is untouched.
+### 3.4 Syndication — unchanged, confirmed by test against the real mapper code
+
+`Property24ListingMapper::mapRentalRate()` and
+`PrivatePropertyListingMapper::mapRentalPriceType()` are untouched —
+only the *source* of the dropdown's option list changed (agency-
+definable instead of hardcoded); the mapping `match()` logic itself was
+never touched. Verified directly rather than assumed:
+`tests/Feature/Properties/RentalPriceTypeSettingTest.php` reflects into
+both mappers' private methods and asserts a type drawn from the new
+agency-editable list still resolves to the correct portal enum value on
+both P24 and PP, plus a test documenting PP's silent `PerMonth`
+fallback for "Per Year" — the exact, pre-existing gap that is why "Per
+Year" is deliberately excluded from the default seeded list (§3.2)
+without blocking an agency from adding it back for its own reasons.
 
 ### 3.5 Superseded drafting — tick-multiple, kept for the reasoning trail
 
@@ -843,17 +874,66 @@ custom fields — Part 2's scope, per Johan's own morning example
 a brand-new rental listing should also capture these fields before its
 first save is a real, open follow-up, not decided here.
 
-**Part 3 — Rental price type: agency-editable list, single-select, real
-gating.** `GROUP_RENTAL_PRICE_TYPE` `PropertySettingItem` group +
-seeding (§3.2), new `price_per_sqm` column, dropdown sourced from the
-agency's list instead of the hardcoded array, exactly one value input
-shown for the selected type (§3.3), fixing the confirmed
-always-visible-regardless-of-selection bug at the same time. No
-syndication change — portals keep receiving exactly what they receive
-today (§3.4). Verify: an agency's price-type list is independently
-editable; selecting a type shows exactly one input and clears any
-other; portal submission for a real rental property is byte-for-byte
-unchanged before/after.
+**Part 3 — BUILT, PUSHED, AWAITING LANDING (2026-09-21).** Rental price
+type: agency-editable list, single select, one price. Investigation
+before building changed the shape from the original draft above: both
+`Property24ListingMapper::mapRentalRate()` and
+`PrivatePropertyListingMapper::mapRentalPriceType()` were re-read
+directly and confirmed to send only `rental_amount` as the price,
+always — the `price_per_day`/`price_per_week`/`price_per_year` columns
+were never read by either portal, ever. That means the single-select
+model needs no new `price_per_sqm` column and no per-type input reveal/
+hide — there was never more than one price doing real work, so the
+build is simpler than §3.3's original draft: one dropdown, one input,
+always `rental_amount`. See §3.3/§3.4 (rewritten in this commit to
+match) for the full reasoning and the exact columns/labels touched.
+
+Built: `PropertySettingItem::GROUP_RENTAL_PRICE_TYPE` + `DEFAULT_ROWS`
+(Per Month/Week/Day/Sqm, Per Year deliberately excluded — §3.2) +
+companion backfill migration for existing agencies (new agencies get it
+automatically via `AgencyObserver`, already unconditional). Both Rental
+Details tab blocks (new/draft and settled) now source the dropdown from
+`$settingItems['rentalPriceTypes']` instead of a hardcoded array; the
+three `price_per_day`/`price_per_week`/`price_per_year` inputs and
+their controller validation rules (`store()`, `update()`,
+`updateRentalDetails()`) were removed outright — their DB columns are
+left in place, untouched, simply no longer written to by this screen.
+"Monthly Rental" relabelled to "Rental Price" on both the Rental
+Details tab and cc6's landed Pricing & Costs panel (commit `330167c87`,
+same `rental_amount` column, wording only — no behaviour change; cc6's
+sale-price/optional-price/clone-preservation work is untouched).
+
+**Real test-methodology error caught and fixed before this shipped:**
+two tests initially assumed a freshly-created test `Agency` starts with
+zero `PropertySettingItem` rows for the new group. In fact
+`AgencyObserver` (`app/Observers/AgencyObserver.php:104`) already calls
+`PropertySettingItem::provisionDefaultsFor()` with no group filter on
+every `Agency::create()` — confirmed by reading the observer, not
+assumed — so the group is auto-seeded before the test body even runs.
+Not a code bug; it proved the auto-seeding worked exactly as designed.
+Fixed by rewriting the two tests to assert the auto-seeded state
+directly (and to explicitly retire the defaults before proving
+curation-is-never-topped-up), plus adding a dedicated idempotency test.
+
+Verify: 10 isolated tests, all passing —
+`tests/Feature/Properties/RentalPriceTypeSettingTest.php` — covering
+auto-seeding, idempotent re-provisioning, curated-list protection,
+cross-agency isolation, the dropdown rendering the agency's own list,
+the old grid being gone from the rendered HTML (`dontSee` on all three
+column names and on the literal text "Monthly Rental"), a real save
+persisting both the type and the price, and two tests reflecting into
+each portal mapper's real private method to confirm a type from the new
+agency-editable list still resolves to the correct P24/PP enum value —
+plus a documentation test proving PP's silent `Per Year` → `PerMonth`
+fallback, the exact gap the default list is built around. Part 2's own
+test file re-run as a regression check: still 11/11, unaffected by
+these changes. No browser/Alpine check performed — this panel's dropdown
+and input are plain server-rendered Blade with no Alpine-driven show/
+hide logic left after removing the per-type reveal from the original
+draft, so the isolated `assertSee`/`assertDontSee` coverage above
+already exercises the real rendered markup; flagging per instruction
+that no browser tool is available in this worktree, so a live click-
+through remains cc1's to run alongside migration.
 
 **Part 4 — `lease_type` made real.** `GROUP_LEASE_TYPE`
 `PropertySettingItem` group replacing both hardcoded dropdowns (§5.2);

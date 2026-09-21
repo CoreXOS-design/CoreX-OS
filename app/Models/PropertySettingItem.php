@@ -33,6 +33,11 @@ class PropertySettingItem extends Model
     // AT-402 — the Rental tab's Furnished Status: an agency-managed list,
     // not a hardcoded enum, same as every other group here.
     const GROUP_FURNISHED_STATUS = 'furnished_status';
+    // .ai/specs/rental-property-tab.md §3, Part 3 (Johan, 2026-09-21:
+    // "select price type as thats the dictating factor then enter the
+    // price") — replaces the hardcoded 5-option dropdown that used to live
+    // directly in the Blade view.
+    const GROUP_RENTAL_PRICE_TYPE = 'rental_price_type';
 
     /** 'Average' is the baseline (0%) and cannot be deleted. The controller
      *  enforces this; the UI surfaces it so the agent knows. */
@@ -147,6 +152,24 @@ class PropertySettingItem extends Model
             ['name' => 'Unfurnished'],
             ['name' => 'Furnished'],
             ['name' => 'Part-Furnished'],
+        ],
+
+        // .ai/specs/rental-property-tab.md §3, Part 3 — deliberately NOT
+        // "Per Year" in the default list. Confirmed by reading the current
+        // mapper code: Private Property's RentalPriceType enum (PP Agency
+        // Feed Service Rev 4.6 §2.3.1) is PerMonth/PerWeek/PerDay/PerM2 only
+        // — no yearly rate at all — and its own mapper silently falls back
+        // to PerMonth for anything it doesn't recognise. Property24 DOES
+        // support Year, but seeding a default an agency can pick that
+        // silently mismaps on the OTHER portal is exactly the "doesn't
+        // match what the portals accept" problem this feature exists to
+        // fix. An agency is free to add "Per Year" itself if it only
+        // syndicates to P24 — this is the DEFAULT, not a ceiling.
+        self::GROUP_RENTAL_PRICE_TYPE => [
+            ['name' => 'Per Month'],
+            ['name' => 'Per Week'],
+            ['name' => 'Per Day'],
+            ['name' => 'Per Sqm'],
         ],
     ];
 
