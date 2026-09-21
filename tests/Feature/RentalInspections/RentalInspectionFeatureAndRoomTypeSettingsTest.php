@@ -177,14 +177,28 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
     // ── Job Two: room type default items ────────────────────────────────
 
-    public function test_every_known_space_type_defaults_to_the_standard_baseline(): void
+    public function test_every_known_space_type_defaults_to_the_standard_baseline_except_the_five_with_a_real_vocabulary(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         $defaults = RentalInspectionSetting::roomTypeItemDefaultsFor($agency->id);
+        $specialCased = array_keys(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE);
 
         foreach (config('property-spaces.all_space_types', []) as $type) {
             $this->assertArrayHasKey($type, $defaults);
+            if (in_array($type, $specialCased, true)) {
+                continue;
+            }
             $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, $defaults[$type], "space type '{$type}' must default to the standard baseline");
+        }
+    }
+
+    /** 2026-09-21 — Retha's real vocabulary, transcribed exactly, is the system default for these five. */
+    public function test_the_five_named_types_default_to_rethas_real_vocabulary(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        foreach (RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE as $type => $items) {
+            $this->assertSame($items, RentalInspectionSetting::roomTypeItemsFor($agency->id, $type), "space type '{$type}' must default to Retha's transcribed list");
         }
     }
 
@@ -192,7 +206,7 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
     {
         $agency = $this->newAgency('Coastal Realty');
 
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
         // A type that doesn't even exist in the catalog — must still seed something, never nothing.
         $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Some Future Room Type'));
     }
@@ -214,7 +228,9 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
         $this->assertSame(['Floors', 'Railing'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Patio'));
         // Every OTHER type is untouched by customizing one — still the standard baseline.
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
+        // ...including a type with its OWN real-vocabulary system default, also untouched.
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE['Bedroom'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
     }
 
     /** An agency explicitly setting a type to zero items is a real, preserved state, distinguishable from "never customized." */
@@ -295,6 +311,126 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
         $this->assertSame(['Ceiling'], RentalInspectionSetting::roomTypeItemsFor($agencyB->id, 'Bedroom'));
         $this->assertSame(['Floors', 'Doors'], RentalInspectionSetting::roomTypeItemsFor($agencyA->id, 'Garage'), 'Agency A must be untouched by Agency B\'s save');
+    }
+
+    // ── Job Three: room walking order — 2026-09-21, Johan on property 5792 ──
+
+    public function test_default_walking_order_covers_every_known_space_type_exactly_once(): void
+    {
+        $catalog = config('property-spaces.all_space_types', []);
+
+        $this->assertSame(count($catalog), count(RentalInspectionSetting::DEFAULT_ROOM_TYPE_WALKING_ORDER));
+        $this->assertSame(count($catalog), count(array_unique(RentalInspectionSetting::DEFAULT_ROOM_TYPE_WALKING_ORDER)));
+        $this->assertEmpty(array_diff($catalog, RentalInspectionSetting::DEFAULT_ROOM_TYPE_WALKING_ORDER), 'every catalog type must appear in the default walking order');
+        $this->assertEmpty(array_diff(RentalInspectionSetting::DEFAULT_ROOM_TYPE_WALKING_ORDER, $catalog), 'the default walking order must never name a type outside the live catalog');
+    }
+
+    public function test_an_agency_with_no_row_gets_the_default_walking_order(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        $this->assertSame(
+            RentalInspectionSetting::DEFAULT_ROOM_TYPE_WALKING_ORDER,
+            RentalInspectionSetting::roomTypeWalkingOrderFor($agency->id)
+        );
+    }
+
+    public function test_an_agency_can_save_a_genuinely_different_walking_order(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+        $customOrder = array_reverse(config('property-spaces.all_space_types', []));
+
+        $response = $this->actingAs($admin)->post(route('corex.settings.rental-inspections.room-type-order'), [
+            'room_type_walking_order_submitted' => '1',
+            'room_type_walking_order' => $customOrder,
+        ]);
+
+        $response->assertRedirect(route('corex.settings.rental-inspections.edit'));
+        $response->assertSessionHasNoErrors();
+        $this->assertSame($customOrder, RentalInspectionSetting::roomTypeWalkingOrderFor($agency->id));
+    }
+
+    public function test_a_type_not_in_the_live_catalog_is_dropped_from_a_saved_order(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+
+        $this->actingAs($admin)->post(route('corex.settings.rental-inspections.room-type-order'), [
+            'room_type_walking_order_submitted' => '1',
+            'room_type_walking_order' => ['Bedroom', 'Not A Real Space Type', 'Kitchen'],
+        ]);
+
+        $saved = RentalInspectionSetting::roomTypeWalkingOrderFor($agency->id);
+        $this->assertNotContains('Not A Real Space Type', $saved);
+        $this->assertSame(0, array_search('Bedroom', $saved, true));
+        $this->assertSame(1, array_search('Kitchen', $saved, true));
+    }
+
+    /** A saved order predating a later catalog addition must still place every type — nothing left unsortable. */
+    public function test_a_saved_order_missing_a_catalog_type_gets_it_appended_automatically(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        RentalInspectionSetting::create(['agency_id' => $agency->id, 'room_type_walking_order' => ['Bedroom', 'Kitchen']]);
+
+        $resolved = RentalInspectionSetting::roomTypeWalkingOrderFor($agency->id);
+
+        $this->assertSame(['Bedroom', 'Kitchen'], array_slice($resolved, 0, 2));
+        $this->assertSame(count(config('property-spaces.all_space_types', [])), count($resolved));
+        $this->assertContains('Garage', $resolved, 'every catalog type must resolve to SOME position, even one the agency never explicitly ordered');
+    }
+
+    public function test_the_walking_order_saver_never_wipes_the_order_the_request_never_rendered(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+        $customOrder = ['Kitchen', 'Bedroom'];
+        RentalInspectionSetting::create(['agency_id' => $agency->id, 'room_type_walking_order' => $customOrder]);
+
+        $response = $this->actingAs($admin)->post(route('corex.settings.rental-inspections.room-type-order'), [
+            // No room_type_walking_order_submitted marker.
+        ]);
+
+        $response->assertSessionHasErrors();
+        $this->assertSame($customOrder, array_slice(RentalInspectionSetting::roomTypeWalkingOrderFor($agency->id), 0, 2));
+    }
+
+    public function test_a_second_agencys_walking_order_survives_another_agencys_save(): void
+    {
+        $agencyA = $this->newAgency('Agency A');
+        RentalInspectionSetting::create(['agency_id' => $agencyA->id, 'room_type_walking_order' => ['Kitchen', 'Bedroom']]);
+
+        $agencyB = $this->newAgency('Agency B');
+        $adminB = $this->admin($agencyB);
+
+        $this->actingAs($adminB)->post(route('corex.settings.rental-inspections.room-type-order'), [
+            'room_type_walking_order_submitted' => '1',
+            'room_type_walking_order' => ['Bathroom', 'Garage'],
+        ]);
+
+        $this->assertSame(['Bathroom', 'Garage'], array_slice(RentalInspectionSetting::roomTypeWalkingOrderFor($agencyB->id), 0, 2));
+        $this->assertSame(['Kitchen', 'Bedroom'], array_slice(RentalInspectionSetting::roomTypeWalkingOrderFor($agencyA->id), 0, 2), 'Agency A must be untouched by Agency B\'s save');
+    }
+
+    /**
+     * Johan: "natural-numeric, NOT alphabetical: alphabetical gives 1, 10, 2."
+     * Bedroom sits before Kitchen in the default order, and within Bedroom,
+     * the numeric suffix must rank 1 < 2 < 10 — never string comparison.
+     */
+    public function test_default_room_sort_order_combines_walking_position_and_natural_numeric_label(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        $bedroom1 = RentalInspectionSetting::defaultRoomSortOrderFor($agency->id, 'Bedroom', 'Bedroom 1');
+        $bedroom2 = RentalInspectionSetting::defaultRoomSortOrderFor($agency->id, 'Bedroom', 'Bedroom 2');
+        $bedroom10 = RentalInspectionSetting::defaultRoomSortOrderFor($agency->id, 'Bedroom', 'Bedroom 10');
+        $kitchen = RentalInspectionSetting::defaultRoomSortOrderFor($agency->id, 'Kitchen', 'Kitchen');
+
+        $this->assertLessThan($bedroom2, $bedroom1);
+        $this->assertLessThan($bedroom10, $bedroom2);
+        // Johan's own stated order: "entrance/reception first, living spaces,
+        // kitchen, bedrooms, bathrooms, then outside spaces" — kitchen before bedrooms.
+        $this->assertLessThan($bedroom1, $kitchen, 'Kitchen sits before Bedroom in the default walking order');
     }
 
     // ── Shared: the edit screen renders both sections with real state ──

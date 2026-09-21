@@ -63,7 +63,7 @@ class RentalInspectionRecordingController extends Controller
         // this same-page response (tabPayloadFor()'s own eager-load covers
         // the full-reload case, but a freshly-started inspection never goes
         // through that path).
-        $inspection->load('lease.tenants.contact');
+        $inspection->load('lease.tenants.contact', 'createdBy');
 
         return response()->json($inspection, 201);
     }
@@ -115,7 +115,7 @@ class RentalInspectionRecordingController extends Controller
                 'type' => $validated['space_type'],
                 'label' => $validated['label'],
                 'source' => 'manual',
-                'sort_order' => ((int) PropertyRoom::where('property_id', $property->id)->max('sort_order')) + 1,
+                'sort_order' => RentalInspectionSetting::defaultRoomSortOrderFor($property->agency_id, $validated['space_type'], $validated['label']),
                 'created_by_user_id' => $request->user()->id,
             ]);
 
@@ -156,7 +156,7 @@ class RentalInspectionRecordingController extends Controller
                 'type' => $validated['space_type'],
                 'label' => $item->label,
                 'source' => 'manual',
-                'sort_order' => ((int) PropertyRoom::where('property_id', $property->id)->max('sort_order')) + 1,
+                'sort_order' => RentalInspectionSetting::defaultRoomSortOrderFor($property->agency_id, $validated['space_type'], $item->label),
                 'created_by_user_id' => $request->user()->id,
             ]);
 
@@ -210,6 +210,61 @@ class RentalInspectionRecordingController extends Controller
     }
 
     /**
+     * POST /corex/properties/{property}/rental-inspection-rooms/apply-default-order
+     * — Johan, 2026-09-21, property 5792: existing rooms keep whatever
+     * sort_order they already have (never silently recomputed by a deploy —
+     * an agency may have deliberately ordered a property already), but he
+     * needs an explicit, one-click way to bring an existing property's
+     * rooms onto the agency's current walking order. Idempotent — safe to
+     * call more than once, and safe to call again after the agency edits
+     * its walking order in settings.
+     */
+    public function applyDefaultRoomOrder(Request $request, Property $property): JsonResponse
+    {
+        $rooms = PropertyRoom::where('property_id', $property->id)->get();
+
+        foreach ($rooms as $room) {
+            $room->update([
+                'sort_order' => RentalInspectionSetting::defaultRoomSortOrderFor($property->agency_id, $room->type, $room->label),
+            ]);
+        }
+
+        return response()->json([
+            'rooms' => PropertyRoom::where('property_id', $property->id)->orderBy('sort_order')->get(),
+        ]);
+    }
+
+    /**
+     * POST /corex/properties/{property}/rental-inspection-rooms/reorder —
+     * Johan, 2026-09-21: "the agent must be able to reorder rooms
+     * themselves and have it stick." Takes the agent's own full ordering of
+     * this property's rooms and rewrites sort_order to match it exactly —
+     * an explicit, persisted action on the SAME column the default-order
+     * logic uses, so every consumer (roomGroups() in both views) reflects
+     * it automatically with no further change on their side. A room id
+     * that isn't this property's own is rejected outright rather than
+     * silently ignored or allowed to move another property's data.
+     */
+    public function reorderRooms(Request $request, Property $property): JsonResponse
+    {
+        $validated = $request->validate([
+            'room_ids' => ['required', 'array', 'min:1'],
+            'room_ids.*' => ['integer', 'distinct'],
+        ]);
+
+        $rooms = PropertyRoom::where('property_id', $property->id)->whereIn('id', $validated['room_ids'])->get()->keyBy('id');
+        abort_if($rooms->count() !== count($validated['room_ids']), 422, 'One or more rooms do not belong to this property.');
+
+        foreach (array_values($validated['room_ids']) as $index => $roomId) {
+            $rooms[$roomId]->update(['sort_order' => $index]);
+        }
+
+        return response()->json([
+            'rooms' => PropertyRoom::where('property_id', $property->id)->orderBy('sort_order')->get(),
+        ]);
+    }
+
+    /**
      * POST /corex/properties/{property}/rental-inspection-items/seed-from-advertising
      * — Stage 2, Johan: "use the advertising details to build the
      * inspection report as a basic." One-time only — RentalInspectionFormSeeder
@@ -235,6 +290,39 @@ class RentalInspectionRecordingController extends Controller
             'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->with('room')->orderBy('id')->get(),
             'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->get(),
         ]);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/details — §17, the header
+     * block: meter readings (free text — a body corporate property reads
+     * "BODY CORP", not a number), furnished state + property type (agency-
+     * configurable, same PropertySettingItem groups Property itself uses),
+     * keys/remotes as count + description, and — out-inspections only —
+     * the original move-in date. Every field optional per request: an agent
+     * confirming just the meter readings doesn't have to resend everything
+     * else.
+     */
+    public function updateDetails(Request $request, RentalInspection $rentalInspection): JsonResponse
+    {
+        $validated = $request->validate([
+            'electricity_meter_reading' => ['nullable', 'string', 'max:100'],
+            'water_meter_reading' => ['nullable', 'string', 'max:100'],
+            'furnished_status' => ['nullable', 'string', 'max:60'],
+            'property_type' => ['nullable', 'string', 'max:60'],
+            'keys_count' => ['nullable', 'integer', 'min:0'],
+            'keys_description' => ['nullable', 'string', 'max:191'],
+            'remotes_count' => ['nullable', 'integer', 'min:0'],
+            'remotes_description' => ['nullable', 'string', 'max:191'],
+            'move_in_date_recorded' => ['nullable', 'date'],
+        ]);
+
+        try {
+            $rentalInspection->updateDetails($validated);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 400);
+        }
+
+        return response()->json($rentalInspection->fresh());
     }
 
     /**
