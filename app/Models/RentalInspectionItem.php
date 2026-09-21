@@ -30,9 +30,11 @@ class RentalInspectionItem extends Model
     protected $fillable = [
         'agency_id',
         'property_id',
+        'property_room_id',
         'kind',
         'label',
         'space_type',
+        'source',
         'is_retired',
         'created_by_user_id',
     ];
@@ -44,6 +46,17 @@ class RentalInspectionItem extends Model
     public function property(): BelongsTo
     {
         return $this->belongsTo(Property::class);
+    }
+
+    /**
+     * Stage 2 — which PropertyRoom this facet belongs to. Only ever set for
+     * kind='space' rows; a meter has no room. Nullable so pre-Stage-2 rows
+     * (created before this column existed) and meters both resolve to null
+     * without needing a backfill.
+     */
+    public function room(): BelongsTo
+    {
+        return $this->belongsTo(PropertyRoom::class, 'property_room_id');
     }
 
     /** No hardcoded order here — callers (currentObservation(), fullHistory()) apply their own. */

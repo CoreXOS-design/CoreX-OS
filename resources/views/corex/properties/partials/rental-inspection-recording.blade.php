@@ -45,10 +45,19 @@
             </div>
         </template>
 
+        {{-- Real empty state (BUILD_STANDARD §1a) — 2026-09-21, Johan: a started
+             inspection with zero items just showed "Ready to sign" with nothing
+             above it, which read as the button doing nothing. Point back at
+             where items are actually added rather than rendering silently. --}}
+        <p x-show="!activeItems().length" class="text-xs" style="color:var(--text-muted);">
+            This property has no inspection items yet. Add rooms and meters under
+            Inspection Items above, then come back here to record them.
+        </p>
+
         <template x-for="item in activeItems()" :key="item.id">
             <div class="py-2 space-y-1.5" style="border-bottom:1px solid var(--border);">
                 <div class="flex items-center justify-between gap-3">
-                    <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                    <span class="text-sm" style="color:var(--text-primary);" x-text="itemDisplayLabel(item)"></span>
                     <span x-show="conditionFor({{ $sectionJs }}, item.id)" class="text-xs uppercase tracking-wide"
                           style="color:var(--text-muted);" x-text="conditionFor({{ $sectionJs }}, item.id)?.condition"></span>
                 </div>

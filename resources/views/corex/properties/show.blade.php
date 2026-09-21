@@ -2011,9 +2011,12 @@
                     <div x-show="info.pricing" x-collapse class="prop-section-body space-y-4">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" x-data="{ showPriceModal: false }">
                             <div class="relative">
-                                <label class="prop-label">Price (ZAR) <span class="prop-required">*</span></label>
+                                <label class="prop-label">
+                                    {{ $property->isRental() ? 'Sale Price (ZAR)' : 'Price (ZAR)' }}
+                                    @unless($property->isRental())<span class="prop-required">*</span>@endunless
+                                </label>
                                 <div class="flex prop-field-money">
-                                    <input type="number" name="price" value="{{ old('price', $property->price) }}" required min="0"
+                                    <input type="number" name="price" value="{{ old('price', $property->price) }}" @unless($property->isRental()) required @endunless min="0"
                                            class="prop-input"
                                            style="border-top-right-radius:0; border-bottom-right-radius:0; border-right:none;">
                                     <button type="button" @click="showPriceModal = true"
@@ -2023,10 +2026,18 @@
                                         <svg class="w-4 h-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                                     </button>
                                 </div>
-                                @if($property->price_on_application)
+                                @if($property->isRental())
+                                <span class="text-[0.6875rem] mt-0.5 block font-medium" style="color:var(--text-muted);">Not in use while let — see Monthly Rental</span>
+                                @elseif($property->price_on_application)
                                 <span class="text-[0.6875rem] mt-0.5 block font-medium" style="color:var(--brand-icon);">Price on Application</span>
                                 @endif
                             </div>
+                            @if($property->isRental())
+                            <div>
+                                <label class="prop-label">Monthly Rental (ZAR)</label>
+                                <input type="number" name="rental_amount" form="prop-update-form" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
+                            </div>
+                            @endif
                             <div>
                                 <label class="prop-label">Rates &amp; Taxes</label>
                                 <input type="number" name="rates_taxes" value="{{ old('rates_taxes', $property->rates_taxes) }}" min="0" placeholder="—" class="prop-input prop-field-money">
@@ -4478,10 +4489,30 @@
                 data: {{ Js::from($property->rentalImagesStructure()) }},
                 inspectionUrls: {
                     itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
+                    seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
                     // Base for the inspection-scoped actions below — each one appends
-                    // /{id}/... itself, since which inspection is "current" changes at
+                    // /{id}/... itself, since which inspection is current changes at
                     // runtime (a new one can be started without a page reload).
+                    //
+                    // 2026-09-21 — this whole x-data value lives inside an HTML
+                    // attribute delimited by double-quote characters. A LITERAL
+                    // double-quote anywhere in this block, no matter how deeply
+                    // nested in a comment, ends the attribute right there as far
+                    // as the browser's HTML parser is concerned — long before
+                    // Alpine, Blade, or PHP ever get a say. This comment used to
+                    // wrap the word current in a pair of literal double-quotes
+                    // for emphasis; that single character silently truncated the
+                    // entire rentalImages() config, so every binding in this
+                    // component threw ReferenceError in every real browser for as
+                    // long as that comment existed. Every server-side check
+                    // (view:clear, route:list, a raw HTTP fetch, even executing
+                    // the extracted JS through Node) passed regardless, because
+                    // none of them re-parse the response as HTML the way a
+                    // browser does — only an actual browser console caught it.
+                    // Rule going forward: never a literal double-quote character
+                    // anywhere between this attribute's own opening and closing
+                    // quote — use single quotes or plain words instead.
                     inspectionsBase: '{{ url('/corex/rental-inspections') }}'
                 },
                 inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }}
@@ -4547,9 +4578,26 @@
                 <div x-show="open['items']" x-collapse class="prop-section-body space-y-3">
                     <div x-show="itemError" x-cloak class="text-xs" style="color:#ef4444;" x-text="itemError"></div>
 
+                    {{-- Real empty state (BUILD_STANDARD §1a) — 2026-09-21, Johan: a
+                         panel that renders silently when empty is why the feature read
+                         as broken rather than unconfigured. This is the checklist an
+                         in/out inspection walks; with zero rows here, both of those
+                         panels below have nothing to record against either. --}}
+                    <div x-show="!activeItems().length" class="space-y-2">
+                        <p class="text-xs" style="color:var(--text-muted);">
+                            No inspection items yet. Build this property's inspection form from its
+                            advertising Spaces and ticked Features, or add rooms and meters by hand
+                            below — e.g. "Bedroom 1", "Water meter". In and Out Inspection can't record
+                            anything until at least one item exists here.
+                        </p>
+                        <button type="button" :disabled="seedBusy" @click="seedFromAdvertising()"
+                                class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
+                    </div>
+
                     <template x-for="item in activeItems()" :key="item.id">
                         <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
-                            <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                            <span class="text-sm" style="color:var(--text-primary);" x-text="itemDisplayLabel(item)"></span>
                             <div class="flex items-center gap-3">
                                 <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
                                 <button type="button" :disabled="itemBusy" @click="retireItem(item)"
@@ -4782,6 +4830,14 @@
                 newItem: { kind: 'space', label: '' },
 
                 activeItems() { return this.items.filter(i => !i.is_retired); },
+                // Stage 2 — a seeded facet item's own label is just the
+                // fixture name ("Ceiling"); the room it belongs to is a
+                // separate join (item.room), not baked into the string.
+                // Prefix it here so the still-flat list (pre-Stage-3) reads
+                // as "Bedroom 1 — Ceiling" instead of an unlabelled repeat
+                // of "Ceiling" once per room. A manually-added or pre-Stage-2
+                // item has no room and falls back to its own bare label.
+                itemDisplayLabel(item) { return item.room ? `${item.room.label} — ${item.label}` : item.label; },
 
                 async addItem() {
                     const label = this.newItem.label.trim();
@@ -4807,6 +4863,21 @@
                         item.is_retired = true;
                     } catch (e) { this.itemError = e.message; }
                     finally { this.itemBusy = false; }
+                },
+
+                // Stage 2 — Johan: "use the advertising details to build the
+                // inspection report as a basic." One-time; the server itself
+                // refuses a second call (409), surfaced here as itemError.
+                seedBusy: false,
+                async seedFromAdvertising() {
+                    if (!window.confirm('Build this property\'s inspection form from its advertising Spaces and ticked Features? This only happens once — after this, the form is edited by hand.')) return;
+                    this.seedBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.seedFromAdvertising, {});
+                        this.items.push(...result.items.filter(i => !this.items.some(existing => existing.id === i.id)));
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.seedBusy = false; }
                 },
 
                 // ── In/out inspections — recording (§14.1/§14.2, same endpoints a

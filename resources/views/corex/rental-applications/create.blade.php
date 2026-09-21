@@ -6,7 +6,9 @@
     'contactId' => old('contact_id', ''),
     'contactName' => $oldContact ? trim($oldContact->first_name . ' ' . $oldContact->last_name) : '',
     'propertyId' => old('property_id', ''),
-    'propertyLabel' => $oldProperty ? ($oldProperty->title ?: trim($oldProperty->address . ', ' . $oldProperty->suburb, ', ')) : '',
+    {{-- Johan, QA1 walk, 2026-09-21 — address first, never the listing's
+         marketing title. Same fix as the search results below. --}}
+    'propertyLabel' => $oldProperty?->buildDisplayAddress() ?? '',
 ]) }})">
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Rental Application</h1>
@@ -46,9 +48,19 @@
                    placeholder="Search properties…"
                    class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
             <input type="hidden" name="property_id" x-model="selectedPropertyId">
-            <div class="mt-1 rounded-md" style="border: 1px solid var(--border);" x-show="propertyResults.length">
+            {{-- Johan, QA1 walk, 2026-09-21 — same richer result row as the
+                 PDF splitter's property picker: address + status, then ref +
+                 agent as a muted subtitle, so an agent can be certain which
+                 property they're picking, not just its marketing title. --}}
+            <div class="mt-1 rounded-md max-h-72 overflow-y-auto" style="border: 1px solid var(--border);" x-show="propertyResults.length">
                 <template x-for="p in propertyResults" :key="p.id">
-                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50" x-text="p.label"></button>
+                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+                        <div class="flex items-center gap-1.5">
+                            <span x-text="p.label"></span>
+                            <span x-show="p.status" x-text="p.status" class="text-[10px] px-1 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>
+                        </div>
+                        <div class="text-xs" style="color: var(--text-muted);" x-text="[p.ref ? ('Ref: ' + p.ref) : '', p.agent].filter(Boolean).join(' · ')"></div>
+                    </button>
                 </template>
             </div>
             <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="selectedPropertyLabel" x-text="'Selected: ' + selectedPropertyLabel"></p>
