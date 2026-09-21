@@ -4361,7 +4361,8 @@
                      validation, its own DB transaction, the same
                      authorizeProperty() OWN/BRANCH/AGENCY scoping every other
                      property write already uses. --}}
-                <form method="POST" action="{{ route('corex.properties.rental-details.update', $property) }}" class="space-y-4">
+                <form method="POST" action="{{ route('corex.properties.rental-details.update', $property) }}" class="space-y-4"
+                      x-data="rentalAdvertPreview('{{ route('corex.properties.rental-advert-block.preview', $property) }}')">
                     @csrf
                     @method('PUT')
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -4432,24 +4433,26 @@
                         </div>
                         <div>
                             <label class="prop-label">Admin Fee (R)</label>
-                            <input type="number" name="admin_fee" value="{{ old('admin_fee', $property->admin_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                            <input type="number" name="admin_fee" value="{{ old('admin_fee', $property->admin_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money"
+                                   @input.debounce.500ms="refreshPreview()">
                             {{-- .ai/specs/rental-property-tab.md §4.1, Part 5 — per-field
                                  advertise tick for a CORE field. Only takes effect once
                                  the master "Generate advert block" tick below is on. --}}
                             <label class="flex items-center gap-1.5 mt-1 text-xs" style="color:var(--text-muted);">
                                 <input type="checkbox" name="advertise_core_fields[]" value="admin_fee"
                                        {{ in_array('admin_fee', old('advertise_core_fields', $property->advertise_core_fields ?? []), true) ? 'checked' : '' }}
-                                       class="rounded">
+                                       class="rounded" @change="refreshPreview()">
                                 Include in advert block
                             </label>
                         </div>
                         <div>
                             <label class="prop-label">Marketing Fee (R)</label>
-                            <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                            <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money"
+                                   @input.debounce.500ms="refreshPreview()">
                             <label class="flex items-center gap-1.5 mt-1 text-xs" style="color:var(--text-muted);">
                                 <input type="checkbox" name="advertise_core_fields[]" value="marketing_fee"
                                        {{ in_array('marketing_fee', old('advertise_core_fields', $property->advertise_core_fields ?? []), true) ? 'checked' : '' }}
-                                       class="rounded">
+                                       class="rounded" @change="refreshPreview()">
                                 Include in advert block
                             </label>
                         </div>
@@ -4500,18 +4503,18 @@
                                          box must still submit "0" so a REQUIRED yes/no field
                                          is answered (explicitly No), not merely absent. --}}
                                     <input type="hidden" name="{{ $cfInputName }}" value="0">
-                                    <input type="checkbox" id="cf_{{ $customField->key }}" name="{{ $cfInputName }}" value="1" {{ $cfValue ? 'checked' : '' }} class="rounded">
+                                    <input type="checkbox" id="cf_{{ $customField->key }}" name="{{ $cfInputName }}" value="1" {{ $cfValue ? 'checked' : '' }} class="rounded" @change="refreshPreview()">
                                     <label for="cf_{{ $customField->key }}" class="prop-label !mb-0">{{ $customField->label }}@if($customField->required) *@endif</label>
                                 </div>
                             @else
                                 <div>
                                     <label class="prop-label">{{ $customField->label }}{{ $customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_CURRENCY ? ' (R)' : '' }}@if($customField->required) *@endif</label>
                                     @if($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_CURRENCY)
-                                        <input type="number" name="{{ $cfInputName }}" value="{{ $cfValue }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money" @if($customField->required) required @endif>
+                                        <input type="number" name="{{ $cfInputName }}" value="{{ $cfValue }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money" @if($customField->required) required @endif @input.debounce.500ms="refreshPreview()">
                                     @elseif($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_NUMBER)
-                                        <input type="number" name="{{ $cfInputName }}" value="{{ $cfValue }}" min="0" step="1" class="prop-input" @if($customField->required) required @endif>
+                                        <input type="number" name="{{ $cfInputName }}" value="{{ $cfValue }}" min="0" step="1" class="prop-input" @if($customField->required) required @endif @input.debounce.500ms="refreshPreview()">
                                     @else
-                                        <input type="text" name="{{ $cfInputName }}" value="{{ $cfValue }}" maxlength="1000" class="prop-input" @if($customField->required) required @endif>
+                                        <input type="text" name="{{ $cfInputName }}" value="{{ $cfValue }}" maxlength="1000" class="prop-input" @if($customField->required) required @endif @input.debounce.500ms="refreshPreview()">
                                     @endif
                                 </div>
                             @endif
@@ -4522,38 +4525,37 @@
                     </div>
 
                     {{--
-                        .ai/specs/rental-property-tab.md §4.0, Part 5 — Johan's
-                        ruling, verbatim: "The display advert block could
-                        possibly be a tick on rental tab? so agents can go in,
-                        fix the description, update the rental tab, hit the
-                        tick and all sorted out?" Off by default on every
-                        property, including every existing one — an existing
-                        hand-typed advert is completely untouched unless an
-                        agent explicitly opts in here. The per-field ticks
-                        above only take effect once this is on.
-
-                        No live preview panel yet (Part 6, not built) — per
-                        cc3's own flag, this master tick going live without
-                        Part 6 alongside it does not yet fully satisfy Johan's
-                        "obvious what it will do before they press it"
-                        requirement. Do not read this alone as the finished
-                        feature.
+                        .ai/specs/rental-property-tab.md §4.0/§4.3, Part 5+6 —
+                        Johan's ruling, verbatim: "The display advert block
+                        could possibly be a tick on rental tab? so agents can
+                        go in, fix the description, update the rental tab, hit
+                        the tick and all sorted out?" Off by default on every
+                        property, including every existing one. The preview
+                        below is §4.3's own requirement — "obvious what it
+                        will do before they press it" — and calls the SAME
+                        rental-advert-block-preview endpoint, which calls the
+                        SAME RentalAdvertBlockService::buildBlock() every real
+                        submission uses. No second rendering path to drift
+                        from the first.
                     --}}
                     <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
                         <div class="flex items-center gap-2">
                             <input type="checkbox" id="rental_advert_block_enabled" name="rental_advert_block_enabled" value="1"
                                    {{ old('rental_advert_block_enabled', $property->rental_advert_block_enabled) ? 'checked' : '' }}
-                                   class="rounded">
+                                   class="rounded" @change="refreshPreview()">
                             <label for="rental_advert_block_enabled" class="prop-label !mb-0">Generate advert block</label>
                         </div>
-                        <p class="text-xs mt-1" style="color: var(--text-muted);">
-                            When on, the fields ticked "Include in advert block" above are assembled into a
-                            neat, structured block and appended to this property's description wherever it's
-                            actually sent — Property24, Private Property, and the agency's own website —
-                            computed fresh every time, never something you have to retype. Before ticking
-                            this on, remove any cost lines you've already hand-typed into the description
-                            yourself, so the same information doesn't appear twice.
+                        <p class="text-xs mt-1 mb-2" style="color: var(--text-muted);">
+                            Remove any cost lines already hand-typed into the description before turning this
+                            on, so the same information doesn't appear twice.
                         </p>
+
+                        <div class="rounded-md p-2.5 text-xs" style="background: var(--surface); border: 1px solid var(--border); white-space: pre-line;"
+                             x-init="refreshPreview()">
+                            <span x-show="loading" style="color: var(--text-muted);">Checking…</span>
+                            <span x-show="!loading && block" x-text="block" style="color: var(--text-primary);"></span>
+                            <span x-show="!loading && !block" style="color: var(--text-muted);">Nothing would be added — no ticked field has a value to advertise yet.</span>
+                        </div>
                     </div>
 
                     <div class="flex justify-end">
@@ -7440,6 +7442,46 @@ function driveUpload() {
         files: [],
         onSelect(e) {
             this.files = Array.from(e.target.files || []).map(f => ({ name: f.name }));
+        },
+    };
+}
+
+// .ai/specs/rental-property-tab.md §4.3, Part 6 — Johan: he must be able to
+// see what the advert block will contain BEFORE he commits to it, not tick,
+// save, then go check hfcoastal.co.za. Calls the SAME
+// RentalAdvertBlockService::buildBlock() every real portal/website
+// submission uses (via the preview endpoint below) — never a second,
+// JS-side reimplementation of the assembly rules that could quietly drift
+// from the real one. Shown unconditionally (not only once the master tick
+// is on) so an agent can judge the block BEFORE deciding to turn the
+// feature on at all.
+function rentalAdvertPreview(previewUrl) {
+    return {
+        block: '',
+        loading: false,
+        _seq: 0,
+        async refreshPreview() {
+            const mySeq = ++this._seq;
+            this.loading = true;
+            const form = this.$el;
+            const body = new FormData(form);
+            try {
+                const res = await fetch(previewUrl, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': form.querySelector('input[name="_token"]').value, 'Accept': 'application/json' },
+                    body,
+                });
+                const data = await res.json();
+                // A slower earlier request resolving after a faster later one
+                // must never clobber the latest state — only the newest
+                // in-flight request's answer is ever applied.
+                if (mySeq !== this._seq) return;
+                this.block = data.block || '';
+            } catch (e) {
+                if (mySeq === this._seq) this.block = '';
+            } finally {
+                if (mySeq === this._seq) this.loading = false;
+            }
         },
     };
 }

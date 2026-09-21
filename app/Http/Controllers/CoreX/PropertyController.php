@@ -18,6 +18,7 @@ use App\Services\PermissionService;
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
 use App\Services\Properties\RentalAdvertBlockService;
 use App\Services\Syndication\Property24\Property24ListingMapper;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Services\Images\PropertyImageGuard;
 use Illuminate\Support\Facades\DB;
@@ -2636,6 +2637,47 @@ class PropertyController extends Controller
         }
 
         return $redirect;
+    }
+
+    /**
+     * POST /corex/properties/{property}/rental-advert-block-preview
+     * .ai/specs/rental-property-tab.md §4.3, Part 6 — Johan must be able to
+     * see exactly what the advert block will contain before he commits to
+     * it. Calls RentalAdvertBlockService::buildBlock() — the SAME method
+     * every real portal/website submission uses — against an IN-MEMORY,
+     * never-saved mutation of the property built from the form's current
+     * (possibly unsaved) values, so the preview is always the exact
+     * assembly logic, never a second reimplementation that could drift.
+     * Deliberately ignores rental_advert_block_enabled entirely: this
+     * shows what WOULD be added regardless of the master tick's current
+     * state, so an agent can judge it before deciding to turn the tick on
+     * at all, not only after.
+     */
+    public function previewRentalAdvertBlock(Request $request, Property $property, RentalAdvertBlockService $service): JsonResponse
+    {
+        $this->authorizeProperty($property);
+
+        $data = $request->validate([
+            'admin_fee'               => 'nullable|numeric|min:0',
+            'marketing_fee'           => 'nullable|numeric|min:0',
+            'advertise_core_fields'   => 'nullable|array',
+            'advertise_core_fields.*' => ['string', Rule::in(array_keys(RentalAdvertBlockService::CORE_FIELDS))],
+            'custom_fields'           => 'nullable|array',
+        ]);
+
+        // fill() only — never save(). Nothing here ever touches the database.
+        $preview = $property->replicate();
+        $preview->fill([
+            'admin_fee' => $data['admin_fee'] ?? null,
+            'marketing_fee' => $data['marketing_fee'] ?? null,
+            'advertise_core_fields' => $data['advertise_core_fields'] ?? [],
+            'rental_details_custom_field_values' => array_merge(
+                $property->rental_details_custom_field_values ?? [],
+                $data['custom_fields'] ?? [],
+            ),
+        ]);
+
+        return response()->json(['block' => $service->buildBlock($preview)]);
     }
 
     public function reorderImages(Request $request, Property $property)

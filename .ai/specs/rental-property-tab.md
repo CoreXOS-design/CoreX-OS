@@ -945,14 +945,117 @@ verified and landed, 6 right behind it) is a fine place to draw a
 build-part boundary; calling Part 5 alone "ready for Johan to walk" is
 not.
 
-**Part 6 — Inline preview + live-preview page.** The Rental-tab inline
-preview panel next to the master tick and description (§4.3, the
-"discoverable, spot a duplicate yourself" requirement), and extending
-`live-preview.blade.php` to render the assembled block for a property
-with the tick on. Verify: the inline preview updates as fields are
-ticked/edited before saving; the inline preview, the live-preview page,
-and the actual P24 submission all produce byte-identical block text for
-the same property at the same moment.
+**Part 6 — BUILT, PUSHED, AWAITING LANDING (2026-09-21, cc4).** The
+Rental-tab inline preview panel (§4.3's "obvious what it will do before
+they press it" requirement). The `live-preview.blade.php` extension
+named in this Part's original description is NOT included here — see
+below.
+
+`POST /corex/properties/{property}/rental-advert-block-preview`
+(`PropertyController::previewRentalAdvertBlock()`) is a thin endpoint
+around the exact same `RentalAdvertBlockService::buildBlock()` every
+real submission calls — never a second, JS-side reimplementation of
+the assembly rules that could quietly drift from the real one (the
+conductor's own explicit instruction, given the JS-constant-drifted-
+from-PHP-config bug elsewhere tonight). It builds an in-memory,
+never-saved mutation of the property from the form's CURRENT values —
+`$property->replicate()->fill([...])`, no `save()` call anywhere in
+the path — so the preview reflects what's on screen right now, before
+the agent has saved anything, not what's already in the database. The
+Alpine component (`rentalAdvertPreview()`) debounces on every relevant
+input (the master tick, both per-field ticks, admin fee/marketing fee,
+every agency-defined field's value) and guards against an out-of-order
+response (a slower earlier request resolving after a faster later one)
+overwriting a newer answer.
+
+Shown unconditionally, not gated behind the master tick — an agent can
+see what the block WOULD contain before deciding to turn the feature
+on at all, which is closer to "before they press it" than only
+revealing the preview after the tick is already on. When nothing would
+be added (no ticked field has a value), the panel says so in plain
+words rather than rendering an empty box that looks broken (Johan's
+own list/empty-state standard, applied here).
+
+**Verified over real HTTP as user 22 (Johan, agency 1), against a real
+throwaway property, not a fixture:** posting a form value the database
+does not yet have (an unsaved `admin_fee` of 2500 against a saved value
+of 1500) produces a preview containing 2500 — proving it reflects the
+live form state, not the last-saved one — confirmed by re-reading the
+same property directly afterward and finding the database value
+untouched at 1500. Directly forcing `rental_amount` into
+`advertise_core_fields` via a raw request (bypassing the UI entirely)
+is rejected by server-side validation (422), never silently accepted —
+the "permanently ineligible" guarantee holds against a malicious
+request, not just the normal form.
+
+**Not included, and worth naming rather than leaving implicit:**
+extending `live-preview.blade.php` (the public-facing preview page) to
+also render the block. The Rental-tab inline preview above is the
+"before you commit" surface Johan's own §4.3 wording is actually about
+(an agent editing the property, judging the tick); the live-preview
+page is a "what does the public actually see" surface, useful but
+answering a different question, and not blocking Johan's morning ask.
+Flagged as a real, deliberate remainder — not folded into Part 6 to
+avoid stretching this part's own verification past what was actually
+tested tonight.
+
+---
+
+## 11. Portal-submission proof — investigated separately, on the conductor's own instruction
+
+Whether the assembled block reaches a REAL, live Property24/Private
+Property submission body was flagged as unproven when Part 5 shipped
+(shape matching the existing `deposit_amount` native-slot precedent is
+not the same claim as a proven submission). Investigated directly,
+without touching either real portal:
+
+**What's actually possible, confirmed by reading the calling code, not
+assumed:** both `Property24SyndicationService` and
+`PrivatePropertySyndicationService` call their mapper's `->map()` then
+`->validate()` BEFORE any network/SOAP call is made
+(`Property24SyndicationService.php:264-274`,
+`PrivatePropertySyndicationService.php:124-128`). Calling `map()` and
+`validate()` directly, bypassing the syndication service and its
+HTTP/SOAP client entirely, exercises the exact same transformation and
+pre-flight validation a real submission would run, with zero network
+activity.
+
+**A real hazard found doing this, worth recording precisely so nobody
+repeats it:** `PrivatePropertyListingMapper::map()` is NOT a pure
+function — `PrivatePropertyListingMapper.php:119` caches a resolved
+`pp_suburb_id` back onto the property via `->save()`. Calling `map()`
+on an in-memory `replicate()` clone (an unsaved, id-less copy) makes
+that `save()` attempt an INSERT rather than an UPDATE — which very
+nearly duplicated a real property, only failing because the clone had
+inherited the same `agency_id`+`external_id` as the row it was copied
+from, tripping a unique constraint. **Rule for anyone testing this
+mapper again: always use a real, persisted row (even a disposable
+throwaway one), never an unsaved replica.**
+
+**Proof obtained, on a real, persisted, disposable property built from
+a real agency-1 rental listing's complete data (never the real listing
+itself — cleaned up afterward):**
+- P24: the assembled block appears correctly in `$payload['description']`,
+  exactly as `RentalAdvertBlockService` produces it. `validate()`
+  reports one remaining error — the test property's agent isn't linked
+  to Property24 — entirely unrelated to the advert block; nothing about
+  the description or the block itself is flagged.
+- PP: the assembled block appears correctly in `$payload['Description']`.
+  `validate()` reports **zero errors** — this specific payload would
+  pass PP's own pre-flight validation cleanly.
+
+**What this does and doesn't prove, stated plainly:** this proves the
+block reaches the exact field/key each real portal's own mapper sends,
+correctly formatted, and that a PP submission built this way would
+pass PP's own pre-submission validation. It does NOT prove either
+portal's live servers accept, store, or display the combined text
+correctly once actually submitted — no documented length limit exists
+for either portal (§4.4), no dry-run submission mode exists for
+either (confirmed absent), so whether an unusually long combined
+description is ever truncated or rejected by the portal itself
+genuinely cannot be checked without a real submission. That risk is
+real, small, and belongs with Johan to accept or not — not something
+further QA1 investigation can close out.
 
 Each part gets its own "verified live on QA1" record before the next
 starts, matching the discipline the existing Rental tab build already

@@ -4139,6 +4139,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // per Johan's build standard, without touching the large existing
         // update() method. Spec: .ai/specs/rentals-shared-screens.md §5.
         Route::put('/{property}/rental-details', [\App\Http\Controllers\CoreX\PropertyController::class, 'updateRentalDetails'])->name('rental-details.update');
+        Route::post('/{property}/rental-advert-block-preview', [\App\Http\Controllers\CoreX\PropertyController::class, 'previewRentalAdvertBlock'])->name('rental-advert-block.preview');
         // Notes
         Route::post('/{property}/notes',                [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'store'])->name('notes.store');
         Route::delete('/{property}/notes/{note}',       [\App\Http\Controllers\CoreX\PropertyNoteController::class, 'destroy'])->name('notes.destroy');
