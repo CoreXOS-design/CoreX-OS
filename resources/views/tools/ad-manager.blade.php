@@ -161,7 +161,7 @@
                                 </div>
                             </div>
                             <div class="flex items-center gap-2 ml-auto">
-                                <button type="button" @click.stop="selectAllForAgent(ag.id)" class="corex-btn-outline text-xs">Select all</button>
+                                <button type="button" @click.stop="selectAllForAgent(ag.id)" class="corex-btn-outline text-xs" x-text="search.trim() ? 'Select matches' : 'Select all'">Select all</button>
                                 <button type="button" @click.stop="skipAgent(ag.id)" class="corex-btn-outline text-xs">Skip</button>
                             </div>
                         </div>

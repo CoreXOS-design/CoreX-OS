@@ -167,8 +167,8 @@ class AdManagerController extends Controller
             return [
                 'id'         => $p->id,
                 // Published on the website, Property24 or Private Property right now?
-                'is_live'    => (filled($p->p24_ref) && $p->p24_syndication_status === 'active')
-                                || (filled($p->pp_ref) && $p->pp_syndication_status === 'active')
+                'is_live'    => (filled($p->p24_ref) && strtolower((string) $p->p24_syndication_status) === 'active')
+                                || (filled($p->pp_ref) && strtolower((string) $p->pp_syndication_status) === 'active')
                                 || isset($websiteLiveIds[$p->id]),
                 'title'      => $p->title,
                 'address'    => trim((string) ($p->street_address ?? $p->address ?? '')),

@@ -6,7 +6,10 @@ namespace Tests\Feature\Tools;
 
 use App\Http\Controllers\Tools\AdTemplateManagerController;
 use App\Models\PropertyAdTemplate;
+use App\Models\Role;
+use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\PermissionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -141,6 +144,13 @@ final class AdTemplateManagerTest extends TestCase
         $plain = $this->userIn($a, ['role' => 'agent']);
         $id    = $this->template($a, $creator, 'Not Yours');
 
+        // The suite normally treats an empty role_permissions table as "everyone may do everything".
+        // Seed one unrelated grant and switch to production posture so a missing key really denies.
+        Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $a]);
+        RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => 'access_ad_manager', 'agency_id' => $a], []);
+        PermissionService::clearCache();
+        PermissionService::forceProductionPosture();
+
         $this->actingAs($plain);
         $this->assertFalse($plain->hasPermission('properties.ad_templates.manage'));
         try {
@@ -167,6 +177,8 @@ final class AdTemplateManagerTest extends TestCase
             $this->fail('An agent without the manage permission restored another member\'s template.');
         } catch (HttpException $e) {
             $this->assertSame(403, $e->getStatusCode());
+        } finally {
+            PermissionService::clearCache(); // never leak the forced posture into another test
         }
     }
 
@@ -191,6 +203,8 @@ final class AdTemplateManagerTest extends TestCase
         $this->actingAs($user);
         $request = Request::create('/tools/ad-manager/templates', 'GET', $query);
         $request->setUserResolver(fn () => $user);
+        // The paginator reads ?page= from the container's request, not the one passed in.
+        $this->app->instance('request', $request);
 
         return app(AdTemplateManagerController::class)->index($request)->getData()['templates']->getCollection();
     }

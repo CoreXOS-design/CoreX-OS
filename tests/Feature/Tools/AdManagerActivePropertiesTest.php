@@ -68,7 +68,7 @@ final class AdManagerActivePropertiesTest extends TestCase
             $this->property($agency, $branch, $agent, sprintf('ZZZ-Bulk-%02d', $i));
         }
 
-        $view = $this->view($admin);
+        $view = $this->indexView($admin);
         $agentGroup = $view->getData()['agents']->firstWhere('id', $agent->id);
 
         $this->assertSame(40, $agentGroup['count']);
@@ -88,7 +88,7 @@ final class AdManagerActivePropertiesTest extends TestCase
 
     // ── helpers ─────────────────────────────────────────────────────────────
 
-    private function view(User $user)
+    private function indexView(User $user)
     {
         $this->actingAs($user);
         $request = Request::create('/tools/ad-manager', 'GET');
@@ -99,7 +99,7 @@ final class AdManagerActivePropertiesTest extends TestCase
 
     private function listed(User $user)
     {
-        return $this->view($user)->getData()['properties'];
+        return $this->indexView($user)->getData()['properties'];
     }
 
     private function agencyWithBranch(): array
