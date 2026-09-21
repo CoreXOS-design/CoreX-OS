@@ -177,14 +177,28 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
     // ── Job Two: room type default items ────────────────────────────────
 
-    public function test_every_known_space_type_defaults_to_the_standard_baseline(): void
+    public function test_every_known_space_type_defaults_to_the_standard_baseline_except_the_five_with_a_real_vocabulary(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         $defaults = RentalInspectionSetting::roomTypeItemDefaultsFor($agency->id);
+        $specialCased = array_keys(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE);
 
         foreach (config('property-spaces.all_space_types', []) as $type) {
             $this->assertArrayHasKey($type, $defaults);
+            if (in_array($type, $specialCased, true)) {
+                continue;
+            }
             $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, $defaults[$type], "space type '{$type}' must default to the standard baseline");
+        }
+    }
+
+    /** 2026-09-21 — Retha's real vocabulary, transcribed exactly, is the system default for these five. */
+    public function test_the_five_named_types_default_to_rethas_real_vocabulary(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        foreach (RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE as $type => $items) {
+            $this->assertSame($items, RentalInspectionSetting::roomTypeItemsFor($agency->id, $type), "space type '{$type}' must default to Retha's transcribed list");
         }
     }
 
@@ -192,7 +206,7 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
     {
         $agency = $this->newAgency('Coastal Realty');
 
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
         // A type that doesn't even exist in the catalog — must still seed something, never nothing.
         $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Some Future Room Type'));
     }
@@ -214,7 +228,9 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
         $this->assertSame(['Floors', 'Railing'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Patio'));
         // Every OTHER type is untouched by customizing one — still the standard baseline.
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
+        // ...including a type with its OWN real-vocabulary system default, also untouched.
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE['Bedroom'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
     }
 
     /** An agency explicitly setting a type to zero items is a real, preserved state, distinguishable from "never customized." */

@@ -3157,6 +3157,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // Recording — RentalInspectionRecordingController, deliberately separate
         // (this controller's own docblock). Spec: rental-inspections.md §14.1/§14.2.
+        // §17 — the header block (meter readings, furnished state, property
+        // type, keys/remotes, move-in date).
+        Route::post('/{rentalInspection}/details', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateDetails'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.details.update');
         Route::post('/{rentalInspection}/observations', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeObservation'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.observations.store');
         Route::post('/{rentalInspection}/observations/{observation}/photos', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhoto'])
@@ -3185,6 +3189,35 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.notes.store');
         Route::post('/{rentalInspection}/overall-notes', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateOverallNotes'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.overall-notes.update');
+    });
+
+    // .ai/specs/rental-inventory.md — the counted contents of a furnished
+    // property, its own document (never a tab on RentalInspection).
+    // Produced at move-in, attached to the property and the lease.
+    Route::prefix('rental-inventories')->middleware('permission:rental_inventories.view')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'index'])->name('corex.rental-inventories.index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'create'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.create');
+        Route::post('/', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'store'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.store');
+        Route::get('/{rentalInventory}', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'show'])->name('corex.rental-inventories.show');
+        Route::post('/{rentalInventory}/cancel', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'cancel'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.cancel');
+        Route::delete('/{rentalInventory}', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'destroy'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.destroy');
+        Route::post('/{rentalInventory}/restore', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'restore'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.restore');
+
+        Route::post('/{rentalInventory}/lines', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLine'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.store');
+        Route::put('/{rentalInventory}/lines/{line}', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'updateLine'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.update');
+        Route::post('/{rentalInventory}/lines/{line}/retire', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'retireLine'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.retire');
+        Route::post('/{rentalInventory}/signatures', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeSignature'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.signatures.store');
+        Route::post('/{rentalInventory}/complete', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'complete'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.complete');
     });
 
     // .ai/specs/rental-work-orders.md §3a/§6a — Rental Fault Reports, its own
