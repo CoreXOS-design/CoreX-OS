@@ -722,6 +722,15 @@ must be migrated before `rental_inspections`, since `rental_inspections.lease_id
   ruling requires landlord signing AND refusal on both inspection types; see §15. Landlord sign-off IS
   now in scope, and is being built — this line stays, struck through in spirit, so the record shows
   the reversal rather than erasing it.)**
+- **Splitting a secure parking bay from an open parking bay on an individual inspection.** 2026-09-21,
+  the legacy `spaces_json` conversion (`LegacySpacesJsonConverter`) sums old `parking_spaces` +
+  `secure_parkings` into one combined Parking count, per Johan's ruling ("secure parking will sit under
+  parking"). The conductor noted explicitly that this is faithful, not a decision to leave unexamined:
+  Johan's own reasoning for *why* secure parking is its own space rather than folded into Garage — "a
+  garage door and a garage floor are not paving with oil stains on it" — applies just as much to a
+  secure bay versus an *open* bay once both sit under the same Parking type and an agent is actually
+  walking the inspection. Not building a split now. Recorded here so it is a deliberate deferral, not an
+  oversight, if an agent later asks for the two to be told apart on the form.
 
 ---
 
@@ -1344,3 +1353,65 @@ landing:**
    dormant.
 5. The completion guard replaced on both types (§15.7) and the show-page's unambiguous signed-vs-refused
    rendering (§15.8).
+
+## 16. Room-type picker fix (2026-09-21) — the manual add path never carried a type
+
+**Root cause, found by Johan on a real browser walk of property 5792 (QA1):** the Rental Images tab's
+manual "Add" control (§4, the flat add form below the Inspection Items list) let an agent add a Space
+with only a free-text label and a `kind` of `space`/`meter` — no room type. `RentalInspectionItem.
+space_type` (§3.2) has always existed as a column, but nothing in the UI or
+`RentalInspectionRecordingController::storeItem()` ever populated it. `RentalInspectionSetting::
+roomTypeItemsFor($agencyId, $spaceType)` — the agency's own configured checklist defaults, built at
+`/corex/settings/rental-inspections` (§3.5-adjacent settings screen) — was therefore never reachable
+from this path: it needs a real `$spaceType` to key its lookup, and the manual add never had one to
+give it. A manually-added space like "Bedroom 1" landed with zero checklist items under it, while
+`RentalInspectionFormSeeder::seedFromAdvertising()` (§14.3-adjacent, Stage 2) worked correctly because
+it always had a real space type from `spaces_json`.
+
+This was NOT a second "make a feature its own space" gap (an earlier framing this investigation
+withdrew) — Parking/Garage/Flatlet etc. were already ordinary, working space types. It was specifically
+that the ONE path an agent uses to hand-add a room to the inspection checklist had no type field to
+carry to `roomTypeItemsFor()`.
+
+### 16.1 The fix
+
+- The manual add form (`resources/views/corex/properties/show.blade.php`, the Inspection Items panel)
+  gained a Room Type `<select>`, rendered server-side from `config('property-spaces.all_space_types')`
+  — the authoritative PHP catalog, never the page's own JS copy of that list (a DIFFERENT catalog,
+  `feature_categories`, was found drifted from its JS copy earlier the same day; `all_space_types` was
+  checked and confirmed NOT drifted, but the picker still renders from PHP directly rather than trust
+  the JS copy going forward). Required whenever `kind = space`; not shown for `kind = meter` (a meter
+  has no room, per §3.2's own comment).
+- `RentalInspectionRecordingController::storeItem()` now validates `space_type` against that same
+  catalog (`Rule::in(config('property-spaces.all_space_types'))`) when `kind = space`, then — in one
+  transaction — creates a real `PropertyRoom` (type, label, `source = manual`) and generates that room's
+  default checklist items via `RentalInspectionSetting::roomTypeItemsFor()`, exactly the same call
+  `RentalInspectionFormSeeder` already makes. Both callers now go through one shared private method
+  (`createRoomChecklist()`) so they can never diverge into two different item shapes for the same room
+  type again. `kind = meter` is unchanged — a bare item, no room.
+- **This narrows §3.2's original note** ("space_type... for consistency with the marketing spaces list
+  WITHOUT being constrained to it... free-text label always wins display") — that note is still true of
+  the item's own free-text LABEL ("Bedroom 1" vs "Bedroom 2" stays free text), but the TYPE used to seed
+  a room's checklist must now be constrained to the real catalog, because it is a live lookup key into
+  the agency's own configured defaults, not a display string. An unconstrained type would silently miss
+  an agency's customisation and fall back to `DEFAULT_ROOM_TYPE_ITEMS` instead.
+- **Existing typeless items are not orphaned.** A pre-fix space (`kind = space`, no `property_room_id`,
+  no `space_type` — e.g. "Bedroom 1" on property 5792) gets an inline "Give it a room type…" picker
+  instead of the normal Retire-only row. Choosing a type and confirming
+  (`RentalInspectionRecordingController::assignType()`, `POST .../rental-inspection-items/{item}/
+  assign-type`) creates a real `PropertyRoom` from the item's own label, generates that room's default
+  checklist through the same shared `createRoomChecklist()`, and RETIRES (never deletes, §3.3) the old
+  bare item — any observation history already recorded against it stays exactly where it is and stays
+  queryable (`carryForwardItems()`/`fullHistory()` both explicitly include retired items); the new
+  room's items become the live checklist going forward.
+- Agents can still add, edit (retire), and hand-add further items after either path runs — seeding
+  (whether via "Build from advertising details" or a manual add's auto-generated checklist) is a
+  starting point, never a cage (Johan, §0 rulings: "agents can add their own on inspections as well").
+
+### 16.2 Multi-agency note
+
+`config('property-spaces.all_space_types')` is the same single, agency-neutral catalog the advertising
+Spaces screen already uses for every agency — no change to that contract. What's agency-specific is
+*which default items* a given type resolves to, via `RentalInspectionSetting::roomTypeItemDefaultsFor
+($agencyId)` — already built, already per-agency, already reached correctly through this fix's shared
+`createRoomChecklist()`. No agency-specific type list, wording, or default was introduced.

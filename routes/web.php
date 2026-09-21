@@ -4118,6 +4118,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
         Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
         Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
+        // 2026-09-21 — retrofit a room type onto a legacy typeless space item
+        // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
+        Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->name('rental-inspection-items.assign-type');
         Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->name('rental-inspection-items.seed-from-advertising');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new

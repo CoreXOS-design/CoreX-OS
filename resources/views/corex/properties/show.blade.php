@@ -4599,6 +4599,22 @@
                         <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
                             <span class="text-sm" style="color:var(--text-primary);" x-text="itemDisplayLabel(item)"></span>
                             <div class="flex items-center gap-3">
+                                {{-- 2026-09-21 — a space created before the room-type
+                                     picker existed has no room and no space_type; give
+                                     it one retroactively instead of leaving it stuck
+                                     with an empty checklist forever. --}}
+                                <template x-if="item.kind === 'space' && !item.room && !item.space_type">
+                                    <div class="flex items-center gap-1">
+                                        <select x-model="assignTypeChoice[item.id]" class="prop-input text-xs" style="max-width:9rem;">
+                                            <option value="">Give it a room type…</option>
+                                            @foreach(config('property-spaces.all_space_types', []) as $spaceType)
+                                                <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                                            @endforeach
+                                        </select>
+                                        <button type="button" :disabled="itemBusy || !assignTypeChoice[item.id]" @click="assignType(item)"
+                                                class="text-xs font-semibold" style="color:var(--brand-button,#0ea5e9);">Set</button>
+                                    </div>
+                                </template>
                                 <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
                                 <button type="button" :disabled="itemBusy" @click="retireItem(item)"
                                         class="text-xs font-semibold" style="color:var(--ds-crimson);">Retire</button>
@@ -4611,9 +4627,20 @@
                             <option value="space">Space</option>
                             <option value="meter">Meter</option>
                         </select>
+                        {{-- Room type — only meaningful for a Space; a Meter has no
+                             room. Sourced from the real PHP config, not the JS copy
+                             of this list elsewhere on this page — that copy has been
+                             found to drift for a DIFFERENT catalog (feature labels),
+                             so this picker renders server-side rather than trust it. --}}
+                        <select x-show="newItem.kind === 'space'" x-model="newItem.space_type" class="prop-input" style="max-width:10rem;">
+                            <option value="">Room type…</option>
+                            @foreach(config('property-spaces.all_space_types', []) as $spaceType)
+                                <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                            @endforeach
+                        </select>
                         <input type="text" x-model="newItem.label" placeholder="e.g. Bedroom 2, Water meter" maxlength="191"
                                class="prop-input flex-1" @keydown.enter.prevent="addItem()">
-                        <button type="submit" :disabled="itemBusy || !newItem.label.trim()"
+                        <button type="submit" :disabled="itemBusy || !newItem.label.trim() || (newItem.kind === 'space' && !newItem.space_type)"
                                 class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">
                             Add
                         </button>
@@ -4827,7 +4854,11 @@
                 outInspectionRecorded: config.inspectionData.out_inspection_recorded,
                 itemError: '',
                 itemBusy: false,
-                newItem: { kind: 'space', label: '' },
+                newItem: { kind: 'space', label: '', space_type: '' },
+                // 2026-09-21 — one pending room-type choice per legacy
+                // typeless item, keyed by item id (several can be mid-pick
+                // at once without clobbering each other).
+                assignTypeChoice: {},
 
                 activeItems() { return this.items.filter(i => !i.is_retired); },
                 // Stage 2 — a seeded facet item's own label is just the
@@ -4842,14 +4873,42 @@
                 async addItem() {
                     const label = this.newItem.label.trim();
                     if (!label) return;
+                    if (this.newItem.kind === 'space' && !this.newItem.space_type) return;
                     this.itemBusy = true;
                     this.itemError = '';
                     try {
-                        const item = await this._post(this.inspectionUrls.itemStore, {
+                        // 2026-09-21 — a Space add now returns the checklist rows
+                        // created under its new room, not the bare space itself;
+                        // a Meter add still returns its own one bare item. Both
+                        // come back the same shape ({items: [...]}) so this push
+                        // path covers both without branching.
+                        const result = await this._post(this.inspectionUrls.itemStore, {
                             kind: this.newItem.kind, label,
+                            space_type: this.newItem.kind === 'space' ? this.newItem.space_type : null,
                         });
-                        this.items.push(item);
+                        this.items.push(...result.items);
                         this.newItem.label = '';
+                        this.newItem.space_type = '';
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // 2026-09-21 — retrofit a room type onto a legacy item that has
+                // neither (created before this fix). Adds this room's new
+                // checklist items and marks the old bare item retired locally,
+                // matching what the server just did to it.
+                async assignType(item) {
+                    const spaceType = this.assignTypeChoice[item.id];
+                    if (!spaceType) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(`${this.inspectionUrls.itemStore}/${item.id}/assign-type`, {
+                            space_type: spaceType,
+                        });
+                        this.items.push(...result.items);
+                        item.is_retired = true;
+                        delete this.assignTypeChoice[item.id];
                     } catch (e) { this.itemError = e.message; }
                     finally { this.itemBusy = false; }
                 },
