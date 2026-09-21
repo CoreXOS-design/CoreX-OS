@@ -1415,3 +1415,38 @@ Spaces screen already uses for every agency — no change to that contract. What
 *which default items* a given type resolves to, via `RentalInspectionSetting::roomTypeItemDefaultsFor
 ($agencyId)` — already built, already per-agency, already reached correctly through this fix's shared
 `createRoomChecklist()`. No agency-specific type list, wording, or default was introduced.
+
+### 16.3 Room-heading grouping (2026-09-21) — Johan on property 5792
+
+**The problem, in his own words:** "why would we add bedroom 2 such a lot of times - surely that should
+be a heading - bedroom 2. then list everything underneath that we have to check in that room?" Property
+5792's checklist rendered all 15 facet items flat, each row prefixed with its room's name —
+`itemDisplayLabel()`'s `${item.room.label} — ${item.label}` string — so "Bedroom 2" printed once per
+each of its 5 facets. Pure repeated metadata, a direct hit on Johan's standing rule that every row of a
+working screen must be data the agent needs or a control they act on, not decoration.
+
+**The fix:** both the Inspection Items panel and the In/Out Inspection recording checklist
+(`resources/views/corex/properties/show.blade.php`, `resources/views/corex/properties/partials/
+rental-inspection-recording.blade.php`) now render `roomGroups()` — one heading per room (`group.room.
+label`, printed once), its facet items nested underneath showing their own bare `item.label`. Items with
+no room (meters, and legacy spaces still awaiting a room type via §16.1's `assign-type`) land in one
+trailing "General" group. `itemDisplayLabel()` is removed — both its call sites are gone, so nothing
+else in the app used it.
+
+**The grouping key, and why casing is a non-issue:** `roomGroups()` keys strictly on `item.room.id` —
+the real `PropertyRoom` primary key carried through the item's own `property_room_id` foreign key — and
+never on `item.room.label`, the free-text display string. Two items either share the same `room_id` or
+they don't; the label is read only for display, after grouping has already happened. Johan raised a
+real, separate concern — property 5792 has both "bedroom 2" (lowercase) and "Bedroom 1" (capitalised),
+since he typed them as free text — and asked us to confirm grouping doesn't key on that string. It
+doesn't, and never has: there is no code path anywhere in this feature that compares room names to
+decide whether two items belong together. The casing inconsistency is real but purely cosmetic here;
+whether existing free-text room names should ever be normalised is a separate, deliberately un-taken
+decision — Johan's own data, his call, not touched by this fix.
+
+**Ordering note:** groups sort by `group.room.sort_order` ascending — `PropertyRoom`'s own existing
+column. This fix does not change what that column contains or how it's assigned; today that's still
+creation/seed order, which is Johan's second, larger complaint (rooms don't line up in a sensible
+walking order, and can't be reordered) — tracked separately, not solved by this grouping change. Once a
+sensible default and agent-driven reordering land on `sort_order`, this same `roomGroups()` reflects it
+automatically, with no further change to either view.

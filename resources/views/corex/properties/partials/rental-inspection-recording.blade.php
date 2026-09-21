@@ -54,38 +54,49 @@
             Inspection Items above, then come back here to record them.
         </p>
 
-        <template x-for="item in activeItems()" :key="item.id">
-            <div class="py-2 space-y-1.5" style="border-bottom:1px solid var(--border);">
-                <div class="flex items-center justify-between gap-3">
-                    <span class="text-sm" style="color:var(--text-primary);" x-text="itemDisplayLabel(item)"></span>
-                    <span x-show="conditionFor({{ $sectionJs }}, item.id)" class="text-xs uppercase tracking-wide"
-                          style="color:var(--text-muted);" x-text="conditionFor({{ $sectionJs }}, item.id)?.condition"></span>
-                </div>
-                <div x-show="obsError[_obsKey({{ $sectionJs }}, item.id)]" x-cloak class="text-xs" style="color:#ef4444;"
-                     x-text="obsError[_obsKey({{ $sectionJs }}, item.id)]"></div>
-                <div class="flex flex-wrap items-center gap-2">
-                    <select x-model="obsField({{ $sectionJs }}, item.id).condition" class="prop-input" style="max-width:9rem;">
-                        <option value="">Record…</option>
-                        <option value="good">Good</option>
-                        <option value="fair">Fair</option>
-                        <option value="damaged">Damaged</option>
-                        <option value="not_working">Not working</option>
-                        <option value="missing">Missing</option>
-                        <option value="other">Other</option>
-                    </select>
-                    <input type="text" x-show="obsField({{ $sectionJs }}, item.id).condition && obsField({{ $sectionJs }}, item.id).condition !== 'good'"
-                           x-model="obsField({{ $sectionJs }}, item.id).notes" placeholder="Notes (required)"
-                           class="prop-input flex-1" style="min-width:10rem;">
-                    <label class="text-xs font-semibold px-3 py-2 rounded-md cursor-pointer" style="background:var(--surface-2); color:var(--text-secondary);">
-                        <span x-text="obsField({{ $sectionJs }}, item.id).photo ? obsField({{ $sectionJs }}, item.id).photo.name : 'Photo'"></span>
-                        <input type="file" accept="image/*" class="hidden"
-                               @change="obsField({{ $sectionJs }}, item.id).photo = $event.target.files[0] || null">
-                    </label>
-                    <button type="button" :disabled="obsBusy[_obsKey({{ $sectionJs }}, item.id)] || !obsField({{ $sectionJs }}, item.id).condition"
-                            @click="recordObservation({{ $sectionJs }}, item)"
-                            class="px-3 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
-                            x-text="obsBusy[_obsKey({{ $sectionJs }}, item.id)] ? 'Saving…' : 'Save'"></button>
-                </div>
+        {{-- 2026-09-21, Johan on property 5792 — same room-heading grouping
+             as the Inspection Items panel above, applied here so a walkthrough
+             actually walks room by room instead of a flat list scattered by
+             creation order. Keyed on group.room.id (roomGroups()), never on
+             the room's free-text label. --}}
+        <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
+            <div class="space-y-1 pt-2">
+                <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
+                    x-text="group.room ? group.room.label : 'General'"></h4>
+                <template x-for="item in group.items" :key="item.id">
+                    <div class="py-2 pl-3 space-y-1.5" style="border-bottom:1px solid var(--border);">
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                            <span x-show="conditionFor({{ $sectionJs }}, item.id)" class="text-xs uppercase tracking-wide"
+                                  style="color:var(--text-muted);" x-text="conditionFor({{ $sectionJs }}, item.id)?.condition"></span>
+                        </div>
+                        <div x-show="obsError[_obsKey({{ $sectionJs }}, item.id)]" x-cloak class="text-xs" style="color:#ef4444;"
+                             x-text="obsError[_obsKey({{ $sectionJs }}, item.id)]"></div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <select x-model="obsField({{ $sectionJs }}, item.id).condition" class="prop-input" style="max-width:9rem;">
+                                <option value="">Record…</option>
+                                <option value="good">Good</option>
+                                <option value="fair">Fair</option>
+                                <option value="damaged">Damaged</option>
+                                <option value="not_working">Not working</option>
+                                <option value="missing">Missing</option>
+                                <option value="other">Other</option>
+                            </select>
+                            <input type="text" x-show="obsField({{ $sectionJs }}, item.id).condition && obsField({{ $sectionJs }}, item.id).condition !== 'good'"
+                                   x-model="obsField({{ $sectionJs }}, item.id).notes" placeholder="Notes (required)"
+                                   class="prop-input flex-1" style="min-width:10rem;">
+                            <label class="text-xs font-semibold px-3 py-2 rounded-md cursor-pointer" style="background:var(--surface-2); color:var(--text-secondary);">
+                                <span x-text="obsField({{ $sectionJs }}, item.id).photo ? obsField({{ $sectionJs }}, item.id).photo.name : 'Photo'"></span>
+                                <input type="file" accept="image/*" class="hidden"
+                                       @change="obsField({{ $sectionJs }}, item.id).photo = $event.target.files[0] || null">
+                            </label>
+                            <button type="button" :disabled="obsBusy[_obsKey({{ $sectionJs }}, item.id)] || !obsField({{ $sectionJs }}, item.id).condition"
+                                    @click="recordObservation({{ $sectionJs }}, item)"
+                                    class="px-3 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                    x-text="obsBusy[_obsKey({{ $sectionJs }}, item.id)] ? 'Saving…' : 'Save'"></button>
+                        </div>
+                    </div>
+                </template>
             </div>
         </template>
 
