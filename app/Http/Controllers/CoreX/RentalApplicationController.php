@@ -500,6 +500,33 @@ class RentalApplicationController extends Controller
      * own endpoint under this feature's own permission, rather than
      * borrowing another feature's search route (e.g. the filing register's,
      * gated on a different permission an agent here may not hold).
+     *
+     * Johan, QA1 walk, 2026-09-21 — approved-application "Link as tenant":
+     * "the search on application status is wrong. its displays the header
+     * and not the property address... its not the search we have
+     * implemented in other sections like pdf splitter." Both real: this
+     * endpoint had its own weaker OR-across-two-fields search and built its
+     * own label as $property->title FIRST — an agent linking a tenant saw
+     * the listing's marketing headline ("Modern family home with sea
+     * views"), never the address, unless the property happened to have no
+     * title at all. Linking the wrong property here creates a lease against
+     * the wrong house — a real tenant, a real owner, real money, not
+     * discovered quickly.
+     *
+     * Fixed by reusing, not re-implementing: Property::scopeSearchAddress()
+     * ("the ONE canonical property search — every picker calls it
+     * (fix-the-class)", per that scope's own docblock) and
+     * Property::toSearchResult() (address-first label via
+     * buildDisplayAddress(), plus agent and status — every picker already
+     * sharing this pattern: PdfSplitterController, LeaseController,
+     * RentalInspectionController, RentalFaultReportController,
+     * RentalWorkOrderController, and others). This endpoint was the one
+     * rental-screen holdout still building its own weaker version — not a
+     * second implementation living alongside those, the SAME one. The
+     * rental-specific rules (listing_type='rental', visibleTo() branch/own
+     * scoping) are layered on top of the canonical scope, never replaced by
+     * it — reusing the search does not reuse or loosen who is allowed to
+     * see or link which property.
      */
     public function searchProperties(Request $request)
     {
@@ -511,20 +538,24 @@ class RentalApplicationController extends Controller
         // a branch/own-restricted agent used to see the whole agency's
         // rental stock here and only find out it wasn't linkable after
         // picking it and getting refused.
+        // searchAddress() no-ops on an empty term (returns the query
+        // unfiltered) — preserves this endpoint's existing "browse the
+        // agency's most recent rental stock" contract for a blank query,
+        // same as the previous when($q !== '', ...) guard did, just via
+        // the canonical scope's own graceful handling instead of a
+        // duplicate empty-string check here.
         $properties = Property::query()
             ->where('listing_type', 'rental')
             ->visibleTo($request->user())
-            ->when($q !== '', fn ($query) => $query->where(function ($w) use ($q) {
-                $w->where('address', 'like', "%{$q}%")->orWhere('title', 'like', "%{$q}%");
-            }))
+            ->searchAddress($q)
+            ->with('agent')
             ->orderByDesc('id')
             ->limit(10)
-            ->get(['id', 'address', 'title', 'suburb']);
+            ->get();
 
-        return response()->json($properties->map(fn (Property $p) => [
-            'id' => $p->id,
-            'label' => $p->title ?: trim($p->address . ', ' . $p->suburb, ', '),
-        ]));
+        return response()->json($properties->map(fn (Property $p) => $p->toSearchResult([
+            'ref' => $p->property_number,
+        ])));
     }
 
     /**

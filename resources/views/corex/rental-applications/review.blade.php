@@ -73,8 +73,15 @@
     // computation now, folding in everything either version knew about,
     // used everywhere on this header instead of two separately-maintained
     // English strings that happened to agree by luck.
+    //
+    // Johan, QA1 walk, 2026-09-21 — the consolidation above carried the
+    // title-first bug forward from the locked-state widget: "the search on
+    // application status is wrong. its displays the header and not the
+    // property address." Address always, never the listing's marketing
+    // title — same fix as the search results below and the other two
+    // rental-application screens sharing this endpoint.
     $propertyLabel = $rentalApplication->property
-        ? (optional($rentalApplication->property)->title ?: optional($rentalApplication->property)->buildDisplayAddress())
+        ? optional($rentalApplication->property)->buildDisplayAddress()
         : $rentalApplication->property_address_override;
     $headerContactName = $rentalApplication->contact->full_name
         ?? trim(($rentalApplication->contact->first_name ?? '') . ' ' . ($rentalApplication->contact->last_name ?? ''));
@@ -350,9 +357,18 @@
                                        placeholder="Search rental properties…" autofocus
                                        class="w-full rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
                                 <button type="button" class="text-xs underline ml-1" style="color: var(--text-muted);" @click="searching = false">Cancel</button>
-                                <div class="absolute z-10 mt-1 w-full rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
+                                {{-- Johan, QA1 walk, 2026-09-21 — same richer
+                                     result row as the PDF splitter's property
+                                     picker: address + status, then ref + agent. --}}
+                                <div class="absolute z-10 mt-1 w-full rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
                                     <template x-for="p in results" :key="p.id">
-                                        <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1 text-xs hover:bg-slate-50" x-text="p.label"></button>
+                                        <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50">
+                                            <div class="flex items-center gap-1.5">
+                                                <span x-text="p.label"></span>
+                                                <span x-show="p.status" x-text="p.status" class="text-[10px] px-1 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>
+                                            </div>
+                                            <div style="color: var(--text-muted);" x-text="[p.ref ? ('Ref: ' + p.ref) : '', p.agent].filter(Boolean).join(' · ')"></div>
+                                        </button>
                                     </template>
                                 </div>
                             </div>

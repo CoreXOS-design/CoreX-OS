@@ -104,15 +104,39 @@ final class RentalApplicationAgentControllerTest extends TestCase
 
     public function test_search_properties_returns_only_rental_listings(): void
     {
-        $this->rentalProperty('Cosy flat to let in Ramsgate');
-        $this->saleProperty('Beach house for sale in Ramsgate');
+        $rental = $this->rentalProperty('Cosy flat to let in Ramsgate');
+        $sale = $this->saleProperty('Beach house for sale in Ramsgate');
 
         $response = $this->actingAs($this->agent)->getJson(route('corex.rental-applications.search-properties', ['q' => 'Ramsgate']));
 
         $response->assertOk();
-        $labels = collect($response->json())->pluck('label');
-        $this->assertTrue($labels->contains('Cosy flat to let in Ramsgate'));
-        $this->assertFalse($labels->contains('Beach house for sale in Ramsgate'), 'A for-sale listing must never appear in the rental-application property picker.');
+        $ids = collect($response->json())->pluck('id');
+        $this->assertTrue($ids->contains($rental->id));
+        $this->assertFalse($ids->contains($sale->id), 'A for-sale listing must never appear in the rental-application property picker.');
+    }
+
+    /**
+     * Johan, QA1 walk, 2026-09-21 — "the search on application status is
+     * wrong. its displays the header and not the property address. but
+     * furthermore to this its not the search we have implemented in other
+     * sections like pdf splitter." Fixed by reusing
+     * Property::scopeSearchAddress()/toSearchResult() — the same canonical
+     * pattern PdfSplitterController and every other rental-domain picker
+     * already uses. This is what the test above's own label assertion used
+     * to assume was correct (a title string echoed back) and no longer is —
+     * that was the exact bug, not a coincidence to preserve.
+     */
+    public function test_search_properties_labels_by_address_not_the_listing_title(): void
+    {
+        $rental = $this->rentalProperty('Cosy flat to let in Ramsgate');
+
+        $response = $this->actingAs($this->agent)->getJson(route('corex.rental-applications.search-properties', ['q' => 'Ramsgate']));
+
+        $response->assertOk();
+        $result = collect($response->json())->firstWhere('id', $rental->id);
+        $this->assertNotNull($result);
+        $this->assertSame($rental->buildDisplayAddress(), $result['label']);
+        $this->assertStringNotContainsString('Cosy flat to let', $result['label'], 'the listing title must never stand in for the address');
     }
 
     // ── Bug 2: the show/edit form must render every V8 field ────────────

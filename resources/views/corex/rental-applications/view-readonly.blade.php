@@ -199,7 +199,13 @@
                 query: '',
                 results: [],
                 propertyId: {{ Js::from($rentalApplication->property_id) }},
-                propertyLabel: {{ Js::from($rentalApplication->property ? ($rentalApplication->property->title ?: $rentalApplication->property->buildDisplayAddress()) : null) }},
+                {{-- Johan, QA1 walk, 2026-09-21 — address first, never the
+                     listing's marketing title. Same fix as the search
+                     results below (Property::toSearchResult()'s own
+                     buildDisplayAddress()-first label), applied here too so
+                     the ALREADY-linked property reads identically to one
+                     just picked from search. --}}
+                propertyLabel: {{ Js::from($rentalApplication->property?->buildDisplayAddress()) }},
                 unlinkConfirming: false,
                 async search() {
                     if (this.query.length < 2) { this.results = []; return; }
@@ -282,9 +288,23 @@
                                    placeholder="Search rental properties…" autofocus
                                    class="w-full rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
                             <button type="button" class="text-xs underline ml-1" style="color: var(--text-muted);" @click="searching = false">Cancel</button>
-                            <div class="absolute z-10 mt-1 w-full rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
+                            {{-- Johan, QA1 walk, 2026-09-21 — "not the search we have
+                                 implemented in other sections like pdf splitter
+                                 where it displays proper details for the agent to
+                                 know they are linking to the correct property."
+                                 Same two-line result row as the PDF splitter's own
+                                 property picker (resources/views/tools/
+                                 pdf_splitter_review.blade.php): address + status
+                                 badge, then ref + agent as a muted subtitle. --}}
+                            <div class="absolute z-10 mt-1 w-full rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
                                 <template x-for="p in results" :key="p.id">
-                                    <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1 text-xs hover:bg-slate-50" x-text="p.label"></button>
+                                    <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50">
+                                        <div class="flex items-center gap-1.5">
+                                            <span x-text="p.label"></span>
+                                            <span x-show="p.status" x-text="p.status" class="text-[10px] px-1 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>
+                                        </div>
+                                        <div style="color: var(--text-muted);" x-text="[p.ref ? ('Ref: ' + p.ref) : '', p.agent].filter(Boolean).join(' · ')"></div>
+                                    </button>
                                 </template>
                             </div>
                         </div>
