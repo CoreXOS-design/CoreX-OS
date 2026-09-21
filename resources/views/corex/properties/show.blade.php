@@ -4558,6 +4558,17 @@
                 <div x-show="open['items']" x-collapse class="prop-section-body space-y-3">
                     <div x-show="itemError" x-cloak class="text-xs" style="color:#ef4444;" x-text="itemError"></div>
 
+                    {{-- Real empty state (BUILD_STANDARD §1a) — 2026-09-21, Johan: a
+                         panel that renders silently when empty is why the feature read
+                         as broken rather than unconfigured. This is the checklist an
+                         in/out inspection walks; with zero rows here, both of those
+                         panels below have nothing to record against either. --}}
+                    <p x-show="!activeItems().length" class="text-xs" style="color:var(--text-muted);">
+                        No inspection items yet. Add the rooms and meters this property needs checked —
+                        e.g. "Bedroom 1", "Water meter" — using the form below. In and Out Inspection
+                        can't record anything until at least one item exists here.
+                    </p>
+
                     <template x-for="item in activeItems()" :key="item.id">
                         <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
                             <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
