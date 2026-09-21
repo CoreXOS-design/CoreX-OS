@@ -4897,6 +4897,12 @@
                 // visibility so it stays shown after completion, when it
                 // matters most.
                 outInspectionRecorded: config.inspectionData.out_inspection_recorded,
+                // §17, Johan 2026-09-21, from Retha's real paper form — the
+                // agency's own condition vocabulary (Good/Fair/Damaged/Not
+                // working/Missing/Other/N/A by default), rendered into the
+                // recording UI's condition picker instead of a hardcoded
+                // set of <option> tags.
+                conditionStates: config.inspectionData.condition_states,
                 itemError: '',
                 itemBusy: false,
                 newItem: { kind: 'space', label: '', space_type: '' },
@@ -5100,12 +5106,28 @@
                     return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '', photo: null });
                 },
 
+                // §17, Johan 2026-09-21 — client-side mirror of
+                // RentalInspectionSetting::conditionRequiresNotesFor(); the
+                // server is still authoritative, this just avoids a round
+                // trip for the common case. An unknown key defaults to
+                // requiring notes, same as the server.
+                conditionRequiresNotes(key) {
+                    const state = (this.conditionStates || []).find(s => s.key === key);
+                    return state ? !!state.requires_notes : true;
+                },
+                conditionLabel(key) {
+                    return (this.conditionStates || []).find(s => s.key === key)?.label || key;
+                },
+                hasNaConditionState() {
+                    return (this.conditionStates || []).some(s => s.key === 'n_a');
+                },
+
                 async recordObservation(section, item) {
                     const key = this._obsKey(section, item.id);
                     const form = this.obsField(section, item.id);
                     if (!form.condition) return;
-                    if (form.condition !== 'good' && !form.notes.trim()) {
-                        this.obsError[key] = 'Notes are required when the condition isn\'t "good".';
+                    if (this.conditionRequiresNotes(form.condition) && !form.notes.trim()) {
+                        this.obsError[key] = 'Notes are required for this condition.';
                         return;
                     }
                     const insp = this.currentInspection(section);
@@ -5151,6 +5173,78 @@
                         xhr.onerror = () => reject(new Error('Network error uploading the photo. The observation itself was saved — retry just the photo.'));
                         xhr.send(fd);
                     });
+                },
+
+                // §17, Johan 2026-09-21, from Retha's real paper form: "she
+                // strikes ENTIRE ROOMS out with one big N/A across the
+                // table." One click records N/A against every active item
+                // in the room, through the same atomic record() path a
+                // single-item observation uses — a genuine conflict with an
+                // earlier observation on the same item still raises a real
+                // discrepancy, exactly as it should.
+                markNaBusy: {},
+                async markRoomNa(section, room) {
+                    if (!window.confirm(`Mark every item in "${room.label}" as N/A for this inspection?`)) return;
+                    const insp = this.currentInspection(section);
+                    this.markNaBusy[room.id] = true;
+                    this.lifecycleError = '';
+                    try {
+                        const result = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/rooms/${room.id}/mark-na`, {});
+                        insp.observations.push(...result.observations);
+                    } catch (e) { this.lifecycleError = e.message; }
+                    finally { this.markNaBusy[room.id] = false; }
+                },
+
+                // §17, Johan 2026-09-21, from Retha's real paper form: one
+                // free-text notes box per room, holding evidence that
+                // belongs to the whole room, not any single item. Latest
+                // note for a room is "current" — same pattern as
+                // conditionFor() above for item observations.
+                roomNoteFor(section, roomId) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return null;
+                    const mine = (insp.roomNotes || []).filter(n => n.property_room_id === roomId);
+                    if (!mine.length) return null;
+                    return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+                },
+                roomNoteDraft: {},
+                roomNoteBusy: {},
+                roomNoteField(section, roomId) {
+                    const key = section + '_' + roomId;
+                    if (this.roomNoteDraft[key] === undefined) {
+                        this.roomNoteDraft[key] = this.roomNoteFor(section, roomId)?.note || '';
+                    }
+                    return this.roomNoteDraft[key];
+                },
+                async saveRoomNote(section, room) {
+                    const key = section + '_' + room.id;
+                    const text = (this.roomNoteDraft[key] || '').trim();
+                    if (!text) return;
+                    const insp = this.currentInspection(section);
+                    this.roomNoteBusy[key] = true;
+                    this.lifecycleError = '';
+                    try {
+                        const note = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/rooms/${room.id}/notes`, { note: text });
+                        insp.roomNotes = insp.roomNotes || [];
+                        insp.roomNotes.push(note);
+                    } catch (e) { this.lifecycleError = e.message; }
+                    finally { this.roomNoteBusy[key] = false; }
+                },
+
+                // §17, Johan 2026-09-21, from Retha's real paper form: one
+                // free-text summary for the whole inspection, at the foot.
+                overallNotesBusy: {},
+                async saveOverallNotes(section) {
+                    const insp = this.currentInspection(section);
+                    this.overallNotesBusy[section] = true;
+                    this.lifecycleError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/overall-notes`, {
+                            overall_notes: insp.overall_notes || null,
+                        });
+                        Object.assign(insp, updated);
+                    } catch (e) { this.lifecycleError = e.message; }
+                    finally { this.overallNotesBusy[section] = false; }
                 },
 
                 // ── Discrepancies, signatures, lifecycle (§0.4/§0.7/§11) ────────

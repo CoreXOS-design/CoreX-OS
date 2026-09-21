@@ -291,5 +291,55 @@
             <button type="submit" class="corex-btn-primary text-sm">Save walking order</button>
         </div>
     </form>
+
+    {{-- §17, Johan 2026-09-21, from Retha's real paper out-inspection form:
+         her vocabulary is Good/OK/Bad, ours is Good/Fair/Damaged/Not
+         working/Missing/Other/N/A. Neither is forced on the other agency —
+         this is the SET itself, agency-configurable. An existing row's key
+         is carried as a hidden field, never re-derived from its label, so
+         it can never drift out from under observations already recorded
+         against it; only a brand-new row gets a freshly generated key. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.condition-states') }}" class="space-y-3"
+          x-data="{
+              states: {{ Js::from($conditionStates) }},
+              addState() { this.states.push({ key: 'custom_' + Date.now(), label: '', requires_notes: true }); },
+          }">
+        @csrf
+        <input type="hidden" name="condition_states_submitted" value="1">
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Condition states</h3>
+            </div>
+            <div class="p-5 space-y-2">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    What an inspector can grade an item as, in the order offered. "Needs a reason"
+                    means the agent must type a note before that state can be saved — a Good rating
+                    or something genuinely not applicable to the property need no explanation, but
+                    anything else does.
+                </p>
+                <template x-for="(state, i) in states" :key="state.key">
+                    <div class="flex items-center gap-2">
+                        <input type="text" x-model="state.label" :name="`condition_states[${i}][label]`"
+                               maxlength="60" required placeholder="Label"
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <label class="flex items-center gap-1.5 text-xs whitespace-nowrap" style="color: var(--text-secondary);">
+                            <input type="checkbox" x-model="state.requires_notes">
+                            Needs a reason
+                        </label>
+                        <input type="hidden" :name="`condition_states[${i}][key]`" :value="state.key">
+                        <input type="hidden" :name="`condition_states[${i}][requires_notes]`" :value="state.requires_notes ? '1' : '0'">
+                        <button type="button" @click="states.splice(i, 1)" :disabled="states.length <= 1"
+                                class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
+                    </div>
+                </template>
+                <button type="button" @click="addState()" class="corex-btn-outline text-xs">+ Add a condition state</button>
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save condition states</button>
+        </div>
+    </form>
 </div>
 @endsection

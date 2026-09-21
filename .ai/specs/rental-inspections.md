@@ -1647,3 +1647,97 @@ the recording screen becomes once Johan rules on rebuilding it to match those do
    top of `PropertyRoom` (already noted, §3.2-adjacent, as a table Sales may also use), it must not
    assume it inherits whatever rooms an inspection happens to have — the two are separate room sets in
    Johan's own real usage, not one list viewed two ways.
+
+## 17. N/A, room notes, overall notes (2026-09-21) — three gaps evidenced on Retha's real paper form
+
+Johan corrected an earlier read of his own: `/corex/rental-inspections/1` is a thin read-only summary of
+an empty draft, not the actual recording surface. The real recording screen — property 5792, Rental
+Images tab, In Inspection expanded — already had room groupings (§16.3), per-item condition grading,
+notes, photos, and three-party signing (§15) working. Comparing that working screen against Retha's two
+real paper documents (a filled-in out-inspection and a separate inventory) surfaced three concrete gaps,
+all directly evidenced on her form, no design ruling needed:
+
+### 17.1 N/A as a condition state, agency-configurable vocabulary
+
+**The problem, in Johan's own words:** "we have 'Missing', which means it should be here and isn't —
+that is a deposit argument. Retha needs 'was never here', which is not an argument at all. Two
+completely different meanings and we can only say one of them." Her paper form uses N/A constantly
+("Ceiling Fans N/A", "Blinds N/A") and strikes entire rooms out with one N/A across the whole table
+(Bedroom 3, Bedroom 4 on her real form).
+
+**The fix:**
+
+- `RentalInspectionSetting::DEFAULT_CONDITION_STATES` — the shipped six (Good/Fair/Damaged/Not
+  working/Missing/Other) plus N/A, each entry `{key, label, requires_notes}`. `requires_notes`
+  generalizes §0.3's old hardcoded "anything but Good needs a reason" rule — N/A needs none either
+  (Johan: "not an argument at all"), and the rule now expresses correctly for an agency that reduces or
+  renames the whole set.
+- **The SET itself is agency-configurable, not just an addition to ours.** Retha's own paper form uses
+  an entirely different vocabulary — Good / OK / Bad — from CoreX's shipped Good / Fair / Damaged / Not
+  working / Missing / Other. Neither is forced on the other agency: `condition_states` (new JSON column
+  on `rental_inspection_settings`, migration `2026_09_21_160000_...`), resolved via
+  `RentalInspectionSetting::conditionStatesFor($agencyId)` (read-time default, same pattern as every
+  other setting on this model) and `conditionRequiresNotesFor($agencyId, $key)`. Editable at
+  `/corex/settings/rental-inspections` — add/remove/relabel/retoggle any row; an existing row's `key` is
+  carried as a hidden field, never re-derived from its label, so it can't drift out from under
+  observations already recorded against it.
+- `RentalInspectionRecordingController::storeObservation()` validates `condition` against the agency's
+  own resolved key list (`Rule::in(array_column(...))`), not a hardcoded six-item enum; the "needs a
+  reason" check calls `conditionRequiresNotesFor()` instead of a literal `!== 'good'` comparison.
+  `RentalInspectionObservation::requiresNotes()` (previously dead code, unused anywhere in `app/`) now
+  delegates to the same resolver, so the concept has exactly one implementation.
+- The recording UI's condition `<select>` (`rental-inspection-recording.blade.php`) now renders from
+  `condition_states` (delivered through `RentalInspection::tabPayloadFor()`), never a hardcoded set of
+  `<option>` tags — an agency that reduces to three states sees exactly three options, not CoreX's six
+  plus theirs.
+- **Room-level bulk N/A** — "she strikes ENTIRE ROOMS out with one big N/A." New endpoint
+  `POST /corex/rental-inspections/{inspection}/rooms/{room}/mark-na`
+  (`RentalInspectionRecordingController::markRoomNa()`) records N/A against every active item in the
+  room through the exact same atomic `RentalInspectionObservation::record()` path a single-item
+  observation uses — a genuine conflict with an earlier, different observation on the same item in the
+  same inspection still raises a real discrepancy (§0.4), exactly as it should; this is a bulk
+  convenience over the one real recording path, never a second one. Only offered in the UI when N/A is
+  actually one of the agency's configured states — an agency that removes it loses the bulk button too.
+
+### 17.2 Room-level notes, in addition to per-item notes
+
+**The problem:** every room table on Retha's paper form carries its own free-text notes box holding
+evidence that belongs to the whole room, not any single item — "3x nails in wall", "can't test aircon no
+batteries", "1x key in door", "damp under windows in corner", "damp on wall under mirror". Per-item notes
+(`rental_inspection_observations.notes`) are finer-grained and stay exactly as they are — this is in
+addition, never instead.
+
+**The fix:** new `rental_inspection_room_notes` table (migration `2026_09_21_160100_...`) and
+`RentalInspectionRoomNote` model, scoped to `(rental_inspection_id, property_room_id)` — never to
+`PropertyRoom` itself, which is a permanent, cross-tenancy record (§3.2) with no natural home for "what
+one specific walkthrough found in this room." Immutable, same convention as an Observation (§3.3): never
+edited, never deleted (`UPDATED_AT = null`); a correction is a NEW row, and "the room's current note" is
+simply the latest one for that inspection — the exact same pattern an item's `currentObservation()`
+already uses. New endpoint `POST /corex/rental-inspections/{inspection}/rooms/{room}/notes`
+(`storeRoomNote()`); rendered as one textarea + Save button per room heading in the recording UI.
+
+### 17.3 Overall notes — one free-text summary per inspection
+
+**The problem:** Retha's paper form ends with a single summary line: "OVERALL - APARTMENT CLEAN - FAIR -
+PARTIALLY FURNISHED."
+
+**The fix:** `overall_notes` — a plain, nullable TEXT column directly on `rental_inspections` (migration
+`2026_09_21_160200_...`), not an append-only history like §17.2's room notes. `RentalInspection` is
+already a mutable lifecycle record (`status`, `cancel_reason`, etc., all plain columns) — this is the
+inspection's own editable summary, not an evidentiary per-event fact, so a plain column with its own
+small update endpoint (`POST /corex/rental-inspections/{inspection}/overall-notes`,
+`updateOverallNotes()`) fits the existing shape rather than inventing a new one. Rendered as one textarea
++ Save button at the foot of each section's checklist.
+
+### 17.4 Multi-agency note
+
+None of the three additions assume Retha's, HFC's, or any single agency's vocabulary or wording. The
+condition-state SET is fully agency-configurable with a neutral default (§17.1); room notes and overall
+notes are freeform text fields with no agency-specific default content at all.
+
+### 17.5 Scope discipline
+
+Johan was explicit: these three are directly evidenced on his real paper documents and needed no design
+ruling — build them now. Everything else visible on Retha's documents (whether the recording screen gets
+a broader rebuild to match her form's full shape) is Johan's decision, still pending, and is cc5's
+`.ai/specs/rental-inspection-form.md` to own — not touched or anticipated here.

@@ -10,6 +10,7 @@ use App\Models\RentalInspectionDiscrepancy;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
 use App\Models\RentalInspectionPhoto;
+use App\Models\RentalInspectionRoomNote;
 use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
 use App\Services\Images\PropertyImageStorer;
@@ -299,16 +300,15 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeObservation(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
+        // 2026-09-21, Johan from Retha's real paper form — the condition
+        // vocabulary itself (which states exist, which need a reason) is
+        // agency-configurable (RentalInspectionSetting::conditionStatesFor()),
+        // never this hardcoded six-item list.
+        $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
+
         $validated = $request->validate([
             'rental_inspection_item_id' => ['required', 'integer', 'exists:rental_inspection_items,id'],
-            'condition' => ['required', 'string', 'in:' . implode(',', [
-                RentalInspectionObservation::CONDITION_GOOD,
-                RentalInspectionObservation::CONDITION_FAIR,
-                RentalInspectionObservation::CONDITION_DAMAGED,
-                RentalInspectionObservation::CONDITION_NOT_WORKING,
-                RentalInspectionObservation::CONDITION_MISSING,
-                RentalInspectionObservation::CONDITION_OTHER,
-            ])],
+            'condition' => ['required', 'string', Rule::in(array_column($conditionStates, 'key'))],
             'notes' => ['nullable', 'string'],
             'source' => ['required', 'string', 'in:' . implode(',', [
                 RentalInspectionObservation::SOURCE_IN_INSPECTION,
@@ -319,9 +319,11 @@ class RentalInspectionRecordingController extends Controller
             'client_idempotency_key' => ['nullable', 'uuid'],
         ]);
 
-        // §0.3 — a bad rating needs a reason on record.
-        if ($validated['condition'] !== RentalInspectionObservation::CONDITION_GOOD && empty($validated['notes'])) {
-            return response()->json(['message' => 'Notes are required when the condition is not "good".'], 422);
+        // §0.3 — a state that needs a reason (per the agency's OWN
+        // vocabulary) must have one on record. Good needs none; N/A needs
+        // none either — Johan: "not an argument at all."
+        if (RentalInspectionSetting::conditionRequiresNotesFor($rentalInspection->agency_id, $validated['condition']) && empty($validated['notes'])) {
+            return response()->json(['message' => 'Notes are required for this condition.'], 422);
         }
 
         $observation = RentalInspectionObservation::record(array_merge($validated, [
@@ -331,6 +333,89 @@ class RentalInspectionRecordingController extends Controller
         ]));
 
         return response()->json($observation->load('item'));
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/rooms/{room}/mark-na —
+     * Johan, 2026-09-21, from Retha's real paper form: she strikes ENTIRE
+     * rooms out with one big N/A across the table (Bedroom 3, Bedroom 4).
+     * Records one N/A observation per active item in the room, through the
+     * exact same atomic record() path a single-item observation uses — a
+     * genuine conflict with an EARLIER observation on the same item in
+     * this inspection (e.g. already graded "Ceiling: Fair") still raises a
+     * real discrepancy, exactly as it should; this is a bulk convenience
+     * over the one real recording path, never a second one.
+     */
+    public function markRoomNa(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
+    {
+        abort_if($room->property_id !== $rentalInspection->property_id, 404);
+
+        $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
+        abort_unless(
+            collect($conditionStates)->contains('key', RentalInspectionObservation::CONDITION_NA),
+            422,
+            'N/A is not a configured condition for this agency.'
+        );
+
+        $source = match ($rentalInspection->type) {
+            RentalInspection::TYPE_IN => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+            RentalInspection::TYPE_OUT => RentalInspectionObservation::SOURCE_OUT_INSPECTION,
+            default => RentalInspectionObservation::SOURCE_AD_HOC,
+        };
+
+        $items = RentalInspectionItem::where('property_room_id', $room->id)->notRetired()->get();
+
+        $observations = $items->map(fn (RentalInspectionItem $item) => RentalInspectionObservation::record([
+            'agency_id' => $rentalInspection->agency_id,
+            'rental_inspection_id' => $rentalInspection->id,
+            'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $request->user()->id,
+            'condition' => RentalInspectionObservation::CONDITION_NA,
+            'source' => $source,
+        ])->load('item'));
+
+        return response()->json(['observations' => $observations->values()]);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/rooms/{room}/notes —
+     * Johan, 2026-09-21, from Retha's real paper form: every room table
+     * has its own notes box, holding evidence that belongs to the whole
+     * room, not any single item. Immutable, same convention as an
+     * observation (§3.3) — a correction is a NEW row, never an edit; "the
+     * room's current note" is simply the latest one for this inspection.
+     */
+    public function storeRoomNote(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
+    {
+        abort_if($room->property_id !== $rentalInspection->property_id, 404);
+
+        $validated = $request->validate(['note' => ['required', 'string', 'max:4000']]);
+
+        $note = RentalInspectionRoomNote::create([
+            'agency_id' => $rentalInspection->agency_id,
+            'rental_inspection_id' => $rentalInspection->id,
+            'property_room_id' => $room->id,
+            'note' => $validated['note'],
+            'created_by_user_id' => $request->user()->id,
+        ]);
+
+        return response()->json($note, 201);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/overall-notes — Johan,
+     * 2026-09-21, from Retha's real paper form: a single free-text summary
+     * for the whole inspection, at the foot. Plain mutable field on the
+     * inspection itself (like cancel_reason) — editable any time before
+     * completion, not an append-only evidentiary history.
+     */
+    public function updateOverallNotes(Request $request, RentalInspection $rentalInspection): JsonResponse
+    {
+        $validated = $request->validate(['overall_notes' => ['nullable', 'string', 'max:4000']]);
+
+        $rentalInspection->update(['overall_notes' => $validated['overall_notes'] ?? null]);
+
+        return response()->json($rentalInspection->fresh());
     }
 
     /** POST /corex/rental-inspections/{inspection}/observations/{observation}/photos — §14.5, reuses PropertyImageStorer, never a second pipeline. */

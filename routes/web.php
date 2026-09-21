@@ -2859,6 +2859,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // Johan, 2026-09-21, property 5792 — the default room-walking order.
     Route::post('/settings/rental-inspections/room-type-order', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeWalkingOrder'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-order');
+    // §17, Johan 2026-09-21, from Retha's real paper form — the condition vocabulary.
+    Route::post('/settings/rental-inspections/condition-states', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateConditionStates'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.condition-states');
     // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — the spend threshold
     // below which no owner approval is required, agency-configurable.
     Route::get('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'edit'])
@@ -3174,6 +3177,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-awaiting-signature');
         Route::post('/{rentalInspection}/complete', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'complete'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.complete');
+        // §17, Johan 2026-09-21, from Retha's real paper form — N/A as a
+        // bulk room action, per-room notes, and one overall-notes summary.
+        Route::post('/{rentalInspection}/rooms/{room}/mark-na', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'markRoomNa'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.mark-na');
+        Route::post('/{rentalInspection}/rooms/{room}/notes', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeRoomNote'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.notes.store');
+        Route::post('/{rentalInspection}/overall-notes', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateOverallNotes'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.overall-notes.update');
     });
 
     // .ai/specs/rental-work-orders.md §3a/§6a — Rental Fault Reports, its own

@@ -769,4 +769,240 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
         $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertStatus(409);
     }
+
+    // ── §17, Johan 2026-09-21, from Retha's real paper form: N/A, room
+    // notes, overall notes ──────────────────────────────────────────
+
+    private function makeRoomWithItems(int $itemCount = 2): PropertyRoom
+    {
+        $room = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom 3', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        for ($i = 0; $i < $itemCount; $i++) {
+            RentalInspectionItem::create([
+                'agency_id' => $this->agency->id, 'property_id' => $this->property->id, 'property_room_id' => $room->id,
+                'kind' => RentalInspectionItem::KIND_SPACE, 'label' => "Facet $i", 'space_type' => 'Bedroom',
+                'created_by_user_id' => $this->agent->id,
+            ]);
+        }
+
+        return $room;
+    }
+
+    public function test_condition_validation_accepts_na_by_default(): void
+    {
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id,
+            'condition' => RentalInspectionObservation::CONDITION_NA,
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ])->assertOk();
+    }
+
+    /** Johan: N/A is "not an argument at all" — unlike Missing, it needs no reason on record. */
+    public function test_na_does_not_require_notes(): void
+    {
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id,
+            'condition' => RentalInspectionObservation::CONDITION_NA,
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ])->assertOk();
+    }
+
+    public function test_a_condition_key_the_agency_has_removed_is_rejected(): void
+    {
+        RentalInspectionSetting::create([
+            'agency_id' => $this->agency->id,
+            'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false]],
+        ]);
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id,
+            'condition' => RentalInspectionObservation::CONDITION_NA,
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ])->assertStatus(422);
+    }
+
+    /** Retha's Good/OK/Bad — a fully custom 3-state vocabulary, distinct keys, distinct requires_notes. */
+    public function test_a_fully_custom_condition_vocabulary_is_honoured(): void
+    {
+        RentalInspectionSetting::create([
+            'agency_id' => $this->agency->id,
+            'condition_states' => [
+                ['key' => 'good', 'label' => 'Good', 'requires_notes' => false],
+                ['key' => 'ok', 'label' => 'OK', 'requires_notes' => false],
+                ['key' => 'bad', 'label' => 'Bad', 'requires_notes' => true],
+            ],
+        ]);
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'condition' => 'ok',
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ])->assertOk();
+
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'condition' => 'bad',
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ])->assertStatus(422, 'Bad requires a reason for this agency, even though Missing/Damaged do not exist in its vocabulary at all');
+    }
+
+    public function test_mark_room_na_creates_an_observation_for_every_active_item_in_the_room(): void
+    {
+        $room = $this->makeRoomWithItems(2);
+        $inspection = $this->makeInspection();
+
+        $response = $this->postJson(route('corex.rental-inspections.rooms.mark-na', [$inspection, $room]))
+            ->assertOk();
+
+        $this->assertCount(2, $response->json('observations'));
+        $this->assertSame(2, RentalInspectionObservation::where('condition', RentalInspectionObservation::CONDITION_NA)->count());
+    }
+
+    public function test_mark_room_na_skips_retired_items(): void
+    {
+        $room = $this->makeRoomWithItems(2);
+        $retired = RentalInspectionItem::where('property_room_id', $room->id)->first();
+        $retired->update(['is_retired' => true]);
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.rooms.mark-na', [$inspection, $room]))->assertOk();
+
+        $this->assertSame(1, RentalInspectionObservation::where('condition', RentalInspectionObservation::CONDITION_NA)->count());
+    }
+
+    public function test_mark_room_na_is_rejected_when_the_agency_has_removed_na(): void
+    {
+        RentalInspectionSetting::create([
+            'agency_id' => $this->agency->id,
+            'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false]],
+        ]);
+        $room = $this->makeRoomWithItems(1);
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.rooms.mark-na', [$inspection, $room]))->assertStatus(422);
+    }
+
+    public function test_mark_room_na_rejects_a_room_from_a_different_property(): void
+    {
+        $room = $this->makeRoomWithItems(1);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $otherLease = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $otherProperty->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9000, 'start_date' => now(), 'created_by_user_id' => $this->agent->id,
+        ]);
+        $otherInspection = RentalInspection::create([
+            'agency_id' => $this->agency->id, 'lease_id' => $otherLease->id, 'type' => RentalInspection::TYPE_IN,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->postJson(route('corex.rental-inspections.rooms.mark-na', [$otherInspection, $room]))->assertNotFound();
+    }
+
+    /** Johan: "a genuine conflict with an EARLIER observation ... still raises a real discrepancy." */
+    public function test_mark_room_na_after_an_earlier_different_observation_raises_a_discrepancy(): void
+    {
+        $room = $this->makeRoomWithItems(1);
+        $item = RentalInspectionItem::where('property_room_id', $room->id)->first();
+        $inspection = $this->makeInspection();
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $this->agent->id, 'condition' => 'fair', 'notes' => 'x', 'source' => 'in_inspection',
+        ]);
+
+        $this->postJson(route('corex.rental-inspections.rooms.mark-na', [$inspection, $room]))->assertOk();
+
+        $this->assertSame(1, RentalInspectionDiscrepancy::count());
+    }
+
+    public function test_agent_can_save_a_room_note(): void
+    {
+        $room = $this->makeRoomWithItems(1);
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.rooms.notes.store', [$inspection, $room]), [
+            'note' => '3x nails in wall',
+        ])->assertStatus(201)->assertJsonFragment(['note' => '3x nails in wall']);
+
+        $this->assertDatabaseHas('rental_inspection_room_notes', [
+            'rental_inspection_id' => $inspection->id, 'property_room_id' => $room->id, 'note' => '3x nails in wall',
+        ]);
+    }
+
+    /** A correction is a NEW row, matching Observation's own immutability convention (§3.3) — never an edit. */
+    public function test_a_second_room_note_is_a_new_row_not_an_edit(): void
+    {
+        $room = $this->makeRoomWithItems(1);
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.rooms.notes.store', [$inspection, $room]), ['note' => 'First note'])->assertStatus(201);
+        $this->postJson(route('corex.rental-inspections.rooms.notes.store', [$inspection, $room]), ['note' => 'Corrected note'])->assertStatus(201);
+
+        $this->assertSame(2, \App\Models\RentalInspectionRoomNote::where('property_room_id', $room->id)->count());
+    }
+
+    public function test_room_note_rejects_a_room_from_a_different_property(): void
+    {
+        $room = $this->makeRoomWithItems(1);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $otherLease = Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $otherProperty->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9000, 'start_date' => now(), 'created_by_user_id' => $this->agent->id,
+        ]);
+        $otherInspection = RentalInspection::create([
+            'agency_id' => $this->agency->id, 'lease_id' => $otherLease->id, 'type' => RentalInspection::TYPE_IN,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->postJson(route('corex.rental-inspections.rooms.notes.store', [$otherInspection, $room]), ['note' => 'x'])
+            ->assertNotFound();
+    }
+
+    public function test_agent_can_save_overall_notes(): void
+    {
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.overall-notes.update', $inspection), [
+            'overall_notes' => 'Apartment clean, fair condition, partially furnished',
+        ])->assertOk()->assertJsonFragment(['overall_notes' => 'Apartment clean, fair condition, partially furnished']);
+
+        $this->assertSame('Apartment clean, fair condition, partially furnished', $inspection->fresh()->overall_notes);
+    }
+
+    public function test_overall_notes_can_be_cleared(): void
+    {
+        $inspection = $this->makeInspection();
+        $inspection->update(['overall_notes' => 'Something']);
+
+        $this->postJson(route('corex.rental-inspections.overall-notes.update', $inspection), ['overall_notes' => null])
+            ->assertOk();
+
+        $this->assertNull($inspection->fresh()->overall_notes);
+    }
+
+    public function test_tab_payload_exposes_the_agencys_condition_states(): void
+    {
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+
+        $response->assertOk();
+        $keys = collect($response->json('condition_states'))->pluck('key')->all();
+        $this->assertContains('n_a', $keys);
+        $this->assertContains('good', $keys);
+    }
 }

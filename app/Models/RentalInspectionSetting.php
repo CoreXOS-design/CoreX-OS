@@ -118,6 +118,35 @@ class RentalInspectionSetting extends Model
         'Changing Room', 'Studio', 'Yard',
     ];
 
+    /**
+     * Johan, 2026-09-21, from Retha's real paper out-inspection form:
+     * "Missing" means should-be-here-and-isn't (a deposit argument); N/A
+     * means was-never-here (not an argument at all) — two different
+     * meanings the app could previously only say one of. Her form also
+     * uses a different vocabulary entirely (Good / OK / Bad) from ours —
+     * the SET itself is agency-configurable, this constant is only the
+     * starting point for a NEW agency, never forced on Retha's or anyone
+     * else's.
+     *
+     * `requires_notes` generalizes §0.3's old hardcoded "anything but Good
+     * needs a reason" rule beyond a literal 'good' key — an agency that
+     * reduces or renames this set entirely still expresses which of ITS
+     * states need a reason on record.
+     *
+     * @var array<int, array{key: string, label: string, requires_notes: bool}>
+     */
+    public const DEFAULT_CONDITION_STATES = [
+        ['key' => 'good', 'label' => 'Good', 'requires_notes' => false],
+        ['key' => 'fair', 'label' => 'Fair', 'requires_notes' => true],
+        ['key' => 'damaged', 'label' => 'Damaged', 'requires_notes' => true],
+        ['key' => 'not_working', 'label' => 'Not working', 'requires_notes' => true],
+        ['key' => 'missing', 'label' => 'Missing', 'requires_notes' => true],
+        ['key' => 'other', 'label' => 'Other', 'requires_notes' => true],
+        // Johan: "not an argument at all" — unlike every state above it,
+        // N/A needs no justification on record.
+        ['key' => 'n_a', 'label' => 'N/A', 'requires_notes' => false],
+    ];
+
     protected $fillable = [
         'agency_id',
         'fault_report_window_days',
@@ -126,6 +155,7 @@ class RentalInspectionSetting extends Model
         'inspection_feature_labels',
         'room_type_item_defaults',
         'room_type_walking_order',
+        'condition_states',
     ];
 
     protected $casts = [
@@ -135,6 +165,7 @@ class RentalInspectionSetting extends Model
         'inspection_feature_labels' => 'array',
         'room_type_item_defaults' => 'array',
         'room_type_walking_order' => 'array',
+        'condition_states' => 'array',
     ];
 
     public static function faultReportWindowDaysFor(?int $agencyId): int
@@ -345,5 +376,51 @@ class RentalInspectionSetting extends Model
         }
 
         return ($position * 1000) + $numeric;
+    }
+
+    /**
+     * The agency's own condition-state vocabulary — every state an
+     * inspector can grade an item as, in the order they're offered.
+     * Read-time default pattern like every other resolver here: an agency
+     * that hasn't customized this gets DEFAULT_CONDITION_STATES outright.
+     *
+     * Deliberately does NOT intersect against any external catalog (unlike
+     * inspectionFeatureLabelsFor()/roomTypeWalkingOrderFor()) — this
+     * vocabulary belongs entirely to the agency, not to a shared property
+     * catalog, so a saved custom set (e.g. Retha's Good/OK/Bad) is trusted
+     * as-is once it's shaped correctly. Malformed rows (missing key/label)
+     * are dropped rather than crashing a read.
+     *
+     * @return array<int, array{key: string, label: string, requires_notes: bool}>
+     */
+    public static function conditionStatesFor(?int $agencyId): array
+    {
+        $states = null;
+        if ($agencyId) {
+            $states = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('condition_states');
+            $states = is_string($states) ? json_decode($states, true) : $states;
+        }
+
+        if (! is_array($states) || $states === []) {
+            return self::DEFAULT_CONDITION_STATES;
+        }
+
+        return array_values(array_filter($states, fn ($s) => is_array($s) && ! empty($s['key']) && isset($s['label'])));
+    }
+
+    /**
+     * §0.3 — does picking this condition need a reason on record. Johan on
+     * N/A specifically: "not an argument at all" — unlike every problem
+     * state, it needs no justification. A condition key absent from the
+     * agency's own configured set (shouldn't happen given real UI input,
+     * but defends a stale/replayed request) defaults to TRUE — an unknown
+     * state is treated as needing an explanation, never silently waved
+     * through.
+     */
+    public static function conditionRequiresNotesFor(?int $agencyId, string $conditionKey): bool
+    {
+        $state = collect(self::conditionStatesFor($agencyId))->firstWhere('key', $conditionKey);
+
+        return $state === null ? true : (bool) ($state['requires_notes'] ?? true);
     }
 }

@@ -417,6 +417,149 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $this->assertLessThan($bedroom1, $kitchen, 'Kitchen sits before Bedroom in the default walking order');
     }
 
+    // ── Job Four: condition states — 2026-09-21, from Retha's real paper form ──
+
+    public function test_default_condition_states_include_the_existing_six_and_na(): void
+    {
+        $keys = array_column(RentalInspectionSetting::DEFAULT_CONDITION_STATES, 'key');
+
+        $this->assertSame(['good', 'fair', 'damaged', 'not_working', 'missing', 'other', 'n_a'], $keys);
+    }
+
+    public function test_an_agency_with_no_row_gets_the_default_condition_states(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        $this->assertSame(
+            RentalInspectionSetting::DEFAULT_CONDITION_STATES,
+            RentalInspectionSetting::conditionStatesFor($agency->id)
+        );
+    }
+
+    /** Retha's real vocabulary — completely different keys and labels from the shipped default. */
+    public function test_an_agency_can_save_a_fully_custom_condition_vocabulary(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+
+        $response = $this->actingAs($admin)->post(route('corex.settings.rental-inspections.condition-states'), [
+            'condition_states_submitted' => '1',
+            'condition_states' => [
+                ['key' => 'good', 'label' => 'Good', 'requires_notes' => '0'],
+                ['key' => 'ok', 'label' => 'OK', 'requires_notes' => '0'],
+                ['key' => 'bad', 'label' => 'Bad', 'requires_notes' => '1'],
+            ],
+        ]);
+
+        $response->assertRedirect(route('corex.settings.rental-inspections.edit'));
+        $response->assertSessionHasNoErrors();
+
+        $saved = RentalInspectionSetting::conditionStatesFor($agency->id);
+        $this->assertSame(['good', 'ok', 'bad'], array_column($saved, 'key'));
+        $this->assertFalse(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'ok'));
+        $this->assertTrue(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'bad'));
+    }
+
+    public function test_a_row_with_a_blank_label_is_dropped(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+
+        $this->actingAs($admin)->post(route('corex.settings.rental-inspections.condition-states'), [
+            'condition_states_submitted' => '1',
+            'condition_states' => [
+                ['key' => 'good', 'label' => 'Good', 'requires_notes' => '0'],
+                ['key' => 'blank_one', 'label' => '', 'requires_notes' => '0'],
+            ],
+        ]);
+
+        $this->assertSame(['good'], array_column(RentalInspectionSetting::conditionStatesFor($agency->id), 'key'));
+    }
+
+    public function test_duplicate_keys_keep_only_the_first(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+
+        $this->actingAs($admin)->post(route('corex.settings.rental-inspections.condition-states'), [
+            'condition_states_submitted' => '1',
+            'condition_states' => [
+                ['key' => 'good', 'label' => 'Good', 'requires_notes' => '0'],
+                ['key' => 'good', 'label' => 'Duplicate Good', 'requires_notes' => '1'],
+            ],
+        ]);
+
+        $saved = RentalInspectionSetting::conditionStatesFor($agency->id);
+        $this->assertCount(1, $saved);
+        $this->assertSame('Good', $saved[0]['label']);
+    }
+
+    /** An agency with zero condition states could never record a single observation. */
+    public function test_saving_zero_condition_states_is_rejected(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+        RentalInspectionSetting::create(['agency_id' => $agency->id, 'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false]]]);
+
+        $response = $this->actingAs($admin)->post(route('corex.settings.rental-inspections.condition-states'), [
+            'condition_states_submitted' => '1',
+            'condition_states' => [],
+        ]);
+
+        $response->assertSessionHasErrors();
+        $this->assertNotEmpty(RentalInspectionSetting::conditionStatesFor($agency->id));
+    }
+
+    public function test_the_condition_states_saver_never_wipes_the_vocabulary_the_request_never_rendered(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+        RentalInspectionSetting::create(['agency_id' => $agency->id, 'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false]]]);
+
+        $response = $this->actingAs($admin)->post(route('corex.settings.rental-inspections.condition-states'), [
+            // No condition_states_submitted marker.
+        ]);
+
+        $response->assertSessionHasErrors();
+        $this->assertSame(['good'], array_column(RentalInspectionSetting::conditionStatesFor($agency->id), 'key'));
+    }
+
+    public function test_a_second_agencys_condition_states_survive_another_agencys_save(): void
+    {
+        $agencyA = $this->newAgency('Agency A');
+        RentalInspectionSetting::create(['agency_id' => $agencyA->id, 'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false], ['key' => 'ok', 'label' => 'OK', 'requires_notes' => false]]]);
+
+        $agencyB = $this->newAgency('Agency B');
+        $adminB = $this->admin($agencyB);
+
+        $this->actingAs($adminB)->post(route('corex.settings.rental-inspections.condition-states'), [
+            'condition_states_submitted' => '1',
+            'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => '0']],
+        ]);
+
+        $this->assertSame(['good'], array_column(RentalInspectionSetting::conditionStatesFor($agencyB->id), 'key'));
+        $this->assertSame(['good', 'ok'], array_column(RentalInspectionSetting::conditionStatesFor($agencyA->id), 'key'), 'Agency A must be untouched by Agency B\'s save');
+    }
+
+    public function test_condition_requires_notes_for_an_unknown_key_defaults_to_true(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        $this->assertTrue(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'some_key_nobody_configured'));
+    }
+
+    /** Johan: N/A is "not an argument at all" — the one exception alongside Good. */
+    public function test_good_and_na_do_not_require_notes_by_default_every_other_state_does(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        $this->assertFalse(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'good'));
+        $this->assertFalse(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'n_a'));
+        foreach (['fair', 'damaged', 'not_working', 'missing', 'other'] as $key) {
+            $this->assertTrue(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, $key), "'{$key}' should require a reason by default");
+        }
+    }
+
     // ── Shared: the edit screen renders both sections with real state ──
 
     public function test_the_settings_screen_renders_current_selections_not_blanks(): void

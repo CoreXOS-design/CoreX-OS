@@ -61,6 +61,11 @@ class RentalInspectionSettingsController extends Controller
             // refusal_reason_presets above: a full-permutation reorder of
             // every space type has no fitting wizard control type.
             'roomTypeWalkingOrder' => RentalInspectionSetting::roomTypeWalkingOrderFor($agencyId),
+            // §17, Johan 2026-09-21, from Retha's real paper out-inspection
+            // form: her vocabulary (Good/OK/Bad) differs entirely from ours
+            // (Good/Fair/Damaged/Not working/Missing/Other/N/A) — the SET
+            // itself is agency-configurable, never forced either way.
+            'conditionStates' => RentalInspectionSetting::conditionStatesFor($agencyId),
         ]);
     }
 
@@ -213,5 +218,56 @@ class RentalInspectionSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Room walking order saved.');
+    }
+
+    /**
+     * §17, Johan 2026-09-21, from Retha's real paper out-inspection form:
+     * her vocabulary is Good/OK/Bad, ours is Good/Fair/Damaged/Not
+     * working/Missing/Other/N/A — the SET itself is agency-configurable.
+     * Own narrow saver, same discipline as the three above. A row's `key`
+     * is never re-derived from its label — an existing state's key is
+     * carried as a hidden field so it never drifts out from under
+     * observations already recorded against it; only a brand-new row (the
+     * edit form's own "+ Add" button) gets a fresh generated key.
+     */
+    public function updateConditionStates(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('condition_states_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['condition_states' => 'That did not save — please try again.']);
+        }
+
+        $submitted = $request->input('condition_states', []);
+        $seenKeys = [];
+        $states = [];
+        foreach ((array) $submitted as $row) {
+            $key = trim((string) ($row['key'] ?? ''));
+            $label = trim((string) ($row['label'] ?? ''));
+            if ($key === '' || $label === '' || in_array($key, $seenKeys, true)) {
+                continue;
+            }
+            $seenKeys[] = $key;
+            $states[] = [
+                'key' => $key,
+                'label' => $label,
+                'requires_notes' => ($row['requires_notes'] ?? '0') === '1',
+            ];
+        }
+
+        // Never save an empty vocabulary — an agency with zero condition
+        // states could never record a single observation.
+        if ($states === []) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['condition_states' => 'At least one condition state is required.']);
+        }
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['condition_states' => $states],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Condition states saved.');
     }
 }
