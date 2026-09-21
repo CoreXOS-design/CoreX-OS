@@ -330,6 +330,7 @@ class RentalApplicationQualifyingSetting extends Model
         'required_field_keys', 'marital_status_options',
         'hidden_field_keys', 'field_label_overrides', 'field_help_text_overrides', 'field_order',
         'credit_bureau_name',
+        'tenanted_label',
     ];
 
     protected $casts = [
@@ -835,6 +836,34 @@ class RentalApplicationQualifyingSetting extends Model
         $value = $row ? trim((string) $row->credit_bureau_name) : '';
 
         return $value !== '' ? $value : null;
+    }
+
+    /** Sensible default for a brand-new agency — Johan's own words from his live walk. */
+    public const DEFAULT_TENANTED_LABEL = 'Rented Out';
+
+    /**
+     * Johan, 2026-09-21, from his own live walk — an approved application
+     * with an active linked lease reads as merely "Approved" everywhere,
+     * indistinguishable from a decision made last week with no tenant yet.
+     * The wording for that further state is agency-configurable, same
+     * convention as credit_bureau_name immediately above: null (no row, or
+     * an unset column) falls through to DEFAULT_TENANTED_LABEL, never a
+     * hardcoded string in a view. Deliberately ONE label, used identically
+     * on the applications list tile, the application detail screen, and
+     * the contact record — Johan's own instruction: "if an agent sees
+     * 'tenant' in one place and 'approved' in another, we have made it
+     * worse."
+     */
+    public static function tenantedLabelFor(?int $agencyId): string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_TENANTED_LABEL;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+        $value = $row ? trim((string) $row->tenanted_label) : '';
+
+        return $value !== '' ? $value : self::DEFAULT_TENANTED_LABEL;
     }
 
     /**

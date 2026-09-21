@@ -4491,6 +4491,8 @@
                     itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
                     seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
+                    roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
+                    roomsApplyDefaultOrder: '{{ route('corex.properties.rental-inspection-rooms.apply-default-order', $property) }}',
                     // Base for the inspection-scoped actions below — each one appends
                     // /{id}/... itself, since which inspection is current changes at
                     // runtime (a new one can be started without a page reload).
@@ -4595,14 +4597,73 @@
                                 x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
                     </div>
 
-                    <template x-for="item in activeItems()" :key="item.id">
-                        <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
-                            <span class="text-sm" style="color:var(--text-primary);" x-text="itemDisplayLabel(item)"></span>
-                            <div class="flex items-center gap-3">
-                                <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
-                                <button type="button" :disabled="itemBusy" @click="retireItem(item)"
-                                        class="text-xs font-semibold" style="color:var(--ds-crimson);">Retire</button>
+                    {{-- 2026-09-21, Johan on property 5792 — "no logical way to line
+                         up the rooms as the inspection goes." Rooms already default-
+                         order on creation (RentalInspectionSetting::defaultRoomSortOrderFor()),
+                         but existing rooms keep whatever order they already have —
+                         never silently recomputed by a deploy. This is the explicit,
+                         one-click way to bring THIS property's existing rooms onto
+                         the agency's current walking order. Only worth showing once
+                         there's more than one room to reorder. --}}
+                    <div x-show="roomGroups().filter(g => g.room).length > 1" class="flex justify-end">
+                        <button type="button" :disabled="itemBusy" @click="applyDefaultRoomOrder()"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">
+                            Apply default order
+                        </button>
+                    </div>
+
+                    {{-- 2026-09-21, Johan on property 5792: a room's name was printed
+                         once per facet item (15 rows, 3 rooms, "Bedroom 2 —" repeated
+                         5 times) — pure repeated metadata with nothing the agent needs
+                         to read more than once. Grouped under one heading per room
+                         instead, room name printed ONCE. Grouping keys on
+                         item.room.id — the real PropertyRoom foreign key — never on
+                         the room's free-text label, so two rooms named with different
+                         casing ("Bedroom 2" vs "bedroom 2") are never merged or split
+                         by string comparison; they're already distinct rows before
+                         any label is read. Items with no room (meters, and legacy
+                         spaces still awaiting a room type) fall into one trailing
+                         "General" group rather than floating unheaded. --}}
+                    <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
+                        <div class="space-y-1 pt-2">
+                            <div class="flex items-center justify-between">
+                                <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
+                                    x-text="group.room ? group.room.label : 'General'"></h4>
+                                {{-- Johan: "the agent must be able to reorder rooms
+                                     themselves and have it stick." --}}
+                                <div x-show="group.room" class="flex items-center gap-1">
+                                    <button type="button" :disabled="itemBusy" @click="moveRoomUp(group.room)"
+                                            class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move up</button>
+                                    <button type="button" :disabled="itemBusy" @click="moveRoomDown(group.room)"
+                                            class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move down</button>
+                                </div>
                             </div>
+                            <template x-for="item in group.items" :key="item.id">
+                                <div class="flex items-center justify-between py-1.5 pl-3" style="border-bottom:1px solid var(--border);">
+                                    <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                                    <div class="flex items-center gap-3">
+                                        {{-- 2026-09-21 — a space created before the room-type
+                                             picker existed has no room and no space_type; give
+                                             it one retroactively instead of leaving it stuck
+                                             with an empty checklist forever. --}}
+                                        <template x-if="item.kind === 'space' && !item.room && !item.space_type">
+                                            <div class="flex items-center gap-1">
+                                                <select x-model="assignTypeChoice[item.id]" class="prop-input text-xs" style="max-width:9rem;">
+                                                    <option value="">Give it a room type…</option>
+                                                    @foreach(config('property-spaces.all_space_types', []) as $spaceType)
+                                                        <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <button type="button" :disabled="itemBusy || !assignTypeChoice[item.id]" @click="assignType(item)"
+                                                        class="text-xs font-semibold" style="color:var(--brand-button,#0ea5e9);">Set</button>
+                                            </div>
+                                        </template>
+                                        <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
+                                        <button type="button" :disabled="itemBusy" @click="retireItem(item)"
+                                                class="text-xs font-semibold" style="color:var(--ds-crimson);">Retire</button>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
                     </template>
 
@@ -4611,9 +4672,20 @@
                             <option value="space">Space</option>
                             <option value="meter">Meter</option>
                         </select>
+                        {{-- Room type — only meaningful for a Space; a Meter has no
+                             room. Sourced from the real PHP config, not the JS copy
+                             of this list elsewhere on this page — that copy has been
+                             found to drift for a DIFFERENT catalog (feature labels),
+                             so this picker renders server-side rather than trust it. --}}
+                        <select x-show="newItem.kind === 'space'" x-model="newItem.space_type" class="prop-input" style="max-width:10rem;">
+                            <option value="">Room type…</option>
+                            @foreach(config('property-spaces.all_space_types', []) as $spaceType)
+                                <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                            @endforeach
+                        </select>
                         <input type="text" x-model="newItem.label" placeholder="e.g. Bedroom 2, Water meter" maxlength="191"
                                class="prop-input flex-1" @keydown.enter.prevent="addItem()">
-                        <button type="submit" :disabled="itemBusy || !newItem.label.trim()"
+                        <button type="submit" :disabled="itemBusy || !newItem.label.trim() || (newItem.kind === 'space' && !newItem.space_type)"
                                 class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">
                             Add
                         </button>
@@ -4827,29 +4899,134 @@
                 outInspectionRecorded: config.inspectionData.out_inspection_recorded,
                 itemError: '',
                 itemBusy: false,
-                newItem: { kind: 'space', label: '' },
+                newItem: { kind: 'space', label: '', space_type: '' },
+                // 2026-09-21 — one pending room-type choice per legacy
+                // typeless item, keyed by item id (several can be mid-pick
+                // at once without clobbering each other).
+                assignTypeChoice: {},
 
                 activeItems() { return this.items.filter(i => !i.is_retired); },
-                // Stage 2 — a seeded facet item's own label is just the
-                // fixture name ("Ceiling"); the room it belongs to is a
-                // separate join (item.room), not baked into the string.
-                // Prefix it here so the still-flat list (pre-Stage-3) reads
-                // as "Bedroom 1 — Ceiling" instead of an unlabelled repeat
-                // of "Ceiling" once per room. A manually-added or pre-Stage-2
-                // item has no room and falls back to its own bare label.
-                itemDisplayLabel(item) { return item.room ? `${item.room.label} — ${item.label}` : item.label; },
+                // 2026-09-21, Johan on property 5792 — replaces the old flat
+                // "Bedroom 2 — Ceiling" x5 list with one heading per room and
+                // its facets nested beneath (itemDisplayLabel() is gone; both
+                // callers render item.label directly under the group heading
+                // now). Keys on item.room.id — the real PropertyRoom foreign
+                // key — never on item.room.label, so casing/naming
+                // differences in an agent's free-text room names can never
+                // merge or split a group; two items either share the same
+                // room_id or they don't, full stop. Groups sort by
+                // group.room.sort_order ascending (PropertyRoom's own
+                // column) — today that's still creation order (the room-
+                // reorder feature is separate, upcoming work), but every
+                // consumer of this method picks up a persisted reorder for
+                // free once that lands, with no further change here. Items
+                // with no room (meters, and legacy spaces still awaiting a
+                // room type) land in one trailing "General" group.
+                roomGroups() {
+                    const byRoom = new Map();
+                    const general = [];
+                    for (const item of this.activeItems()) {
+                        if (item.room) {
+                            if (!byRoom.has(item.room.id)) byRoom.set(item.room.id, { room: item.room, items: [] });
+                            byRoom.get(item.room.id).items.push(item);
+                        } else {
+                            general.push(item);
+                        }
+                    }
+                    const groups = Array.from(byRoom.values()).sort((a, b) => (a.room.sort_order ?? 0) - (b.room.sort_order ?? 0));
+                    if (general.length) groups.push({ room: null, items: general });
+                    return groups;
+                },
+
+                // 2026-09-21, Johan on property 5792 — "the agent must be
+                // able to reorder rooms themselves and have it stick."
+                // Swaps this room with its neighbour in the CURRENT rendered
+                // order, then persists the property's full room order in one
+                // call — roomGroups() already sorts by room.sort_order, so
+                // updating each item's embedded room.sort_order locally is
+                // enough to re-render immediately, no full page reload.
+                moveRoomUp(room) { this._moveRoom(room, -1); },
+                moveRoomDown(room) { this._moveRoom(room, 1); },
+                _moveRoom(room, delta) {
+                    const ids = this.roomGroups().filter(g => g.room).map(g => g.room.id);
+                    const from = ids.indexOf(room.id);
+                    const to = from + delta;
+                    if (from === -1 || to < 0 || to >= ids.length) return;
+                    const tmp = ids[from];
+                    ids[from] = ids[to];
+                    ids[to] = tmp;
+                    this._persistRoomOrder(ids);
+                },
+                async _persistRoomOrder(roomIds) {
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.roomsReorder, { room_ids: roomIds });
+                        this._applyRoomSortOrders(result.rooms);
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+                // Johan: existing rooms keep their sort_order until an agent
+                // explicitly asks for this — never silently recomputed by a
+                // deploy. One-click, explicit, idempotent.
+                async applyDefaultRoomOrder() {
+                    if (!window.confirm('Apply the agency default room order to this property\'s existing rooms? This only reorders rooms — nothing else changes.')) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.roomsApplyDefaultOrder, {});
+                        this._applyRoomSortOrders(result.rooms);
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+                _applyRoomSortOrders(rooms) {
+                    const bySortOrder = new Map(rooms.map(r => [r.id, r.sort_order]));
+                    this.items.forEach(item => {
+                        if (item.room && bySortOrder.has(item.room.id)) {
+                            item.room.sort_order = bySortOrder.get(item.room.id);
+                        }
+                    });
+                },
 
                 async addItem() {
                     const label = this.newItem.label.trim();
                     if (!label) return;
+                    if (this.newItem.kind === 'space' && !this.newItem.space_type) return;
                     this.itemBusy = true;
                     this.itemError = '';
                     try {
-                        const item = await this._post(this.inspectionUrls.itemStore, {
+                        // 2026-09-21 — a Space add now returns the checklist rows
+                        // created under its new room, not the bare space itself;
+                        // a Meter add still returns its own one bare item. Both
+                        // come back the same shape ({items: [...]}) so this push
+                        // path covers both without branching.
+                        const result = await this._post(this.inspectionUrls.itemStore, {
                             kind: this.newItem.kind, label,
+                            space_type: this.newItem.kind === 'space' ? this.newItem.space_type : null,
                         });
-                        this.items.push(item);
+                        this.items.push(...result.items);
                         this.newItem.label = '';
+                        this.newItem.space_type = '';
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // 2026-09-21 — retrofit a room type onto a legacy item that has
+                // neither (created before this fix). Adds this room's new
+                // checklist items and marks the old bare item retired locally,
+                // matching what the server just did to it.
+                async assignType(item) {
+                    const spaceType = this.assignTypeChoice[item.id];
+                    if (!spaceType) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(`${this.inspectionUrls.itemStore}/${item.id}/assign-type`, {
+                            space_type: spaceType,
+                        });
+                        this.items.push(...result.items);
+                        item.is_retired = true;
+                        delete this.assignTypeChoice[item.id];
                     } catch (e) { this.itemError = e.message; }
                     finally { this.itemBusy = false; }
                 },
