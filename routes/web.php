@@ -4098,6 +4098,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
         Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
         Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
+        Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->name('rental-inspection-items.seed-from-advertising');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new
         // property or a type-change draft still saves its rental fields

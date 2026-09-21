@@ -4489,6 +4489,7 @@
                 data: {{ Js::from($property->rentalImagesStructure()) }},
                 inspectionUrls: {
                     itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
+                    seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
                     // Base for the inspection-scoped actions below — each one appends
                     // /{id}/... itself, since which inspection is "current" changes at
@@ -4563,11 +4564,17 @@
                          as broken rather than unconfigured. This is the checklist an
                          in/out inspection walks; with zero rows here, both of those
                          panels below have nothing to record against either. --}}
-                    <p x-show="!activeItems().length" class="text-xs" style="color:var(--text-muted);">
-                        No inspection items yet. Add the rooms and meters this property needs checked —
-                        e.g. "Bedroom 1", "Water meter" — using the form below. In and Out Inspection
-                        can't record anything until at least one item exists here.
-                    </p>
+                    <div x-show="!activeItems().length" class="space-y-2">
+                        <p class="text-xs" style="color:var(--text-muted);">
+                            No inspection items yet. Build this property's inspection form from its
+                            advertising Spaces and ticked Features, or add rooms and meters by hand
+                            below — e.g. "Bedroom 1", "Water meter". In and Out Inspection can't record
+                            anything until at least one item exists here.
+                        </p>
+                        <button type="button" :disabled="seedBusy" @click="seedFromAdvertising()"
+                                class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
+                    </div>
 
                     <template x-for="item in activeItems()" :key="item.id">
                         <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
@@ -4829,6 +4836,21 @@
                         item.is_retired = true;
                     } catch (e) { this.itemError = e.message; }
                     finally { this.itemBusy = false; }
+                },
+
+                // Stage 2 — Johan: "use the advertising details to build the
+                // inspection report as a basic." One-time; the server itself
+                // refuses a second call (409), surfaced here as itemError.
+                seedBusy: false,
+                async seedFromAdvertising() {
+                    if (!window.confirm('Build this property\'s inspection form from its advertising Spaces and ticked Features? This only happens once — after this, the form is edited by hand.')) return;
+                    this.seedBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.seedFromAdvertising, {});
+                        this.items.push(...result.items.filter(i => !this.items.some(existing => existing.id === i.id)));
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.seedBusy = false; }
                 },
 
                 // ── In/out inspections — recording (§14.1/§14.2, same endpoints a

@@ -93,6 +93,26 @@ class RentalInspectionRecordingController extends Controller
     }
 
     /**
+     * POST /corex/properties/{property}/rental-inspection-items/seed-from-advertising
+     * — Stage 2, Johan: "use the advertising details to build the
+     * inspection report as a basic." One-time only — RentalInspectionFormSeeder
+     * itself refuses a second call, this action just surfaces that as a 409.
+     */
+    public function seedFromAdvertising(Request $request, Property $property, \App\Services\Rentals\RentalInspectionFormSeeder $seeder): JsonResponse
+    {
+        try {
+            $seeder->seedFromAdvertising($property, $request->user());
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+
+        return response()->json([
+            'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->orderBy('id')->get(),
+            'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->get(),
+        ]);
+    }
+
+    /**
      * POST /corex/rental-inspections/{inspection}/observations — the ONE
      * path (§14.1 fix 2): RentalInspectionObservation::record() creates the
      * observation and runs discrepancy detection atomically.

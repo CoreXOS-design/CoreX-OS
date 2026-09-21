@@ -725,6 +725,7 @@ class Property extends Model
         'features_json_meta'  => 'array',
         'pet_friendly'        => 'boolean',
         'spaces_json'         => 'array',
+        'rental_inspection_form_seeded_at' => 'datetime',
         'published_at'        => 'datetime',
         'p24_imported_at'      => 'datetime',
         'price'               => 'integer',
