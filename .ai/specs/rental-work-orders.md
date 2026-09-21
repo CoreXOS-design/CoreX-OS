@@ -526,11 +526,22 @@ rental_work_order_photos             -- evidence photos — reported-state AND c
 
 rental_work_order_settings            -- one row per agency, §8
   id, agency_id (unique)
-  completion_requires_photo             -- bool, default true — Johan's ruling: "photos of the
-                                        --   work conducted." An agency CAN turn this off (every
-                                        --   threshold is agency-configurable per the task's own
-                                        --   instruction), but the sensible default matches the
-                                        --   ruling, not a weaker posture.
+  completion_requires_photo             -- bool, default false — CORRECTED 2026-09-21, Johan:
+                                        --   "some repairs will not carry photo evidence - broken
+                                        --   gate motor. nothing to take a pic of that will mean
+                                        --   anything, and you cant have a tenant or agent going
+                                        --   and fiddling with a gate motor to take a pic of a
+                                        --   replaced pc board as example." A mandatory photo
+                                        --   pushed people into staging a pointless picture or
+                                        --   physically interfering with equipment they should not
+                                        --   touch. The capability and the setting both stay — an
+                                        --   agency that wants photo evidence on every job can still
+                                        --   switch this on — only the shipped default flipped, so a
+                                        --   new agency (and agency 1, which had no stored row and
+                                        --   so was silently inheriting the old default) is not
+                                        --   blocked by a rule Johan has now ruled wrong. This
+                                        --   replaces the original default-true ruling below (§3.4,
+                                        --   §8) — do not reinstate it as an "oversight fix."
   overdue_reminder_days                 -- nullable int, default 3 — days since 'ordered' with no
                                         --   status change before the internal reminder
                                         --   notification (§4) fires. [cc4 design call — a
@@ -673,12 +684,14 @@ other single column here.
   is captured and §3.4b for the threshold below which it isn't required at all.
 - **`in_progress`** — work has started but isn't finished. Optional stage — a quick fix may skip
   straight to `completed`.
-- **`completed`** — **requires, per Johan's ruling ("photos of the work conducted"): at least one
-  `rental_work_order_photos` row with `photo_type='completed'`, gated by
-  `rental_work_order_settings.completion_requires_photo`** (default on). Also requires `paid_by` to be
-  set to something other than the implicit "nothing recorded" state — an agency-configurable choice
-  whether this is a hard block or a soft warning is left to build time, but the requirement itself (photo
-  + payer, before completion) is not optional in this spec's intent.
+- **`completed`** — a "completed" photo is invited, not required, by default: **gated by
+  `rental_work_order_settings.completion_requires_photo`** (default **off**, corrected 2026-09-21 —
+  see §3.1's own note; an agency that wants to insist on photo evidence for every job can still turn
+  this on). When it is on, at least one `rental_work_order_photos` row with `photo_type='completed'`
+  is required before completion. Also requires `paid_by` to be set to something other than the
+  implicit "nothing recorded" state — an agency-configurable choice whether this is a hard block or a
+  soft warning is left to build time, but the payer requirement itself is not optional in this spec's
+  intent.
 - **`cancelled`** — logged in error, or the issue turned out not to need action. `cancelled_at`/
   `cancelled_by_user_id`/`cancel_reason` (required text) recorded. A cancelled work order is never
   deleted once anything has been logged against it (§3.1's soft-delete gate) — it stays visible,
@@ -1331,8 +1344,10 @@ test, which is itself evidence the schema is shaped correctly rather than patche
 
 ## 8. Agency settings — every threshold configurable, sensible defaults, never hardcoded
 
-`rental_work_order_settings` (§3.1): `completion_requires_photo` (default **true**, matching Johan's
-"photos of the work conducted" ruling — an agency may weaken this, the default does not), and
+`rental_work_order_settings` (§3.1): `completion_requires_photo` (default **false**, corrected
+2026-09-21 — Johan: a mandatory photo has no meaningful use for some repairs, e.g. a gate motor,
+and pushes people into staging a pointless picture or interfering with equipment they shouldn't
+touch. An agency may still switch this on if it wants photo evidence on every job), and
 `overdue_reminder_days` (default **3**, a `[cc4 design call]` since Johan didn't specify a number —
 flagged for Johan to confirm or adjust at build time, same treatment `lease_settings.expiry_notice_
 window_days` gets for its own unconfirmed number in `leases.md` §5.2, though that one is pending legal

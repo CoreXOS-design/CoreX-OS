@@ -256,10 +256,11 @@ class RentalWorkOrder extends Model
     }
 
     /**
-     * §3.4 — requires a 'completed' photo (gated by the agency's own
-     * completion_requires_photo setting, default on) and paid_by set. Both
-     * are Johan's own ruling ("photos of the work conducted"), not optional
-     * in this spec's intent.
+     * §3.4 — a 'completed' photo is invited, not required, by default
+     * (gated by the agency's own completion_requires_photo setting,
+     * default off — corrected 2026-09-21, Johan: not every repair has a
+     * meaningful photo, e.g. a gate motor). An agency may still turn this
+     * on. paid_by is always required, no setting behind it.
      */
     public function complete(User $by, array $attributes): void
     {

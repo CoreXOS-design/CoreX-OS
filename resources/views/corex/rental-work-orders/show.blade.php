@@ -201,7 +201,11 @@
                 <label class="text-xs font-medium">Completion notes</label>
                 <textarea name="completion_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);"></textarea>
             </div>
-            <p class="text-xs" style="color: var(--text-muted);">A "completed" photo is required below before this can be saved, unless your agency has turned that off in settings.</p>
+            @if($completionRequiresPhoto)
+                <p class="text-xs" style="color: var(--text-muted);">A "completed" photo is required below before this can be saved. Your agency has this switched on in settings.</p>
+            @else
+                <p class="text-xs" style="color: var(--text-muted);">A "completed" photo below is optional — add one if it's useful evidence, but not every repair has a meaningful photo to take.</p>
+            @endif
             <button type="submit" class="corex-btn-primary text-xs">Mark complete</button>
         </form>
         @endpermission

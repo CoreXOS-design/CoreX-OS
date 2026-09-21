@@ -16,7 +16,7 @@ class RentalWorkOrderSetting extends Model
 
     public const DEFAULT_OVERDUE_REMINDER_DAYS = 3;
     public const DEFAULT_NO_APPROVAL_SPEND_THRESHOLD = 500.00;
-    public const DEFAULT_COMPLETION_REQUIRES_PHOTO = true;
+    public const DEFAULT_COMPLETION_REQUIRES_PHOTO = false;
 
     protected $fillable = [
         'agency_id',
@@ -32,9 +32,11 @@ class RentalWorkOrderSetting extends Model
     ];
 
     /**
-     * §3.4, Stage 4 — Johan's ruling: "photos of the work conducted." An
-     * agency CAN turn this off; the default matches the ruling, not a
-     * weaker posture.
+     * §3.1/§3.4/§8 — CORRECTED 2026-09-21, Johan: "some repairs will not
+     * carry photo evidence - broken gate motor... you cant have a tenant
+     * or agent going and fiddling with a gate motor to take a pic of a
+     * replaced pc board." Default is now off; an agency that wants photo
+     * evidence on every job can still switch this on per-agency.
      */
     public static function completionRequiresPhotoFor(?int $agencyId): bool
     {

@@ -330,9 +330,19 @@ class RentalApplicationAuthorisationController extends Controller
         // screen ahead of the decision being made.
         $declineReasonTemplates = \App\Models\RentalApplicationDeclineReasonTemplate::activeFor($agencyId);
 
+        // .ai/specs/rental-application-field-config.md — the shared review/
+        // authorisation template's "Submitted Application" summary resolves
+        // every row's label/order/visibility from this, unconditionally
+        // (review.blade.php:766). RentalApplicationReviewController computes
+        // it (its own show(), displayFieldConfig()) but this controller
+        // never did, so any authoriser opening an application 500'd on an
+        // undefined variable — the first thing Johan was going to click
+        // from his 21-item authorisation queue.
+        $fieldConfig = $rentalApplication->displayFieldConfig();
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
-            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries', 'declineReasonTemplates'
+            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries', 'declineReasonTemplates', 'fieldConfig'
         ));
     }
 

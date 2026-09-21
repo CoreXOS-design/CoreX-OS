@@ -155,7 +155,10 @@ class RentalWorkOrderController extends Controller
             'createdByUser', 'photos.uploadedBy', 'updates.createdByUser', 'approvals.recordedByUser',
         ]);
 
-        return view('corex.rental-work-orders.show', ['workOrder' => $rentalWorkOrder]);
+        return view('corex.rental-work-orders.show', [
+            'workOrder' => $rentalWorkOrder,
+            'completionRequiresPhoto' => RentalWorkOrderSetting::completionRequiresPhotoFor($rentalWorkOrder->agency_id),
+        ]);
     }
 
     /** Editable only while status='reported' — the reportable facts, not the lifecycle. */
