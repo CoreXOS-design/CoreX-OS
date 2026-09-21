@@ -56,6 +56,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // that goes stale. Denies PUT/PATCH/DELETE for an assistant whose agent switched
             // the toggle off; inert (one boolean) for everyone else.
             \App\Http\Middleware\DenyAssistantRecordMutation::class,
+            // AT-423 — a sub-user whose password an admin reset must choose a new one first.
+            // Inert (one boolean) for everyone else.
+            \App\Http\Middleware\EnsurePasswordChanged::class,
         ]);
 
         // AT-321 — attribute API-driven property writes (mobile app etc.) too.

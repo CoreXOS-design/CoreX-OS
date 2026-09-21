@@ -90,6 +90,10 @@
                     ($u && $u->hasPermission('agency.manage_access_authorization'))
                         ? ['key'=>'remote-access', 'label'=>'Remote Access', 'type'=>'section', 'keywords'=>'system owner consent authorization cross-agency switch']
                         : null,
+                    // AT-423 — sub-users signing in with a username, sharing one inbox.
+                    (!empty($teamInbox))
+                        ? ['key'=>'team-inbox', 'label'=>'Team Inbox', 'type'=>'section', 'keywords'=>'one email shared inbox sub-user sub users username login sign in agents share one email address']
+                        : null,
                 ])),
             ],
             [
@@ -494,6 +498,137 @@
                     <button type="submit" class="corex-btn-primary text-sm">
                         Save
                     </button>
+                </div>
+            </form>
+        </div>
+        @endif
+
+        {{-- ============================================================
+             TEAM INBOX — AT-423 (.ai/specs/one-email-sub-users.md §6.1)
+             Agents who share one email inbox each get their own sign-in
+             (a username + their own password). Its own section, not a
+             Features toggle, because it is a big change for an agency
+             (Andre, 2026-09-21): turning it on needs a chosen shared inbox
+             and a confirmation.
+             ============================================================ --}}
+        @if(!empty($teamInbox) && isset($agency) && $agency)
+        @php
+            $tiOn        = (bool) $agency->one_email_enabled;
+            $tiMain      = $teamInbox['main'];
+            $tiSubUsers  = (int) $teamInbox['sub_users'];
+            $tiSelected  = (string) old('one_email_user_id', $agency->one_email_user_id);
+            $tiInbox     = $tiMain?->email ?? 'the shared inbox';
+            // Save outcome arrives in the URL (?saved=…), not a one-time session flash — see
+            // OneEmailSettingsController for why (background pollers can use a flash up).
+            $tiSaved     = request()->query('saved');
+            $tiMessage   = match ($tiSaved) {
+                'on'    => "Team Inbox is ON. You can now add sub-users under Admin → Users; their emails go to {$tiInbox}.",
+                'off'   => 'Team Inbox is OFF. No new sub-users can be added.'
+                            . ($tiSubUsers > 0 ? " The {$tiSubUsers} existing " . ($tiSubUsers === 1 ? 'sub-user still signs' : 'sub-users still sign') . " in with their username, and their emails still go to {$tiInbox}." : ''),
+                'inbox' => "Shared inbox changed. Every sub-user's emails now go to {$tiInbox}.",
+                'saved' => 'Team Inbox settings saved.',
+                default => null,
+            };
+        @endphp
+        <div x-show="activeSection === 'team-inbox'" x-cloak class="p-6 space-y-5">
+            <div>
+                <div class="flex items-center gap-2">
+                    <h2 class="text-lg font-bold" style="color:var(--text-primary);">Team Inbox</h2>
+                    <span class="px-2 py-0.5 rounded-full text-[0.6875rem] font-semibold"
+                          style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 14%, transparent); color:var(--brand-icon, #0ea5e9);">
+                        One inbox · every agent their own key
+                    </span>
+                </div>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">
+                    For agencies where every agent uses one email address, such as agents@youragency.co.za.
+                    Each agent still gets their own CoreX sign-in — a <strong>username</strong> such as
+                    <em>andre@youragency</em> and their own password — and everything else works exactly as for
+                    any other user. Their CoreX emails (invites, reminders, digests) all land in the shared inbox,
+                    and only an admin can reset their password.
+                </p>
+            </div>
+
+            @if($tiMessage)
+                <div class="rounded-md px-4 py-3 text-sm font-medium"
+                     style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color: var(--text-primary);">
+                    {{ $tiMessage }}
+                </div>
+            @endif
+
+            <form method="POST" action="{{ route('corex.settings.team-inbox') }}"
+                  x-data="{ on: {{ $tiOn ? 'true' : 'false' }}, wasOn: {{ $tiOn ? 'true' : 'false' }}, inbox: '{{ is_numeric($tiSelected) ? (int) $tiSelected : '' }}' }"
+                  @submit="if (on && !wasOn && !confirm('Switch on Team Inbox? People you add as sub-users will sign in with a username, and all of their CoreX emails will go to the shared inbox you chose.')) { $event.preventDefault(); }"
+                  class="rounded-md p-5 space-y-4"
+                  style="background:var(--surface-2); border:1px solid var(--border);">
+                @csrf
+                @method('PUT')
+
+                <label class="flex items-start gap-3 cursor-pointer">
+                    <input type="hidden" name="one_email_enabled" value="0">
+                    <input type="checkbox" name="one_email_enabled" value="1" x-model="on"
+                           {{ $tiOn ? 'checked' : '' }}
+                           class="mt-1 h-4 w-4 rounded">
+                    <span class="flex-1">
+                        <span class="block text-sm font-semibold" style="color:var(--text-primary);">
+                            Let agents share one inbox, each with their own sign-in
+                        </span>
+                        <span class="block text-xs mt-1" style="color:var(--text-secondary);">
+                            <strong>OFF</strong> (default): every user signs in with their own email address.<br>
+                            <strong>ON</strong>: Add User offers <em>"A username, sharing an inbox"</em>. Switching it
+                            off later never locks anyone out — existing sub-users keep signing in.
+                        </span>
+                    </span>
+                </label>
+
+                <div x-show="on" x-cloak class="pt-4 space-y-2" style="border-top:1px solid var(--border);">
+                    <label for="one_email_user_id" class="block text-sm font-semibold" style="color:var(--text-primary);">Shared inbox</label>
+                    <p class="text-xs" style="color:var(--text-secondary);">
+                        Choose the person who signs in with the shared email address. Every sub-user's emails go to
+                        that address, and their usernames end with that address's name (for example <em>@youragency</em>).
+                    </p>
+                    @if($teamInbox['candidates']->isEmpty())
+                        <p class="text-xs" style="color:var(--ds-amber, #f59e0b);">
+                            Nobody in this agency signs in with a real email address yet. Add that person under Admin → Users first.
+                        </p>
+                    @else
+                        <select id="one_email_user_id" name="one_email_user_id" x-model="inbox"
+                                class="w-full sm:w-auto rounded-md px-3 py-2 text-sm"
+                                style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <option value="">— Choose the shared inbox —</option>
+                            @foreach($teamInbox['candidates'] as $cand)
+                                <option value="{{ $cand->id }}" {{ $tiSelected === (string) $cand->id ? 'selected' : '' }}>{{ $cand->name }} — {{ $cand->email }}</option>
+                            @endforeach
+                        </select>
+                    @endif
+                    @error('one_email_user_id')
+                        <p class="text-xs" style="color:var(--ds-crimson, #c41e3a);">{{ $message }}</p>
+                    @enderror
+                    <div x-show="!wasOn" class="rounded-md px-3 py-2 text-xs"
+                         style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); color:var(--text-primary);">
+                        This is a big change for your agency. You will be asked to confirm when you save.
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between gap-3 pt-2" style="border-top:1px solid var(--border);">
+                    <div class="text-xs" style="color:var(--text-muted);">
+                        Currently:
+                        <strong style="color:{{ $tiOn ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-secondary)' }};">{{ $tiOn ? 'ON' : 'OFF' }}</strong>
+                        @if($tiOn && $tiMain)
+                            — emails go to {{ $tiMain->email }}.
+                        @elseif(!$tiOn)
+                            — every user signs in with their own email.
+                        @endif
+                        @if($tiSubUsers > 0)
+                            {{ $tiSubUsers }} {{ $tiSubUsers === 1 ? 'person signs' : 'people sign' }} in with a username{{ $tiOn ? '' : ' and still can' }}.
+                        @endif
+                    </div>
+                    <div class="flex items-center gap-3">
+                        {{-- Prevent (BUILD_STANDARD §3): switching on needs a shared inbox. --}}
+                        <span x-show="on && !inbox" x-cloak class="text-xs" style="color:var(--ds-amber, #f59e0b);">Choose the shared inbox first</span>
+                        <button type="submit" class="corex-btn-primary text-sm"
+                                :disabled="on && !inbox"
+                                :style="on && !inbox ? 'opacity:.5; cursor:not-allowed;' : ''">Save</button>
+                    </div>
                 </div>
             </form>
         </div>

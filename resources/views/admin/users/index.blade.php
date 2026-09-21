@@ -7,10 +7,12 @@
     $totalUsers = is_countable($uCol) ? count($uCol) : 0;
     $roles      = $uCol->pluck('role')->filter()->unique()->sort()->values();
     $branchList = $branches ?? collect();
+    // AT-423 — the "Sign-in type" filter only appears once the agency uses usernames.
+    $hasSubUsers = $uCol->contains(fn ($u) => $u->isSubUser());
 @endphp
 
 <div class="w-full space-y-5"
-     x-data="{ search: '', roleFilter: '', branchFilter: '', activeFilter: '' }">
+     x-data="{ search: '', roleFilter: '', branchFilter: '', activeFilter: '', signInFilter: '' }">
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -57,6 +59,7 @@
             {{ session('status') }}
         </div>
     @endif
+    @include('admin.users._invite-link')
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm"
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
@@ -106,6 +109,15 @@
             <option value="1">Active</option>
             <option value="0">Inactive</option>
         </select>
+        @if($hasSubUsers)
+        <select x-model="signInFilter"
+                class="rounded-md px-3 py-2 text-sm outline-none"
+                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <option value="">All sign-in types</option>
+            <option value="email">Own email</option>
+            <option value="username">Username (sub-user)</option>
+        </select>
+        @endif
     </div>
 
     {{-- User list --}}
@@ -128,6 +140,7 @@
                  && (roleFilter === '' || '{{ $u->role }}' === roleFilter)
                  && (branchFilter === '' || '{{ $u->branch_id }}' === branchFilter)
                  && (activeFilter === '' || '{{ $u->is_active ? '1' : '0' }}' === activeFilter)
+                 && (signInFilter === '' || '{{ $u->isSubUser() ? 'username' : 'email' }}' === signInFilter)
              "
              x-transition
              class="rounded-md overflow-hidden"
@@ -180,6 +193,13 @@
                     </div>
                     <div class="flex flex-wrap items-center gap-3 mt-0.5">
                         <span class="text-xs" style="color:var(--text-muted);">{{ $u->email }}</span>
+                        @if($u->isSubUser())
+                        <span class="px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap"
+                              style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                              title="Signs in with a username. Emails go to the shared inbox.">
+                            Sub-user · {{ $u->deliveryEmail() ?? 'no shared inbox' }}
+                        </span>
+                        @endif
                         @if($branchList->firstWhere('id',$u->branch_id))
                         <span class="text-xs" style="color:var(--text-muted);">
                             · {{ $branchList->firstWhere('id',$u->branch_id)->name }}

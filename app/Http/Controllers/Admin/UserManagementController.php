@@ -16,6 +16,7 @@ use App\Services\Admin\AgentSeatLockService;
 use App\Services\Images\AgentProfilePhotoService;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use App\Services\Syndication\Property24\Property24SyndicationService;
+use App\Services\Users\OneEmailService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -141,12 +142,32 @@ class UserManagementController extends Controller
             'branches'     => $branches,
             'designations' => $designations,
             'roles'        => $roles,
+            'oneEmailForm' => $this->oneEmailFormData(null),
         ]);
+    }
+
+    /** AT-423 — what the Add/Edit User form needs to offer "A username, sharing an inbox". */
+    private function oneEmailFormData(?User $user): array
+    {
+        $oneEmail = app(OneEmailService::class);
+
+        return $oneEmail->formData($oneEmail->agencyFor(auth()->user()), $user);
     }
 
     public function store(Request $request)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        // AT-423 — "A username, sharing an inbox": build the username into the sign-in
+        // column before validation, so the normal unique/seat-lock rules apply to it.
+        $asSubUser = $request->input('sign_in_type') === 'username';
+        if ($asSubUser) {
+            $login = $this->resolveSubUserLogin($request, null);
+            if (isset($login['error'])) {
+                return back()->withInput()->withErrors(['username' => $login['error']]);
+            }
+            $request->merge(['email' => $login['email']]);
+        }
 
         $data = $request->validate([
             'name'          => ['required', 'string', 'max:255'],
@@ -177,7 +198,7 @@ class UserManagementController extends Controller
             'test_agent'      => ['nullable', 'in:0,1'],
             'show_on_website' => ['nullable', 'in:0,1'],
             'exclude_from_p24' => ['nullable', 'in:0,1'],
-        ]);
+        ], $asSubUser ? $this->subUserMessages($request->input('email')) : []);
 
         // The owner role cannot be created through user management.
         $submittedRole = Role::allRoles()->firstWhere('name', $data['role']);
@@ -241,7 +262,7 @@ class UserManagementController extends Controller
             ]);
         }
 
-        $user = User::create([
+        $user = User::make([
             'name'                        => $fullName,
             'email'                       => $data['email'],
             'display_email'               => ($data['display_email'] ?? null) ?: null,
@@ -277,6 +298,17 @@ class UserManagementController extends Controller
             'show_on_website'             => isset($data['show_on_website']) && $data['show_on_website'] == '1' ? 1 : 0,
             'exclude_from_p24'            => isset($data['exclude_from_p24']) && $data['exclude_from_p24'] == '1' ? 1 : 0,
         ]);
+        // AT-423 — not fillable on purpose (only this screen and the assistants screen set it).
+        $user->is_sub_user = $asSubUser;
+
+        try {
+            $user->save();
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Two admins took the same email/username at the same moment — the unique index won.
+            return back()->withInput()->withErrors([$asSubUser ? 'username' : 'email' => $asSubUser
+                ? 'That username was just taken by someone else — please choose another.'
+                : 'That email address was just taken by someone else.']);
+        }
 
         // Sync branch_assignments
         if ($user->branch_id) {
@@ -312,10 +344,73 @@ class UserManagementController extends Controller
             return redirect()->route('admin.users')->with('status', "Test agent \"{$fullName}\" created (no invite email sent). Property24 registration queued — the agent ID will appear shortly.");
         }
 
+        if ($user->isSubUser()) {
+            // Land on their Edit page: it always shows the username + set-up link while the
+            // invite is pending, so the admin gets the link even if the flash is lost.
+            return $this->sendSubUserInvite(redirect()->route('admin.users.edit', $user), $user, "Sub-user \"{$fullName}\" created with username {$user->email}.");
+        }
+
         // Send invitation email
         Mail::to($user->email)->send(new UserInviteMail($user));
 
         return redirect()->route('admin.users')->with('status', "User \"{$fullName}\" created. An invitation email has been sent to {$user->email}.");
+    }
+
+    // ── AT-423 — One email (sub-users). Spec: .ai/specs/one-email-sub-users.md ──
+
+    /** Build the sub-user's username from the form (rules live in OneEmailService). */
+    private function resolveSubUserLogin(Request $request, ?User $existing): array
+    {
+        $oneEmail = app(OneEmailService::class);
+
+        return $oneEmail->buildUsername($oneEmail->agencyFor(auth()->user()), $existing, $request->input('username'));
+    }
+
+    /**
+     * Spec §8 — archiving the shared inbox is allowed (sub-users keep working, their mail
+     * still goes to that real address) but the admin is told first. Null when not relevant.
+     */
+    private function sharedInboxNotice(User $user): ?string
+    {
+        $agency = $user->agency_id ? Agency::find((int) $user->agency_id) : null;
+        if (!$agency || (int) $agency->one_email_user_id !== (int) $user->id) {
+            return null;
+        }
+
+        $count = app(OneEmailService::class)->subUserCount($agency);
+        if ($count === 0) {
+            return null;
+        }
+
+        return "{$user->name}'s inbox ({$user->email}) is the shared inbox for {$count} "
+            . ($count === 1 ? 'sub-user' : 'sub-users')
+            . '. They will keep signing in, and their CoreX emails will still go to that address. '
+            . 'To send them somewhere else, choose a different shared inbox in Settings → Team Inbox.';
+    }
+
+    private function subUserMessages(?string $username): array
+    {
+        return app(OneEmailService::class)->usernameMessages($username);
+    }
+
+    /**
+     * Email a sub-user's invite to the shared inbox and hand the admin the username +
+     * set-up link to pass on directly (spec §6.2 / §6.3).
+     */
+    private function sendSubUserInvite($redirect, User $user, string $lead)
+    {
+        $inbox = $user->deliveryEmail();
+        if ($inbox) {
+            Mail::to($inbox)->send(new UserInviteMail($user));
+        }
+
+        return $redirect
+            ->with('status', $lead . ($inbox
+                ? " The invitation email went to the shared inbox {$inbox}."
+                : ' No invitation email was sent because your agency has no shared inbox — use the link below.'))
+            ->with('invite_link', app(OneEmailService::class)->setupUrl($user))
+            ->with('invite_name', $user->name)
+            ->with('invite_username', $user->email);
     }
 
     public function edit(User $user)
@@ -337,14 +432,36 @@ class UserManagementController extends Controller
             ? \App\Models\LoginHistory::forUser($user->id)->latest('created_at')->limit(25)->get()
             : collect();
 
+        $oneEmailForm = $this->oneEmailFormData($user);
+
         return view('admin.users.create-edit', compact(
-            'user', 'branches', 'designations', 'roles', 'canViewLoginHistory', 'loginHistory'
+            'user', 'branches', 'designations', 'roles', 'canViewLoginHistory', 'loginHistory', 'oneEmailForm'
         ));
     }
 
     public function update(Request $request, User $user)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        // AT-423 — sign-in type. Absent (form without the choice) = keep what they have.
+        $asSubUser = $request->input('sign_in_type', $user->isSubUser() ? 'username' : 'email') === 'username';
+        if ($asSubUser) {
+            // An unchanged username is kept exactly (OneEmailService::buildUsername).
+            $login = $this->resolveSubUserLogin($request, $user);
+            if (isset($login['error'])) {
+                return back()->withInput()->withErrors(['username' => $login['error']]);
+            }
+            $request->merge(['email' => $login['email']]);
+        } elseif ($user->isSubUser()
+            && !app(OneEmailService::class)->isRealEmail($request->input('email'))) {
+            return back()->withInput()->withErrors([
+                'email' => 'To give this person their own sign-in, enter their own email address (for example andre@gmail.com).',
+            ]);
+        }
+
+        // Option A (Andre, 2026-09-21): an admin resetting a sub-user's password sets a
+        // temporary one, typed twice; the person must choose their own at next sign-in.
+        $subUserPasswordRules = $asSubUser && $request->filled('password') ? ['confirmed'] : [];
 
         $data = $request->validate([
             'name'          => ['required', 'string', 'max:255'],
@@ -375,10 +492,13 @@ class UserManagementController extends Controller
             'show_in_performance_reports' => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
-            'password'        => ['nullable', 'string', 'min:8'],
+            'password'        => array_merge(['nullable', 'string', 'min:8'], $subUserPasswordRules),
             'show_on_website' => ['nullable', 'in:0,1'],
             'exclude_from_p24' => ['nullable', 'in:0,1'],
-        ]);
+        ], $asSubUser ? $this->subUserMessages($request->input('email')) + [
+            'password.min'       => 'The temporary password must be at least 8 characters.',
+            'password.confirmed' => 'The two temporary passwords do not match.',
+        ] : []);
 
         // The owner role cannot be assigned through user management.
         $submittedRole = Role::allRoles()->firstWhere('name', $data['role']);
@@ -456,9 +576,25 @@ class UserManagementController extends Controller
 
         if (!empty($data['password'])) {
             $user->password = Hash::make($data['password']);
+
+            // AT-423 — a sub-user's password is only ever reset by an admin, as a temporary
+            // one: they must choose their own at next sign-in, and a remembered session on
+            // any device stops working now. Spec one-email-sub-users.md §6.5.
+            if ($asSubUser) {
+                $user->must_change_password = true;
+                $user->remember_token = \Illuminate\Support\Str::random(60);
+            }
         }
 
-        $user->save();
+        $user->is_sub_user = $asSubUser;
+
+        try {
+            $user->save();
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            return back()->withInput()->withErrors([$asSubUser ? 'username' : 'email' => $asSubUser
+                ? 'That username was just taken by someone else — please choose another.'
+                : 'That email address was just taken by someone else.']);
+        }
 
         // ── Domain events (spec corex-domain-events-spec.md) ─────────────────
         $fresh = $user->fresh() ?? $user;
@@ -535,8 +671,12 @@ class UserManagementController extends Controller
 
         $p24Note = $this->pushUserToP24($user->fresh());
 
+        $resetNote = ($asSubUser && !empty($data['password']))
+            ? ' Temporary password set — give it to them; they will choose their own when they next sign in.'
+            : '';
+
         return $this->withActiveTab(redirect()->route('admin.users.edit', $user), $request)
-            ->with('status', "User \"{$fullName}\" updated.{$p24Note}");
+            ->with('status', "User \"{$fullName}\" updated.{$resetNote}{$p24Note}");
     }
 
     /**
@@ -888,6 +1028,11 @@ class UserManagementController extends Controller
             return $this->withActiveTab(back(), $request)->withErrors('This user has already set up their account.');
         }
 
+        // AT-423 — a sub-user's invite goes to the shared inbox, plus a copyable link.
+        if ($user->isSubUser()) {
+            return $this->sendSubUserInvite($this->withActiveTab(back(), $request), $user, "New set-up link created for {$user->name}.");
+        }
+
         Mail::to($user->email)->send(new UserInviteMail($user));
 
         return $this->withActiveTab(back(), $request)->with('status', "Invitation email resent to {$user->email}.");
@@ -1105,6 +1250,7 @@ class UserManagementController extends Controller
                 'slug' => $user->ensureQrSlug(),
             ],
             'counts'  => $counts,
+            'shared_inbox_notice' => $this->sharedInboxNotice($user),
             'targets' => $targets->map(fn ($u) => [
                 'id'    => $u->id,
                 'label' => trim($u->name ?? '').($u->email ? " ({$u->email})" : ''),

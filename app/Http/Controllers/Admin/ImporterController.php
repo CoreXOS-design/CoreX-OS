@@ -66,7 +66,21 @@ class ImporterController extends Controller
             $parser = new P24AgentsCsvParser();
             $rows = $parser->parse(\Storage::path($path));
 
-            $counts = ['total' => count($rows), 'new' => 0, 'link' => 0, 'skip' => 0, 'errors' => 0];
+            $counts = ['total' => count($rows), 'new' => 0, 'link' => 0, 'skip' => 0, 'choose' => 0, 'errors' => 0];
+
+            // AT-423 (spec importer.md §15) — rows whose email cannot identify ONE person:
+            // how often each email appears in this file, and the agency's Team Inbox shared
+            // inbox (every agent on a shared inbox carries that same address).
+            $emailCounts = [];
+            foreach ($rows as $r) {
+                $e = strtolower(trim((string) ($r['mapped']['email'] ?? '')));
+                if ($e !== '' && empty($r['errors'])) {
+                    $emailCounts[$e] = ($emailCounts[$e] ?? 0) + 1;
+                }
+            }
+            $sharedInbox = strtolower((string) app(\App\Services\Users\OneEmailService::class)
+                ->mainAccount(\App\Models\Agency::find((int) $run->agency_id))?->email);
+
             foreach ($rows as $r) {
                 if (!empty($r['errors'])) {
                     $counts['errors']++;
@@ -86,15 +100,25 @@ class ImporterController extends Controller
                 // Resolve the email against existing users now (not just at import time)
                 // so the preview tells the admin the truth: create / link / skip.
                 // Mirrors ProcessImporterRunJob::processAgents() exactly.
-                [$action, $match] = $this->resolveAgentMatch($r['mapped']['email'] ?? '', (int) $run->agency_id);
-                $counts[$action === 'create' ? 'new' : ($action === 'update' ? 'link' : 'skip')]++;
+                $mapped = $r['mapped'];
+                $reason = $this->needsPersonChosen($mapped['email'] ?? '', $emailCounts, $sharedInbox);
+                if ($reason !== null) {
+                    // The admin picks who this is on the preview (link or skip) — never a guess.
+                    // A re-import pre-selects whoever already holds this P24 agent id.
+                    $action = 'choose';
+                    $match  = $this->personHoldingP24Id($mapped['p24_agent_id'] ?? null, (int) $run->agency_id);
+                    $mapped['link_reason'] = $reason;
+                } else {
+                    [$action, $match] = $this->resolveAgentMatch($mapped['email'] ?? '', (int) $run->agency_id);
+                }
+                $counts[match ($action) { 'create' => 'new', 'update' => 'link', 'choose' => 'choose', default => 'skip' }]++;
 
                 P24ImportRow::create([
                     'run_id'            => $run->id,
                     'row_type'          => 'agent',
                     'external_id'       => $r['external_id'],
                     'payload_json'      => $r['payload'],
-                    'mapped_json'       => $r['mapped'],
+                    'mapped_json'       => $mapped,
                     'errors_json'       => null,
                     'resolved_agent_id' => $match?->id,
                     'action'            => $action,
@@ -142,15 +166,104 @@ class ImporterController extends Controller
         return ['update', $user];
     }
 
+    /**
+     * AT-423 (importer.md §15) — why an agent row's email cannot identify one person, or null
+     * when email matching can be trusted: blank email, the agency's Team Inbox shared inbox,
+     * or an email that appears on more than one agent row in this file.
+     */
+    private function needsPersonChosen(?string $email, array $emailCounts, string $sharedInbox): ?string
+    {
+        $email = strtolower(trim((string) $email));
+
+        return match (true) {
+            $email === ''                                 => 'No email on this agent',
+            !filter_var($email, FILTER_VALIDATE_EMAIL)    => 'The email on this agent is not a valid address',
+            $sharedInbox !== '' && $email === $sharedInbox => 'Uses your shared Team Inbox address',
+            ($emailCounts[$email] ?? 0) > 1               => 'Same email as other agents in this file',
+            default                                       => null,
+        };
+    }
+
+    /** The agency's people an imported agent may be linked to: not archived, not assistants. */
+    private function linkablePeople(int $agencyId): \Illuminate\Support\Collection
+    {
+        return User::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereNull('deleted_at')
+            ->where('is_assistant', false)
+            ->orderBy('name')
+            ->get(['id', 'name', 'email', 'p24_agent_id', 'is_sub_user']);
+    }
+
+    private function personHoldingP24Id($p24AgentId, int $agencyId): ?User
+    {
+        if (blank($p24AgentId)) {
+            return null;
+        }
+
+        // firstWhere compares loosely, so "12345" and 12345 both match.
+        return $this->linkablePeople($agencyId)->firstWhere('p24_agent_id', $p24AgentId);
+    }
+
     public function preview(P24ImportRun $run)
     {
         $run->load('rows', 'agency');
-        return view('admin.importer.preview', compact('run'));
+        $people = $this->linkablePeople((int) $run->agency_id);
+
+        return view('admin.importer.preview', compact('run', 'people'));
     }
 
     public function confirmAgents(Request $request, P24ImportRun $run)
     {
         abort_if($run->kind !== 'agents', 400);
+
+        // AT-423 (importer.md §15) — every "Choose who this is" row needs an answer: a person
+        // in this agency, or Skip. One person can hold only one P24 agent id.
+        $excludedIds = array_map('intval', (array) $request->input('excluded', []));
+        $links       = (array) $request->input('links', []);
+        $people      = $this->linkablePeople((int) $run->agency_id)->keyBy('id');
+        $chooseRows  = $run->rows()->where('row_type', 'agent')->where('action', 'choose')
+            ->where('status', '!=', 'excluded')->get()
+            ->reject(fn ($r) => in_array((int) $r->id, $excludedIds, true));
+        $taken = $run->rows()->where('row_type', 'agent')->where('action', 'update')
+            ->whereNotIn('id', $excludedIds)->whereNotNull('resolved_agent_id')->get()
+            ->mapWithKeys(fn ($r) => [(int) $r->resolved_agent_id => $r->mapped_json['name'] ?? 'another agent'])
+            ->all();
+        $errors = [];
+        $plan   = [];
+
+        foreach ($chooseRows as $r) {
+            $name   = $r->mapped_json['name'] ?? ('agent ' . $r->external_id);
+            $choice = (string) ($links[$r->id] ?? '');
+
+            if ($choice === 'skip') {
+                $plan[$r->id] = 'skip';
+                continue;
+            }
+            if ($choice === '' || !$people->has((int) $choice)) {
+                $errors[] = "Choose who {$name} is — or Skip them.";
+                continue;
+            }
+            $person = $people->get((int) $choice);
+            if (isset($taken[$person->id])) {
+                $errors[] = "{$person->name} is chosen for both the Property24 agents {$taken[$person->id]} and {$name} — one person can only be one Property24 agent.";
+                continue;
+            }
+            $taken[$person->id] = $name;
+            $plan[$r->id]       = (int) $choice;
+        }
+
+        if ($errors) {
+            return back()->withInput()->withErrors(['links' => $errors]);
+        }
+
+        foreach ($plan as $rowId => $choice) {
+            $row = $chooseRows->firstWhere('id', $rowId);
+            $choice === 'skip'
+                ? $row->update(['status' => 'excluded', 'excluded_at' => now()])
+                : $row->update(['resolved_agent_id' => $choice, 'action' => 'link']);
+        }
+
         // Apply any exclusion toggles
         $excluded = (array) $request->input('excluded', []);
         if (!empty($excluded)) {

@@ -361,14 +361,18 @@ CREATE TABLE `agencies` (
   `communication_circuit_breaker_failure_threshold_percent` tinyint unsigned DEFAULT NULL,
   `communication_circuit_breaker_probe_interval_minutes` int unsigned DEFAULT NULL,
   `communication_circuit_breaker_lookback_minutes` int unsigned DEFAULT NULL,
+  `one_email_enabled` tinyint(1) NOT NULL DEFAULT '0',
+  `one_email_user_id` bigint unsigned DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `agencies_slug_unique` (`slug`),
   UNIQUE KEY `agencies_privacy_policy_token_unique` (`privacy_policy_token`),
   KEY `agencies_default_branch_id_foreign` (`default_branch_id`),
   KEY `agencies_req_ext_auth_idx` (`require_external_access_authorization`),
   KEY `agencies_fica_referral_recipient_user_id_foreign` (`fica_referral_recipient_user_id`),
+  KEY `agencies_one_email_user_id_foreign` (`one_email_user_id`),
   CONSTRAINT `agencies_default_branch_id_foreign` FOREIGN KEY (`default_branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `agencies_fica_referral_recipient_user_id_foreign` FOREIGN KEY (`fica_referral_recipient_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `agencies_fica_referral_recipient_user_id_foreign` FOREIGN KEY (`fica_referral_recipient_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `agencies_one_email_user_id_foreign` FOREIGN KEY (`one_email_user_id`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `agency_access_request_admins`;
@@ -8729,7 +8733,7 @@ CREATE TABLE `p24_import_rows` (
   `external_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `payload_json` json DEFAULT NULL,
   `mapped_json` json DEFAULT NULL,
-  `action` enum('create','update','skip') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'create',
+  `action` enum('create','update','skip','choose','link') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'create',
   `status` enum('pending','confirmed','excluded','error') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `resolved_agent_id` bigint unsigned DEFAULT NULL,
   `target_id` bigint unsigned DEFAULT NULL,
@@ -14819,6 +14823,8 @@ CREATE TABLE `users` (
   `website_social_instagram` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `website_social_linkedin` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `website_social_youtube` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `is_sub_user` tinyint(1) NOT NULL DEFAULT '0',
+  `must_change_password` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
   UNIQUE KEY `users_email_unique` (`email`),
   UNIQUE KEY `users_api_token_unique` (`api_token`),
@@ -16640,3 +16646,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1343,'2026_09_16_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1344,'2026_09_15_100000_add_p24_imported_at_to_properties_table',253);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1345,'2026_09_17_000000_add_deleted_at_to_rental_application_document_validity_windows',254);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1346,'2026_09_17_000100_backfill_contact_matches_agent_id',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1347,'2026_09_21_000000_add_one_email_sub_user_columns',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1348,'2026_09_21_000100_add_choose_and_link_to_p24_import_rows_action',256);

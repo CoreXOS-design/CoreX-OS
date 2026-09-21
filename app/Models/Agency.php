@@ -431,6 +431,7 @@ class Agency extends Model
         'require_external_access_authorization' => 'boolean',
         'split_branches_enabled' => 'boolean',
         'assistants_enabled' => 'boolean',
+        'one_email_enabled' => 'boolean', // AT-423 — set only by OneEmailSettingsController (not fillable)
         'assistant_fica_required_default' => 'boolean',
         'show_prospected_badge' => 'boolean',
         'default_branch_id' => 'integer',
@@ -716,6 +717,12 @@ class Agency extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    /** AT-423 — the main account whose real email is the shared inbox for this agency's sub-users. */
+    public function oneEmailUser(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'one_email_user_id');
     }
 
     /** Website API keys (one per agency website). Spec: agency-public-api.md §3.5. */

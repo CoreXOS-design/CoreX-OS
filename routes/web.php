@@ -3115,6 +3115,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/filing-register-per-page', [CoreXSettingsController::class, 'updateFilingRegisterPerPage'])->middleware('permission:access_settings')->name('corex.settings.filing-register-per-page');
     Route::post('/settings/properties-sort', [CoreXSettingsController::class, 'updatePropertiesSort'])->middleware('permission:access_settings')->name('corex.settings.properties-sort');
     Route::post('/settings/remote-access', [CoreXSettingsController::class, 'updateRemoteAccess'])->middleware('permission:agency.manage_access_authorization')->name('corex.settings.remote-access');
+    // AT-423 — Team Inbox (sub-users signing in with a username). Spec: .ai/specs/one-email-sub-users.md §6.1.
+    Route::put('/settings/agency/team-inbox', [\App\Http\Controllers\Admin\OneEmailSettingsController::class, 'update'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.team-inbox');
     // Old compliance-officers endpoint — kept for backwards compat, redirects
     Route::post('/settings/compliance-officers', function () {
         return redirect('/corex/settings?tab=user');

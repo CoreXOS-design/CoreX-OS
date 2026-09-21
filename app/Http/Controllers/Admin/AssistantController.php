@@ -8,6 +8,7 @@ use App\Models\AssistantAssignment;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Assistants\AssistantMatrixSnapshotService;
+use App\Services\Users\OneEmailService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -55,6 +56,7 @@ class AssistantController extends Controller
         return view('admin.assistants.create', [
             'agents'            => $this->assignableAgents(),
             'assistantsEnabled' => $request->user()->assistantsEnabledForEffectiveAgency(),
+            'oneEmailForm'      => $this->oneEmailForm(null),
         ]);
     }
 
@@ -67,6 +69,16 @@ class AssistantController extends Controller
         if (!$request->user()->assistantsEnabledForEffectiveAgency()) {
             return back()->withInput()->with('error',
                 'Assistants are switched off for this agency. Turn them on in Company Settings before adding one.');
+        }
+
+        // AT-423 — "A username, sharing an inbox" (spec one-email-sub-users.md §6.2).
+        $asSubUser = $request->input('sign_in_type') === 'username';
+        if ($asSubUser) {
+            $login = $this->buildUsername($request, null);
+            if (isset($login['error'])) {
+                return back()->withInput()->withErrors(['username' => $login['error']]);
+            }
+            $request->merge(['email' => $login['email']]);
         }
 
         $data = $request->validate([
@@ -82,13 +94,14 @@ class AssistantController extends Controller
             'title'         => ['nullable', 'string', 'max:60'],
         ], [
             'agent_user_id.required' => 'Choose the agent this assistant will work for.',
-        ]);
+        ] + ($asSubUser ? app(OneEmailService::class)->usernameMessages($request->input('email')) : []));
 
         $agent = $this->validateAgent((int) $data['agent_user_id']);
 
         $agency = $request->user()->agency;
 
-        $assignment = DB::transaction(function () use ($data, $agent, $request, $agency) {
+        try {
+        $assignment = DB::transaction(function () use ($data, $agent, $request, $agency, $asSubUser) {
             $assistant = User::create([
                 // `users.name` is the FULL name — there is no surname column. The create form
                 // takes them separately (as User Management does) and they are joined here.
@@ -130,6 +143,11 @@ class AssistantController extends Controller
                 'agency_id' => $agent->agency_id,
             ]);
 
+            // AT-423 — not fillable on purpose; set only by the admin screens.
+            if ($asSubUser) {
+                $assistant->forceFill(['is_sub_user' => true])->save();
+            }
+
             $assignment = AssistantAssignment::create([
                 'agency_id'          => $agent->agency_id,
                 'branch_id'          => $agent->branch_id,
@@ -145,15 +163,26 @@ class AssistantController extends Controller
 
             return $assignment;
         });
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Two admins took the same email/username at the same moment — the unique index
+            // won and the transaction rolled back cleanly.
+            return back()->withInput()->withErrors([$asSubUser ? 'username' : 'email' => $asSubUser
+                ? 'That username was just taken by someone else — please choose another.'
+                : 'That email address was just taken by someone else.']);
+        }
 
         $this->sendInvite($assignment->assistant);
         $this->bustNavCache($agent->id);
 
-        return redirect()
+        $redirect = redirect()
             ->route('admin.assistants.show', $assignment)
             ->with('success', "{$assignment->assistant->name} has been added as an assistant to {$agent->name}. "
-                . 'They have been emailed a link to set their password. '
+                . ($assignment->assistant->isSubUser()
+                    ? "Their username is {$assignment->assistant->email}; the set-up link went to the shared inbox and is shown below to copy. "
+                    : 'They have been emailed a link to set their password. ')
                 . "{$agent->name} can now choose exactly what they may do, from My Assistants.");
+
+        return $this->withSubUserInviteLink($redirect, $assignment->assistant);
     }
 
     public function show(Request $request, AssistantAssignment $assignment)
@@ -193,7 +222,10 @@ class AssistantController extends Controller
 
         $assignment->load(['assistant', 'assignedAgent']);
 
-        return view('admin.assistants.edit', ['assignment' => $assignment]);
+        return view('admin.assistants.edit', [
+            'assignment'   => $assignment,
+            'oneEmailForm' => $this->oneEmailForm($assignment->assistant),
+        ]);
     }
 
     public function update(Request $request, AssistantAssignment $assignment)
@@ -202,6 +234,21 @@ class AssistantController extends Controller
 
         $assistant = $assignment->assistant;
         abort_unless($assistant !== null, 404);
+
+        // AT-423 — sign-in type. Absent (form without the choice) = keep what they have.
+        $oneEmail  = app(OneEmailService::class);
+        $asSubUser = $request->input('sign_in_type', $assistant->isSubUser() ? 'username' : 'email') === 'username';
+        if ($asSubUser) {
+            $login = $this->buildUsername($request, $assistant);
+            if (isset($login['error'])) {
+                return back()->withInput()->withErrors(['username' => $login['error']]);
+            }
+            $request->merge(['email' => $login['email']]);
+        } elseif ($assistant->isSubUser() && !$oneEmail->isRealEmail($request->input('email'))) {
+            return back()->withInput()->withErrors([
+                'email' => 'To give this person their own sign-in, enter their own email address (for example thandi@gmail.com).',
+            ]);
+        }
 
         $data = $request->validate([
             'name'          => ['required', 'string', 'max:255'],
@@ -213,9 +260,24 @@ class AssistantController extends Controller
             'phone'         => ['nullable', 'string', 'max:50'],
             'title'         => ['nullable', 'string', 'max:60'],
             'fica_required' => ['nullable', 'in:0,1'],
-        ]);
+            // AT-423 — Option A: an admin's temporary password for a sub-user (typed twice).
+            'password'      => $asSubUser ? ['nullable', 'string', 'min:8', 'confirmed'] : ['prohibited'],
+        ], $asSubUser ? $oneEmail->usernameMessages($request->input('email')) + [
+            'password.min'       => 'The temporary password must be at least 8 characters.',
+            'password.confirmed' => 'The two temporary passwords do not match.',
+        ] : []);
+
+        // AT-423 — reset a sub-user's password to a temporary one they must replace at next sign-in.
+        if ($asSubUser && !empty($data['password'])) {
+            $assistant->forceFill([
+                'password'             => $data['password'],   // 'hashed' cast
+                'must_change_password' => true,
+                'remember_token'       => Str::random(60),
+            ]);
+        }
 
         $assistant->forceFill([
+            'is_sub_user' => $asSubUser,
             // `users.name` is the FULL name — there is no surname column (same as store()).
             'name'  => trim($data['name'] . ' ' . $data['surname']),
             'email' => strtolower(trim($data['email'])),
@@ -229,12 +291,23 @@ class AssistantController extends Controller
             'fica_required' => $request->has('fica_required')
                 ? (bool) $data['fica_required']
                 : $assistant->fica_required,
-        ])->save();
+        ]);
         // NB `role` and `is_admin` are re-pinned by User::saving() regardless of what lands here.
+
+        try {
+            $assistant->save();
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            return back()->withInput()->withErrors([$asSubUser ? 'username' : 'email' => $asSubUser
+                ? 'That username was just taken by someone else — please choose another.'
+                : 'That email address was just taken by someone else.']);
+        }
 
         return redirect()
             ->route('admin.assistants.show', $assignment)
-            ->with('success', "{$assistant->name}'s details have been updated.");
+            ->with('success', "{$assistant->name}'s details have been updated."
+                . (($asSubUser && !empty($data['password']))
+                    ? ' Temporary password set — give it to them; they will choose their own when they next sign in.'
+                    : ''));
     }
 
     /**
@@ -394,10 +467,46 @@ class AssistantController extends Controller
 
         $this->sendInvite($assistant);
 
+        if ($assistant->isSubUser()) {
+            return $this->withSubUserInviteLink(
+                back()->with('success', "A new set-up link for {$assistant->name} has been emailed to the shared inbox " . ($assistant->deliveryEmail() ?? '') . ' and is shown below to copy.'),
+                $assistant
+            );
+        }
+
         return back()->with('success', "A new setup link has been emailed to {$assistant->email}.");
     }
 
     // ── helpers ────────────────────────────────────────────────────
+
+    /** AT-423 — the sub-user username from the form (rules live in OneEmailService). */
+    private function buildUsername(Request $request, ?User $existing): array
+    {
+        $oneEmail = app(OneEmailService::class);
+
+        return $oneEmail->buildUsername($oneEmail->agencyFor($request->user()), $existing, $request->input('username'));
+    }
+
+    /** AT-423 — what the add/edit form needs to offer "A username, sharing an inbox". */
+    private function oneEmailForm(?User $assistant): array
+    {
+        $oneEmail = app(OneEmailService::class);
+
+        return $oneEmail->formData($oneEmail->agencyFor(auth()->user()), $assistant);
+    }
+
+    /** AT-423 — hand the admin a sub-user's username + set-up link to pass on directly. */
+    private function withSubUserInviteLink($redirect, User $assistant)
+    {
+        if (!$assistant->isSubUser()) {
+            return $redirect;
+        }
+
+        return $redirect
+            ->with('invite_link', app(OneEmailService::class)->setupUrl($assistant))
+            ->with('invite_name', $assistant->name)
+            ->with('invite_username', $assistant->email);
+    }
 
     /**
      * Who may be an Assigned Agent.
@@ -447,7 +556,11 @@ class AssistantController extends Controller
         // mailable — an assistant sets their password on exactly the same screen as every other
         // new user in CoreX, and there is one flow to keep working, not two.
         try {
-            Mail::to($assistant->email)->send(new UserInviteMail($assistant));
+            // AT-423 — a sub-user's invite goes to the shared inbox (their username is not an address).
+            $to = $assistant->deliveryEmail();
+            if ($to) {
+                Mail::to($to)->send(new UserInviteMail($assistant));
+            }
         } catch (\Throwable $e) {
             // A mail failure must not lose the assistant we just created. The admin can resend.
             Log::error('AT-267 assistant invite failed to send', [

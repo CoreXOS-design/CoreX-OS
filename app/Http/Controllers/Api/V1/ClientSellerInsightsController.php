@@ -223,7 +223,7 @@ class ClientSellerInsightsController extends Controller
             ],
             'agent' => $p->agent ? [
                 'name'  => $p->agent->name,
-                'email' => $p->agent->email,
+                'email' => $p->agent->deliveryEmail(),
                 'phone' => $p->agent->phone,
             ] : null,
             'last_refreshed_at' => now()->toIso8601String(),

@@ -28,10 +28,22 @@
                             <h1 style="margin:0 0 8px; font-size:1.375rem; font-weight:700; color:#111827;">
                                 Welcome, {{ $userName }}!
                             </h1>
+                            @if($isSubUser ?? false)
+                            {{-- AT-423 — this lands in a SHARED inbox, so it says who it is for and
+                                 deliberately does NOT print the username: the set-up link asks for it,
+                                 and the admin gives it to the person directly. --}}
+                            <p style="margin:0 0 24px; font-size:0.9375rem; line-height:1.6; color:#6b7280;">
+                                This invitation is for <strong style="color:#111827;">{{ $userName }}</strong> to join
+                                <strong style="color:#111827;">CoreX OS</strong>. Please pass it on to them.
+                                They will sign in with a username their administrator gives them, and will be asked
+                                for it when they open the link below to choose a password.
+                            </p>
+                            @else
                             <p style="margin:0 0 24px; font-size:0.9375rem; line-height:1.6; color:#6b7280;">
                                 You have been invited to join <strong style="color:#111827;">CoreX OS</strong>.
                                 To get started, please set up your account password by clicking the button below.
                             </p>
+                            @endif
 
                             {{-- CTA Button --}}
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 24px;">

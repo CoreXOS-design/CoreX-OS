@@ -42,6 +42,13 @@ class OutboundMailGuardServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->app['events']->listen(MessageSending::class, function (MessageSending $event) {
+            // AT-423 — FIRST re-address anything sent to a sub-user's username (not a real
+            // address) to their shared inbox, so the guard below — and the real send — see
+            // the true recipient. Same listener on purpose: listener order is then guaranteed.
+            if (! \App\Support\SubUserMailRouter::reroute($event->message)) {
+                return false;
+            }
+
             return $this->guard($event);
         });
     }

@@ -22,7 +22,7 @@ class AgentResource extends JsonResource
             'id'          => $this->id,
             'name'        => $this->name,
             'designation' => $this->designation,
-            'email'       => $this->email,
+            'email'       => $this->deliveryEmail(),
             'phone'       => $this->phone,
             'cell'        => $this->cell,
             'photo_url'   => $this->agent_photo_path
