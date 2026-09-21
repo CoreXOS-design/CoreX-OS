@@ -59,7 +59,7 @@ class RentalInspectionRecordingController extends Controller
         // this same-page response (tabPayloadFor()'s own eager-load covers
         // the full-reload case, but a freshly-started inspection never goes
         // through that path).
-        $inspection->load('lease.tenants.contact');
+        $inspection->load('lease.tenants.contact', 'createdBy');
 
         return response()->json($inspection, 201);
     }
@@ -110,6 +110,39 @@ class RentalInspectionRecordingController extends Controller
             'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->orderBy('id')->get(),
             'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->get(),
         ]);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/details — §17, the header
+     * block: meter readings (free text — a body corporate property reads
+     * "BODY CORP", not a number), furnished state + property type (agency-
+     * configurable, same PropertySettingItem groups Property itself uses),
+     * keys/remotes as count + description, and — out-inspections only —
+     * the original move-in date. Every field optional per request: an agent
+     * confirming just the meter readings doesn't have to resend everything
+     * else.
+     */
+    public function updateDetails(Request $request, RentalInspection $rentalInspection): JsonResponse
+    {
+        $validated = $request->validate([
+            'electricity_meter_reading' => ['nullable', 'string', 'max:100'],
+            'water_meter_reading' => ['nullable', 'string', 'max:100'],
+            'furnished_status' => ['nullable', 'string', 'max:60'],
+            'property_type' => ['nullable', 'string', 'max:60'],
+            'keys_count' => ['nullable', 'integer', 'min:0'],
+            'keys_description' => ['nullable', 'string', 'max:191'],
+            'remotes_count' => ['nullable', 'integer', 'min:0'],
+            'remotes_description' => ['nullable', 'string', 'max:191'],
+            'move_in_date_recorded' => ['nullable', 'date'],
+        ]);
+
+        try {
+            $rentalInspection->updateDetails($validated);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 400);
+        }
+
+        return response()->json($rentalInspection->fresh());
     }
 
     /**

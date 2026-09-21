@@ -25,6 +25,87 @@
 
 <template x-if="currentInspection({{ $sectionJs }})">
     <div class="space-y-3">
+        {{--
+            §17 — the header block, from Johan's real paper form: everything
+            above the room tables. "Pull what we already know" — landlord,
+            tenants and the recording agent are DISPLAY ONLY here (read from
+            the same lease/property/user relations §15's signing block
+            already resolves — never a second name field to type into).
+            Meter readings, furnished state, property type, keys/remotes and
+            (out-inspection only) the move-in date are editable, defaulted
+            from the property/lease at inspection start (RentalInspection::
+            start()) — confirm-or-correct, not retype.
+        --}}
+        <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2);">
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs" style="color:var(--text-secondary);">
+                <div><span style="color:var(--text-muted);">Landlord:</span> <span x-text="landlordContact ? (landlordContact.first_name + ' ' + landlordContact.last_name) : '—'"></span></div>
+                <template x-for="(tenant, idx) in inspectionTenants({{ $sectionJs }})" :key="tenant.contact_id">
+                    <div><span style="color:var(--text-muted);" x-text="'Tenant ' + (idx + 1) + ':'"></span> <span x-text="tenantName(tenant)"></span></div>
+                </template>
+                <div><span style="color:var(--text-muted);">Inspection done by:</span> <span x-text="currentInspection({{ $sectionJs }}).created_by?.name || '—'"></span></div>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1" style="border-top:1px solid var(--border);">
+                <div>
+                    <label class="text-xs font-semibold" style="color:var(--text-secondary);">Electricity meter</label>
+                    <input type="text" x-model="currentInspection({{ $sectionJs }}).electricity_meter_reading" placeholder="Reading, or e.g. BODY CORP" class="prop-input w-full">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold" style="color:var(--text-secondary);">Water meter</label>
+                    <input type="text" x-model="currentInspection({{ $sectionJs }}).water_meter_reading" placeholder="Reading, or e.g. BODY CORP" class="prop-input w-full">
+                </div>
+                <div>
+                    <label class="text-xs font-semibold" style="color:var(--text-secondary);">Furnished</label>
+                    <select x-model="currentInspection({{ $sectionJs }}).furnished_status" class="prop-input w-full">
+                        <option value="">— Select —</option>
+                        @foreach($settingItems['furnishedStatuses'] ?? [] as $fs)
+                            <option value="{{ $fs->name }}">{{ $fs->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs font-semibold" style="color:var(--text-secondary);">Property type</label>
+                    <select x-model="currentInspection({{ $sectionJs }}).property_type" class="prop-input w-full">
+                        <option value="">— Select —</option>
+                        @foreach($settingItems['types'] ?? [] as $pt)
+                            <option value="{{ $pt->name }}">{{ $pt->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="flex gap-1">
+                    <div style="width:4.5rem;">
+                        <label class="text-xs font-semibold" style="color:var(--text-secondary);">Keys</label>
+                        <input type="number" min="0" x-model.number="currentInspection({{ $sectionJs }}).keys_count" class="prop-input w-full">
+                    </div>
+                    <div class="flex-1">
+                        <label class="text-xs font-semibold" style="color:var(--text-secondary);">&nbsp;</label>
+                        <input type="text" x-model="currentInspection({{ $sectionJs }}).keys_description" placeholder="e.g. set keys" class="prop-input w-full">
+                    </div>
+                </div>
+                <div class="flex gap-1">
+                    <div style="width:4.5rem;">
+                        <label class="text-xs font-semibold" style="color:var(--text-secondary);">Remotes</label>
+                        <input type="number" min="0" x-model.number="currentInspection({{ $sectionJs }}).remotes_count" class="prop-input w-full">
+                    </div>
+                    <div class="flex-1">
+                        <label class="text-xs font-semibold" style="color:var(--text-secondary);">&nbsp;</label>
+                        <input type="text" x-model="currentInspection({{ $sectionJs }}).remotes_description" placeholder="e.g. gate remotes" class="prop-input w-full">
+                    </div>
+                </div>
+                @if($section === 'out')
+                <div>
+                    <label class="text-xs font-semibold" style="color:var(--text-secondary);">Move-in date</label>
+                    <input type="date" x-model="currentInspection({{ $sectionJs }}).move_in_date_recorded" class="prop-input w-full">
+                </div>
+                @endif
+            </div>
+            <div class="flex justify-end">
+                <button type="button" :disabled="detailsBusy[{{ $sectionJs }}]" @click="saveDetailsFor({{ $sectionJs }})"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
+                        x-text="detailsBusy[{{ $sectionJs }}] ? 'Saving…' : 'Save details'"></button>
+            </div>
+            <div x-show="detailsError[{{ $sectionJs }}]" x-cloak class="text-xs" style="color:#ef4444;" x-text="detailsError[{{ $sectionJs }}]"></div>
+        </div>
+
         {{-- One banner per conflicting group — §0.4, must be resolved before completion. --}}
         <template x-for="discrepancy in (currentInspection({{ $sectionJs }}).discrepancies || []).filter(d => !d.resolved_at)" :key="discrepancy.id">
             <div class="rounded-md px-4 py-3 text-sm space-y-2" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">

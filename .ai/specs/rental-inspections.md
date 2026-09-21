@@ -1483,3 +1483,96 @@ inspection, and how that interacts with §16's wet-ink work and the completion g
 Johan's call, informed by cc5's `rental-inspection-form.md`, not this section's to pre-empt. Recorded here
 so nobody later "corrects" the current single-signature-per-party shape back to what this build already
 knew was incomplete, without realizing it was a documented, deliberate pause — not an oversight.
+
+---
+
+## 17. The header block — everything above the room tables (2026-10-01, cc6)
+
+**Status: pushed, awaiting landing.** Johan's real paper form has a substantial header above the room
+grading: meter readings, furnished state, property type, keys/remotes handed over, the tenant(s) and
+landlord's names, who did the inspection, and — on the out-form — the original move-in date. None of it
+was captured before this build; an inspection was a property, a status, a recorder, and an empty
+observations list.
+
+### 17.1 Fields, and where each one's value actually comes from
+
+| Field | Shape | Source |
+|---|---|---|
+| `electricity_meter_reading` | free text, not numeric | fresh each inspection — never defaulted |
+| `water_meter_reading` | free text, not numeric | fresh each inspection — never defaulted |
+| `furnished_status` | agency-configurable | defaults from `Property::furnished_status` at start |
+| `property_type` | agency-configurable | defaults from `Property::property_type` at start |
+| `keys_count` + `keys_description` | int + string | fresh each inspection — never defaulted |
+| `remotes_count` + `remotes_description` | int + string | fresh each inspection — never defaulted |
+| `move_in_date_recorded` | date, TYPE_OUT only | defaults from `Lease::start_date` at start |
+| Landlord / tenant(s) / inspecting agent names | display only | `Property::sellerOwnerContact()`, `Lease::tenants`, `RentalInspection::createdBy` — the SAME relations §15's signing block already resolves |
+
+**Meter readings are text, not numbers**, because the real form's example property reads "BODY CORP" for
+both electricity and water — a body corporate property has no individual meter, and a numbers-only field
+would be unusable there. This is not a defect the number field would later need fixing; it is what the
+real document requires from day one.
+
+**Furnished state and property type reuse the existing agency-configurable lists** —
+`PropertySettingItem::GROUP_FURNISHED_STATUS`/`GROUP_TYPE`, the exact groups `Property::furnished_status`/
+`property_type` already use elsewhere in this codebase, already seeded with sensible, multi-agency-safe
+defaults (Unfurnished/Furnished/Part-Furnished; House/Apartment-Flat/Townhouse/Vacant Land/Farm/Commercial
+Property/Industrial Property — covering Johan's named House/Flat/Townhouse/Commercial set without a
+second, narrower list). **[design call]** — a new rental-specific subset list was considered and rejected:
+CLAUDE.md's standing rule against a second mechanism where one already fits applies here exactly the same
+way it applied to §16's decision not to reuse DocuPerfect's e-sign tables.
+
+**Keys/remotes/meter readings are deliberately NEVER defaulted, even on an out-inspection where the
+in-inspection's own values already exist.** Considered and rejected: pre-filling the out-inspection's
+keys_count from the in-inspection's would undermine the exact thing Johan asked for — "capture them as
+countable, comparable values" only works if the out-count is a genuine fresh count, not an accepted
+carry-forward that could silently mask a real loss.
+
+### 17.2 Landlord/tenant/agent names are never re-typed, never re-stored
+
+Johan: "do not make an agent retype a name CoreX already holds." These three are rendered directly from
+existing relations (already resolved for §15's signing block) — no new columns, no snapshot. Unlike
+`property_type`/`furnished_status` (which genuinely can differ inspection to inspection and are worth
+freezing as a point-in-time fact), a party's NAME is not a fact that needs its own historical copy on the
+inspection — the signing block already captures WHO signed, with its own `party_contact_id`, which is the
+actual point-in-time record for identity. The header display is confirmation, not a second source of
+truth.
+
+### 17.3 Keys and remotes are a comparison input, not header decoration
+
+Coordinated directly with cc5 (building the in-vs-out deposit comparison in a separate worktree,
+`cc5-rental-inspection-deposit-comparison`) before landing this shape. Confirmed field names, on
+`rental_inspections` directly (one row per inspection event — "in" and "out" are separate rows with their
+own values, matching every other fact in this table): `keys_count`/`keys_description`,
+`remotes_count`/`remotes_description`, `electricity_meter_reading`/`water_meter_reading`. cc5 reads these
+by plain attribute access with no dependency ordering — a column that doesn't exist yet reads as null
+through Eloquent, so neither side needed to wait on the other's migration landing first. cc5 confirmed
+back: the int-count shape (rather than the free-text field originally sketched in their own spec) gives a
+clean, direct signal for the comparison — a numeric drop is unambiguous, no parsing required.
+
+### 17.4 Editable until completion, defaulted once, never after
+
+`RentalInspection::updateDetails()` — every field optional per call, refuses once the inspection is
+`completed` or `cancelled` (the completed document is evidence, not a form left open for revision, same
+principle §16 applies to a wet-ink upload). Defaults are set ONCE, in `start()`, at inspection creation —
+never re-applied or overwritten by a later "refresh from property" action; once an agent has confirmed or
+corrected a value, that correction is authoritative until the agent changes it again.
+
+### 17.5 Files
+
+- `database/migrations/2026_10_01_110000_add_header_block_to_rental_inspections.php`
+- `app/Models/RentalInspection.php` — new fillable/casts, `start()` defaulting, `updateDetails()`.
+- `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` — new `updateDetails()` action;
+  `start()`/`tabPayloadFor()` eager-load `createdBy` for the header's display-only name.
+- `routes/web.php` — `corex.rental-inspections.details.update`.
+- `resources/views/corex/properties/partials/rental-inspection-recording.blade.php` — the header block
+  markup, reusing `$settingItems['furnishedStatuses']`/`['types']` already loaded by
+  `PropertyController::show()` for the property's own edit form.
+- `resources/views/corex/properties/show.blade.php` — `saveDetailsFor()` and its supporting state.
+
+### 17.6 Verification status
+
+Same limitation as §16.7: `php artisan migrate` refuses from any worktree that isn't `/corex-qa1`
+(Standard −1g) — this migration has been reviewed, not executed against MySQL. All PHP passes `php -l`;
+every touched Blade file compiles via `php artisan view:cache` against this worktree's own independent
+`vendor/`. No browser tool is available in this environment — a real save over HTTP and the browser
+console on the live JS are both unverified by this build.

@@ -3147,6 +3147,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
         // Recording — RentalInspectionRecordingController, deliberately separate
         // (this controller's own docblock). Spec: rental-inspections.md §14.1/§14.2.
+        // §17 — the header block (meter readings, furnished state, property
+        // type, keys/remotes, move-in date).
+        Route::post('/{rentalInspection}/details', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateDetails'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.details.update');
         Route::post('/{rentalInspection}/observations', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeObservation'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.observations.store');
         Route::post('/{rentalInspection}/observations/{observation}/photos', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhoto'])

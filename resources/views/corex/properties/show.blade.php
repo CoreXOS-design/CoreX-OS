@@ -5021,6 +5021,35 @@
                     } catch (e) { this.lifecycleError = e.message; }
                 },
 
+                // §17 — the header block. x-model binds straight to
+                // currentInspection(section)'s own attributes (electricity_
+                // meter_reading etc.), so this just POSTs whatever the object
+                // currently holds — no separate form-state object to keep in
+                // sync, matching how the item/observation inputs on this same
+                // component already read/write directly off live data.
+                detailsBusy: {},
+                detailsError: {},
+                async saveDetailsFor(section) {
+                    const insp = this.currentInspection(section);
+                    this.detailsError[section] = '';
+                    this.detailsBusy[section] = true;
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/details`, {
+                            electricity_meter_reading: insp.electricity_meter_reading || null,
+                            water_meter_reading: insp.water_meter_reading || null,
+                            furnished_status: insp.furnished_status || null,
+                            property_type: insp.property_type || null,
+                            keys_count: insp.keys_count ?? null,
+                            keys_description: insp.keys_description || null,
+                            remotes_count: insp.remotes_count ?? null,
+                            remotes_description: insp.remotes_description || null,
+                            move_in_date_recorded: insp.move_in_date_recorded || null,
+                        });
+                        Object.assign(insp, updated);
+                    } catch (e) { this.detailsError[section] = e.message; }
+                    finally { this.detailsBusy[section] = false; }
+                },
+
                 // ── In/out signing, shared (§15, Stages 2-3 — the old
                 // out-only tenant/agent_on_behalf mechanism is fully retired;
                 // both sections now use this one path). One canvas active at
