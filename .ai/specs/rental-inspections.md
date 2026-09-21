@@ -1516,3 +1516,19 @@ ordering or coordinate before introducing a second, conflicting one.
 agency — same architecture as `DEFAULT_ROOM_TYPE_ITEMS` and `DEFAULT_INSPECTION_FEATURE_LABELS`. No
 agency's wording, branding, or a single hardcoded order is forced on another agency; every agency edits
 its own copy from here.
+
+**Two things from Johan's real paper documents (2026-09-21) that confirm/bear on this work — noted here
+as evidence, not acted on further; cc5 owns `.ai/specs/rental-inspection-form.md`, the spec for whatever
+the recording screen becomes once Johan rules on rebuilding it to match those documents:**
+
+1. **Natural-numeric ordering within a type is the common case, not an edge case.** Johan's real room
+   list for one flat: Kitchen, En Suite Bathroom, Main Bedroom, Bedroom 1, Bedroom 2, Bedroom 3,
+   Bedroom 4, Bathroom 1, Garage, Yard — ten rooms, four of them numbered bedrooms. Confirms
+   `defaultRoomSortOrderFor()`'s natural-numeric tiebreak (§16.4 point 2) was the right call, not
+   over-engineering for a rare case.
+2. **The inspection and the inventory do not share a room list.** His inventory document covers rooms
+   his inspection doesn't: Sunroom, Rubbish bin room, Entrance from glass front door, Dining
+   room/Balcony, Lounge, Laundry Room, Outside front of house. If an inventory feature is ever built on
+   top of `PropertyRoom` (already noted, §3.2-adjacent, as a table Sales may also use), it must not
+   assume it inherits whatever rooms an inspection happens to have — the two are separate room sets in
+   Johan's own real usage, not one list viewed two ways.
