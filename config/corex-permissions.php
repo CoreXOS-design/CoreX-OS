@@ -177,6 +177,10 @@ return [
         ['key' => 'rental_work_orders.cancel',           'label' => 'Cancel Work Orders',                    'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 5],
         ['key' => 'rental_work_orders.manage_settings', 'label' => 'Manage Rental Work Order Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 6],
 
+        // ── Rental Details (rental-property-tab.md §2/§8, Part 1) — agency-defined
+        // fields, rental price type list, lease type list, all on one settings page.
+        ['key' => 'rental_details.manage_settings', 'label' => 'Manage Rental Details Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_details', 'sort_order' => 1],
+
         // ── Daily Activity — Granular Actions ──
         ['key' => 'daily_activity.view',     'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 42],
         ['key' => 'daily_activity.create',   'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'daily_activity',   'sort_order' => 43],

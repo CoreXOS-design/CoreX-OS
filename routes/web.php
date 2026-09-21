@@ -2862,6 +2862,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.edit');
     Route::post('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'update'])
         ->middleware('permission:rental_work_orders.manage_settings')->name('corex.settings.rental-work-orders.update');
+    // .ai/specs/rental-property-tab.md §2/§8, Part 1 — agency-defined fields on
+    // the property Rental Details tab. Price type (Part 3) and lease type
+    // (Part 4) lists join this same page as they're built.
+    Route::get('/settings/rental-details', [\App\Http\Controllers\CoreX\RentalDetailsSettingsController::class, 'edit'])
+        ->middleware('permission:rental_details.manage_settings')->name('corex.settings.rental-details.edit');
+    Route::prefix('settings/rental-details/custom-fields')->middleware('permission:rental_details.manage_settings')
+        ->name('corex.settings.rental-details.custom-fields.')->group(function () {
+        Route::post('/', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'store'])->name('store');
+        Route::put('/{customField}', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'update'])->name('update');
+        Route::post('/{customField}/archive', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'archive'])->name('archive');
+        Route::post('/{customField}/restore', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'restore'])->name('restore');
+        Route::post('/reorder', [\App\Http\Controllers\CoreX\PropertyRentalDetailsCustomFieldController::class, 'reorder'])->name('reorder');
+    });
     // AT-392 Phase 2 — qualifying-formula threshold, same settings screen, separate
     // form/route so it can never interfere with the existing checklist save above.
     Route::post('/settings/rental-applications/qualifying-formula', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateQualifyingFormula'])
@@ -4109,6 +4122,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
         Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
         Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
+        // 2026-09-21 — retrofit a room type onto a legacy typeless space item
+        // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
+        Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->name('rental-inspection-items.assign-type');
         Route::post('/{property}/rental-inspection-items/seed-from-advertising', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'seedFromAdvertising'])->name('rental-inspection-items.seed-from-advertising');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new

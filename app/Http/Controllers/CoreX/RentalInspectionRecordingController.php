@@ -4,15 +4,19 @@ namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
 use App\Models\Property;
+use App\Models\PropertyRoom;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionDiscrepancy;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
 use App\Models\RentalInspectionPhoto;
+use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
 use App\Services\Images\PropertyImageStorer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 /**
  * .ai/specs/rental-inspections.md §14.1/§14.2 — where an inspection is
@@ -64,22 +68,135 @@ class RentalInspectionRecordingController extends Controller
         return response()->json($inspection, 201);
     }
 
-    /** POST /corex/properties/{property}/rental-inspection-items — Johan's ruling §0.6: the agent adds items per property. */
+    /**
+     * POST /corex/properties/{property}/rental-inspection-items — Johan's
+     * ruling §0.6: the agent adds items per property. AT-current (2026-09-21)
+     * fix: a `kind=space` add now goes through the exact same
+     * PropertyRoom + RentalInspectionSetting::roomTypeItemsFor() contract
+     * RentalInspectionFormSeeder already uses (rental-property-tab.md §8) —
+     * without a room type, the agency's configured checklist defaults had
+     * nowhere to be called from (root cause: the manual path never carried
+     * a space_type, so roomTypeItemsFor($agencyId, $spaceType) was never
+     * reachable). `kind=meter` is unaffected — a meter has no room concept
+     * (RentalInspectionItem's own docblock).
+     *
+     * Response shape is always {items: [...]} — a space add returns the
+     * checklist rows created under the new room; a meter add returns its
+     * one bare item — so the frontend has one push path for both.
+     */
     public function storeItem(Request $request, Property $property): JsonResponse
     {
         $validated = $request->validate([
             'kind' => ['required', 'in:' . RentalInspectionItem::KIND_SPACE . ',' . RentalInspectionItem::KIND_METER],
             'label' => ['required', 'string', 'max:191'],
-            'space_type' => ['nullable', 'string', 'max:60'],
+            'space_type' => [
+                Rule::requiredIf($request->input('kind') === RentalInspectionItem::KIND_SPACE),
+                'nullable', 'string', 'max:60',
+                Rule::in(config('property-spaces.all_space_types', [])),
+            ],
         ]);
 
-        $item = RentalInspectionItem::create(array_merge($validated, [
-            'agency_id' => $property->agency_id,
-            'property_id' => $property->id,
-            'created_by_user_id' => $request->user()->id,
-        ]));
+        if ($validated['kind'] === RentalInspectionItem::KIND_METER) {
+            $item = RentalInspectionItem::create([
+                'agency_id' => $property->agency_id,
+                'property_id' => $property->id,
+                'kind' => RentalInspectionItem::KIND_METER,
+                'label' => $validated['label'],
+                'created_by_user_id' => $request->user()->id,
+            ]);
 
-        return response()->json($item);
+            return response()->json(['items' => [$item]]);
+        }
+
+        $items = DB::transaction(function () use ($property, $validated, $request) {
+            $room = PropertyRoom::create([
+                'agency_id' => $property->agency_id,
+                'property_id' => $property->id,
+                'type' => $validated['space_type'],
+                'label' => $validated['label'],
+                'source' => 'manual',
+                'sort_order' => ((int) PropertyRoom::where('property_id', $property->id)->max('sort_order')) + 1,
+                'created_by_user_id' => $request->user()->id,
+            ]);
+
+            return $this->createRoomChecklist($property, $room, $validated['space_type'], $request->user()->id);
+        });
+
+        return response()->json(['items' => $items]);
+    }
+
+    /**
+     * POST /corex/properties/{property}/rental-inspection-items/{item}/assign-type
+     * — 2026-09-21 fix, the "do not orphan them" half of the room-type-picker
+     * gap: an item created before this fix (kind=space, no property_room_id,
+     * no space_type — e.g. "Bedroom 1" on property 5792) has no checklist and
+     * no way to get one. This gives it a type retroactively: a real
+     * PropertyRoom is created from the item's own label, the agency's
+     * configured checklist is generated under it exactly like a fresh add,
+     * and the legacy item is RETIRED (never deleted, §3.3) rather than
+     * mutated in place — any observation history already recorded against
+     * it stays exactly where it is and stays queryable (carryForwardItems()
+     * / fullHistory() both explicitly include retired items), while the new
+     * room's items become the live checklist going forward.
+     */
+    public function assignType(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
+    {
+        abort_if($item->property_id !== $property->id, 404);
+        abort_if($item->kind !== RentalInspectionItem::KIND_SPACE, 422, 'Only a space can be given a room type.');
+        abort_if($item->property_room_id !== null, 422, 'This space already has a room type.');
+
+        $validated = $request->validate([
+            'space_type' => ['required', 'string', 'max:60', Rule::in(config('property-spaces.all_space_types', []))],
+        ]);
+
+        $items = DB::transaction(function () use ($property, $item, $validated, $request) {
+            $room = PropertyRoom::create([
+                'agency_id' => $property->agency_id,
+                'property_id' => $property->id,
+                'type' => $validated['space_type'],
+                'label' => $item->label,
+                'source' => 'manual',
+                'sort_order' => ((int) PropertyRoom::where('property_id', $property->id)->max('sort_order')) + 1,
+                'created_by_user_id' => $request->user()->id,
+            ]);
+
+            $created = $this->createRoomChecklist($property, $room, $validated['space_type'], $request->user()->id);
+
+            $item->update(['is_retired' => true]);
+
+            return $created;
+        });
+
+        return response()->json(['items' => $items, 'retired_item_id' => $item->id]);
+    }
+
+    /**
+     * Shared by storeItem() (fresh add) and assignType() (retrofit) — the
+     * one place a room's default checklist is generated from
+     * RentalInspectionSetting::roomTypeItemsFor(), so the two callers can
+     * never drift into two different item shapes for the same room type.
+     *
+     * @return array<int, RentalInspectionItem>
+     */
+    private function createRoomChecklist(Property $property, PropertyRoom $room, string $type, int $byUserId): array
+    {
+        $facetLabels = RentalInspectionSetting::roomTypeItemsFor($property->agency_id, $type);
+
+        $created = [];
+        foreach ($facetLabels as $facetLabel) {
+            $created[] = RentalInspectionItem::create([
+                'agency_id' => $property->agency_id,
+                'property_id' => $property->id,
+                'property_room_id' => $room->id,
+                'kind' => RentalInspectionItem::KIND_SPACE,
+                'label' => $facetLabel,
+                'space_type' => $type,
+                'source' => 'manual',
+                'created_by_user_id' => $byUserId,
+            ])->load('room');
+        }
+
+        return $created;
     }
 
     /** POST /corex/properties/{property}/rental-inspection-items/{item}/retire — §3.3, never deleted, only retired. */
@@ -107,7 +224,15 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json([
-            'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->orderBy('id')->get(),
+            // 2026-09-21 — without eager-loading room here, a freshly-seeded
+            // item pushed straight into the client's items array has no
+            // item.room to compose itemDisplayLabel() with, so it briefly
+            // shows as a bare "Ceiling" instead of "Bedroom 1 — Ceiling"
+            // until the next full page load re-fetches via tabPayloadFor()
+            // (which already eager-loads it). Caught verifying the seed
+            // button end-to-end in a real browser, not by any server-side
+            // check.
+            'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->with('room')->orderBy('id')->get(),
             'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->get(),
         ]);
     }
