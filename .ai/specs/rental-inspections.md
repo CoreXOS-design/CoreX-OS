@@ -722,6 +722,15 @@ must be migrated before `rental_inspections`, since `rental_inspections.lease_id
   ruling requires landlord signing AND refusal on both inspection types; see §15. Landlord sign-off IS
   now in scope, and is being built — this line stays, struck through in spirit, so the record shows
   the reversal rather than erasing it.)**
+- **Splitting a secure parking bay from an open parking bay on an individual inspection.** 2026-09-21,
+  the legacy `spaces_json` conversion (`LegacySpacesJsonConverter`) sums old `parking_spaces` +
+  `secure_parkings` into one combined Parking count, per Johan's ruling ("secure parking will sit under
+  parking"). The conductor noted explicitly that this is faithful, not a decision to leave unexamined:
+  Johan's own reasoning for *why* secure parking is its own space rather than folded into Garage — "a
+  garage door and a garage floor are not paving with oil stains on it" — applies just as much to a
+  secure bay versus an *open* bay once both sit under the same Parking type and an agent is actually
+  walking the inspection. Not building a split now. Recorded here so it is a deliberate deferral, not an
+  oversight, if an agent later asks for the two to be told apart on the form.
 
 ---
 
@@ -1347,7 +1356,7 @@ landing:**
 
 ---
 
-## 16. Wet-ink signing — a tenant or landlord who signed on paper (2026-10-01, cc6)
+## 17. Wet-ink signing — a tenant or landlord who signed on paper (2026-10-01, cc6)
 
 **Status: pushed, awaiting landing.** §15 built three-party, in-person, canvas-capture signing. It never
 built a path for a party who signs on a physical page instead — §15.4 named this explicitly as a known,
@@ -1357,7 +1366,7 @@ signing system. It does NOT build §15.4's larger remote/async link (a landlord 
 ever meeting the agent); it builds the narrower, immediately real case: a page someone signed in person
 or handed back later, then photographed or scanned into the system by whoever is holding the device.
 
-### 16.1 Why this stays on `RentalInspectionSignature`, not the DocuPerfect e-sign module
+### 17.1 Why this stays on `RentalInspectionSignature`, not the DocuPerfect e-sign module
 
 Investigated first, per the standing instruction not to build a second signing system if an existing one
 fits. DocuPerfect's full e-sign flow (`SignatureRequest`, `WetInkInspection`, `choose-method.blade.php`)
@@ -1377,7 +1386,7 @@ the disposition directly, same trust level as a canvas signature or a refusal re
 wanted later, that is DocuPerfect's `WetInkInspection` pattern to borrow from, not something silently
 added here.
 
-### 16.2 Data model — three columns added to `rental_inspection_signatures`
+### 17.2 Data model — three columns added to `rental_inspection_signatures`
 
 ```
 rental_inspection_signatures  (adds to §15.2's shape)
@@ -1395,7 +1404,7 @@ rental_inspection_signatures  (adds to §15.2's shape)
 `party_role='agent'` — the agent is always present, always §15's live canvas capture; enforced in
 `capture()`, the same one factory method that enforces every other invariant in this table (§15.2a).
 
-### 16.3 Superseding — evidence, never edited in place, never destroyed
+### 17.3 Superseding — evidence, never edited in place, never destroyed
 
 A wrong or unreadable wet-ink upload is corrected by `RentalInspectionSignature::supersedeWetInk()`:
 marks the existing row `superseded_at` (excluded from `capture()`'s duplicate-disposition check and
@@ -1409,14 +1418,14 @@ complete record as it stood (§15.2a) — replacing a party's evidence after tha
 change what was attested to. Not asked for in this build; correcting evidence on a completed inspection
 is a separate, larger amendment mechanism, not this one.
 
-### 16.4 Permission — evidence-backed, not `sign_on_behalf`
+### 17.4 Permission — evidence-backed, not `sign_on_behalf`
 
 `rental_inspections.sign_on_behalf` (§15.5) gates an agent asserting a REFUSAL — a claim with no evidence
 but the agent's word. A wet-ink upload is the opposite: it arrives WITH evidence, the scan itself, the
 same epistemic weight as a canvas-captured signature. It stays behind only the base
 `rental_inspections.create` permission the whole signing endpoint already requires — not gated further.
 
-### 16.5 Rendering — a third shape, never mistaken for the other two
+### 17.5 Rendering — a third shape, never mistaken for the other two
 
 `resources/views/corex/rental-inspections/show.blade.php`'s disposition branch (§15.5/§15.8) gains a
 third case: no signature-image markup (never presentable as an e-signature, same principle as a refusal
@@ -1427,7 +1436,7 @@ rather than the stale upload. The live recording UI (`rental-inspection-recordin
 already-uploaded wet-ink row, shown only while it is genuinely replaceable (§16.3's guard, mirrored
 client-side in `canReplaceWetInk()` so the UI never offers an action the server will refuse).
 
-### 16.6 Files
+### 17.6 Files
 
 - `database/migrations/2026_10_01_100000_add_wet_ink_to_rental_inspection_signatures.php`
 - `app/Models/RentalInspectionSignature.php` — `DISPOSITION_WET_INK`, `capture()` extended,
@@ -1442,7 +1451,7 @@ client-side in `canReplaceWetInk()` so the UI never offers an action the server 
   `resources/views/corex/properties/show.blade.php` (the shared Alpine component's JS),
   `resources/views/corex/rental-inspections/show.blade.php`.
 
-### 16.7 Verification status — stated plainly, not glossed over
+### 17.7 Verification status — stated plainly, not glossed over
 
 The `2026_10_01_100000` migration was NOT run against the shared `corex_qa1` schema by this build — `php
 artisan migrate` refuses outright from any worktree that isn't `/corex-qa1` itself (Standard −1g,
@@ -1457,3 +1466,102 @@ cleanly via `php artisan view:cache` against this worktree's own independent `ve
 path — the migration actually running, a real signature capture over real HTTP, and the browser console
 on the live JS — is unverified by this build and needs proving once landed through `/corex-qa1`. No
 browser tool is available in this environment; the console check needs a human or a session that has one.
+(Note: this section is numbered §17 rather than §16 to avoid colliding with the already-landed
+Room-type picker / grouping section immediately below, also originally numbered §16.)
+
+## 16. Room-type picker fix (2026-09-21) — the manual add path never carried a type
+
+**Root cause, found by Johan on a real browser walk of property 5792 (QA1):** the Rental Images tab's
+manual "Add" control (§4, the flat add form below the Inspection Items list) let an agent add a Space
+with only a free-text label and a `kind` of `space`/`meter` — no room type. `RentalInspectionItem.
+space_type` (§3.2) has always existed as a column, but nothing in the UI or
+`RentalInspectionRecordingController::storeItem()` ever populated it. `RentalInspectionSetting::
+roomTypeItemsFor($agencyId, $spaceType)` — the agency's own configured checklist defaults, built at
+`/corex/settings/rental-inspections` (§3.5-adjacent settings screen) — was therefore never reachable
+from this path: it needs a real `$spaceType` to key its lookup, and the manual add never had one to
+give it. A manually-added space like "Bedroom 1" landed with zero checklist items under it, while
+`RentalInspectionFormSeeder::seedFromAdvertising()` (§14.3-adjacent, Stage 2) worked correctly because
+it always had a real space type from `spaces_json`.
+
+This was NOT a second "make a feature its own space" gap (an earlier framing this investigation
+withdrew) — Parking/Garage/Flatlet etc. were already ordinary, working space types. It was specifically
+that the ONE path an agent uses to hand-add a room to the inspection checklist had no type field to
+carry to `roomTypeItemsFor()`.
+
+### 16.1 The fix
+
+- The manual add form (`resources/views/corex/properties/show.blade.php`, the Inspection Items panel)
+  gained a Room Type `<select>`, rendered server-side from `config('property-spaces.all_space_types')`
+  — the authoritative PHP catalog, never the page's own JS copy of that list (a DIFFERENT catalog,
+  `feature_categories`, was found drifted from its JS copy earlier the same day; `all_space_types` was
+  checked and confirmed NOT drifted, but the picker still renders from PHP directly rather than trust
+  the JS copy going forward). Required whenever `kind = space`; not shown for `kind = meter` (a meter
+  has no room, per §3.2's own comment).
+- `RentalInspectionRecordingController::storeItem()` now validates `space_type` against that same
+  catalog (`Rule::in(config('property-spaces.all_space_types'))`) when `kind = space`, then — in one
+  transaction — creates a real `PropertyRoom` (type, label, `source = manual`) and generates that room's
+  default checklist items via `RentalInspectionSetting::roomTypeItemsFor()`, exactly the same call
+  `RentalInspectionFormSeeder` already makes. Both callers now go through one shared private method
+  (`createRoomChecklist()`) so they can never diverge into two different item shapes for the same room
+  type again. `kind = meter` is unchanged — a bare item, no room.
+- **This narrows §3.2's original note** ("space_type... for consistency with the marketing spaces list
+  WITHOUT being constrained to it... free-text label always wins display") — that note is still true of
+  the item's own free-text LABEL ("Bedroom 1" vs "Bedroom 2" stays free text), but the TYPE used to seed
+  a room's checklist must now be constrained to the real catalog, because it is a live lookup key into
+  the agency's own configured defaults, not a display string. An unconstrained type would silently miss
+  an agency's customisation and fall back to `DEFAULT_ROOM_TYPE_ITEMS` instead.
+- **Existing typeless items are not orphaned.** A pre-fix space (`kind = space`, no `property_room_id`,
+  no `space_type` — e.g. "Bedroom 1" on property 5792) gets an inline "Give it a room type…" picker
+  instead of the normal Retire-only row. Choosing a type and confirming
+  (`RentalInspectionRecordingController::assignType()`, `POST .../rental-inspection-items/{item}/
+  assign-type`) creates a real `PropertyRoom` from the item's own label, generates that room's default
+  checklist through the same shared `createRoomChecklist()`, and RETIRES (never deletes, §3.3) the old
+  bare item — any observation history already recorded against it stays exactly where it is and stays
+  queryable (`carryForwardItems()`/`fullHistory()` both explicitly include retired items); the new
+  room's items become the live checklist going forward.
+- Agents can still add, edit (retire), and hand-add further items after either path runs — seeding
+  (whether via "Build from advertising details" or a manual add's auto-generated checklist) is a
+  starting point, never a cage (Johan, §0 rulings: "agents can add their own on inspections as well").
+
+### 16.2 Multi-agency note
+
+`config('property-spaces.all_space_types')` is the same single, agency-neutral catalog the advertising
+Spaces screen already uses for every agency — no change to that contract. What's agency-specific is
+*which default items* a given type resolves to, via `RentalInspectionSetting::roomTypeItemDefaultsFor
+($agencyId)` — already built, already per-agency, already reached correctly through this fix's shared
+`createRoomChecklist()`. No agency-specific type list, wording, or default was introduced.
+
+### 16.3 Room-heading grouping (2026-09-21) — Johan on property 5792
+
+**The problem, in his own words:** "why would we add bedroom 2 such a lot of times - surely that should
+be a heading - bedroom 2. then list everything underneath that we have to check in that room?" Property
+5792's checklist rendered all 15 facet items flat, each row prefixed with its room's name —
+`itemDisplayLabel()`'s `${item.room.label} — ${item.label}` string — so "Bedroom 2" printed once per
+each of its 5 facets. Pure repeated metadata, a direct hit on Johan's standing rule that every row of a
+working screen must be data the agent needs or a control they act on, not decoration.
+
+**The fix:** both the Inspection Items panel and the In/Out Inspection recording checklist
+(`resources/views/corex/properties/show.blade.php`, `resources/views/corex/properties/partials/
+rental-inspection-recording.blade.php`) now render `roomGroups()` — one heading per room (`group.room.
+label`, printed once), its facet items nested underneath showing their own bare `item.label`. Items with
+no room (meters, and legacy spaces still awaiting a room type via §16.1's `assign-type`) land in one
+trailing "General" group. `itemDisplayLabel()` is removed — both its call sites are gone, so nothing
+else in the app used it.
+
+**The grouping key, and why casing is a non-issue:** `roomGroups()` keys strictly on `item.room.id` —
+the real `PropertyRoom` primary key carried through the item's own `property_room_id` foreign key — and
+never on `item.room.label`, the free-text display string. Two items either share the same `room_id` or
+they don't; the label is read only for display, after grouping has already happened. Johan raised a
+real, separate concern — property 5792 has both "bedroom 2" (lowercase) and "Bedroom 1" (capitalised),
+since he typed them as free text — and asked us to confirm grouping doesn't key on that string. It
+doesn't, and never has: there is no code path anywhere in this feature that compares room names to
+decide whether two items belong together. The casing inconsistency is real but purely cosmetic here;
+whether existing free-text room names should ever be normalised is a separate, deliberately un-taken
+decision — Johan's own data, his call, not touched by this fix.
+
+**Ordering note:** groups sort by `group.room.sort_order` ascending — `PropertyRoom`'s own existing
+column. This fix does not change what that column contains or how it's assigned; today that's still
+creation/seed order, which is Johan's second, larger complaint (rooms don't line up in a sensible
+walking order, and can't be reordered) — tracked separately, not solved by this grouping change. Once a
+sensible default and agent-driven reordering land on `sort_order`, this same `roomGroups()` reflects it
+automatically, with no further change to either view.

@@ -101,6 +101,14 @@ class RentalApplicationSettingsController extends Controller
         // already bureau-aware once $agencyId is threaded through here —
         // no special-casing needed in this controller for that part.
         $creditBureauName = RentalApplicationQualifyingSetting::creditBureauNameFor($agencyId);
+        // Johan, 2026-09-21 — the further-state label. The FORM needs the
+        // raw stored value (null when unset, so the input shows genuinely
+        // blank with the default as a placeholder — same UX as credit
+        // bureau above); tenantedLabelFor() itself always resolves to a
+        // ready-to-display string, which every OTHER consumer needs but
+        // this one form specifically must not show as if it were saved.
+        $tenantedLabel = trim((string) (RentalApplicationQualifyingSetting::where('agency_id', $agencyId)->value('tenanted_label') ?? ''));
+        $tenantedLabel = $tenantedLabel !== '' ? $tenantedLabel : null;
         $fieldRegistry = RentalApplication::submissionFieldRegistry($agencyId);
         $requiredFieldKeys = RentalApplicationQualifyingSetting::requiredFieldKeysFor($agencyId);
         $maritalStatusOptions = RentalApplicationQualifyingSetting::maritalStatusOptionsFor($agencyId);
@@ -258,7 +266,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName', 'tenantedLabel'
         ));
     }
 
@@ -456,6 +464,32 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Credit bureau saved.');
+    }
+
+    /**
+     * Johan, from his own live walk, 2026-09-21 — an approved application
+     * linked to an active lease is a further state, worded per-agency,
+     * same convention as updateCreditBureau() immediately above. Blank
+     * clears it back to the shipped default (RentalApplicationQualifying
+     * Setting::DEFAULT_TENANTED_LABEL), never an empty label anywhere it's shown.
+     */
+    public function updateTenantedLabel(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        $validated = $request->validate([
+            'tenanted_label' => ['nullable', 'string', 'max:60'],
+        ]);
+
+        $value = trim((string) ($validated['tenanted_label'] ?? ''));
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['tenanted_label' => $value !== '' ? $value : null],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Label saved.');
     }
 
     /**
