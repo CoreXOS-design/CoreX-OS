@@ -1457,3 +1457,29 @@ cleanly via `php artisan view:cache` against this worktree's own independent `ve
 path — the migration actually running, a real signature capture over real HTTP, and the browser console
 on the live JS — is unverified by this build and needs proving once landed through `/corex-qa1`. No
 browser tool is available in this environment; the console check needs a human or a session that has one.
+
+### 16.8 The real paper form signs in two places, not one — noted, not built (2026-10-01)
+
+Johan sent his agency's actual paper documents (the source for `.ai/specs/rental-inspection-form.md`,
+cc5's — this note records the one finding from them that lands directly on §16 and is NOT a duplicate of
+that spec). The real out-inspection form has **five** signature slots, not the three this build assumed:
+**Landlord** Name + Signature and **two separate Tenant** Name + Signature lines partway through the
+document, then, separately, at the foot of the form: **"Inspection done by" + Signature** and
+**"Tenant" + Signature** again, with a date. The same tenant is asked to sign twice, in two different
+places, for two different things (agreeing to the recorded condition partway through; confirming the
+completed document at the foot) — not one signature that this build's single `party_role='tenant'` row
+per inspection currently models.
+
+**In the real example Johan sent**: the landlord line is unsigned, the tenant signed at both the mid-form
+and foot positions, and the agent signed only at the foot. **A partially-signed inspection — most
+concretely, an unsigned landlord — is the NORMAL, everyday shape of a real, usable, already-in-use
+document, not an error or incomplete state.** §15.1 already established this in principle ("refusal is
+normal, not an error"); this is the concrete evidence that the principle is load-bearing in practice, not
+theoretical.
+
+**Not decided here, not built here**: whether the signing model should move to two signing MOMENTS per
+party (matching the real form's mid-document + foot structure) rather than one `party_role` row per
+inspection, and how that interacts with §16's wet-ink work and the completion guard (§15.7). That is
+Johan's call, informed by cc5's `rental-inspection-form.md`, not this section's to pre-empt. Recorded here
+so nobody later "corrects" the current single-signature-per-party shape back to what this build already
+knew was incomplete, without realizing it was a documented, deliberate pause — not an oversight.
