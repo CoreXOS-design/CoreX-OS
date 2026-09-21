@@ -678,6 +678,9 @@ class Property extends Model
         'water_included',
         'electricity_included',
         'levies_included',
+        // .ai/specs/rental-property-tab.md §2/§7, Part 2 — agency-defined
+        // rental-details field values, keyed by PropertyRentalDetailsCustomField::key.
+        'rental_details_custom_field_values',
         'p24_syndication_enabled',
         'p24_syndication_status',
         'p24_ref',
@@ -736,6 +739,7 @@ class Property extends Model
         'water_included'      => 'boolean',
         'electricity_included' => 'boolean',
         'levies_included'     => 'boolean',
+        'rental_details_custom_field_values' => 'array',
         'listing_type_pending' => 'boolean',
         // Money columns are decimal(12,2) in the schema (storage precision is
         // preserved there regardless of cast). They are cast to float — NOT
