@@ -32,17 +32,71 @@ class RentalInspectionSetting extends Model
         ['key' => 'other', 'label' => 'Other'],
     ];
 
+    /**
+     * Johan, 2026-09-20 — a starting point, not a ruling: which of the
+     * EXISTING property feature catalog's labels
+     * (config('property-spaces.feature_categories')) are physical things an
+     * inspector would actually check are present and working, versus a
+     * marketing/legal/policy descriptor with nothing to inspect. Every
+     * label here must exist verbatim in that catalog — this constant never
+     * introduces a label of its own, only selects from the existing one, so
+     * it can never drift out of sync with what Property24/Private Property
+     * syndication and the property edit screen both already key on.
+     *
+     * The agency owns this list from here — Johan's own reasoning for why
+     * this is a tick rather than an inferred rule: "Built-in Cupboards" is
+     * both a feature AND an inspection item, "Investment" is neither, and
+     * no rule reliably tells the two apart. This is one agency's starting
+     * guess at that split, not a universal one.
+     */
+    public const DEFAULT_INSPECTION_FEATURE_LABELS = [
+        // The Property
+        'Air Conditioned', 'Balcony', 'Communal Braai Area',
+        // Security — physical installations, not access policies or area
+        // classifications (e.g. "Gated Community", "24 Hour Guard").
+        'Alarm System', 'Boomed Area', 'Burglar Bars', 'CCTV', 'Electric Fence',
+        'Electric Gate', 'Guard House', 'Indoor Beams', 'Intercom', 'Outdoor Beams',
+        'Perimeter Wall', 'Safe', 'Security Gate', 'Automated Garage Doors',
+        // Connectivity — the physical outlet/equipment, not the service
+        // subscription behind it (e.g. "ADSL", "Cable TV" stay off).
+        'Fibre', 'Internet Port', 'Satellite Dish', 'Telephone Port', 'TV Port', 'Wi-Fi',
+        // Sustainability — every one of these is a physical installation.
+        'Backup Battery', 'Backup Water', 'Borehole', 'Gas Geyser', 'Gas Hob',
+        'Gas Oven', 'Generator', 'Inverter', 'Septic Tank', 'Solar Geyser',
+        'Solar Heating', 'Solar Panel', 'Water Tank',
+    ];
+
+    /**
+     * Johan, 2026-09-20: "we should have a setting somewhere on rentals that
+     * defines room types and what gets added - ceiling, walls, floors,
+     * windows, doors - that should be a std." Agreed with cc4 (owns the
+     * seeder that consumes this): ship this exact baseline IDENTICALLY for
+     * every space type rather than guess per-type variations ("if its a
+     * patio as example there are still things to check" — the agency edits
+     * a type down from here if it doesn't apply, the system never guesses
+     * it away first). Keyed on config('property-spaces.all_space_types')'s
+     * own strings — never duplicated here as a separate hardcoded list —
+     * built at read time in roomTypeItemDefaultsFor() below, not stored as
+     * a static array, so a future addition to that config is covered
+     * automatically without a migration.
+     */
+    public const DEFAULT_ROOM_TYPE_ITEMS = ['Ceiling', 'Walls', 'Floors', 'Windows', 'Doors'];
+
     protected $fillable = [
         'agency_id',
         'fault_report_window_days',
         'out_inspection_signing_window_days',
         'refusal_reason_presets',
+        'inspection_feature_labels',
+        'room_type_item_defaults',
     ];
 
     protected $casts = [
         'fault_report_window_days' => 'integer',
         'out_inspection_signing_window_days' => 'integer',
         'refusal_reason_presets' => 'array',
+        'inspection_feature_labels' => 'array',
+        'room_type_item_defaults' => 'array',
     ];
 
     public static function faultReportWindowDaysFor(?int $agencyId): int
@@ -86,5 +140,95 @@ class RentalInspectionSetting extends Model
         $withoutOther[] = ['key' => 'other', 'label' => 'Other'];
 
         return $withoutOther;
+    }
+
+    /**
+     * Which of the property feature catalog's labels
+     * (config('property-spaces.feature_categories')) count as inspection
+     * items when a checklist is seeded from a property's advertising
+     * features. Intersected against the LIVE catalog on every read, so an
+     * agency's saved list can never resurrect a label the catalog has since
+     * dropped, and a catalog addition is simply absent until the agency
+     * opts in — never silently included. An explicitly empty saved list
+     * (an agency that wants nothing seeded from features) is a real,
+     * preserved state, not coerced back to the default.
+     *
+     * @return array<int, string>
+     */
+    public static function inspectionFeatureLabelsFor(?int $agencyId): array
+    {
+        $labels = null;
+        if ($agencyId) {
+            $labels = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('inspection_feature_labels');
+            $labels = is_string($labels) ? json_decode($labels, true) : $labels;
+        }
+
+        $labels = is_array($labels) ? $labels : self::DEFAULT_INSPECTION_FEATURE_LABELS;
+
+        $catalog = collect(config('property-spaces.feature_categories', []))
+            ->flatMap(fn ($category) => $category['features'] ?? [])
+            ->all();
+
+        return array_values(array_intersect($labels, $catalog));
+    }
+
+    /**
+     * The RAW, sparse per-agency overrides only — exactly what this agency
+     * has actually customized, nothing merged in. This is what the settings
+     * screen's edit form seeds its editable row list from (a type NOT in
+     * this list renders no row and stays on the generic baseline); the
+     * merged, everything-covered view lives in roomTypeItemDefaultsFor()
+     * below, which is what the seeder calls.
+     *
+     * @return array<string, array<int, string>>
+     */
+    public static function customRoomTypeOverridesFor(?int $agencyId): array
+    {
+        $overrides = null;
+        if ($agencyId) {
+            $overrides = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('room_type_item_defaults');
+            $overrides = is_string($overrides) ? json_decode($overrides, true) : $overrides;
+        }
+
+        return is_array($overrides) ? $overrides : [];
+    }
+
+    /**
+     * Ordered default inspection items for every known space type
+     * (config('property-spaces.all_space_types')), agency overrides merged
+     * on top. Built at read time from the live space-type list, never a
+     * static array of type keys — a future addition to that config is
+     * covered automatically, with DEFAULT_ROOM_TYPE_ITEMS, until an agency
+     * customizes it.
+     *
+     * @return array<string, array<int, string>>
+     */
+    public static function roomTypeItemDefaultsFor(?int $agencyId): array
+    {
+        $overrides = self::customRoomTypeOverridesFor($agencyId);
+
+        $defaults = [];
+        foreach (config('property-spaces.all_space_types', []) as $type) {
+            $defaults[$type] = self::DEFAULT_ROOM_TYPE_ITEMS;
+        }
+
+        return array_merge($defaults, $overrides);
+    }
+
+    /**
+     * Single-type convenience lookup for the inspection seeder (cc4,
+     * rental-inspections rework) — one call per room instance, keyed by
+     * its parent space type. Falls back to the generic baseline for a type
+     * this agency hasn't customized AND for a type absent from the
+     * space-type catalog entirely, so a future or renamed type never seeds
+     * an empty checklist.
+     *
+     * @return array<int, string>
+     */
+    public static function roomTypeItemsFor(?int $agencyId, string $spaceType): array
+    {
+        $defaults = self::roomTypeItemDefaultsFor($agencyId);
+
+        return $defaults[$spaceType] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
     }
 }

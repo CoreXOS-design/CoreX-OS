@@ -433,6 +433,14 @@ return [
             ['route' => 'corex.settings.rental-applications.edit',
              'label' => 'Rental application settings',
              'explain' => 'Custom field labels, help text, field ordering, and adding your own extra questions are set here, any time after setup.'],
+            // Johan, 2026-09-20 — which property features count as inspection
+            // items, and each room type's default items, are both array-
+            // shaped (not the wizard's scalar key/type/default control shape)
+            // — same carve-out as the link above, same reasoning: link out,
+            // never silently absent.
+            ['route' => 'corex.settings.rental-inspections.edit',
+             'label' => 'Rental inspection settings',
+             'explain' => 'Which property features count as inspection items, and each room type\'s default checklist items, are set here, any time after setup.'],
         ],
     ],
 

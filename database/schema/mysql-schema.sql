@@ -12906,6 +12906,8 @@ CREATE TABLE `rental_inspection_settings` (
   `fault_report_window_days` smallint unsigned DEFAULT NULL,
   `out_inspection_signing_window_days` smallint unsigned DEFAULT NULL,
   `refusal_reason_presets` json DEFAULT NULL,
+  `inspection_feature_labels` json DEFAULT NULL,
+  `room_type_item_defaults` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -17253,3 +17255,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1391,'2026_09_20_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1392,'2026_09_29_100000_add_archived_by_to_rental_inspections_table',333);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1393,'2026_09_30_100000_rebuild_rental_inspection_signatures_for_three_party_signing',334);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1394,'2026_09_30_100100_add_refusal_reason_presets_to_rental_inspection_settings_table',334);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1395,'2026_09_30_100200_add_inspection_feature_labels_to_rental_inspection_settings_table',335);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1396,'2026_09_30_100300_add_room_type_item_defaults_to_rental_inspection_settings_table',335);
