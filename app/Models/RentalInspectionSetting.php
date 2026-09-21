@@ -51,7 +51,7 @@ class RentalInspectionSetting extends Model
      */
     public const DEFAULT_INSPECTION_FEATURE_LABELS = [
         // The Property
-        'Air Conditioned', 'Balcony', 'Communal Braai Area',
+        'Air Conditioned', 'Balcony',
         // Security — physical installations, not access policies or area
         // classifications (e.g. "Gated Community", "24 Hour Guard").
         'Alarm System', 'Boomed Area', 'Burglar Bars', 'CCTV', 'Electric Fence',
