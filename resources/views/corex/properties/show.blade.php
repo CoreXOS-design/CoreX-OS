@@ -2011,9 +2011,12 @@
                     <div x-show="info.pricing" x-collapse class="prop-section-body space-y-4">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" x-data="{ showPriceModal: false }">
                             <div class="relative">
-                                <label class="prop-label">Price (ZAR) <span class="prop-required">*</span></label>
+                                <label class="prop-label">
+                                    {{ $property->isRental() ? 'Sale Price (ZAR)' : 'Price (ZAR)' }}
+                                    @unless($property->isRental())<span class="prop-required">*</span>@endunless
+                                </label>
                                 <div class="flex prop-field-money">
-                                    <input type="number" name="price" value="{{ old('price', $property->price) }}" required min="0"
+                                    <input type="number" name="price" value="{{ old('price', $property->price) }}" @unless($property->isRental()) required @endunless min="0"
                                            class="prop-input"
                                            style="border-top-right-radius:0; border-bottom-right-radius:0; border-right:none;">
                                     <button type="button" @click="showPriceModal = true"
@@ -2023,10 +2026,18 @@
                                         <svg class="w-4 h-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                                     </button>
                                 </div>
-                                @if($property->price_on_application)
+                                @if($property->isRental())
+                                <span class="text-[0.6875rem] mt-0.5 block font-medium" style="color:var(--text-muted);">Not in use while let — see Monthly Rental</span>
+                                @elseif($property->price_on_application)
                                 <span class="text-[0.6875rem] mt-0.5 block font-medium" style="color:var(--brand-icon);">Price on Application</span>
                                 @endif
                             </div>
+                            @if($property->isRental())
+                            <div>
+                                <label class="prop-label">Monthly Rental (ZAR)</label>
+                                <input type="number" name="rental_amount" form="prop-update-form" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
+                            </div>
+                            @endif
                             <div>
                                 <label class="prop-label">Rates &amp; Taxes</label>
                                 <input type="number" name="rates_taxes" value="{{ old('rates_taxes', $property->rates_taxes) }}" min="0" placeholder="—" class="prop-input prop-field-money">

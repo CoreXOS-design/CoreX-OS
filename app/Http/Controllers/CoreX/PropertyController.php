@@ -1777,7 +1777,14 @@ class PropertyController extends Controller
         $clone->listing_type_pending = true;
         // `price` is bigint unsigned NOT NULL DEFAULT 0; 0 is this schema's "unset"
         // (empty(0) is true, so the publish-readiness gate still demands a real price).
-        $clone->price = 0;
+        // A rental's `price` is a deliberate future-sale-price capture (see
+        // .ai/specs/listings.md, "Sale price stays live on a rental listing"),
+        // so duplicating a rental AS A SALE carries it forward instead of
+        // discarding it. Every other direction still starts at 0 — a rental
+        // starting fresh has no sale-price history to inherit.
+        $clone->price = ($targetType === 'sale' && $property->isRental())
+            ? $property->price
+            : 0;
         $clone->unit_number = null;
         $clone->published_at = null;
         $clone->p24_syndication_enabled = false;
