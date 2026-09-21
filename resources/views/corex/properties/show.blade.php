@@ -4595,30 +4595,48 @@
                                 x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
                     </div>
 
-                    <template x-for="item in activeItems()" :key="item.id">
-                        <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
-                            <span class="text-sm" style="color:var(--text-primary);" x-text="itemDisplayLabel(item)"></span>
-                            <div class="flex items-center gap-3">
-                                {{-- 2026-09-21 — a space created before the room-type
-                                     picker existed has no room and no space_type; give
-                                     it one retroactively instead of leaving it stuck
-                                     with an empty checklist forever. --}}
-                                <template x-if="item.kind === 'space' && !item.room && !item.space_type">
-                                    <div class="flex items-center gap-1">
-                                        <select x-model="assignTypeChoice[item.id]" class="prop-input text-xs" style="max-width:9rem;">
-                                            <option value="">Give it a room type…</option>
-                                            @foreach(config('property-spaces.all_space_types', []) as $spaceType)
-                                                <option value="{{ $spaceType }}">{{ $spaceType }}</option>
-                                            @endforeach
-                                        </select>
-                                        <button type="button" :disabled="itemBusy || !assignTypeChoice[item.id]" @click="assignType(item)"
-                                                class="text-xs font-semibold" style="color:var(--brand-button,#0ea5e9);">Set</button>
+                    {{-- 2026-09-21, Johan on property 5792: a room's name was printed
+                         once per facet item (15 rows, 3 rooms, "Bedroom 2 —" repeated
+                         5 times) — pure repeated metadata with nothing the agent needs
+                         to read more than once. Grouped under one heading per room
+                         instead, room name printed ONCE. Grouping keys on
+                         item.room.id — the real PropertyRoom foreign key — never on
+                         the room's free-text label, so two rooms named with different
+                         casing ("Bedroom 2" vs "bedroom 2") are never merged or split
+                         by string comparison; they're already distinct rows before
+                         any label is read. Items with no room (meters, and legacy
+                         spaces still awaiting a room type) fall into one trailing
+                         "General" group rather than floating unheaded. --}}
+                    <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
+                        <div class="space-y-1 pt-2">
+                            <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
+                                x-text="group.room ? group.room.label : 'General'"></h4>
+                            <template x-for="item in group.items" :key="item.id">
+                                <div class="flex items-center justify-between py-1.5 pl-3" style="border-bottom:1px solid var(--border);">
+                                    <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                                    <div class="flex items-center gap-3">
+                                        {{-- 2026-09-21 — a space created before the room-type
+                                             picker existed has no room and no space_type; give
+                                             it one retroactively instead of leaving it stuck
+                                             with an empty checklist forever. --}}
+                                        <template x-if="item.kind === 'space' && !item.room && !item.space_type">
+                                            <div class="flex items-center gap-1">
+                                                <select x-model="assignTypeChoice[item.id]" class="prop-input text-xs" style="max-width:9rem;">
+                                                    <option value="">Give it a room type…</option>
+                                                    @foreach(config('property-spaces.all_space_types', []) as $spaceType)
+                                                        <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <button type="button" :disabled="itemBusy || !assignTypeChoice[item.id]" @click="assignType(item)"
+                                                        class="text-xs font-semibold" style="color:var(--brand-button,#0ea5e9);">Set</button>
+                                            </div>
+                                        </template>
+                                        <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
+                                        <button type="button" :disabled="itemBusy" @click="retireItem(item)"
+                                                class="text-xs font-semibold" style="color:var(--ds-crimson);">Retire</button>
                                     </div>
-                                </template>
-                                <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
-                                <button type="button" :disabled="itemBusy" @click="retireItem(item)"
-                                        class="text-xs font-semibold" style="color:var(--ds-crimson);">Retire</button>
-                            </div>
+                                </div>
+                            </template>
                         </div>
                     </template>
 
@@ -4861,14 +4879,37 @@
                 assignTypeChoice: {},
 
                 activeItems() { return this.items.filter(i => !i.is_retired); },
-                // Stage 2 — a seeded facet item's own label is just the
-                // fixture name ("Ceiling"); the room it belongs to is a
-                // separate join (item.room), not baked into the string.
-                // Prefix it here so the still-flat list (pre-Stage-3) reads
-                // as "Bedroom 1 — Ceiling" instead of an unlabelled repeat
-                // of "Ceiling" once per room. A manually-added or pre-Stage-2
-                // item has no room and falls back to its own bare label.
-                itemDisplayLabel(item) { return item.room ? `${item.room.label} — ${item.label}` : item.label; },
+                // 2026-09-21, Johan on property 5792 — replaces the old flat
+                // "Bedroom 2 — Ceiling" x5 list with one heading per room and
+                // its facets nested beneath (itemDisplayLabel() is gone; both
+                // callers render item.label directly under the group heading
+                // now). Keys on item.room.id — the real PropertyRoom foreign
+                // key — never on item.room.label, so casing/naming
+                // differences in an agent's free-text room names can never
+                // merge or split a group; two items either share the same
+                // room_id or they don't, full stop. Groups sort by
+                // group.room.sort_order ascending (PropertyRoom's own
+                // column) — today that's still creation order (the room-
+                // reorder feature is separate, upcoming work), but every
+                // consumer of this method picks up a persisted reorder for
+                // free once that lands, with no further change here. Items
+                // with no room (meters, and legacy spaces still awaiting a
+                // room type) land in one trailing "General" group.
+                roomGroups() {
+                    const byRoom = new Map();
+                    const general = [];
+                    for (const item of this.activeItems()) {
+                        if (item.room) {
+                            if (!byRoom.has(item.room.id)) byRoom.set(item.room.id, { room: item.room, items: [] });
+                            byRoom.get(item.room.id).items.push(item);
+                        } else {
+                            general.push(item);
+                        }
+                    }
+                    const groups = Array.from(byRoom.values()).sort((a, b) => (a.room.sort_order ?? 0) - (b.room.sort_order ?? 0));
+                    if (general.length) groups.push({ room: null, items: general });
+                    return groups;
+                },
 
                 async addItem() {
                     const label = this.newItem.label.trim();
@@ -5094,17 +5135,36 @@
                 tenantName(tenant) {
                     return [tenant.contact?.first_name, tenant.contact?.last_name].filter(Boolean).join(' ') || 'Tenant';
                 },
+                // §16 — a superseded row (a corrected wet-ink upload) is never
+                // "the" current disposition for its party; excluded here the
+                // same way the server excludes it (RentalInspection::
+                // outstandingSignatories()/RentalInspectionSignature::capture()).
                 tenantDisposition(section, contactId) {
                     const insp = this.currentInspection(section);
-                    return (insp?.signatures || []).find(s => s.party_role === 'tenant' && s.party_contact_id === contactId) || null;
+                    return (insp?.signatures || []).find(s => s.party_role === 'tenant' && s.party_contact_id === contactId && !s.superseded_at) || null;
                 },
                 landlordDisposition(section) {
                     const insp = this.currentInspection(section);
-                    return (insp?.signatures || []).find(s => s.party_role === 'landlord') || null;
+                    return (insp?.signatures || []).find(s => s.party_role === 'landlord' && !s.superseded_at) || null;
                 },
                 agentDisposition(section) {
                     const insp = this.currentInspection(section);
                     return (insp?.signatures || []).find(s => s.party_role === 'agent') || null;
+                },
+                // §16 — one label, everywhere a disposition badge is shown, so
+                // wet-ink can never be mistaken for "Signed" (an e-signature).
+                dispositionLabel(sig) {
+                    if (!sig) return '';
+                    if (sig.disposition === 'refused') return 'Refused';
+                    if (sig.disposition === 'wet_ink') return 'Signed on paper';
+                    return 'Signed';
+                },
+                // §16 — mirrors RentalInspectionSignature::supersedeWetInk()'s
+                // own guard so the UI never offers a "Replace" the server will
+                // refuse: only a live (not superseded) wet-ink row, only before
+                // the agent has attested to the record.
+                canReplaceWetInk(section, sig) {
+                    return !!sig && sig.disposition === 'wet_ink' && !sig.superseded_at && !this.agentDisposition(section);
                 },
                 allTenantsDispositioned(section) {
                     return this.inspectionTenants(section).every(t => this.tenantDisposition(section, t.contact_id));
@@ -5119,6 +5179,7 @@
 
                 openSigningFor(key) {
                     this.activeRefusalKey = null;
+                    this.activeWetInkKey = null;
                     this.activeSigningKey = this.activeSigningKey === key ? null : key;
                 },
                 initSignaturePadFor(key, canvasEl) {
@@ -5161,6 +5222,7 @@
                 },
                 openRefusalFor(key) {
                     this.activeSigningKey = null;
+                    this.activeWetInkKey = null;
                     this.activeRefusalKey = this.activeRefusalKey === key ? null : key;
                 },
 
@@ -5182,6 +5244,73 @@
                         party_role: 'landlord', disposition: 'refused', party_contact_id: this.landlordContact?.id,
                         refusal_reason_preset: form.preset, refusal_reason_note: form.note || null,
                     }, key);
+                },
+
+                // §16 — wet-ink upload, tenant/landlord only, never the agent
+                // (the agent is always present and signs live). One form
+                // active at a time, same discipline as signing/refusal.
+                activeWetInkKey: null,
+                wetInkForm: {},
+                wetInkBusy: {},
+                wetInkField(key) {
+                    return this.wetInkForm[key] || (this.wetInkForm[key] = { file: null });
+                },
+                openWetInkFor(key) {
+                    this.activeSigningKey = null;
+                    this.activeRefusalKey = null;
+                    this.activeWetInkKey = this.activeWetInkKey === key ? null : key;
+                },
+
+                async saveTenantWetInkFor(section, tenant) {
+                    const key = section + '_tenant_' + tenant.contact_id;
+                    const field = this.wetInkField(key);
+                    if (!field.file) return;
+                    const existing = this.tenantDisposition(section, tenant.contact_id);
+                    await this._saveWetInk(section, key, field.file,
+                        (existing && existing.disposition === 'wet_ink') ? existing : null,
+                        { party_role: 'tenant', party_contact_id: tenant.contact_id });
+                },
+
+                async saveLandlordWetInkFor(section) {
+                    const key = section + '_landlord';
+                    const field = this.wetInkField(key);
+                    if (!field.file) return;
+                    const existing = this.landlordDisposition(section);
+                    await this._saveWetInk(section, key, field.file,
+                        (existing && existing.disposition === 'wet_ink') ? existing : null,
+                        { party_role: 'landlord', party_contact_id: this.landlordContact?.id });
+                },
+
+                // §16 — existingWetInk present = a Replace (supersede-wet-ink);
+                // absent = a fresh capture (signatures.store with
+                // disposition=wet_ink). Same endpoint family, same insp.signatures
+                // array — the old row is stamped superseded locally (never
+                // removed) so tenantDisposition()/landlordDisposition() move on
+                // to the freshly-pushed replacement, matching the server's own
+                // whereNull('superseded_at') filter.
+                async _saveWetInk(section, key, file, existingWetInk, payload) {
+                    const insp = this.currentInspection(section);
+                    this.lifecycleError = '';
+                    this.wetInkBusy[key] = true;
+                    try {
+                        const form = new FormData();
+                        form.append('wet_ink_file', file);
+                        let signature;
+                        if (existingWetInk) {
+                            signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures/${existingWetInk.id}/supersede-wet-ink`, form, true);
+                            existingWetInk.superseded_at = new Date().toISOString();
+                            existingWetInk.superseded_by_signature_id = signature.id;
+                        } else {
+                            form.append('party_role', payload.party_role);
+                            form.append('disposition', 'wet_ink');
+                            if (payload.party_contact_id) form.append('party_contact_id', payload.party_contact_id);
+                            signature = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/signatures`, form, true);
+                        }
+                        insp.signatures.push(signature);
+                        this.activeWetInkKey = null;
+                        this.wetInkForm[key] = { file: null };
+                    } catch (e) { this.lifecycleError = e.message; }
+                    finally { this.wetInkBusy[key] = false; }
                 },
 
                 async saveAgentSignatureFor(section) {

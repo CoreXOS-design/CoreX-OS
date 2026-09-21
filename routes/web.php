@@ -2884,6 +2884,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-applications/credit-bureau', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateCreditBureau'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.credit-bureau');
 
+    // Johan, 2026-09-21 — agency-level label for an approved-and-tenanted application.
+    Route::post('/settings/rental-applications/tenanted-label', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateTenantedLabel'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.tenanted-label');
+
     // Reopen/resubmit, 2026-09-08.
     Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.reopen-link-expiry');
@@ -3159,6 +3163,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // on the one path that needs it.
         Route::post('/{rentalInspection}/signatures', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeSignature'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.signatures.store');
+        // §16 — correcting a wrong/unreadable wet-ink upload; same base permission
+        // as recording one (evidence-backed, not sign_on_behalf — see the controller).
+        Route::post('/{rentalInspection}/signatures/{signature}/supersede-wet-ink', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'supersedeWetInkSignature'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.signatures.supersede-wet-ink');
         Route::post('/{rentalInspection}/start-awaiting-signature', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'startAwaitingSignature'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-awaiting-signature');
         Route::post('/{rentalInspection}/complete', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'complete'])

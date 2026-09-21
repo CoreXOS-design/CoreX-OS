@@ -361,15 +361,31 @@ class RentalInspectionRecordingController extends Controller
             'disposition' => ['required', 'string', 'in:' . implode(',', [
                 RentalInspectionSignature::DISPOSITION_SIGNED,
                 RentalInspectionSignature::DISPOSITION_REFUSED,
+                RentalInspectionSignature::DISPOSITION_WET_INK,
             ])],
             'party_contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
             'signature_image' => ['nullable', 'string'],
+            // §16 — a photo/scan of a signed paper page. image or pdf; 10MB
+            // matches FicaController::agentUpload()'s own per-file ceiling
+            // for the same class of upload (a photographed document).
+            'wet_ink_file' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,heic'],
             'refusal_reason_preset' => ['nullable', 'string', 'max:60'],
             'refusal_reason_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
         if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_REFUSED) {
             abort_unless($request->user()->hasPermission('rental_inspections.sign_on_behalf'), 403);
+        }
+        // §16 [design call] — wet-ink is not gated behind sign_on_behalf.
+        // That permission exists for an agent ASSERTING something on a
+        // party's behalf with no evidence but their word (§15.5's own
+        // docblock). A wet-ink upload is the opposite: it arrives WITH
+        // evidence (the scan itself), same as recording a signed
+        // disposition — so it stays behind the base rental_inspections.create
+        // permission this whole endpoint already requires (route middleware).
+        if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_WET_INK
+            && $validated['party_role'] === RentalInspectionSignature::PARTY_AGENT) {
+            return response()->json(['message' => 'The agent is never wet-ink — the agent is always present and signs live.'], 422);
         }
 
         if ($validated['party_role'] !== RentalInspectionSignature::PARTY_AGENT) {
@@ -386,6 +402,9 @@ class RentalInspectionRecordingController extends Controller
         if (!empty($validated['signature_image'])) {
             $attributes['party_signature_path'] = RentalInspectionSignature::storeCanvasImage($validated['signature_image'], $rentalInspection->property_id);
         }
+        if ($request->hasFile('wet_ink_file')) {
+            $attributes['wet_ink_upload_path'] = RentalInspectionSignature::storeWetInkUpload($request->file('wet_ink_file'), $rentalInspection->property_id);
+        }
 
         try {
             $signature = RentalInspectionSignature::capture($rentalInspection, $validated['party_role'], $validated['disposition'], $attributes);
@@ -394,6 +413,35 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json($signature, 201);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/signatures/{signature}/supersede-wet-ink
+     *
+     * §16 — correcting a wrong or unreadable wet-ink upload. The old row is
+     * never edited or destroyed (non-negotiable #1); RentalInspectionSignature
+     * ::supersedeWetInk() marks it superseded and creates the replacement.
+     */
+    public function supersedeWetInkSignature(Request $request, RentalInspection $rentalInspection, RentalInspectionSignature $signature): JsonResponse
+    {
+        abort_unless((int) $signature->rental_inspection_id === (int) $rentalInspection->id, 404);
+
+        $validated = $request->validate([
+            'wet_ink_file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,heic'],
+        ]);
+
+        try {
+            $replacement = RentalInspectionSignature::supersedeWetInk(
+                $signature,
+                $rentalInspection,
+                $validated['wet_ink_file'],
+                $request->user()->id,
+            );
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json($replacement, 201);
     }
 
     /** POST /corex/rental-inspections/{inspection}/start-awaiting-signature */

@@ -166,6 +166,31 @@
                             </div>
                         @endif
                     </div>
+                @elseif($signature->disposition === 'wet_ink')
+                    {{--
+                        .ai/specs/rental-inspections.md §16 — evidence of a real
+                        signature, on paper, never rendered as an e-signature: no
+                        signature-image markup, no "Signed" label, its own shape
+                        entirely so it cannot be mistaken for either the signed or
+                        the refused block above, cold, eighteen months from now.
+                    --}}
+                    <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
+                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Signed on paper (wet-ink)</span>
+                        @if($signature->superseded_at)
+                            <div class="text-xs mt-0.5" style="color: var(--ds-amber, #d97706);">
+                                Superseded — replaced by a corrected upload{{ $signature->supersededBy ? ' below' : '' }}.
+                            </div>
+                        @elseif($signature->wet_ink_upload_path)
+                            <div class="text-xs mt-0.5">
+                                <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener" class="underline" style="color: var(--brand-icon, #0ea5e9);">View uploaded page</a>
+                            </div>
+                        @endif
+                        @if($signature->recordedByUser)
+                            <div class="text-xs mt-0.5" style="color: var(--text-muted);">
+                                Uploaded by {{ $signature->recordedByUser->name }} on {{ $signature->disposition_recorded_at?->format('Y-m-d H:i') }} — attested by the agent's own signature below.
+                            </div>
+                        @endif
+                    </div>
                 @else
                     <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
                         <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Refused to sign</span>
