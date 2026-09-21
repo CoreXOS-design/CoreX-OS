@@ -231,7 +231,15 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json([
-            'rooms' => PropertyRoom::where('property_id', $property->id)->orderBy('sort_order')->get(),
+            // 2026-09-21, Johan on property 5792 — `id` is a required secondary
+            // sort key, not decoration: two rooms of the same type that both
+            // lack a number in their label (or share the same number) resolve
+            // to the EXACT SAME sort_order from defaultRoomSortOrderFor(), and
+            // MySQL does not guarantee tie-break order is stable across
+            // requests. Matches the box-wide `orderBy('sort_order')->orderBy('id')`
+            // convention already used everywhere else sort_order drives a query
+            // (e.g. Contact.php:275, RentalInventory.php:71/77).
+            'rooms' => PropertyRoom::where('property_id', $property->id)->orderBy('sort_order')->orderBy('id')->get(),
         ]);
     }
 
@@ -261,7 +269,15 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json([
-            'rooms' => PropertyRoom::where('property_id', $property->id)->orderBy('sort_order')->get(),
+            // 2026-09-21, Johan on property 5792 — `id` is a required secondary
+            // sort key, not decoration: two rooms of the same type that both
+            // lack a number in their label (or share the same number) resolve
+            // to the EXACT SAME sort_order from defaultRoomSortOrderFor(), and
+            // MySQL does not guarantee tie-break order is stable across
+            // requests. Matches the box-wide `orderBy('sort_order')->orderBy('id')`
+            // convention already used everywhere else sort_order drives a query
+            // (e.g. Contact.php:275, RentalInventory.php:71/77).
+            'rooms' => PropertyRoom::where('property_id', $property->id)->orderBy('sort_order')->orderBy('id')->get(),
         ]);
     }
 
@@ -289,7 +305,7 @@ class RentalInspectionRecordingController extends Controller
             // button end-to-end in a real browser, not by any server-side
             // check.
             'items' => RentalInspectionItem::where('property_id', $property->id)->notRetired()->with('room')->orderBy('id')->get(),
-            'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->get(),
+            'rooms' => \App\Models\PropertyRoom::where('property_id', $property->id)->where('is_retired', false)->orderBy('sort_order')->orderBy('id')->get(),
         ]);
     }
 

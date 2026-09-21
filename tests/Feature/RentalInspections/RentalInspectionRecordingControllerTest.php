@@ -274,6 +274,64 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertDatabaseHas('rental_inspection_items', ['id' => RentalInspectionItem::first()->id, 'label' => 'Ceiling']);
     }
 
+    /**
+     * The exact bug the conductor found live on property 5792: "bedroom 2"
+     * (lowercase, created first) sorting ahead of "Bedroom 1" (capitalised,
+     * created second). Confirms case has no bearing on the natural-numeric
+     * extraction and that apply-default-order actually reorders them.
+     */
+    public function test_apply_default_order_sorts_bedroom_1_before_lowercase_bedroom_2_regardless_of_casing(): void
+    {
+        // Creation order deliberately matches the reported bug: "bedroom 2" first.
+        $bedroom2 = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'bedroom 2', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $bedroom1 = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom 1', 'source' => 'manual', 'sort_order' => 1,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->postJson(route('corex.properties.rental-inspection-rooms.apply-default-order', $this->property))
+            ->assertOk();
+
+        $this->assertLessThan($bedroom2->fresh()->sort_order, $bedroom1->fresh()->sort_order);
+    }
+
+    /**
+     * Two same-type rooms that BOTH carry no number (or the same number)
+     * resolve to the identical sort_order from defaultRoomSortOrderFor() —
+     * Johan's requirement #3: their relative order must still be stable and
+     * predictable, never left to flip between requests. `id` is the
+     * required secondary tiebreak, matching the box-wide
+     * orderBy('sort_order')->orderBy('id') convention used everywhere else
+     * sort_order drives a query.
+     */
+    public function test_two_same_type_rooms_with_no_number_get_a_stable_id_ordered_tiebreak(): void
+    {
+        $first = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom', 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $second = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Bedroom', 'label' => 'Bedroom', 'source' => 'manual', 'sort_order' => 1,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $response = $this->postJson(route('corex.properties.rental-inspection-rooms.apply-default-order', $this->property))
+            ->assertOk();
+
+        // Both resolve to the exact same sort_order — proving the tiebreak matters here.
+        $this->assertSame($first->fresh()->sort_order, $second->fresh()->sort_order);
+
+        $ids = collect($response->json('rooms'))->pluck('id')->all();
+        $this->assertSame([$first->id, $second->id], $ids, 'a tied sort_order must still order by id, stably');
+    }
+
     public function test_reorder_rooms_persists_the_agents_own_chosen_order(): void
     {
         $roomA = PropertyRoom::create([

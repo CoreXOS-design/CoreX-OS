@@ -4939,7 +4939,15 @@
                             general.push(item);
                         }
                     }
-                    const groups = Array.from(byRoom.values()).sort((a, b) => (a.room.sort_order ?? 0) - (b.room.sort_order ?? 0));
+                    // 2026-09-21, Johan on property 5792 — `id` is a required
+                    // secondary tiebreak, not decoration: two rooms of the
+                    // same type that both lack a number in their label (or
+                    // share the same number) resolve to the EXACT SAME
+                    // sort_order from defaultRoomSortOrderFor(), and without
+                    // this, their relative order is undefined and can flip
+                    // between page loads — the "stable, predictable order"
+                    // Johan explicitly asked for.
+                    const groups = Array.from(byRoom.values()).sort((a, b) => (a.room.sort_order ?? 0) - (b.room.sort_order ?? 0) || (a.room.id - b.room.id));
                     if (general.length) groups.push({ room: null, items: general });
                     return groups;
                 },

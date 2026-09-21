@@ -1830,6 +1830,43 @@ the recording screen becomes once Johan rules on rebuilding it to match those do
    assume it inherits whatever rooms an inspection happens to have — the two are separate room sets in
    Johan's own real usage, not one list viewed two ways.
 
+### 16.5 Real-world bug found live on property 5792 — a missing stability tiebreak, not a casing bug
+
+Johan pressed "Apply default order" on 5792 himself and watched "bedroom 2" (lowercase, created first)
+keep sorting ahead of "Bedroom 1" (capitalised, created second) — the exact case his own correction to
+Problem 3 (§16.3) had flagged as worth checking. Investigated directly rather than assumed:
+
+- **Case sensitivity: ruled out.** `defaultRoomSortOrderFor()`'s natural-numeric extraction
+  (`preg_match('/(\d+)/', $label, $matches)`) matches digits, which have no case — verified directly by
+  calling it against the live agency: `defaultRoomSortOrderFor(1, 'Bedroom', 'bedroom 2')` → `15002`,
+  `defaultRoomSortOrderFor(1, 'Bedroom', 'Bedroom 1')` → `15001`. Bedroom 1 already sorted correctly
+  before bedroom 2 in isolation — casing was never the mechanism.
+- **Silent fallback to the old sort_order: ruled out.** The function always computes a fresh value from
+  the walking position and the label's own digits; it never reads the room's existing `sort_order` at
+  all, so there is no path back to stale creation-order values.
+- **What was actually wrong, found by executing `applyDefaultRoomOrder()` directly against property
+  5792's real data:** the formula and the controller were both already correct — running the exact
+  deployed method fixed 5792's real rows immediately (`Bedroom 1` → `15001`, `bedroom 2` → `15002`,
+  confirmed by direct query). The real, separate defect was requirement #3's own concern: **no secondary
+  tiebreak existed anywhere sort_order was used to order rooms** — neither in the PHP queries returning
+  a property's rooms (`RentalInspectionRecordingController.php`'s three `PropertyRoom::...
+  ->orderBy('sort_order')` call sites) nor in the client-side `roomGroups()` sort
+  (`show.blade.php`) that actually drives what an agent sees. Two rooms of the same type that both lack
+  a number, or share one, resolve to the identical `sort_order` — and without an explicit tiebreak,
+  their relative order is whatever MySQL/the array happens to return, which is not guaranteed stable
+  across requests. Fixed by adding `id` as the secondary sort key everywhere — `orderBy('sort_order')
+  ->orderBy('id')` in every affected PHP query, and `(a.room.sort_order ?? 0) - (b.room.sort_order ?? 0)
+  || (a.room.id - b.room.id)` in `roomGroups()` — matching the box-wide convention already used for
+  exactly this reason elsewhere (`Contact.php:275`, `RentalInventory.php:71,77`,
+  `ProformaInvoice.php:48`, and others).
+- **Why 5792 itself never changed on click:** unconfirmed, and stated as such rather than guessed as
+  fact. The deployed JS and route are byte-identical to source; the resolver is proven correct by direct
+  execution. The strongest remaining candidate: `applyDefaultRoomOrder()`'s confirm dialog
+  (`window.confirm(...)`) — if dismissed or missed, the function returns before any request is sent,
+  which is indistinguishable from "the button doing nothing": no console error, no visible state change,
+  because nothing was asked of the server at all. Flagged for Johan to watch for specifically on the
+  re-test, not asserted as the cause.
+
 ## 17. N/A, room notes, overall notes (2026-09-21) — three gaps evidenced on Retha's real paper form
 
 Johan corrected an earlier read of his own: `/corex/rental-inspections/1` is a thin read-only summary of
