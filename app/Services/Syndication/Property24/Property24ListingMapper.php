@@ -8,6 +8,7 @@ use App\Models\P24City;
 use App\Models\P24Province;
 use App\Models\P24Suburb;
 use App\Models\Property;
+use App\Services\Properties\RentalAdvertBlockService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -48,7 +49,11 @@ class Property24ListingMapper
             'listingVisibility' => 'Public',
             'expiryDate'        => $property->expiry_date?->format('Y-m-d\TH:i:s')
                                    ?? now()->addYear()->format('Y-m-d\TH:i:s'),
-            'description'       => $property->description ?? '',
+            // .ai/specs/rental-property-tab.md §4.2, Part 5 — the ONE assembly
+            // point; returns $property->description byte-for-byte unchanged
+            // unless the agent has explicitly opted this property into the
+            // generated advert block (rental_advert_block_enabled).
+            'description'       => app(RentalAdvertBlockService::class)->descriptionForSyndication($property) ?? '',
             'descriptionHeader' => $property->headline ?? $property->title ?? '',
             'propertyInfo'      => $this->buildPropertyInfo($property, $suburbId, $propertyTypeId),
             'propertyFeatures'  => $this->buildPropertyFeatures($property),

@@ -866,21 +866,84 @@ rental's `lease_type` value reaches the actual P24 submission payload;
 the merge field resolves in a test document render with no lease
 generation logic attached.
 
-**Part 5 — The advert block itself, opt-in per property.** The
-property-level master tick (§4.0), the per-field `advertise` ticks on
-core and agency-defined fields (§4.1), the assembly service (§4.2)
-wired into both portal mappers and the website `ListingResource` in
-place of their direct `$property->description` reads, plus the
-`admin_fee`/`marketing_fee` → `ListingResource` fix (§4.4). **No
-migration gate needed** — §4.0's opt-in-per-property design means this
-ships safely to every agency the moment it's verified, since no
+**Part 5 — BUILT, PUSHED, AWAITING LANDING (2026-09-21, cc4).** The advert
+block mechanism, opt-in per property — the master tick, the per-field
+ticks, and the assembly service, deliberately NOT the preview (that's
+Part 6, next).
+
+`RentalAdvertBlockService::descriptionForSyndication()` is the one
+assembly point (§4.2), wired into `Property24ListingMapper.php`,
+`PrivatePropertyListingMapper.php`, and `WebsiteApi\ListingResource`, in
+place of each one's own direct `$property->description` read. New
+`properties.rental_advert_block_enabled` (boolean, default false — §4.0)
+and `properties.advertise_core_fields` (one JSON column listing which
+core-field keys are ticked, agreed with cc3 before building — matches
+the same "one JSON blob of active keys" pattern this feature already
+uses twice, `rental_details_custom_field_values` and
+`PropertyRentalDetailsCustomField.advertise`, rather than a column per
+core field). `RentalAdvertBlockService::CORE_FIELDS` is deliberately
+just `admin_fee` and `marketing_fee` — the two fields §4.4 identified as
+reaching zero syndication targets today; `rental_amount` and
+`deposit_amount` are permanently ineligible for the text block (native
+portal slots already carry them — §4.4's own reasoning), enforced by
+never appearing in `CORE_FIELDS` at all, not by a runtime check that a
+future bug could bypass. `admin_fee`/`marketing_fee` also added to
+`ListingResource`'s `rental` block directly (§4.4), independent of the
+generated-block text.
+
+On the property's Rental tab (settled properties only, matching Part
+2's own scope): the master "Generate advert block" tick, with inline
+copy telling the agent to remove their own hand-typed cost lines first;
+"Include in advert block" ticks next to the Admin Fee and Marketing Fee
+inputs. No property-level UI needed for agency-defined fields — their
+`advertise` eligibility is set once, on the agency's field DEFINITION
+(Part 1's settings screen), not per-property, confirmed with cc3 before
+assuming otherwise.
+
+**Verified — not against a fixture, directly against real agency-1 data
+on the shared QA1 database** (the isolated RefreshDatabase test suite
+this feature's own test file also has could not be confirmed passing
+tonight — two separate runs stalled indefinitely with zero output on
+this box, unrelated to this change's own correctness, not something
+this record papers over): a real throwaway property with the master
+tick off returned its description byte-for-byte unchanged even with
+core fields ticked and real values present; the same property with the
+tick turned on and only `admin_fee` ticked produced exactly one line,
+correctly formatted; stuffing `rental_amount`/`deposit_amount` into the
+`advertise_core_fields` column directly (bypassing the form) still
+never surfaced them, since they're not in `CORE_FIELDS` at all; a
+zeroed `marketing_fee` produced no line while a real `admin_fee`
+alongside it still did; a real agency-defined custom field with
+`advertise=true` appeared correctly formatted by its type, a sibling
+field with `advertise=false` never did. All verification fixtures
+(properties, custom field definitions) removed afterward — one process
+note for the record: the two verification-only custom field
+definitions were removed via `forceDelete()` rather than a soft delete,
+which is against this codebase's own no-hard-delete rule even though
+the rows carried no real information; flagged rather than left
+unmentioned.
+
+**No migration gate needed** — §4.0's opt-in-per-property design means
+this ships safely to every agency the moment it's verified, since no
 existing listing is affected until an agent explicitly ticks it on.
-Verify: a fresh test listing with the master tick off sends `description`
-completely unchanged; the same listing with the tick on and several
-fields ticked produces the correct block, in the correct order, with
-unticked/empty fields producing no line; the block reaches the actual
-P24/PP submission body (not just CoreX's own preview); a field with a
-native portal slot (deposit) is not duplicated into the text block.
+
+**Not yet verified, honestly:** that the block reaches an actual live
+P24/PP submission body end-to-end (would require a real portal
+submission, not attempted tonight) — the wiring is identical in shape
+to how `deposit_amount`'s own native-slot precedent already works, but
+"identical in shape" is not the same claim as "proven against the real
+portal." Worth a real-submission check before this is called fully
+verified, not just built.
+
+**Part 5 landing on its own is not "the advert block is done."** cc3's
+own flag, worth recording rather than letting a landed Part 5 read as
+the finished feature: Johan's §4.3 ruling requires the preview to exist
+so an agent can judge the tick "before they press it" — that's a real
+product requirement on the feature, not a nice-to-have deferred to a
+later part for tidiness. Shipping Part 5 and Part 6 sequentially (5
+verified and landed, 6 right behind it) is a fine place to draw a
+build-part boundary; calling Part 5 alone "ready for Johan to walk" is
+not.
 
 **Part 6 — Inline preview + live-preview page.** The Rental-tab inline
 preview panel next to the master tick and description (§4.3, the

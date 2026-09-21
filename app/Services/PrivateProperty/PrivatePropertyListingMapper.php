@@ -6,6 +6,7 @@ use App\Models\Agency;
 use App\Models\PpSuburb;
 use App\Models\Property;
 use App\Services\Images\PropertyImageGuard;
+use App\Services\Properties\RentalAdvertBlockService;
 use App\Services\Syndication\Concerns\ResolvesPropertyFeatures;
 use Illuminate\Support\Facades\Log;
 
@@ -72,7 +73,10 @@ class PrivatePropertyListingMapper
             'Town'                    => $property->town ?? $property->city ?? '',
             'Province'                => $this->mapProvince($property->province),
             'Headline'                => $property->headline ?? $property->title ?? '',
-            'Description'             => $property->description ?? '',
+            // .ai/specs/rental-property-tab.md §4.2, Part 5 — same one assembly
+            // point as Property24ListingMapper; unchanged unless the property's
+            // own master tick is on.
+            'Description'             => app(RentalAdvertBlockService::class)->descriptionForSyndication($property) ?? '',
             'Price'                   => $property->effectivePrice(), // rental_amount for rentals, price for sales (PP carries rent in Price + RentalPriceType)
             'Deposit'                 => $listingType === 'Rental' ? (float) ($property->deposit_amount ?? 0) : 0.0,
             // AT-287 — the PP "listed" date is the syndication GO-LIVE date, never the

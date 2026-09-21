@@ -4433,10 +4433,25 @@
                         <div>
                             <label class="prop-label">Admin Fee (R)</label>
                             <input type="number" name="admin_fee" value="{{ old('admin_fee', $property->admin_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                            {{-- .ai/specs/rental-property-tab.md §4.1, Part 5 — per-field
+                                 advertise tick for a CORE field. Only takes effect once
+                                 the master "Generate advert block" tick below is on. --}}
+                            <label class="flex items-center gap-1.5 mt-1 text-xs" style="color:var(--text-muted);">
+                                <input type="checkbox" name="advertise_core_fields[]" value="admin_fee"
+                                       {{ in_array('admin_fee', old('advertise_core_fields', $property->advertise_core_fields ?? []), true) ? 'checked' : '' }}
+                                       class="rounded">
+                                Include in advert block
+                            </label>
                         </div>
                         <div>
                             <label class="prop-label">Marketing Fee (R)</label>
                             <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                            <label class="flex items-center gap-1.5 mt-1 text-xs" style="color:var(--text-muted);">
+                                <input type="checkbox" name="advertise_core_fields[]" value="marketing_fee"
+                                       {{ in_array('marketing_fee', old('advertise_core_fields', $property->advertise_core_fields ?? []), true) ? 'checked' : '' }}
+                                       class="rounded">
+                                Include in advert block
+                            </label>
                         </div>
                         {{-- AT-402 Part 4 — Furnished Status (agency-managed
                              list), move-in Availability date (the existing
@@ -4505,6 +4520,42 @@
                             @endif
                         @endforeach
                     </div>
+
+                    {{--
+                        .ai/specs/rental-property-tab.md §4.0, Part 5 — Johan's
+                        ruling, verbatim: "The display advert block could
+                        possibly be a tick on rental tab? so agents can go in,
+                        fix the description, update the rental tab, hit the
+                        tick and all sorted out?" Off by default on every
+                        property, including every existing one — an existing
+                        hand-typed advert is completely untouched unless an
+                        agent explicitly opts in here. The per-field ticks
+                        above only take effect once this is on.
+
+                        No live preview panel yet (Part 6, not built) — per
+                        cc3's own flag, this master tick going live without
+                        Part 6 alongside it does not yet fully satisfy Johan's
+                        "obvious what it will do before they press it"
+                        requirement. Do not read this alone as the finished
+                        feature.
+                    --}}
+                    <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="rental_advert_block_enabled" name="rental_advert_block_enabled" value="1"
+                                   {{ old('rental_advert_block_enabled', $property->rental_advert_block_enabled) ? 'checked' : '' }}
+                                   class="rounded">
+                            <label for="rental_advert_block_enabled" class="prop-label !mb-0">Generate advert block</label>
+                        </div>
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">
+                            When on, the fields ticked "Include in advert block" above are assembled into a
+                            neat, structured block and appended to this property's description wherever it's
+                            actually sent — Property24, Private Property, and the agency's own website —
+                            computed fresh every time, never something you have to retype. Before ticking
+                            this on, remove any cost lines you've already hand-typed into the description
+                            yourself, so the same information doesn't appear twice.
+                        </p>
+                    </div>
+
                     <div class="flex justify-end">
                         <button type="submit" class="corex-btn-primary text-sm">Save Rental Details</button>
                     </div>

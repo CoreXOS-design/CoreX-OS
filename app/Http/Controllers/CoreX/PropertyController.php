@@ -16,12 +16,14 @@ use App\Models\PerformanceSetting;
 use App\Models\User;
 use App\Services\PermissionService;
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
+use App\Services\Properties\RentalAdvertBlockService;
 use App\Services\Syndication\Property24\Property24ListingMapper;
 use Illuminate\Http\Request;
 use App\Services\Images\PropertyImageGuard;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class PropertyController extends Controller
 {
@@ -2530,6 +2532,13 @@ class PropertyController extends Controller
             // occupation_date IS the "move-in Availability date" — an
             // existing column, not a new one (see the migration's docblock).
             'occupation_date'   => 'nullable|date',
+            // .ai/specs/rental-property-tab.md §4.0/§4.1, Part 5 — the
+            // property-level master opt-in for the generated advert block,
+            // and which of the (currently two) eligible core fields it
+            // advertises. Only real keys are accepted — a stray/renamed key
+            // never silently persists.
+            'advertise_core_fields'   => 'nullable|array',
+            'advertise_core_fields.*' => ['string', Rule::in(array_keys(RentalAdvertBlockService::CORE_FIELDS))],
         ]);
 
         // .ai/specs/rental-property-tab.md §2/§8, Part 2 — agency-defined
@@ -2597,6 +2606,18 @@ class PropertyController extends Controller
         $data['water_included']      = $request->boolean('water_included');
         $data['electricity_included'] = $request->boolean('electricity_included');
         $data['levies_included']     = $request->boolean('levies_included');
+        // .ai/specs/rental-property-tab.md §4.0, Part 5 — same unchecked-box
+        // reasoning as above: off is a real, intentional state (the default,
+        // §4.0's "off on every property including every existing one"), not
+        // "leave whatever was there."
+        $data['rental_advert_block_enabled'] = $request->boolean('rental_advert_block_enabled');
+        // Same reasoning again: an agency unticking the LAST advertised core
+        // field submits no 'advertise_core_fields' key at all, and $data
+        // would otherwise leave the column untouched rather than clearing
+        // it. array_key_exists (not isset/??) because a validated-but-empty
+        // array is a real, deliberate "nothing ticked" — not the same as
+        // the key being absent from $data['advertise_core_fields'] above.
+        $data['advertise_core_fields'] = array_key_exists('advertise_core_fields', $data) ? $data['advertise_core_fields'] : [];
 
         DB::transaction(function () use ($property, $data) {
             $property->update($data);

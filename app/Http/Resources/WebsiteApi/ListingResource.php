@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\WebsiteApi;
 
+use App\Services\Properties\RentalAdvertBlockService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Storage;
@@ -31,7 +32,10 @@ class ListingResource extends JsonResource
             'public_url'    => $this->public_url,
             'title'         => $this->title,
             'headline'      => $this->headline,
-            'description'   => $this->description,
+            // .ai/specs/rental-property-tab.md §4.2, Part 5 — same one
+            // assembly point as both portal mappers; unchanged unless this
+            // property's own master tick (rental_advert_block_enabled) is on.
+            'description'   => app(RentalAdvertBlockService::class)->descriptionForSyndication($this->resource),
             'property_type' => $this->property_type,
             'title_type'    => $this->title_type,
             'listing_type'  => $this->listing_type,
@@ -65,6 +69,14 @@ class ListingResource extends JsonResource
                 'price_per_day'    => $this->price_per_day !== null ? (float) $this->price_per_day : null,
                 'price_per_week'   => $this->price_per_week !== null ? (float) $this->price_per_week : null,
                 'price_per_year'   => $this->price_per_year !== null ? (float) $this->price_per_year : null,
+                // .ai/specs/rental-property-tab.md §4.4, Part 5 — these two
+                // reached zero syndication targets before this (confirmed by
+                // reading both portal mappers and this resource) despite
+                // being real, already-editable fields; exposed here
+                // independently of the generated advert-block text so an
+                // agency's own site can render them on their own if it wants.
+                'admin_fee'        => $this->admin_fee !== null ? (float) $this->admin_fee : null,
+                'marketing_fee'    => $this->marketing_fee !== null ? (float) $this->marketing_fee : null,
             ] : null,
 
             // Dimensions / rooms.
