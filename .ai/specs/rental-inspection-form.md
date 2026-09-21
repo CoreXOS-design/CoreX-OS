@@ -351,6 +351,11 @@ spec's §0.3 already establishes photos are required on every observation, good 
 no new requirement here — the paper form's expectation (photograph everything, not just the bad) is
 already the built system's stricter standard.
 
+**Superseded in substance, 2026-09-21 — see §12.** This section was correct as far as it went (photos ARE
+required) but incomplete: it said nothing about HOW an agent is meant to attach them at the volume a real
+inspection needs. Johan caught the gap himself, from the workflow's own arithmetic, not a bug report — §12
+is the investigation and design this section should have prompted the first time.
+
 ---
 
 ## 6. Inventory — a separate document, specced on its own terms
@@ -611,3 +616,327 @@ Per BUILD_STANDARD §1a and this repo's non-negotiable #8: every new entity in t
 - `tests/Feature/RentalInspections/RentalInspectionComparisonServiceTest.php`
 
 No files were created or modified other than this spec document itself.
+
+---
+
+## 12. Photos — investigation and design, 2026-09-21 (NOT BUILT — awaiting Johan's ruling)
+
+**Status: investigation + design only, per Johan's own explicit instruction ("investigate first,
+build nothing until I have seen your findings"). No migration, model, controller, or view for
+anything in this section exists. Everything below is proposal, checked against real files at real
+line numbers, not assumed.**
+
+### 12.0 Why — Johan's own words
+
+> "photos on inspections are going to cause issues. think of this from the point of view how long it
+> will take to select each aspect of a room and attach a photo — problem — multi photos should be
+> allowed. Then like on properties uploading a bunch of photos and tagging them to each section is
+> easier than selecting bedroom 1 ceiling and uploading 5 photos."
+
+Property 4862 (seeded by cc4, real per-room item vocabularies) has 51 items across 9 rooms. At one
+select-then-upload cycle per item, roughly ten seconds each, that is close to nine minutes of tapping
+before a single photograph exists — on a phone, standing in a property, with a tenant waiting. The
+honest prediction: nobody does it. Either nothing gets photographed, or everything gets photographed on
+the agent's own camera roll and never reaches CoreX as evidence at all.
+
+Two separate problems, both real, both checked against the actual code rather than assumed:
+
+### 12.1 Investigation (a) — how property photo upload + tagging actually works today
+
+**File: `app/Http/Controllers/CoreX/PropertyController.php:2013` (`uploadImages`)** — the marketing
+gallery accepts an ARRAY of files per group (`gallery_images.*`, `dawn_images.*`, etc.), stores them all
+in one request via `storeImages()` (line 3234), and appends every resulting URL onto the property's flat
+`gallery_images_json` column. Multiple photos, one request, no per-photo item selection required first.
+
+**Tagging is a genuinely separate, later step** — `resources/views/corex/properties/show.blade.php:8503-8517`:
+
+```js
+selectAll() { this.selected = this.images.map((_, i) => i); },
+selectNone() { this.selected = []; },
+tagSelected(tag) {
+    this.activeTag = tag;
+    for (const idx of this.selected) {
+        const img = this.images[idx];
+        if (tag) { this.tags[img] = tag; } else { delete this.tags[img]; }
+    }
+    this.dirty = true;
+    this.selected = [];
+    this.save();
+},
+```
+
+An agent multi-selects any number of already-uploaded photos (checkboxes, or `selectAll()`), picks ONE
+tag, and every selected photo is tagged in one call — this is the exact "select five photos and tag them
+all Bedroom 1 in one gesture" Johan is asking for, and it already exists and is already proven in
+production. `buildCategories()` (line 8592-8608) then reshapes the flat `tags` map into
+`{categories: [...], unsorted: [...]}` on save — an untagged photo lands in `unsorted`, visible, never
+dropped.
+
+**The mobile/offline-resilience half of the same pattern, checked separately** —
+`app/Http/Controllers/Api/MobilePropertyController.php:636-701` (`uploadImage`) and
+`app/Http/Controllers/Api/MobileRentalImagesController.php:66-113` (`upload`): both accept a
+`client_upload_id` the client generates once and resends on retry; the server checks it under a row lock
+(`Property::whereKey(...)->lockForUpdate()`) before treating a retried request as a NEW photo — a
+network hiccup causes a harmless retry, never a duplicate. Both also refuse to return 2xx unless the file
+is confirmed written to disk (`MobilePropertyController.php:693-701`: "never return 2xx if the file did
+not land on disk... makes the client retry"). `MobileRentalImagesController.php:70-79` additionally
+accepts EITHER a single `image` (idempotent, retry-safe path) OR a bulk `images[]` array (faster,
+no per-photo idempotency) — a genuine dual-mode design: batch when the connection is good, one-at-a-time
+with retry-safety when it isn't.
+
+**Answer to (a): yes, this can and should be followed — as a PATTERN, not as shared code.** The
+interaction (bulk upload → multi-select → bulk-tag → untagged stays visible, never lost) is proven,
+built, and exactly what Johan described. What CANNOT be reused directly is the STORAGE underneath it:
+`gallery_images_json`/`gallery_categories_json` are flat JSON columns on `properties`, individually
+editable, drag-reorderable, and genuinely hard-deletable
+(`PropertyController.php:2068` `deleteImage()`/`2131` `deleteImages()` unlink files from disk) — the
+opposite of the evidence discipline this module has held all night on signatures, findings, and
+inventory dispositions. §12.5 is explicit about exactly where the line falls, because Johan asked
+directly: do not build a second photo pipeline.
+
+### 12.2 Investigation (b) — how an inspection photo is stored today: one per observation, or already capable of more?
+
+**The MODEL already allows several — this is not a schema constraint.**
+`app/Models/RentalInspectionObservation.php` — `photos(): HasMany` (a `hasMany`, not `hasOne`). Nothing
+in `rental_inspection_photos`' own schema limits it to one row per observation.
+
+**The CONTROLLER is where "one" is actually enforced** —
+`app/Http/Controllers/CoreX/RentalInspectionRecordingController.php:471-500` (`storePhoto`):
+
+```php
+$request->validate([
+    'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
+    'client_idempotency_key' => 'nullable|uuid',
+]);
+```
+
+Singular `photo`, not an array — one file per call. (It DOES already carry `client_idempotency_key` and
+dedupes against it, line 480-486 — the retry-safety half of §12.8's evidence already exists here, just
+unexercised by any real dropped-connection test yet.)
+
+**The UI compounds it further, and this is the real 51×10-second bottleneck** —
+`resources/views/corex/properties/partials/rental-inspection-recording.blade.php:183-184`:
+
+```html
+<input type="file" accept="image/*" class="hidden"
+       @change="obsField({{ $sectionJs }}, item.id).photo = $event.target.files[0] || null">
+```
+
+`files[0]` only — even if a phone's picker returns several, every one past the first is silently
+discarded. And the JS that actually submits it —
+`resources/views/corex/properties/show.blade.php:5171-5199` (`recordObservation`) — bundles the ONE
+photo into the SAME request that creates the observation (condition + notes), then immediately resets
+the form (`this.obsForm[key] = {condition:'', notes:'', photo:null}`, line 5190). There is no "add
+another photo to what I just recorded" affordance at all — filling the form in again for the same item
+creates a SECOND, separate `RentalInspectionObservation` (which would raise a real discrepancy the
+moment the condition differs even slightly), not a second photo on the first one.
+
+**Answer to (b): the constraint is real, but it is layered — controller validation, a `files[0]`-only
+picker, and a submit flow that couples "one photo" to "create one observation" — not a schema limit.**
+The model needs no migration to hold more than one photo per evidence unit; it already does.
+
+### 12.3 Investigation (c) — is there an existing drag-many-then-assign component anywhere in CoreX?
+
+Yes — the property marketing gallery IS that component (§12.1). A broader sweep
+(`grep` across `resources/views/corex/` for multi-file inputs, drag/drop, bulk-import patterns) surfaced
+several OTHER multi-file surfaces — `rental-applications/show.blade.php`, `rental-applications/review.blade.php`,
+`contacts/_drive-tab-body.blade.php`, `properties/wizard.blade.php`, `market-intelligence/reports/bulk-import.blade.php`
+— but none combine "upload many, then multi-select and bulk-tag afterward" the way the gallery does; they're
+either single-purpose document uploaders or one-shot bulk imports with no post-upload tagging step.
+The gallery is the one genuine precedent, and it is the one Johan named.
+
+### 12.4 Design — testing Johan's room-level steer, not accepting it blindly
+
+Johan's steer: most inspection photos are evidence about a ROOM, not a single item — default the tag
+target to the room (51 targets → 9), with item-level tagging available as a refinement.
+
+**Tested against three independent pieces of evidence, all pointing the same way — agree:**
+
+1. **The paper form itself** (§2.1 of this spec, already transcribed from Retha's real document): every
+   room table has its OWN notes box, and every substantive real example quoted in §2.1 — "STOVE TOP
+   PLATES STAIN MARKS," "ROUGH PATCH IN BATH," "DAMP UNDER WINDOWS IN CORNER" — is a room-level note, not
+   an item-level tick. The ticks are the skeleton; the room note carries the evidence. A photo is the
+   same kind of artifact as a room note, not the same kind of artifact as an item tick.
+2. **The already-built system already treats the room as a first-class evidence unit, not just a
+   grouping label** — cc2 (§17, landed) added `RentalInspectionRoomNote` as a genuinely SEPARATE model
+   from per-item observation notes, specifically because Retha's real form has notes that belong to the
+   whole room. That precedent is direct: if room-level notes deserved their own model rather than being
+   forced onto one item, room-level photos deserve the same, for the identical reason.
+3. **The arithmetic Johan gave is real and independently checked**: property 4862, 51 items / 9 rooms,
+   confirms defaulting to room-level genuinely collapses the tap count by roughly 5.7×, not a marginal
+   improvement.
+
+**One tension worth naming, not glossed over**: a room-level photo is a WEAKER link to a specific item
+than an item-level one — "damp under the window" is unambiguous to a human looking at the photo, but the
+system has no way to know it means "Windows" rather than "Walls" unless something says so. This is
+exactly why §12.6 recommends an optional per-photo caption — a lightweight hint, never a forced item
+selection — so specificity isn't silently lost in exchange for speed. With that mitigation, the
+room-level default holds up under testing rather than being accepted on Johan's authority alone.
+
+### 12.5 Design — the model: additive, reusing the pattern, not the pipeline
+
+Following cc2's own precedent exactly (a genuinely new, parallel model for a genuinely new evidence
+shape, not forcing it onto the existing item-level table):
+
+```
+rental_inspection_room_photos
+  id
+  agency_id
+  rental_inspection_id        -- which inspection EVENT this photo belongs to (in/out/ad_hoc — same
+                               --   as rental_inspection_photos' own anchor via its observation)
+  property_room_id             -- nullable. NULL = uploaded but not yet tagged to a room ("unsorted",
+                                --   §12.6). Never any other sentinel for "untagged."
+  rental_inspection_item_id    -- nullable. Set ONLY when an agent deliberately refines a room-tagged
+                                --   photo down to a specific item (Johan's own example: a specific
+                                --   broken hinge) — the refinement path, never the default one.
+  storage_path                 -- same PropertyImageStorer pipeline as rental_inspection_photos
+                                --   (§3.6 of the existing spec) — EXIF-normalize, downscale, thumbnail.
+                                --   Not a new storage mechanism.
+  caption                      -- nullable, short free text (§12.6) — NOT a substitute for the room
+                                --   note; a lightweight "which thing in this photo" hint only.
+  uploaded_by_user_id
+  client_idempotency_key       -- same retry-safety shape as rental_inspection_photos already has
+                                --   (§12.2) and the mobile gallery upload already proves works
+                                --   (§12.1) — applied here from day one, not bolted on later.
+  superseded_at                -- §12.7 — retagging (unsorted → a room, or one room → another) never
+  superseded_by_photo_id       --   edits this row in place; it supersedes it and a new row carries the
+                                --   new tag, pointing at the SAME storage_path (never a re-upload).
+  created_at                   -- immutable, no updated_at, no deleted_at at all — identical reasoning
+                                --   to rental_inspection_photos' own §3.3 (this is FICA-relevant
+                                --   evidence; a "delete" action does not exist anywhere for it)
+```
+
+**This is not a second photo pipeline in the sense Johan is asking about — checked explicitly against
+what "pipeline" means at each layer:**
+
+- File storage/processing: SAME `PropertyImageStorer` service every other photo in CoreX already uses.
+  No new image-processing code.
+- Retry/offline safety: SAME `client_upload_id`/idempotency-key SHAPE already proven by
+  `MobileRentalImagesController::upload()` (§12.1) and already partially present on
+  `rental_inspection_photos` itself (§12.2) — one more table using an already-proven pattern, not a new
+  mechanism invented for this feature.
+- Upload+tag INTERACTION: the SAME bulk-select, bulk-tag UX already proven by the marketing gallery
+  (§12.1), reimplemented as a new Alpine component only because the underlying data shape (a relational,
+  agency-scoped, append-only table) cannot be the same JS state shape that drives a flat JSON column —
+  the pattern is copied, not the code, because the code underneath is legitimately different by design.
+- What's genuinely new: the TABLE itself, because the marketing gallery's storage
+  (`gallery_images_json`, hard-deletable, individually editable) cannot hold evidence to this module's
+  own standard, and using it for inspection photos would be the actual second pipeline — a marketing-
+  grade store quietly holding legal evidence, discoverable by nobody who audits this module's tables.
+
+The EXISTING `rental_inspection_photos` (item/observation-anchored, §12.2) is not replaced or migrated —
+it stays exactly as it is, for the refinement case (a photo an agent deliberately ties to one specific
+item, e.g. Johan's broken-hinge example). `rental_inspection_room_photos` is the new DEFAULT path. Two
+tables, one clear reason each exists, is consistent with how this module already separates
+`RentalInspectionObservation` (item-level) from `RentalInspectionRoomNote` (room-level) rather than
+merging them.
+
+### 12.6 Design — the questions Johan asked directly
+
+**What happens to an untagged photo?** It is captured the moment it's uploaded — a real, persisted,
+agency-scoped row with `property_room_id = NULL` — never held only in browser memory, never lost if the
+agent closes the tab before tagging anything. It appears in a visible "Unsorted" bucket on the
+inspection's own photo review area (direct equivalent of the gallery's own `unsorted` array, §12.1),
+tagged afterward via the SAME bulk multi-select gesture used for any other batch. An inspection with
+twelve untagged photos is real evidence sitting in the database from the moment of capture — exactly
+Johan's own bar.
+
+**Can several photos be tagged to the same room in one action?** Yes — direct port of
+`tagSelected()` (§12.1): select N just-uploaded photos, pick one room, one call tags all N. Server-side,
+this can use the SAME dual single-idempotent / bulk-array shape `MobileRentalImagesController::upload()`
+already proves (§12.1) — a full batch in one request when the connection is good, degrading to
+one-photo-at-a-time-with-retry when it isn't, without the agent having to know or choose which mode is
+happening.
+
+**Ordering and captioning — does a photo need a caption, or does the observation note carry it?**
+Neither one alone. The room note (already built, cc2) is where the SUBSTANTIVE narrative lives — "3x
+nails in wall," "damp under windows in corner" — and stays exactly as it is; nothing here duplicates it
+or requires it be filled before a photo can be taken. The photo caption (§12.5) is a separate, OPTIONAL,
+short field — a lightweight "this one shows the stain on the stove top" — never required, so it never
+re-introduces the friction this whole design exists to remove. Ordering defaults to upload order
+(matches how an agent naturally shoots a room walking through it) with drag-reorder available
+client-side, same interaction the gallery already has (`show.blade.php:8564-8572`) — cosmetic display
+order only, never a rewrite of the evidentiary record.
+
+**Photos are evidence — never hard deleted, superseded not edited.** Directly instructed, not left for
+this spec to weigh: `rental_inspection_room_photos` carries no `deleted_at` at all (stricter than the
+standard soft-delete floor, matching `rental_inspection_photos`' own §3.3 reasoning exactly — this is
+FICA-relevant evidence with no delete action anywhere in the UI). Retagging a photo — moving it from
+Unsorted into a room, or correcting a wrong room — never edits `property_room_id` in place; it marks the
+existing row `superseded_at` and creates a new row carrying the new tag, pointing at the identical
+`storage_path` (the file itself is never re-uploaded or duplicated on disk). This is the exact shape
+already proven twice tonight — `RentalInspectionSignature::supersedeWetInk()` and cc6's own
+`RentalInventoryLineDisposition` — applied here for the third time to the same underlying discipline:
+evidence's physical content never changes; its organization is append-only and fully auditable.
+
+### 12.7 Where this lives in the UI
+
+Additive to the EXISTING recording screen (the property's Rental Images tab,
+`rental-inspection-recording.blade.php`), not a new page or module — consistent with this whole spec's
+own framing (§0's "additive, not a redesign"). Each room's already-existing section (cc2's landed
+room-grouping work) gets a batch-photo-upload affordance alongside its existing "Mark room N/A" action
+(`show.blade.php:5232` `markRoomNa`, the closest existing sibling for "one room-level action, not
+one-per-item"). A separate "Unsorted photos" panel on the same tab surfaces anything captured before a
+room was chosen, using the same bulk multi-select-then-tag gesture to file them. No new navigation entry
+needed — same screen, same tab, same permission gate (`rental_inspections.create`) already in place.
+
+### 12.8 Raised, not decided — connectivity
+
+Johan's own framing: an agent is on a phone, in a property, possibly in a sectional title block with no
+signal. He is not asking for offline capture to be built now — he is asking what the CURRENT upload path
+actually does when the connection drops mid-upload, stated with evidence, so the decision about what's
+acceptable to ship is his.
+
+**What actually happens today, checked directly, not assumed:**
+
+- The marketing/mobile gallery pipeline (`MobilePropertyController::uploadImage()`,
+  `MobileRentalImagesController::upload()`, §12.1) already has real resilience: a client-generated
+  `client_upload_id` lets a retried request be recognised and deduped rather than creating a duplicate,
+  and the server refuses to return success unless the file is confirmed written to disk — a genuine,
+  already-proven, already-shipped design for exactly the flaky-connection case.
+- The EXISTING inspection recording flow (`recordObservation()`/`_uploadObservationPhoto()`,
+  `show.blade.php:5171-5222`) is materially weaker. `_uploadObservationPhoto()` DOES send a
+  `client_idempotency_key` the server already checks (§12.2) — so a retried request of the exact same
+  photo is safely deduped — but nothing on the CLIENT automatically retries a failed request. `_post()`
+  (`show.blade.php:5593-5608`) is a bare `fetch()` with no retry, no timeout handling, no queue. On total
+  network failure, `recordObservation()`'s catch block sets a visible error and nothing more — whatever
+  the agent had just typed or selected is only ever in in-memory Alpine state, never durably queued, and
+  is gone if the tab closes or the agent moves on before retrying by hand.
+- No offline capture layer — service worker, IndexedDB, or any local write-ahead queue — exists anywhere
+  in CoreX today. This is not new information: `.ai/specs/rental-inspections.md` §7.2 already states it
+  plainly ("`.ai/MOBILE_APP.md` lists 'Offline support / data caching' under Features Needed, not
+  built"), re-confirmed here rather than re-litigated.
+- Photos are the highest-risk artifact for this exact failure mode — the largest payload, the most
+  likely to time out or fail outright on a weak connection, more so than the small JSON POST that
+  currently carries condition/notes.
+
+**The decision this puts to Johan, not made here**: shipping bulk photo capture with only what exists
+today (a `client_idempotency_key` that helps only once a retry is actually attempted) risks exactly the
+failure he named — a photo silently failing in a basement parking garage, with no queue and no visible
+path back to it once the agent has moved on. The narrowest fix available without building a full offline
+queue is bringing the NEW room-photo table up to the SAME already-proven resilience the mobile gallery
+upload already has — a working, shipped pattern, not a new one — as a baseline before this ships, rather
+than after. Whether that baseline is a requirement for this to ship at all, or an acceptable follow-up
+once the core workflow lands, is Johan's call.
+
+### 12.9 Multi-agency, CRUD, scoping
+
+- `rental_inspection_room_photos` is `BelongsToAgency`-scoped exactly like every other table in this
+  module — no agency assumption anywhere in this design.
+- No hardcoded room list, caption requirement, or tagging rule — the room vocabulary itself is already
+  agency-configurable (§3, §8 of this spec); this section adds no new fixed vocabulary of its own.
+- No independent list screen — reachable only through its parent inspection, same reasoning already
+  applied to `rental_inspection_item_findings` (§9) and `rental_inspection_room_notes` (§9): agency-
+  scoped, reached only via an already-scoped inspection route, a cross-agency request 404s at the same
+  global-scope layer as everything else.
+- No hard deletes anywhere in this design (§12.6).
+
+### 12.10 Out of scope, named not silently dropped
+
+- **Building any of this** — investigation and design only, per Johan's explicit instruction.
+- **Offline capture itself** (a service worker, an IndexedDB queue, background sync) — explicitly not
+  asked for (§12.8); the baseline-resilience question is what's raised, not a queue.
+- **Migrating or deleting the existing `rental_inspection_photos` table** — it stays, for the
+  item-level refinement case (§12.5).
+- **A forced item-tagging requirement** — room-level stays the default; item-level is a refinement an
+  agent reaches for, never a requirement the system imposes.
