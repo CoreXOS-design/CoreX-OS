@@ -188,6 +188,31 @@
         </form>
     </div>
 
+    {{-- Johan, from his own live walk, 2026-09-21 — an approved application
+         linked to an active lease is a further state, not a new decision
+         competing with Approved. Shown identically on the applications
+         list tile, the application detail screen, and the contact record. --}}
+    <div class="rounded-md p-4 mb-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Tenant Placed Label</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Shown once an approved application is linked to an active lease — on the applications list,
+            the application itself, and the contact record. Blank uses the default shown below.
+        </p>
+        <form method="POST" action="{{ route('corex.settings.rental-applications.tenanted-label') }}" class="flex items-end gap-3">
+            @csrf
+            <div>
+                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
+                    Label
+                </label>
+                <input type="text" name="tenanted_label" maxlength="60"
+                       value="{{ old('tenanted_label', $tenantedLabel) }}"
+                       placeholder="{{ \App\Models\RentalApplicationQualifyingSetting::DEFAULT_TENANTED_LABEL }}"
+                       class="corex-input text-sm" style="width: 220px;">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save Label</button>
+        </form>
+    </div>
+
     {{-- Reopen/resubmit, 2026-09-08 — "every threshold, window and business
          rule an agency-configurable setting with a sensible default. Nothing
          hardcoded." A reopened application's applicant link expires after

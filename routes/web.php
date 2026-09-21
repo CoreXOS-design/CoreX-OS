@@ -2884,6 +2884,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-applications/credit-bureau', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateCreditBureau'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.credit-bureau');
 
+    // Johan, 2026-09-21 — agency-level label for an approved-and-tenanted application.
+    Route::post('/settings/rental-applications/tenanted-label', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateTenantedLabel'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.tenanted-label');
+
     // Reopen/resubmit, 2026-09-08.
     Route::post('/settings/rental-applications/reopen-link-expiry', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateReopenLinkExpiry'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.reopen-link-expiry');
