@@ -1,11 +1,34 @@
 # Rental Details — Agency-Definable Fields & the Advert Block
 
-**Status: SPEC ONLY. No code, no branch, no migration.** Written per the
-conductor's explicit instruction, following her rulings below. This
-supersedes the "parked" status this file carried since 2026-09-13 — Johan
-has now picked the idea back up and expanded it. The original parked
-capture is preserved verbatim in §0 as the historical record; everything
-from §1 onward is the actual spec.
+**Status: SPEC APPROVED, BUILD IN PROGRESS (2026-09-21).** Originally
+written spec-only; Johan has since ruled on all three open questions
+raised in the first draft (§3 rental price type, §4.0 the advert
+block's opt-in mechanism, §5.2 lease type) and on the bond calculator
+(§6, closed). This supersedes the "parked" status this file carried
+since 2026-09-13 — Johan has now picked the idea back up and expanded
+it. The original parked capture is preserved verbatim in §0 as the
+historical record; everything from §1 onward is the actual spec, now
+reflecting his 2026-09-21 rulings inline at each affected section.
+
+**2026-09-21 — Johan's rulings, dated note:**
+1. **Lease type: make it real** (§5.2) — one agency-editable list
+   replacing two divergent hardcoded ones, and it must drive something
+   concrete now (P24 syndication + a DocuPerfect merge field), shaped
+   for lease-agreement generation and rental financials still to come.
+2. **Rental price type: ONE type, ONE price** (§3) — overrules this
+   spec's first-draft tick-multiple design on the strength of its own
+   finding that neither portal accepts more than one rate per listing.
+3. **The advert block: opt-in per property** (§4.0) — a master tick on
+   the Rental tab, off by default on every existing listing, retiring
+   the migration-risk question (§4.5) by construction rather than by
+   policy. Must be discoverable with an inline preview before an agent
+   ticks it.
+4. **Bond calculator: CLOSED** (§6) — sent to Andre, it's the agency's
+   own website, not CoreX. Do not investigate further.
+
+Building now, staged per §8, each part verified live on QA1 before the
+next starts, each branch handed to cc1 reported as "pushed, awaiting
+landing" until landing is confirmed — never "done" on handoff alone.
 
 **Multi-agency throughout. Every rule an agency setting with a sensible
 default. Nothing outside rentals. Nothing on Staging, nothing on live.**
@@ -226,12 +249,24 @@ signed agreement) — flagged, not decided here.
 
 ---
 
-## 3. Rental price type — tick-multiple, not single-select
+## 3. Rental price type — ONE type per listing
 
-Johan's ruling, verbatim: *"the rental price type has a dropdown with
-selections... Im thinking we should work this that - rental price type
-can be ticked to which is applicable on this rental, then we give the
-inputfields for the values thats ticked?"*
+**Johan's original framing** (2026-09-13/21), for the record: *"the
+rental price type has a dropdown with selections... Im thinking we
+should work this that - rental price type can be ticked to which is
+applicable on this rental, then we give the inputfields for the values
+thats ticked?"* — investigated as tick-multiple in the first draft of
+this spec (§3.4 found neither portal can carry more than one rate per
+listing). **Johan then overruled tick-multiple on the strength of that
+finding, verbatim (2026-09-21):** *"so then we need to build same -
+only 1 price allowed to match portals. not lots. so simple. select
+price type as thats the dictating factor then enter the price."* Simple
+beats clever: since neither portal can carry more than one rate, the
+product now matches that reality instead of building a capability
+neither outbound channel can use. **This is the current, buildable
+spec — the dropdown stays a dropdown, select ONE type, enter ONE
+price.** The original tick-multiple drafting is preserved in §3.5 for
+the reasoning trail, superseded in full by what follows.
 
 ### 3.1 What exists today (confirmed by reading, not assumed)
 
@@ -276,51 +311,53 @@ different problem (closed list of option strings vs. typed field
 definitions), same reasoning as the cc2 note above: use the tool that
 already fits, don't force one mechanism to do both jobs.
 
-### 3.3 On the property — tick which apply, one input per tick
+### 3.3 On the property — select ONE type, enter ONE price
 
-The dropdown becomes a set of checkboxes (sourced from the agency's
-`PropertySettingItem` list above, not hardcoded), one per available
-cadence. Ticking a box reveals its own value input (fixing §3.1's gating
-bug at the same time it delivers Johan's actual ask); unticking hides
-and clears it — mirroring the "only ticked fields contribute a line"
-principle already established for the advert block (§4) so the two
-features share one mental model, not two.
+The dropdown's options come from the agency's `PropertySettingItem`
+list (§3.2) instead of the hardcoded array — the only change to the
+control itself. Selecting a type reveals exactly one value input for
+that type; changing the selection swaps which single input shows,
+clearing whatever was previously entered rather than leaving a stale
+value sitting in a now-hidden field. This fixes the confirmed bug
+(§3.1) — `price_per_day`/`price_per_week`/`price_per_year` were
+always-visible, independent optional inputs with no relationship to the
+dropdown at all — as a direct consequence of building what Johan asked
+for, not as separate work.
 
-**A `price_per_sqm` column does not exist and would need to be added**
-if "Per Sqm" stays a selectable option — flagged for Johan/build-time,
-not assumed either way. "Per Month" continues to map onto the existing
-`rental_amount` core field (§1) rather than gaining a parallel
+**`price_per_sqm` must be added** if "Per Sqm" survives in the agency's
+default seeded list (§3.2) — a single-select model with one input per
+type needs a real column behind every selectable option, and "Per Sqm"
+is the one type with none today. "Per Month" continues to map onto the
+existing `rental_amount` core field (§1) rather than gaining a parallel
 `price_per_month` column, since monthly rental is already a guaranteed
 core field and a second column for the identical fact would be exactly
 the "captured twice" problem this whole initiative exists to eliminate.
 
-### 3.4 Syndication — neither portal accepts more than one cadence, confirmed
+### 3.4 Syndication — unchanged, and now trivially true
 
-`Property24ListingMapper::mapRentalRate()` (lines 189-200) maps to
-P24's `RentalRate` enum (`Month|Week|Day|Year|SquareMetre`) — **one**
-value per listing. `PrivatePropertyListingMapper::mapRentalPriceType()`
-(lines 932-949, citing "PP Agency Feed Service Rev 4.6 §2.3.1") maps to
-PP's own single-value enum (`PerMonth|PerWeek|PerDay|PerM2`). Both
-portals send only `rental_amount` (via `Property::effectivePrice()`) as
-the actual price today — `price_per_day/week/year` are never read by
-either mapper.
+`Property24ListingMapper::mapRentalRate()` (lines 189-200) and
+`PrivatePropertyListingMapper::mapRentalPriceType()` (lines 932-949,
+citing "PP Agency Feed Service Rev 4.6 §2.3.1") keep mapping the single
+selected type exactly as they do today — with exactly one type and one
+price selected, there was never a second value to reconcile. Only the
+*source* of the option list changes (agency-definable instead of
+hardcoded); the mapping logic itself is untouched.
 
-**Recommendation, presented as a decision point, not silently assumed:**
-ticking multiple cadences is a genuine, useful CoreX/advert-block
-capability (a holiday letting really does have both a nightly and a
-weekly rate to advertise) — but since neither portal can receive more
-than one, the portal submission continues to send exactly what it sends
-today (`rental_amount` under whichever single cadence the mapper already
-resolves), untouched by this feature. The multi-tick values feed the
-**advert block** (§4) and the public website API (already exposes all
-three per-cadence columns via `ListingResource`), not the portal
-payload. This keeps the existing, working portal integration completely
-unchanged while giving Johan the actual multi-rate capability he
-described for the surfaces that can use it. If a future ruling wants a
-"primary cadence" concept to decide which ticked value becomes the
-portal's single submitted rate when it differs from `rental_amount`,
-that is a new, separate decision — not required for this build and not
-assumed here.
+### 3.5 Superseded drafting — tick-multiple, kept for the reasoning trail
+
+*Not the current spec — preserved so the "why" behind the ruling stays
+legible, per Johan's own instinct that the reasoning matters as much as
+the ask.* The first draft of this spec proposed checkboxes (one per
+available cadence, sourced from the same `PropertySettingItem` list),
+each revealing its own value input, with the reasoning that a holiday
+letting genuinely has both a nightly and a weekly rate worth
+advertising, and that ticked-but-not-portal-eligible values could feed
+the advert block (§4) and website API without touching portal
+submission. Johan overruled this on the plain strength of the finding
+that fed it: if neither portal can carry more than one rate, building
+multi-rate capture is complexity with no real destination for the extra
+values today. **§3.3/§3.4 above are the current spec; this subsection
+is history, not a live alternative.**
 
 ---
 
@@ -331,18 +368,51 @@ the bottom of the marketing description from corex before it goes out to
 the portals... this will stop agents from forgetting this when they
 create the ads."*
 
+### 4.0 Opt-in PER PROPERTY (Johan's ruling, 2026-09-21) — this retires §4.5 entirely
+
+**Johan's own answer to the duplicate-cost-lines migration risk (§4.5,
+original drafting), and it is better than this spec's first draft,
+verbatim:** *"The display advert block could possibly be a tick on
+rental tab? so agents can go in, fix the description, update the rental
+tab, hit the tick and all sorted out?"*
+
+**A new property-level master tick, on the Rental tab: "Generate advert
+block."** Off by default on every property, including every existing
+rental listing. While off, `description` is sent exactly as stored,
+byte-for-byte, with no block appended — an existing hand-typed advert is
+completely untouched, forever, unless an agent opts it in. An agent
+opts a property in only once they've gone in, removed their own
+hand-typed cost lines from the description, confirmed the rental tab's
+values are correct, and ticked the box — at which point the block is
+generated fresh every time (§4.2) and can never drift again.
+
+**This is a genuinely better answer than a bulk migration or an
+agency-wide switch-on**, because it needs neither: there is no moment
+where every existing listing must be inspected before a feature ships,
+no risk of a generated block appending onto an untouched hand-typed one
+on a live ad, and no agency-wide flag to weigh up. The property-level
+tick and the per-field ticks (§4.1) are two different controls that
+compose: the master tick decides whether this property uses the
+generated-block feature AT ALL; the per-field ticks (still needed,
+unchanged) decide WHICH fields appear in the block once a property has
+opted in. **§4.5 as originally drafted — the migration-risk open
+question — is retired by this ruling, not answered by policy**: there
+is no migration to make, so there is nothing left to decide.
+
 ### 4.1 The mechanism — per-field advertise tick, computed block, appended
 
 Every core field (§1) and every agency-defined field (§2) gets an
 `advertise` boolean (new column on both the fixed core-field set — see
 §4.4 — and on `PropertyRentalDetailsCustomField`, per-field, per
-Johan's own "a tick on each" mechanism). An agency also controls the
-**order** fields appear in the block — `sort_order` already exists on
-the custom-field table for exactly this; the core fields need an
-agency-configurable order too (§4.4). CoreX assembles the ticked fields,
-in that order, into a text block, formatted per §4.2, and appends it to
-`properties.description` before the value that actually reaches a
-portal or the website API.
+Johan's own "a tick on each" mechanism) — these only ever take effect
+on a property that has the master tick (§4.0) on. An agency also
+controls the **order** fields appear in the block — `sort_order` already
+exists on the custom-field table for exactly this; the core fields need
+an agency-configurable order too (§4.4). CoreX assembles the ticked
+fields, in that order, into a text block, formatted per §4.2, and
+appends it to `properties.description` before the value that actually
+reaches a portal or the website API — only when the master tick (§4.0)
+is on for that property.
 
 **A field with no value and a field that isn't ticked both produce
 nothing** — never a blank line, never "R0", matching Johan's own
@@ -392,26 +462,40 @@ directly — one assembly point, reused everywhere the description is
 actually sent out, so the block can never appear in one channel and not
 another by omission.
 
-### 4.3 Preview — reusing the existing live-preview page, not building a second one
+### 4.3 Preview — inline on the Rental tab (Johan's ruling, 2026-09-21), plus the existing live-preview page
 
-Johan's requirement: *"the block must be PREVIEWABLE before it goes
-out."* CoreX already has exactly this kind of surface:
-`PropertyController::livePreview()` / `resources/views/corex/
-properties/live-preview.blade.php` — a public, no-auth, shareable
-property page (used today for WhatsApp/link-sharing) that already
-renders the description and already correctly gates listing-type-only
-content (§6 below). **Recommendation: extend this existing page to
-render the description WITH the computed advert block appended**,
-rather than building a second preview mechanism — an agent checking
-"how will this look" already has a real page to look at, and it becomes
-accurate for this feature with no new route, no new controller, no new
-view. This does not preview the raw P24/PP payload itself (no dry-run
-mode exists for either portal's submission — confirmed absent, not
-found anywhere in `Property24ApiClient`/`PrivatePropertySoapClient`) —
-if Johan specifically wants to see the exact bytes a portal will
-receive rather than a rendered page, that is new work this spec doesn't
-assume he's asking for; flagged as a decision point, not built either
-way here.
+Johan's requirement, sharpened by his own ruling on §4.0: *"Make sure
+the tick is discoverable and that it is obvious what it will do before
+they press it — a preview of the block they are about to publish, so an
+agent can see it alongside their description and spot a duplicate
+themselves."* This is a materially different, more useful requirement
+than this spec's first draft assumed — the preview must sit **on the
+Rental tab itself, next to the master tick and the description field,
+before the agent commits**, specifically so the agent can visually
+compare the generated block against their own hand-typed text and catch
+a duplicate at the exact moment it matters (before ticking, not after
+publishing).
+
+**Recommendation:** an inline, live-updating preview panel on the
+Rental tab, positioned directly beside (or immediately below) the
+master tick and the description textarea, computed from the field
+values and per-field advertise ticks currently on screen — updating as
+the agent ticks/unticks fields or edits a value, not only on save. This
+is the discoverability and comparison surface Johan asked for; it does
+not require the agent to leave the property edit screen or open a
+separate page to judge what will happen.
+
+**The existing public live-preview page still has a role, unchanged
+from the first draft:** `PropertyController::livePreview()` /
+`resources/views/corex/properties/live-preview.blade.php` already
+renders the description publicly and already correctly gates
+listing-type-only content (§6) — extending it to also show the
+assembled block (for a property with the master tick on) remains worth
+doing as the "what a real viewer will see" surface, complementary to
+the inline editor-side preview, not a replacement for it. Neither
+preview shows the raw P24/PP payload bytes — no dry-run mode exists for
+either portal's submission (confirmed absent) — that remains a
+separate, unrequested decision point (§9).
 
 ### 4.4 Length limits and formatting — checked, not assumed
 
@@ -472,22 +556,25 @@ agency-defined field from §2) belong in the generated text appended to
 `description`. This avoids the double-price bug that Open Question 2
 (§4.5) already warns about, one level earlier in the pipeline.
 
-### 4.5 Existing hand-typed adverts — a real migration risk, not solved here
+### 4.5 Existing hand-typed adverts — RETIRED by §4.0's ruling, kept for the record
 
-Every current rental listing may already contain hand-typed versions of
-exactly this information, in whatever wording each agent chose (Johan's
-own worked example is one of them). The moment this feature ships,
-those same listings will ALSO get a generated block appended —
-**showing the same costs twice, in two different wordings, on a live
-portal advert**, which is worse than the feature not existing.
-**This spec does not decide how existing descriptions get identified,
-cleaned, or migrated before rollout** — flagged explicitly as Johan's
-call (§9), not quietly assumed away. A plausible staged approach (not a
-decision) is in §8, Part 4.
+*Original drafting, preserved for the reasoning trail, not a live open
+question.* This spec's first draft flagged a real risk: shipping the
+advert block agency-wide would append a generated block onto every
+existing rental listing's description, including ones already
+containing hand-typed versions of the same information — showing the
+same costs twice, in two different wordings, on a live portal advert.
+**Johan's §4.0 ruling (the property-level opt-in tick) retires this
+risk by construction rather than by policy**: since the block only ever
+generates on a property where an agent has explicitly ticked "Generate
+advert block" — which they only do once they've removed their own
+hand-typed lines — there is no agency-wide switch-on moment, no bulk
+migration, and no scenario where an untouched existing listing
+suddenly grows a duplicate block. Nothing further to decide here.
 
 ---
 
-## 5. Lease type — investigated, reported, not touched
+## 5. Lease type — investigated, reported; Johan's ruling: make it real
 
 Johan: *"lease type - makes no sense what this is. is the list definable
 under rental settings? lease type not even sure where this fits in."*
@@ -527,29 +614,71 @@ the two forms). Neither list comes from any settings table. Server-side
 validation on both is a bare `nullable|string|max:N` with no whitelist
 — a raw POST could set any string.
 
-### 5.2 Recommendation — Johan's decision, not made here
+### 5.2 Johan's ruling (2026-09-21) — "make it real"
 
-Confirmed functionally dead is a finding, not a design. Two real options,
-presented without a preference imposed:
+*"So it becomes a genuine, agency-configurable field that actually means
+something, not a dropdown that feeds itself. Two things that must be
+true: one option list, defined once, agency-editable — the two
+hardcoded divergent lists are a bug in themselves and both go. And it
+must DO something: if it is worth capturing it is worth using, so work
+out what it should drive. It will matter for lease agreement generation
+and rental financials later, both of which Johan has said are coming,
+so shape it with that in mind rather than as a label."*
 
-1. **Remove it.** If nothing reads it and Johan doesn't recognise what
-   it's for, the honest fix may be deleting the field and both dropdown
-   inputs rather than dressing up a dead field as a real setting.
-2. **Make it real**, following the exact `PropertySettingItem` pattern
-   already proven on Furnished Status (§3.2) if there is a genuine
-   commercial-lease concept worth keeping (P24's own `leaseType` field
-   suggests the underlying concept — commercial lease structure — is a
-   real, portal-recognised thing, just never wired through). If kept,
-   the two drifted option lists get reconciled into one agency-managed
-   list, and the P24 mapper gap gets closed as part of the same work.
+**One list, agency-editable — same mechanism as §3.2/Furnished Status.**
+New `PropertySettingItem` group, `GROUP_LEASE_TYPE`, replacing both
+`properties.lease_type`'s dropdown and `leases.lease_type`'s dropdown —
+one agency-managed list feeding both forms, ending the drift where the
+same concept had two different wordings in two different Blade files.
+The two underlying columns (`properties.lease_type` for the advertised
+listing, `leases.lease_type` for an actual executed lease record) stay
+two separate columns — a listing's advertised lease structure and a
+signed lease's actual structure are two different facts that can
+legitimately differ — but both are validated against the exact same
+agency-editable list from now on, closing the "one option list, defined
+once" requirement without forcing an unrelated table merge.
 
-This spec does not pick one — it is exactly the kind of "does this
-matter to the business" call `CLAUDE.md` reserves for Johan, not an
-engineering choice dressed as one.
+**What it should DO, checked concretely rather than guessed:** P24's
+own API schema (`storage/p24_swagger.json:4116-4126`) defines a real
+`LeaseType` enum — `Percentage`, `Net`, `DoubleNet`, `TripleNet`,
+`FullyServicedLeaseGross` — that `Property24ListingMapper` never sends
+today, a gap already on record in this codebase's own audit
+(`.ai/audits/syndication-mapping-audit-2026-07-05.md:45`). **Neither of
+CoreX's two existing hardcoded lists actually matches P24's real enum**
+("Gross" and "Modified Gross" have no exact P24 counterpart; P24's own
+terms are "FullyServicedLeaseGross" and "DoubleNet"). Recommendation:
+seed the new agency-default list with wording that maps cleanly onto
+P24's real values (e.g. "Percentage" / "Net" / "Double Net" / "Triple
+Net" / "Fully Serviced Gross") — this reconciles the two drifted
+internal lists AND gives `lease_type` its first genuine downstream
+consumer in the same motion: `Property24ListingMapper` starts sending
+it, closing a gap that's been on this codebase's own audit trail since
+2026-07-05. An agency free to rename its own list entries afterward
+would need its own mapping to P24's enum at sync time (a small
+lookup, not a blocker) — flagged for build-time, not solved here.
+
+**Shaped for what's coming, not built now:** lease-agreement generation
+and rental financials are Johan's stated future work, not this spec's.
+The concrete, buildable-now step that shapes `lease_type` for that
+future without building it early: register `lease_type` as a resolvable
+merge field in the existing DocuPerfect merge-field system
+(`WebTemplateDataService`/`WebTemplateFieldPartyMap` — the same system
+`electricity_deposit` already sits in as a lease-adjacent merge field,
+per `WebTemplateDataService.php:330`), so that when a real lease
+agreement template is built later, `lease_type` is already a field that
+system can resolve rather than needing a second retrofit at that point.
+This does not generate a lease document or write any clause logic now —
+it only makes the field reachable by the system that will need it,
+which is the concrete meaning of "shape it with that in mind" without
+speculatively building the feature it will eventually serve.
 
 ---
 
-## 6. Bond repayment calculator on a rental listing — reported, not fixed
+## 6. Bond repayment calculator on a rental listing — CLOSED (Johan, 2026-09-21)
+
+**Closed. Johan has sent this to Andre — it is the agency's own website,
+not CoreX. Do not investigate further.** Findings below are the record
+of the investigation already done, kept for reference only.
 
 Johan found a bond-repayment calculator rendering on a property listed
 FOR RENT. Established which system it's in, per his explicit
@@ -603,29 +732,47 @@ New/changed, for build-time reference — nothing here is built yet:
 - **New `PropertySettingItem` group, `GROUP_RENTAL_PRICE_TYPE`** (§3.2)
   — agency-editable list replacing the hardcoded 5-option dropdown,
   seeded with today's 5 values as the default for every agency via the
-  existing `provisionDefaultsFor()` pattern.
-- **New column(s) on `properties`** for the tick-multiple price-type
-  redesign (§3.3) — a per-ticked-cadence boolean set, or a single json
-  column listing which cadences are ticked (build-time choice, not
-  decided here); `price_per_sqm` added only if "Per Sqm" survives as an
-  option (§3.1/§3.3).
+  existing `provisionDefaultsFor()` pattern. `rental_price_type` itself
+  stays the single scalar column it is today (§3.3) — no new column for
+  the selection itself, only for the list of options.
+- **New column `properties.price_per_sqm`** (§3.3) — the one selectable
+  cadence with no backing value column today; needed now that every
+  selectable type requires exactly one real input.
+- **New `PropertySettingItem` group, `GROUP_LEASE_TYPE`** (§5.2) —
+  agency-editable list replacing BOTH of `properties.lease_type`'s and
+  `leases.lease_type`'s separate hardcoded, divergent lists. Both
+  columns stay as they are (two separate facts — advertised vs. actual
+  executed lease); both validate against this one new list.
 - **New `advertise` boolean on the CORE fields** (§4.1) — build-time
   decision on whether this is per-field columns on `properties`
   (`advertise_rental_amount`, `advertise_deposit_amount`, etc.) or one
   json column listing which core fields are ticked; either satisfies
   the requirement, this spec does not mandate one over the other.
+- **New `properties.rental_advert_block_enabled` boolean** (§4.0) —
+  the property-level master opt-in tick, default false on every
+  property including every existing one. Nothing else in §4 takes
+  effect unless this is true for the property.
 - **New service/accessor** assembling the advert block at render time
   (§4.2) — e.g. `RentalAdvertBlockService` or
   `Property::descriptionForSyndication()` — consumed by both portal
   mappers, the website `ListingResource`, and the extended live-preview
   page (§4.3), so there is exactly one assembly point, never a second
-  hand-copied one.
+  hand-copied one. Returns the stored `description` unchanged whenever
+  `rental_advert_block_enabled` is false.
 - **`admin_fee`/`marketing_fee` added to `ListingResource`** (§4.4) —
   closing the "reaches zero syndication targets" gap independent of the
   advert-block text itself.
+- **`lease_type` registered as a DocuPerfect merge field** (§5.2) — in
+  `WebTemplateDataService`/`WebTemplateFieldPartyMap`, alongside the
+  existing `electricity_deposit` merge field — no lease-document
+  generation logic built, only makes the field resolvable for when that
+  feature exists.
+- **`Property24ListingMapper` sends `lease_type`** (§5.2) — closing the
+  documented P24-G4 gap, mapped against P24's real `LeaseType` enum
+  (`Percentage`/`Net`/`DoubleNet`/`TripleNet`/`FullyServicedLeaseGross`).
 - **No change** to `rental_amount`, `deposit_amount`, `occupation_date`,
   `lease_period`/`lease_start_date`/`lease_end_date` (the core fields,
-  §1), to either portal mapper's existing submitted fields, or to
+  §1), to either portal mapper's existing PRICE submission (§3.4), or to
   `PortalContentValidator`.
 
 ---
@@ -660,75 +807,90 @@ property's raw HTML still has zero occurrences of any rental-only
 markup (matching the standard every prior Rental-tab part already
 proved).
 
-**Part 3 — Rental price type redesign.** `GROUP_RENTAL_PRICE_TYPE`
-`PropertySettingItem` group + seeding (§3.2), tick-multiple UI replacing
-the single dropdown, per-tick value inputs (§3.3), fixing the
-confirmed always-visible-regardless-of-selection bug at the same time.
-No syndication change — portals keep receiving exactly what they
-receive today (§3.4). Verify: an agency's custom price-type list is
-independently editable; ticking/unticking shows/hides/clears the right
-input; portal submission for a real rental property is byte-for-byte
+**Part 3 — Rental price type: agency-editable list, single-select, real
+gating.** `GROUP_RENTAL_PRICE_TYPE` `PropertySettingItem` group +
+seeding (§3.2), new `price_per_sqm` column, dropdown sourced from the
+agency's list instead of the hardcoded array, exactly one value input
+shown for the selected type (§3.3), fixing the confirmed
+always-visible-regardless-of-selection bug at the same time. No
+syndication change — portals keep receiving exactly what they receive
+today (§3.4). Verify: an agency's price-type list is independently
+editable; selecting a type shows exactly one input and clears any
+other; portal submission for a real rental property is byte-for-byte
 unchanged before/after.
 
-**Part 4 — The advert block itself.** The assembly service (§4.2),
-wired into both portal mappers and the website `ListingResource`
-in place of their direct `$property->description` reads, plus the
-`admin_fee`/`marketing_fee` → `ListingResource` fix (§4.4). **Before this
-part ships to any real agency, Johan's call on §4.5 (existing hand-typed
-adverts) must be answered** — this part is built and verifiable on a
-fresh/test listing regardless, but must not go live agency-wide until
-that migration question is resolved, to avoid the double-cost-line bug
-named explicitly in §4.5. Verify: a real listing with several ticked
-core and agency-defined fields produces the correct block, in the
-correct order, with unticked/empty fields producing no line; the block
-reaches the actual P24/PP submission body (not just CoreX's own
-preview); a field with a native portal slot (deposit) is not duplicated
-into the text block.
+**Part 4 — `lease_type` made real.** `GROUP_LEASE_TYPE`
+`PropertySettingItem` group replacing both hardcoded dropdowns (§5.2);
+`Property24ListingMapper` starts sending it against P24's real
+`LeaseType` enum, closing the P24-G4 gap; registered as a resolvable
+DocuPerfect merge field alongside `electricity_deposit`. Does not block
+or depend on Parts 1-3/5-6. Verify: both property and lease forms
+source their dropdown from the same agency list; a real commercial
+rental's `lease_type` value reaches the actual P24 submission payload;
+the merge field resolves in a test document render with no lease
+generation logic attached.
 
-**Part 5 — Live-preview page shows the computed block.** Extends
-`live-preview.blade.php` to render `description` + the assembled block
-exactly as a portal will receive it (§4.3). Verify: the preview page and
-the actual P24 submission produce byte-identical block text for the
-same property at the same moment.
+**Part 5 — The advert block itself, opt-in per property.** The
+property-level master tick (§4.0), the per-field `advertise` ticks on
+core and agency-defined fields (§4.1), the assembly service (§4.2)
+wired into both portal mappers and the website `ListingResource` in
+place of their direct `$property->description` reads, plus the
+`admin_fee`/`marketing_fee` → `ListingResource` fix (§4.4). **No
+migration gate needed** — §4.0's opt-in-per-property design means this
+ships safely to every agency the moment it's verified, since no
+existing listing is affected until an agent explicitly ticks it on.
+Verify: a fresh test listing with the master tick off sends `description`
+completely unchanged; the same listing with the tick on and several
+fields ticked produces the correct block, in the correct order, with
+unticked/empty fields producing no line; the block reaches the actual
+P24/PP submission body (not just CoreX's own preview); a field with a
+native portal slot (deposit) is not duplicated into the text block.
 
-**Part 6 (Johan's decision, §5.2, may not happen at all) — `lease_type`
-resolution.** Either removed (both dropdowns, both columns' write paths
-retired — soft, not a hard delete of historical data) or converted to a
-real `PropertySettingItem` group reconciling the two drifted option
-lists into one, with the P24 `leaseType` mapping gap closed as part of
-the same work if kept. Does not block Parts 1-5, which do not depend on
-`lease_type` in any way.
+**Part 6 — Inline preview + live-preview page.** The Rental-tab inline
+preview panel next to the master tick and description (§4.3, the
+"discoverable, spot a duplicate yourself" requirement), and extending
+`live-preview.blade.php` to render the assembled block for a property
+with the tick on. Verify: the inline preview updates as fields are
+ticked/edited before saving; the inline preview, the live-preview page,
+and the actual P24 submission all produce byte-identical block text for
+the same property at the same moment.
 
 Each part gets its own "verified live on QA1" record before the next
 starts, matching the discipline the existing Rental tab build already
-established — nothing here proposes skipping that.
+established — nothing here proposes skipping that. Each branch handed
+to cc1 is reported as **"pushed, awaiting landing"** until cc1 confirms
+it has actually landed — never "done" on handoff alone.
 
 ---
 
 ## 9. Items flagged for Johan's decision — not decided in this spec
 
-1. **Lease type — remove or make real** (§5.2). Two real options
-   presented; this spec does not choose.
-2. **Existing hand-typed adverts vs. the new generated block** (§4.5) —
-   how (or whether) existing descriptions get identified/cleaned before
-   the advert block starts appending to them agency-wide. Real risk of
-   visibly duplicated cost lines on a live portal ad if unresolved.
-3. **Whether `date`/`choice_list`/`file` custom-field types are offered**
+**Resolved by Johan's 2026-09-21 rulings, kept here only as a record of
+what's no longer open:** lease type (make it real, §5.2 — ruled),
+existing hand-typed adverts vs. the new block (retired by the
+per-property opt-in, §4.0/§4.5 — no longer a question), rental price
+type single- vs. multi-select (single, §3 — ruled), `price_per_sqm`
+(build it, §3.3 — ruled), the bond calculator (closed, sent to Andre,
+§6 — ruled).
+
+**Still genuinely open:**
+
+1. **Whether `date`/`choice_list`/`file` custom-field types are offered**
    on the rental-details definition form (§2.1) — Johan asked for four
    types; the underlying mechanism supports two more that weren't
    requested. Recommend excluding them from this feature's UI unless
    Johan wants them (e.g. `file` for an uploaded Lets Assist agreement).
-4. **Whether a "primary cadence" is needed for portal submission**
-   once multiple rental price types can be ticked (§3.4) — not required
-   for this build (portals keep getting exactly what they get today),
-   but flagged in case Johan wants ticked-multiple values to eventually
-   influence which single rate a portal receives.
-5. **Whether the live-preview page (§4.3) is sufficient as "previewable
-   before it goes out"**, or whether Johan specifically wants to see the
-   raw bytes of the actual P24/PP submission payload (no such mechanism
-   exists today; would be new work).
-6. **`price_per_sqm`** — add the missing column, or drop "Per Sqm" as an
-   option, if the price-type list (§3.2/§3.3) keeps it (§3.1).
+2. **Whether the live-preview page + inline Rental-tab preview (§4.3)
+   are sufficient as "previewable before it goes out"**, or whether
+   Johan specifically wants to see the raw bytes of the actual P24/PP
+   submission payload (no such mechanism exists today; would be new
+   work).
+3. **The exact wording for the reconciled `GROUP_LEASE_TYPE` default
+   list** (§5.2) — recommended as wording that maps cleanly to P24's
+   real enum (Percentage/Net/Double Net/Triple Net/Fully Serviced
+   Gross); a build-time judgment call on exact labels, immediately
+   editable by any agency regardless since it's a real agency list from
+   day one, not a wording Johan needs to bless before Part 4 starts.
 
 ---
 
@@ -740,17 +902,20 @@ established — nothing here proposes skipping that.
   work.
 - No change to `RentalApplicationCustomField` or its table — a
   parallel, not shared, mechanism (§2).
-- No change to how either portal receives its single rental-rate value
-  (§3.4) — the multi-tick capability feeds the advert block and the
-  website API only.
+- No change to how either portal receives its rental-rate value (§3.4)
+  — one type, one price, exactly as submitted today; only the option
+  list's source changes.
 - No fix to the pre-existing, separately-flagged gap where
   `rental_price_type`/`lease_period`/`lease_type` aren't cleared by the
   sale/rental type-switch clone logic (`.ai/specs/rentals-shared-screens.md`
   §10) — untouched by this work, already on record elsewhere.
 - No change to `PortalContentValidator`'s phone-number gate.
-- No fix to hfcoastal.co.za's own website (§6) — established to very
-  likely be a separate codebase this spec has no visibility into; not
-  touched, not assumed to be CoreX's responsibility to fix.
+- No fix to hfcoastal.co.za's own website (§6) — CLOSED, sent to Andre,
+  not CoreX's — do not investigate further.
 - No dry-run/raw-payload preview mechanism for the actual P24/PP
-  submission, unless Johan asks for it specifically (§9 item 5) — the
-  extended live-preview page (§4.3) is what's proposed.
+  submission, unless Johan asks for it specifically (§9 item 2) — the
+  inline Rental-tab preview + extended live-preview page (§4.3) are
+  what's proposed.
+- No lease-agreement generation or rental-financials logic (§5.2) —
+  `lease_type` is made real and made resolvable for those future
+  features, neither feature itself is built here.
