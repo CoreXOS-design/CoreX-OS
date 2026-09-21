@@ -2647,7 +2647,7 @@ No migration, no new permission (still `access_ad_manager` + `ad_manager.view`),
 - `resources/views/tools/ad-manager.blade.php` — new layout (rail, agent groups, search,
   selection bar) + Alpine state for search / size tiles / selected thumbnails.
 - `resources/views/tools/_ad-manager-property-card.blade.php` — restyled card + "Not published yet" tag.
-- `resources/views/tools/ad-manager/_switcher.blade.php` — `onBanner` variant; used in the
+- `resources/views/tools/ad-manager/_switcher.blade.php` — `inHeader` variant; used in the
   header of the Ad Manager and Template Manager pages (`templates.blade.php`).
 - `app/Support/Tours/defs/agency-tracker-tools.php` — tour wording matched to the new layout.
 - `tests/Feature/Tools/AdManagerActivePropertiesTest.php` — active-but-unpublished appears and

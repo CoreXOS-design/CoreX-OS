@@ -42,7 +42,7 @@
             </div>
             <div class="flex items-center gap-3 flex-wrap">
                 @include('layouts.partials.tour-header-launcher')
-                @include('tools.ad-manager._switcher', ['onBanner' => true])
+                @include('tools.ad-manager._switcher', ['inHeader' => true])
             </div>
         </div>
     </div>
