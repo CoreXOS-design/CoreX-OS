@@ -7,6 +7,8 @@ use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalInventory;
 use App\Models\RentalInspectionSetting;
+use App\Models\RentalInventorySetting;
+use App\Services\Rentals\RentalInventoryComparisonService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -142,6 +144,25 @@ class RentalInventoryController extends Controller
             // refusal capture already uses — one list of "why didn't this
             // party sign," not a second one for a second document.
             'refusalReasonPresets' => RentalInspectionSetting::refusalReasonPresetsFor($rentalInventory->agency_id),
+        ]);
+    }
+
+    /**
+     * GET /corex/rental-inventories/{inventory}/comparison — §8, the
+     * move-out review screen. Read-only: RentalInventoryComparisonService
+     * computes fresh on every load, nothing here is stored.
+     */
+    public function comparison(Request $request, RentalInventory $rentalInventory, RentalInventoryComparisonService $service): View
+    {
+        abort_unless($rentalInventory->status === RentalInventory::STATUS_COMPLETED, 400,
+            'The move-out comparison is only available once the inventory itself is completed.');
+
+        $rentalInventory->load(['property', 'lease.tenants.contact', 'lines']);
+
+        return view('corex.rental-inventories.comparison', [
+            'inventory' => $rentalInventory,
+            'rows' => $service->compare($rentalInventory),
+            'dispositionPresets' => RentalInventorySetting::dispositionPresetsFor($rentalInventory->agency_id),
         ]);
     }
 

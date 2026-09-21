@@ -2856,6 +2856,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.features');
     Route::post('/settings/rental-inspections/room-type-defaults', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateRoomTypeItemDefaults'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.room-type-defaults');
+    // .ai/specs/rental-inventory.md §8 — the move-out disposition vocabulary
+    // (present/short/damaged/missing), agency-configurable. Own settings
+    // model/screen, deliberately separate from rental-inspections above.
+    Route::get('/settings/rental-inventory', [\App\Http\Controllers\CoreX\RentalInventorySettingsController::class, 'edit'])
+        ->middleware('permission:rental_inventories.manage_settings')->name('corex.settings.rental-inventory.edit');
+    Route::post('/settings/rental-inventory', [\App\Http\Controllers\CoreX\RentalInventorySettingsController::class, 'update'])
+        ->middleware('permission:rental_inventories.manage_settings')->name('corex.settings.rental-inventory.update');
     // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — the spend threshold
     // below which no owner approval is required, agency-configurable.
     Route::get('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'edit'])
@@ -3183,6 +3190,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'store'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.store');
         Route::get('/{rentalInventory}', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'show'])->name('corex.rental-inventories.show');
+        // §8 — the move-out comparison, read-only, gated on the inventory being completed.
+        Route::get('/{rentalInventory}/comparison', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'comparison'])->name('corex.rental-inventories.comparison');
         Route::post('/{rentalInventory}/cancel', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'cancel'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.cancel');
         Route::delete('/{rentalInventory}', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'destroy'])
@@ -3196,6 +3205,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.update');
         Route::post('/{rentalInventory}/lines/{line}/retire', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'retireLine'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.retire');
+        // §8 — the move-out finding per line. Append-only.
+        Route::post('/{rentalInventory}/lines/{line}/dispositions', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLineDisposition'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.dispositions.store');
         Route::post('/{rentalInventory}/signatures', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeSignature'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.signatures.store');
         Route::post('/{rentalInventory}/complete', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'complete'])

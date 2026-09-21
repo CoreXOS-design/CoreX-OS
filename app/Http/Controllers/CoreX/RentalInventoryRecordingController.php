@@ -5,6 +5,7 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\RentalInventory;
 use App\Models\RentalInventoryLine;
+use App\Models\RentalInventoryLineDisposition;
 use App\Models\RentalInventorySignature;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -59,6 +60,37 @@ class RentalInventoryRecordingController extends Controller
         $line->retire();
 
         return response()->json(['message' => 'Line retired.']);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/lines/{line}/dispositions —
+     * §8, the move-out finding. Append-only: this always CREATES a new row,
+     * even if one already exists for this line (a correction is a fresh
+     * row, never an edit — RentalInventoryLineDisposition has no update()).
+     */
+    public function storeLineDisposition(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
+    {
+        abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+
+        $validated = $request->validate([
+            'disposition_key' => ['required', 'string', 'max:60'],
+            // §8 — genuinely optional. Absent/null means "not yet counted,"
+            // never coerced to 0 by this validation or anywhere downstream.
+            'quantity_found' => ['nullable', 'integer', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        try {
+            $disposition = RentalInventoryLineDisposition::record($line, $validated['disposition_key'], [
+                'quantity_found' => $validated['quantity_found'] ?? null,
+                'notes' => $validated['notes'] ?? null,
+                'recorded_by_user_id' => $request->user()->id,
+            ]);
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json($disposition, 201);
     }
 
     /**

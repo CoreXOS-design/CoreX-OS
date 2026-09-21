@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * .ai/specs/rental-inventory.md §3.1 — one real item: "2x White wooden
@@ -41,6 +42,24 @@ class RentalInventoryLine extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /** §8 — every move-out finding ever recorded against this line, oldest first. Never edited, never deleted. */
+    public function dispositions(): HasMany
+    {
+        return $this->hasMany(RentalInventoryLineDisposition::class)->oldest('recorded_at')->oldest('id');
+    }
+
+    /**
+     * §8 — the most recent finding is "current"; every earlier one stays in
+     * the audit trail, unmodified. Queried fresh (not through dispositions()
+     * above, which orders oldest-first for history display) to avoid
+     * stacking a contradictory orderBy on top of that relation's own.
+     */
+    public function latestDisposition(): ?RentalInventoryLineDisposition
+    {
+        return RentalInventoryLineDisposition::where('rental_inventory_line_id', $this->id)
+            ->latest('recorded_at')->latest('id')->first();
     }
 
     /**

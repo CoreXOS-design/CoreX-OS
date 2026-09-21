@@ -110,6 +110,9 @@
                     $can('rental_inspections.manage_settings')
                         ? ['key'=>'rental-inspections-settings', 'label'=>'Rental Inspections', 'type'=>'link', 'href'=>route('corex.settings.rental-inspections.edit'), 'keywords'=>'inspection fault report window signing window tenant out inspection']
                         : null,
+                    $can('rental_inventories.manage_settings')
+                        ? ['key'=>'rental-inventory-settings', 'label'=>'Rental Inventory', 'type'=>'link', 'href'=>route('corex.settings.rental-inventory.edit'), 'keywords'=>'inventory contents furnished move-in move-out disposition present short damaged missing']
+                        : null,
                     $can('rental_work_orders.manage_settings')
                         ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault']
                         : null,

@@ -155,6 +155,8 @@ return [
         // ── Rental Inventory (rental-inventory.md) — its own document, not a tab on rental_inspections ──
         ['key' => 'rental_inventories.view',   'label' => 'View Rental Inventories',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inventories', 'sort_order' => 1],
         ['key' => 'rental_inventories.create', 'label' => 'Record Inventories & Sign',          'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inventories', 'sort_order' => 2],
+        // §8 — the move-out comparison's disposition vocabulary (present/short/damaged/missing).
+        ['key' => 'rental_inventories.manage_settings', 'label' => 'Manage Rental Inventory Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inventories', 'sort_order' => 3],
 
         // ── Rental Fault Reports (rental-work-orders.md §3a, 2026-09-24/25) ──
         ['key' => 'rental_fault_reports.view',   'label' => 'View Rental Fault Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_fault_reports', 'sort_order' => 1],

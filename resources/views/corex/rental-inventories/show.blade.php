@@ -28,7 +28,12 @@
                 Started {{ $inventory->created_at?->format('Y-m-d') }} by {{ $inventory->createdBy?->name ?? '—' }}
             </p>
         </div>
-        <a href="{{ route('corex.rental-inventories.index') }}" class="corex-btn-outline text-xs">Back to list</a>
+        <div class="flex items-center gap-2">
+            @if($inventory->status === \App\Models\RentalInventory::STATUS_COMPLETED)
+                <a href="{{ route('corex.rental-inventories.comparison', $inventory) }}" class="corex-btn-outline text-xs">Move-out comparison</a>
+            @endif
+            <a href="{{ route('corex.rental-inventories.index') }}" class="corex-btn-outline text-xs">Back to list</a>
+        </div>
     </div>
 
     @if(session('success'))

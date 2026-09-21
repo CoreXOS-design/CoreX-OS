@@ -1,7 +1,8 @@
 # Spec: Rental Inventory
 
-**Status:** Capture half pushed, awaiting landing (2026-10-01, cc6). Comparison half NOT built —
-shape reported to the conductor, held pending her and cc5's ruling. See §8.
+**Status:** Capture half AND comparison half pushed, awaiting landing (2026-10-01, cc6). §8's four
+open questions were resolved by cc5 (recommendations) and approved by Johan (all four, as stated,
+2026-10-01) before the comparison half was built — see §8 for the shape as actually built.
 
 ---
 
@@ -169,41 +170,79 @@ Inspections" (CLAUDE.md non-negotiable #2).
 
 ---
 
-## 8. The comparison half — NOT BUILT, shape reported, held for ruling
+## 8. The comparison half — BUILT, cc5's recommendations, Johan's approval (2026-10-01)
 
-**This is the part Johan said matters as much as the capture, and it is the part this build does not
-touch.** Coordinated with cc5 (building the in-vs-out deposit comparison, a separate worktree,
-`cc5-rental-inspection-deposit-comparison`) before settling even the capture shape — see §3.2's rationale
-and cc5's own confirmation (relayed to the conductor directly).
+Coordinated with cc5 before settling the capture shape (§3.2), then again on the four open questions
+below before building this half — cc5 answered with implementation recommendations, Johan approved all
+four as stated. Quoted/paraphrased plainly so the reasoning survives, not just the conclusion:
 
-**What is genuinely undecided, and needs Johan's ruling, not an assumption baked into a migration:**
+1. **How a move-out disposition per line gets captured: append-only, one row per line per move-out
+   event — never a status column overwritten on the line itself.** Johan: "it matches the
+   supersede-never-edit discipline across the whole module and it means a move-out record survives a
+   later dispute." Built as `RentalInventoryLineDisposition` — mirrors how `RentalInspectionObservation`
+   is a distinct, comparable event against a persistent `RentalInspectionItem`. No `update()` method
+   exists on this class; a correction is a new row, and `RentalInventoryLine::latestDisposition()` reads
+   the most recent as current while every earlier row stays exactly as filed.
+2. **Vocabulary: a purpose-built set (present / short / damaged / missing), NOT
+   `RentalInspectionObservation::condition`** — an inventory line is a different question from a wall's
+   condition. Agency-configurable via the same `{key, label, requires_notes}` shape cc2 built for
+   inspection condition states, per cc5's explicit recommendation — but stored on this module's OWN new
+   `RentalInventorySetting` model, not by extending `RentalInspectionSetting`: cc2's actual
+   `condition_states` column lives on a different, unlanded branch this build cannot see, and touching
+   that file risked a collision with work in flight. The SHAPE matches; the STORAGE is deliberately
+   separate. See the settings migration's own docblock.
+3. **Quantity shortfall: read directly off `quantity` (move-in) vs a NULLABLE `quantity_found`
+   (move-out) — no separate status needed for the delta itself.** Johan: "null means not-yet-counted and
+   is never coerced to zero... A tenant must never be charged for something nobody counted." This is the
+   EXACT discipline `rental-inspections.md` §17's header block already established for
+   `keys_count`/`remotes_count`, carried here deliberately — `RentalInventoryComparisonService` only
+   computes a delta when `quantity_found` is genuinely present; a line nobody has counted yet shows as
+   "not yet checked," never as a false shortfall. `disposition_key` and `quantity_found` are orthogonal on
+   the same row — cc5's own example, straight off Johan's real form: "2x Big pots... missing" is a
+   `disposition_key='missing'` row; "3 of 4 chairs returned AND damaged" is `quantity_found=3` (against
+   `quantity=4`) PLUS `disposition_key='damaged'`, both true on the same finding.
+4. **Where the outcome lives: `RentalInventoryComparisonService`, a read-time-only comparison — no
+   stored classification, no currency anywhere.** Mirrors the same money boundary cc5 holds for the
+   inspection comparison. Output is a proposal an agent reviews on `/corex/rental-inventories/{id}
+   /comparison`, computed fresh on every load. Explicitly does NOT touch `rental-work-orders.md` — that
+   module is about repairs, this is about presence/shortfall. If Johan wants inventory and inspection
+   findings combined into one deposit view, that is a later, explicit call, not assumed here.
 
-- **How a move-out disposition per line gets captured at all.** Johan's real document annotates state
-  ("missing") inline, on the same line, at whatever point that became known — it does not describe a
-  second, separately-produced document the way in/out inspections are two distinct events. Whether the
-  digital shape should be (a) a `status` column added to `rental_inventory_lines` itself, set/overwritten
-  at move-out, or (b) a separate append-only "disposition" row per line (mirroring how
-  `RentalInspectionObservation` is a distinct, comparable event against a persistent
-  `RentalInspectionItem`) is not decided here. Option (b) keeps a clean point-in-time audit trail (what
-  was true at move-in vs what was found at move-out, never overwritten); option (a) is simpler but loses
-  that distinction unless paired with its own history log.
-- **What vocabulary a move-out disposition uses.** `RentalInspectionObservation::condition` already has
-  good/fair/damaged/not_working/missing/other — reusing it for inventory-line disposition was considered
-  during this build but not committed to, since "missing" there means something narrower (a condition
-  grade) than what an inventory line needs (present in full quantity / partially present / quantity short
-  / damaged / missing entirely) — a genuinely different vocabulary that deserves its own naming, not
-  forced reuse of a list built for a different question.
-- **Whether a quantity SHORTFALL (3 keys handed over, 2 returned) is itself the deposit-relevant fact**,
-  separate from a per-line status — i.e. does the comparison read `quantity` directly (move-in line
-  quantity vs whatever gets recorded at move-out) rather than needing a new status field at all for the
-  count-based lines. This may differ from how a non-countable single item ("1x LG Fridge/freezer silver")
-  needs to be marked missing/damaged, where there is no meaningful "quantity" comparison to make.
-- **Where the deposit outcome itself lives** — on `RentalInventory`, on the comparison service's own
-  output, or feeding into `rental-work-orders.md`'s existing deposit-adjacent machinery — cc5's design,
-  not pre-empted here.
+### 8.1 Data model addition
 
-**Not decided, not built, not assumed. Reported per Johan's explicit instruction to bring the shape
-before building the comparison half.**
+```
+rental_inventory_line_dispositions   -- APPEND-ONLY, never updated, never deleted
+  id, agency_id, rental_inventory_line_id, rental_inventory_id (denormalized)
+  disposition_key       -- agency-configurable key, e.g. 'present' | 'short' | 'damaged' | 'missing'
+  quantity_found         -- nullable int. NEVER coerced to 0 — absent means "not yet counted."
+  notes                  -- required when the agency's own preset for this key has requires_notes=true
+  recorded_by_user_id, recorded_at
+
+rental_inventory_settings            -- one row per agency
+  disposition_presets    -- JSON array of {key, label, requires_notes}, default:
+                          --   Present / Short — quantity missing / Damaged (requires notes) /
+                          --   Missing entirely (requires notes)
+```
+
+`RentalInventoryLineDisposition::record()` is the one factory method enforcing every invariant: the
+inventory must already be `completed` (a finding compared against a baseline that isn't final yet is
+comparing against nothing settled), the `disposition_key` must exist in the agency's configured presets,
+and `notes` is required exactly when that preset's `requires_notes` is true.
+
+### 8.2 The review screen
+
+`GET /corex/rental-inventories/{inventory}/comparison` — gated on the inventory being `completed`, linked
+from the inventory's own show page (visible only once that status is reached, so the link is never a dead
+end). Table of every active line: quantity at move-in, the latest recorded finding (or "Not yet checked"),
+and a Record/Correct action per row that posts a new disposition row. No deposit figure, no currency
+symbol, anywhere on this screen.
+
+### 8.3 Settings screen
+
+`/corex/settings/rental-inventory` — its own page (not a section added to `/corex/settings/
+rental-inspections`, for the same unlanded-branch-collision reason as §8.1), gated on the new
+`rental_inventories.manage_settings` permission, linked from the main Settings index alongside every
+other rental_* settings page.
 
 ---
 
@@ -212,23 +251,33 @@ before building the comparison half.**
 - `database/migrations/2026_10_01_120000_create_rental_inventories_table.php`
 - `database/migrations/2026_10_01_120100_create_rental_inventory_lines_table.php`
 - `database/migrations/2026_10_01_120200_create_rental_inventory_signatures_table.php`
-- `app/Models/RentalInventory.php`, `RentalInventoryLine.php`, `RentalInventorySignature.php`
-- `app/Http/Controllers/CoreX/RentalInventoryController.php` (list/CRUD/lifecycle),
-  `RentalInventoryRecordingController.php` (lines, signatures, complete)
-- `routes/web.php` — `corex.rental-inventories.*`
-- `config/corex-permissions.php` — `rental_inventories.view`/`.create`
+- `database/migrations/2026_10_01_130000_create_rental_inventory_settings_table.php`
+- `database/migrations/2026_10_01_130100_create_rental_inventory_line_dispositions_table.php`
+- `app/Models/RentalInventory.php`, `RentalInventoryLine.php`, `RentalInventorySignature.php`,
+  `RentalInventorySetting.php`, `RentalInventoryLineDisposition.php`
+- `app/Services/Rentals/RentalInventoryComparisonService.php`
+- `app/Http/Controllers/CoreX/RentalInventoryController.php` (list/CRUD/lifecycle/comparison),
+  `RentalInventoryRecordingController.php` (lines, dispositions, signatures, complete),
+  `RentalInventorySettingsController.php`
+- `routes/web.php` — `corex.rental-inventories.*`, `corex.settings.rental-inventory.*`
+- `config/corex-permissions.php` — `rental_inventories.view`/`.create`/`.manage_settings`
 - `resources/views/layouts/corex-sidebar.blade.php` — nav entry
-- `resources/views/corex/rental-inventories/{index,create,show}.blade.php`
+- `resources/views/corex/settings.blade.php` — settings-index link
+- `resources/views/corex/rental-inventories/{index,create,show,comparison}.blade.php`
+- `resources/views/corex/settings/rental-inventory.blade.php`
 
 ---
 
 ## 10. Verification status
 
-Same limitation as `rental-inspections.md` §16.7/§17.6: all three migrations reviewed, not executed
-against the shared `corex_qa1` schema — `php artisan migrate` refuses outright from any worktree that
+Same limitation as `rental-inspections.md` §16.7/§17.6: all five migrations (three from the capture half,
+two from §8's comparison half) reviewed, not executed against the shared `corex_qa1` schema — `php
+artisan migrate` refuses outright from any worktree that
 isn't `/corex-qa1` (Standard −1g). All PHP passes `php -l`; every Blade view (including the new
-`rental-inventories/*` set) compiles cleanly via `php artisan view:cache` against this worktree's own
-independent `vendor/`. Route list confirms all 12 routes register with no conflicts. No browser tool is
-available in this environment — a real capture over HTTP and the browser console on the live JS (the
-inventory show page's own signing/line-add Alpine component, not reused from the property tab) are both
-unverified by this build.
+`rental-inventories/*` set, the comparison screen, and the settings page) compiles cleanly via `php
+artisan view:cache` against this worktree's own independent `vendor/`. Route list confirms all 14
+`rental-inventories.*` routes plus the 2 settings routes register with no conflicts; the new permission
+key (`rental_inventories.manage_settings`) loads correctly from config. No browser tool is available in
+this environment — a real capture over HTTP, recording a move-out disposition, and the browser console on
+the live JS (the inventory show page's own signing/line-add component and the comparison screen's own
+recording component, neither reused from the property tab) are all unverified by this build.
