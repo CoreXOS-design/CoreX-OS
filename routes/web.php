@@ -3166,6 +3166,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // on the one path that needs it.
         Route::post('/{rentalInspection}/signatures', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeSignature'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.signatures.store');
+        // §16 — correcting a wrong/unreadable wet-ink upload; same base permission
+        // as recording one (evidence-backed, not sign_on_behalf — see the controller).
+        Route::post('/{rentalInspection}/signatures/{signature}/supersede-wet-ink', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'supersedeWetInkSignature'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.signatures.supersede-wet-ink');
         Route::post('/{rentalInspection}/start-awaiting-signature', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'startAwaitingSignature'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-awaiting-signature');
         Route::post('/{rentalInspection}/complete', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'complete'])

@@ -152,7 +152,7 @@ class RentalInspectionController extends Controller
             'property', 'lease.tenants.contact',
             'observations.item', 'observations.observedByUser', 'observations.observedByContact', 'observations.photos',
             'discrepancies.observations', 'discrepancies.resolvedBy', 'discrepancies.acceptedObservation',
-            'signatures.partyContact', 'signatures.recordedByUser', 'createdBy', 'cancelledBy',
+            'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy', 'createdBy', 'cancelledBy',
         ]);
 
         return view('corex.rental-inspections.show', [

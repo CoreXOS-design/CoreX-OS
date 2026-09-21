@@ -1354,6 +1354,121 @@ landing:**
 5. The completion guard replaced on both types (§15.7) and the show-page's unambiguous signed-vs-refused
    rendering (§15.8).
 
+---
+
+## 17. Wet-ink signing — a tenant or landlord who signed on paper (2026-10-01, cc6)
+
+**Status: pushed, awaiting landing.** §15 built three-party, in-person, canvas-capture signing. It never
+built a path for a party who signs on a physical page instead — §15.4 named this explicitly as a known,
+deliberately deferred gap ("a remote/async signing link... is explicitly OUT of scope for this build").
+This section is that gap, built as a THIRD `disposition` alongside `signed`/`refused` — not a second
+signing system. It does NOT build §15.4's larger remote/async link (a landlord signing from home before
+ever meeting the agent); it builds the narrower, immediately real case: a page someone signed in person
+or handed back later, then photographed or scanned into the system by whoever is holding the device.
+
+### 17.1 Why this stays on `RentalInspectionSignature`, not the DocuPerfect e-sign module
+
+Investigated first, per the standing instruction not to build a second signing system if an existing one
+fits. DocuPerfect's full e-sign flow (`SignatureRequest`, `WetInkInspection`, `choose-method.blade.php`)
+already has a mature wet-ink mechanism — `signing_method`, `wet_ink_upload_path`, a recipient-facing
+upload portal, and a staff review step (approved/rejected, with notes). It does not fit here for the same
+reason §3.6 already gave for not reusing that flow's signed path: it is keyed to a `SignatureRequest` tied
+to a `Template`/`CdsDraft` document ceremony and an externally-tokenized recipient flow. A rental
+inspection has neither — there is no document being sent out, and the agent captures everything in
+person, on their own device, not via a link sent to the signer. What's reused is the STORAGE discipline
+(a real uploaded file, decoded/stored to disk, never inline in the DB) and the "third disposition"
+framing DocuPerfect's `wet_ink` signing_method models — not the tables themselves. Named as a [design
+call], not assumed silently.
+
+**Consciously NOT built**: DocuPerfect's staff-review step (`WetInkInspection`'s approve/reject). Nobody
+asked for a wet-ink upload to be reviewable/rejectable before it counts — an uploaded page is accepted as
+the disposition directly, same trust level as a canvas signature or a refusal reason. If a review step is
+wanted later, that is DocuPerfect's `WetInkInspection` pattern to borrow from, not something silently
+added here.
+
+### 17.2 Data model — three columns added to `rental_inspection_signatures`
+
+```
+rental_inspection_signatures  (adds to §15.2's shape)
+  wet_ink_upload_path         -- storage path, same properties/{id}/rental-inspection-signatures/
+                               --   directory as a canvas signature (one storage location for this
+                               --   feature). Required when disposition='wet_ink'. NULL otherwise.
+  superseded_at                -- nullable timestamp. Set when this row has been replaced by a
+                               --   corrected re-upload. The row is NEVER edited or deleted
+                               --   (non-negotiable #1) — it stays, visibly marked, pointing at its
+                               --   replacement.
+  superseded_by_signature_id   -- nullable, self-referencing FK. The replacement row's id.
+```
+
+`disposition` gains `RentalInspectionSignature::DISPOSITION_WET_INK = 'wet_ink'`. Never valid for
+`party_role='agent'` — the agent is always present, always §15's live canvas capture; enforced in
+`capture()`, the same one factory method that enforces every other invariant in this table (§15.2a).
+
+### 17.3 Superseding — evidence, never edited in place, never destroyed
+
+A wrong or unreadable wet-ink upload is corrected by `RentalInspectionSignature::supersedeWetInk()`:
+marks the existing row `superseded_at` (excluded from `capture()`'s duplicate-disposition check and
+`RentalInspection::outstandingSignatories()` from that point on — both now filter `whereNull
+('superseded_at')`), then calls `capture()` itself to create the replacement — never duplicating its
+invariants. Both writes happen in one transaction, so no window exists where a party has zero or two live
+dispositions. The old row's file is left on disk; nothing is removed, only marked.
+
+**[design call] Refused once the agent has already signed.** The agent's own signature attests to the
+complete record as it stood (§15.2a) — replacing a party's evidence after that point would silently
+change what was attested to. Not asked for in this build; correcting evidence on a completed inspection
+is a separate, larger amendment mechanism, not this one.
+
+### 17.4 Permission — evidence-backed, not `sign_on_behalf`
+
+`rental_inspections.sign_on_behalf` (§15.5) gates an agent asserting a REFUSAL — a claim with no evidence
+but the agent's word. A wet-ink upload is the opposite: it arrives WITH evidence, the scan itself, the
+same epistemic weight as a canvas-captured signature. It stays behind only the base
+`rental_inspections.create` permission the whole signing endpoint already requires — not gated further.
+
+### 17.5 Rendering — a third shape, never mistaken for the other two
+
+`resources/views/corex/rental-inspections/show.blade.php`'s disposition branch (§15.5/§15.8) gains a
+third case: no signature-image markup (never presentable as an e-signature, same principle as a refusal
+never being presentable as a signature), a distinct "Signed on paper (wet-ink)" label, a link to the
+uploaded page, who uploaded it and when, and — if superseded — a plain note pointing at the replacement
+rather than the stale upload. The live recording UI (`rental-inspection-recording.blade.php`) gains a
+"Wet ink" button alongside "Sign"/"Refuses" for tenant and landlord rows only, and a "Replace" link on an
+already-uploaded wet-ink row, shown only while it is genuinely replaceable (§16.3's guard, mirrored
+client-side in `canReplaceWetInk()` so the UI never offers an action the server will refuse).
+
+### 17.6 Files
+
+- `database/migrations/2026_10_01_100000_add_wet_ink_to_rental_inspection_signatures.php`
+- `app/Models/RentalInspectionSignature.php` — `DISPOSITION_WET_INK`, `capture()` extended,
+  `storeWetInkUpload()`, `supersedeWetInk()`, `supersededBy()`, `isWetInk()`.
+- `app/Models/RentalInspection.php` — `outstandingSignatories()` excludes superseded rows.
+- `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` — `storeSignature()` extended,
+  new `supersedeWetInkSignature()`.
+- `app/Http/Controllers/CoreX/RentalInspectionController.php` — eager-loads `signatures.supersededBy`.
+- `routes/web.php` — `corex.rental-inspections.signatures.supersede-wet-ink`.
+- `resources/views/corex/properties/partials/rental-inspection-recording.blade.php`,
+  `resources/views/corex/properties/partials/rental-inspection-wetink-form.blade.php` (new),
+  `resources/views/corex/properties/show.blade.php` (the shared Alpine component's JS),
+  `resources/views/corex/rental-inspections/show.blade.php`.
+
+### 17.7 Verification status — stated plainly, not glossed over
+
+The `2026_10_01_100000` migration was NOT run against the shared `corex_qa1` schema by this build — `php
+artisan migrate` refuses outright from any worktree that isn't `/corex-qa1` itself (Standard −1g,
+enforced in code, not a paragraph to remember). It has been reviewed but not executed against a live
+MySQL schema; a full historical-chain replay against a disposable local SQLite database was attempted for
+self-verification and got as far as an unrelated, pre-existing MySQL-only migration several months
+earlier in the chain (`2026_04_22_110001_make_fica_submission_token_nullable`'s raw `MODIFY` syntax,
+nothing to do with this change) before SQLite's more limited `ALTER TABLE` support stopped the replay —
+so this migration's own `up()`/`down()` were never executed end-to-end by this build, only reviewed. All
+PHP files pass `php -l`; every touched Blade file (including the two new/edited partials) compiles
+cleanly via `php artisan view:cache` against this worktree's own independent `vendor/`. The functional
+path — the migration actually running, a real signature capture over real HTTP, and the browser console
+on the live JS — is unverified by this build and needs proving once landed through `/corex-qa1`. No
+browser tool is available in this environment; the console check needs a human or a session that has one.
+(Note: this section is numbered §17 rather than §16 to avoid colliding with the already-landed
+Room-type picker / grouping section immediately below, also originally numbered §16.)
+
 ## 16. Room-type picker fix (2026-09-21) — the manual add path never carried a type
 
 **Root cause, found by Johan on a real browser walk of property 5792 (QA1):** the Rental Images tab's
