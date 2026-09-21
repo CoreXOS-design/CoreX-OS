@@ -120,13 +120,20 @@
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-sm" x-text="tenantName(tenant)" style="color:var(--text-primary);"></span>
                             <template x-if="tenantDisposition({{ $sectionJs }}, tenant.contact_id)">
-                                <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
-                                      x-text="tenantDisposition({{ $sectionJs }}, tenant.contact_id).disposition === 'refused' ? 'Refused' : 'Signed'"></span>
+                                <span class="flex items-center gap-2">
+                                    <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
+                                          x-text="dispositionLabel(tenantDisposition({{ $sectionJs }}, tenant.contact_id))"></span>
+                                    <button type="button" x-show="canReplaceWetInk({{ $sectionJs }}, tenantDisposition({{ $sectionJs }}, tenant.contact_id))"
+                                            @click="openWetInkFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
+                                            class="text-xs font-medium underline" style="color:var(--text-secondary);">Replace</button>
+                                </span>
                             </template>
                             <template x-if="!tenantDisposition({{ $sectionJs }}, tenant.contact_id)">
                                 <div class="flex items-center gap-2">
                                     <button type="button" @click="openSigningFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
                                             class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
+                                    <button type="button" @click="openWetInkFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Wet ink</button>
                                     <button type="button" @click="openRefusalFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
                                             class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Refuses</button>
                                 </div>
@@ -143,6 +150,7 @@
                             </div>
                         </template>
                         @include('corex.properties.partials.rental-inspection-refusal-form', ['key' => "({$sectionJs} + '_tenant_' + tenant.contact_id)", 'saveMethod' => "saveTenantRefusalFor({$sectionJs}, tenant)"])
+                        @include('corex.properties.partials.rental-inspection-wetink-form', ['key' => "({$sectionJs} + '_tenant_' + tenant.contact_id)", 'saveMethod' => "saveTenantWetInkFor({$sectionJs}, tenant)"])
                     </div>
                 </template>
 
@@ -157,13 +165,20 @@
                             <div class="flex items-center justify-between gap-3">
                                 <span class="text-sm" style="color:var(--text-primary);" x-text="landlordContact.first_name + ' ' + landlordContact.last_name + ' (Landlord)'"></span>
                                 <template x-if="landlordDisposition({{ $sectionJs }})">
-                                    <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
-                                          x-text="landlordDisposition({{ $sectionJs }}).disposition === 'refused' ? 'Refused' : 'Signed'"></span>
+                                    <span class="flex items-center gap-2">
+                                        <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
+                                              x-text="dispositionLabel(landlordDisposition({{ $sectionJs }}))"></span>
+                                        <button type="button" x-show="canReplaceWetInk({{ $sectionJs }}, landlordDisposition({{ $sectionJs }}))"
+                                                @click="openWetInkFor({{ $sectionJs }} + '_landlord')"
+                                                class="text-xs font-medium underline" style="color:var(--text-secondary);">Replace</button>
+                                    </span>
                                 </template>
                                 <template x-if="!landlordDisposition({{ $sectionJs }})">
                                     <div class="flex items-center gap-2">
                                         <button type="button" @click="openSigningFor({{ $sectionJs }} + '_landlord')"
                                                 class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
+                                        <button type="button" @click="openWetInkFor({{ $sectionJs }} + '_landlord')"
+                                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Wet ink</button>
                                         <button type="button" @click="openRefusalFor({{ $sectionJs }} + '_landlord')"
                                                 class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Refuses</button>
                                     </div>
@@ -180,6 +195,7 @@
                                 </div>
                             </template>
                             @include('corex.properties.partials.rental-inspection-refusal-form', ['key' => "({$sectionJs} + '_landlord')", 'saveMethod' => "saveLandlordRefusalFor({$sectionJs})"])
+                            @include('corex.properties.partials.rental-inspection-wetink-form', ['key' => "({$sectionJs} + '_landlord')", 'saveMethod' => "saveLandlordWetInkFor({$sectionJs})"])
                         </div>
                     </template>
                 </div>

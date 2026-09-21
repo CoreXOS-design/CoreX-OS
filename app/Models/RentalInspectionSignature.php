@@ -29,6 +29,14 @@ class RentalInspectionSignature extends Model
 
     public const DISPOSITION_SIGNED = 'signed';
     public const DISPOSITION_REFUSED = 'refused';
+    /**
+     * .ai/specs/rental-inspections.md §16 — a tenant or landlord who signed
+     * on paper, not on the agent's device. Never valid for party_role=agent
+     * (the agent is always present, always §15's live canvas capture).
+     * Evidence of a real signature, but never presentable as one on screen —
+     * same principle as a refusal never being presentable as a signature.
+     */
+    public const DISPOSITION_WET_INK = 'wet_ink';
 
     protected $fillable = [
         'agency_id',
@@ -37,14 +45,18 @@ class RentalInspectionSignature extends Model
         'party_contact_id',
         'disposition',
         'party_signature_path',
+        'wet_ink_upload_path',
         'refusal_reason_preset',
         'refusal_reason_note',
         'recorded_by_user_id',
         'disposition_recorded_at',
+        'superseded_at',
+        'superseded_by_signature_id',
     ];
 
     protected $casts = [
         'disposition_recorded_at' => 'datetime',
+        'superseded_at' => 'datetime',
     ];
 
     public function inspection(): BelongsTo
@@ -60,6 +72,17 @@ class RentalInspectionSignature extends Model
     public function recordedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recorded_by_user_id');
+    }
+
+    /** §16 — the row this one was replaced by, if any. Never null'd out; the chain is the record. */
+    public function supersededBy(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'superseded_by_signature_id');
+    }
+
+    public function isWetInk(): bool
+    {
+        return $this->disposition === self::DISPOSITION_WET_INK;
     }
 
     /**
@@ -84,13 +107,13 @@ class RentalInspectionSignature extends Model
         if (! in_array($partyRole, [self::PARTY_TENANT, self::PARTY_LANDLORD, self::PARTY_AGENT], true)) {
             throw new \InvalidArgumentException("Unknown party_role: {$partyRole}");
         }
-        if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_REFUSED], true)) {
+        if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_REFUSED, self::DISPOSITION_WET_INK], true)) {
             throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
         }
 
         if ($partyRole === self::PARTY_AGENT) {
             if ($disposition !== self::DISPOSITION_SIGNED) {
-                throw new \InvalidArgumentException('The agent has no refusal option — an agent row is always signed.');
+                throw new \InvalidArgumentException('The agent has no refusal option, and is never wet-ink — an agent row is always signed.');
             }
             if (empty($attributes['party_signature_path'])) {
                 throw new \InvalidArgumentException("The agent's own signature image (party_signature_path) is required.");
@@ -102,6 +125,7 @@ class RentalInspectionSignature extends Model
                 throw new \LogicException('Cannot record the agent\'s signature until every tenant and the landlord has a disposition recorded — the agent\'s signature attests to the complete record, not a partial one.');
             }
             $attributes['party_contact_id'] = null;
+            $attributes['wet_ink_upload_path'] = null;
             $attributes['refusal_reason_preset'] = null;
             $attributes['refusal_reason_note'] = null;
         } else {
@@ -123,9 +147,17 @@ class RentalInspectionSignature extends Model
                 }
             }
 
+            // §16 — a superseded row is a corrected mistake, not a live
+            // disposition; it must not block the replacement it exists to
+            // make room for. supersedeWetInk() below is the only caller
+            // that creates a new row while an old one for the same party
+            // already exists, and it marks the old row superseded FIRST,
+            // inside the same transaction, so this check never race-allows
+            // two live rows for one party.
             $alreadyDispositioned = $inspection->signatures()
                 ->where('party_role', $partyRole)
                 ->where('party_contact_id', $contactId)
+                ->whereNull('superseded_at')
                 ->exists();
             if ($alreadyDispositioned) {
                 throw new \LogicException('This party already has a disposition recorded on this inspection.');
@@ -135,9 +167,10 @@ class RentalInspectionSignature extends Model
                 if (empty($attributes['party_signature_path'])) {
                     throw new \InvalidArgumentException('A signed disposition requires party_signature_path.');
                 }
+                $attributes['wet_ink_upload_path'] = null;
                 $attributes['refusal_reason_preset'] = null;
                 $attributes['refusal_reason_note'] = null;
-            } else { // refused
+            } elseif ($disposition === self::DISPOSITION_REFUSED) {
                 if (! empty($attributes['party_signature_path'])) {
                     throw new \InvalidArgumentException('A refused disposition must not carry a signature image — that is what makes it unmistakably not a signature.');
                 }
@@ -148,6 +181,17 @@ class RentalInspectionSignature extends Model
                     throw new \InvalidArgumentException('refusal_reason_preset "other" requires refusal_reason_note.');
                 }
                 $attributes['party_signature_path'] = null;
+                $attributes['wet_ink_upload_path'] = null;
+            } else { // wet_ink — evidence of a real signature, on paper, never rendered as an e-signature
+                if (empty($attributes['wet_ink_upload_path'])) {
+                    throw new \InvalidArgumentException('A wet-ink disposition requires wet_ink_upload_path.');
+                }
+                if (! empty($attributes['party_signature_path'])) {
+                    throw new \InvalidArgumentException('A wet-ink disposition must not carry a canvas signature image — the two capture methods are never mixed on one row.');
+                }
+                $attributes['party_signature_path'] = null;
+                $attributes['refusal_reason_preset'] = null;
+                $attributes['refusal_reason_note'] = null;
             }
         }
 
@@ -178,5 +222,66 @@ class RentalInspectionSignature extends Model
         \Illuminate\Support\Facades\Storage::disk('public')->put($path, $binary);
 
         return \Illuminate\Support\Facades\Storage::url($path);
+    }
+
+    /**
+     * §16 — a photo or scan of a page a tenant or landlord signed on paper.
+     * Deliberately a real file upload, not base64-JSON like
+     * storeCanvasImage() — this is a document someone photographed or
+     * scanned, not a canvas drawing, so it arrives as multipart form data.
+     * Stored in the SAME properties/{id}/rental-inspection-signatures/
+     * directory as canvas signatures (one storage location for this
+     * feature, not two) but the filename prefix keeps it visually
+     * distinguishable on disk from a canvas capture.
+     */
+    public static function storeWetInkUpload(\Illuminate\Http\UploadedFile $file, int $propertyId): string
+    {
+        $filename = uniqid('wetink_', true) . '.' . ($file->getClientOriginalExtension() ?: $file->extension());
+        $path = $file->storeAs("properties/{$propertyId}/rental-inspection-signatures", $filename, 'public');
+
+        return \Illuminate\Support\Facades\Storage::url($path);
+    }
+
+    /**
+     * §16 — correcting a wrong or unreadable wet-ink upload. The document is
+     * evidence: never edited in place, never destroyed (non-negotiable #1).
+     * This marks the existing row superseded and captures a fresh one via
+     * capture() itself (never duplicating its invariants), inside one
+     * transaction so no window exists where either zero or two rows are
+     * live for this party. Old row's own file is left on disk untouched —
+     * the audit trail points to it via supersededBy(), not by removing it.
+     *
+     * [design call] Refused once the agent has already signed: the agent's
+     * signature attests to the complete record as it stood (§15.2a) — a
+     * wet-ink upload correction after that point would silently change what
+     * was attested to. Not asked for here; if a completed inspection's
+     * evidence ever needs correcting, that is a separate, larger amendment
+     * mechanism, not this one.
+     */
+    public static function supersedeWetInk(self $existing, RentalInspection $inspection, \Illuminate\Http\UploadedFile $file, ?int $recordedByUserId): self
+    {
+        if (! $existing->isWetInk()) {
+            throw new \LogicException('Only a wet-ink disposition can be superseded this way — a signed or refused disposition is not corrected by re-upload.');
+        }
+        if ($existing->superseded_at !== null) {
+            throw new \LogicException('This wet-ink upload has already been superseded.');
+        }
+        if ($inspection->hasAgentSignature()) {
+            throw new \LogicException('Cannot replace a wet-ink upload once the agent has signed — the agent\'s signature already attests to this record as it stood.');
+        }
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($existing, $inspection, $file, $recordedByUserId) {
+            $existing->forceFill(['superseded_at' => now()])->save();
+
+            $replacement = self::capture($inspection, $existing->party_role, self::DISPOSITION_WET_INK, [
+                'party_contact_id' => $existing->party_contact_id,
+                'wet_ink_upload_path' => self::storeWetInkUpload($file, $inspection->property_id),
+                'recorded_by_user_id' => $recordedByUserId,
+            ]);
+
+            $existing->forceFill(['superseded_by_signature_id' => $replacement->id])->save();
+
+            return $replacement;
+        });
     }
 }
