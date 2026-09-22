@@ -61,6 +61,34 @@
         <p class="note">{{ $workOrder->description }}</p>
     </div>
 
+    @if($workOrder->quotes->isNotEmpty())
+    <h2>Quotes</h2>
+    <div class="box">
+        <table>
+            <tr>
+                <td class="label"><strong>Supplier</strong></td>
+                <td><strong>Amount</strong></td>
+                <td><strong>Date</strong></td>
+                <td><strong>Status</strong></td>
+            </tr>
+            @foreach($workOrder->quotes as $quote)
+            <tr>
+                <td class="label">{{ $quote->supplier?->name ?? 'Unknown supplier' }}</td>
+                <td>R{{ number_format((float) $quote->amount, 2) }}</td>
+                <td>{{ $quote->quote_date?->format('Y-m-d') ?? '—' }}</td>
+                <td>{{ $quote->is_selected ? 'Selected' : '—' }}</td>
+            </tr>
+            @if($quote->detail_text)
+            <tr>
+                <td></td>
+                <td colspan="3" class="muted note">{{ $quote->detail_text }}</td>
+            </tr>
+            @endif
+            @endforeach
+        </table>
+    </div>
+    @endif
+
     @if($workOrder->completion_notes)
     <h2>Completion notes</h2>
     <div class="box">

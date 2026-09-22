@@ -266,4 +266,41 @@ final class RentalWorkOrderQuoteTest extends TestCase
         $this->actingAs($this->admin)->get(route('corex.rental-work-orders.quotes.download', [$workOrder, $quote]))
             ->assertOk();
     }
+
+    // ── PDF output ───────────────────────────────────────────────────
+
+    public function test_quotes_appear_on_the_work_order_pdf(): void
+    {
+        $workOrder = $this->workOrder();
+        $supplier = $this->supplier();
+        $quote = $workOrder->recordQuote([
+            'agency_service_provider_id' => $supplier->id, 'amount' => 1234.56, 'quote_date' => now(),
+            'detail_text' => 'Replace burst geyser element',
+        ], $this->admin);
+        $workOrder->selectQuote($quote, $this->admin);
+
+        $html = view('corex.rental-work-orders.pdf', [
+            'workOrder' => $workOrder->fresh()->load(['property', 'lease.tenants.contact', 'supplier', 'agency', 'branch', 'quotes.supplier']),
+            'logo' => null,
+            'agencyName' => $this->agency->name,
+        ])->render();
+
+        $this->assertStringContainsString('Acme Plumbing', $html);
+        $this->assertStringContainsString('1,234.56', $html);
+        $this->assertStringContainsString('Selected', $html);
+        $this->assertStringContainsString('Replace burst geyser element', $html);
+    }
+
+    public function test_no_quotes_section_when_none_captured(): void
+    {
+        $workOrder = $this->workOrder();
+
+        $html = view('corex.rental-work-orders.pdf', [
+            'workOrder' => $workOrder->fresh()->load(['property', 'lease.tenants.contact', 'supplier', 'agency', 'branch', 'quotes.supplier']),
+            'logo' => null,
+            'agencyName' => $this->agency->name,
+        ])->render();
+
+        $this->assertStringNotContainsString('<h2>Quotes</h2>', $html);
+    }
 }
