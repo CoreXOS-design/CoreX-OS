@@ -29,6 +29,21 @@ These override everything else. Violating scope is worse than doing nothing. Whe
 
 This applies to the conductor too.
 
+# ⛔ USAGE AND SESSION DISCIPLINE — READ FIRST, EVERY SESSION
+
+1. MODEL. Build lanes run Sonnet. Do not switch a lane to Opus. Architecture decisions are made in the conductor chat, not in a lane.
+
+2. DAILY RESET. Run /clear at the start of each day, and again after each completed task before the next one starts. Never carry one task's history into the next. A lane carrying several hundred thousand tokens of history costs roughly ten times a cleared lane to do identical work, because every message re-bills the whole history.
+
+3. CONTINUITY LIVES IN WRITING. Continuity lives in these standing docs and in .ai/specs/, not in a lane's memory. That is why every fix must update its spec in the same commit — a cleared lane is only as good as what is written down.
+
+4. LANE COUNT. Two working lanes at a time, plus one kept clear for emergencies. Not six.
+
+5. NO EXPLORING. Work the exact files and scope given. A lane left to go hunting reads half the codebase into context and the account pays for all of it. Anti-drift is a cost control as well as a quality rule.
+
+6. NO POLLING. Do not run automated check-in loops.
+
+7. STOP LINE. Development stops at 90% of the weekly cap and resumes when the cycle rolls on Saturday. Hold roughly 20% in reserve so a critical production fault can always be fixed. Running out mid-week costs days of development.
 
 > **MANDATORY. Read alongside CLAUDE.md, STANDARDS.md, CODEBASE_MAP.md.**
 > This file defines what "done" means. Code that only passes its own
