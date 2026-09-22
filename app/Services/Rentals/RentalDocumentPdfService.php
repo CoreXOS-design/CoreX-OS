@@ -24,7 +24,7 @@ class RentalDocumentPdfService
     /** Work order for the supplier — §"Printing", situation named in the task. */
     public function workOrderPdf(RentalWorkOrder $workOrder)
     {
-        $workOrder->loadMissing(['property', 'lease.tenants.contact', 'supplier', 'agency', 'branch']);
+        $workOrder->loadMissing(['property', 'lease.tenants.contact', 'supplier', 'agency', 'branch', 'quotes.supplier']);
 
         $pdf = Pdf::loadView('corex.rental-work-orders.pdf', [
             'workOrder' => $workOrder,
