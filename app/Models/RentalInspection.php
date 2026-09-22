@@ -142,6 +142,19 @@ class RentalInspection extends Model
         return $this->hasMany(RentalInspectionSignature::class);
     }
 
+    /**
+     * §20.13, 2026-09-22 — every photo on this inspection, tagged or not:
+     * untagged (the tray), room-tagged (a general shot, no single item), or
+     * item-tagged (via rental_inspection_observation_id). The single source
+     * of truth for the tray/room views; item-level display still reads
+     * RentalInspectionObservation::photos() (unaffected — that relation
+     * only ever matched item-tagged rows and still does).
+     */
+    public function photos(): HasMany
+    {
+        return $this->hasMany(RentalInspectionPhoto::class);
+    }
+
     public function scopeOfType(Builder $q, ?string $type): Builder
     {
         return $type ? $q->where('type', $type) : $q;
@@ -506,8 +519,13 @@ class RentalInspection extends Model
         // string "undefined" (Johan, property 5792). Reading the direct
         // relation is also more robust than depending on an array's first
         // element, and matches the other screen's own approach.
+        // 2026-09-22, §20.13 — 'photos' (the whole-inspection tray/room/item
+        // photo pool, RentalInspection::photos()) added alongside the
+        // existing 'observations.photos' — the latter still serves
+        // item-level display unchanged, the former is what the tray and
+        // room-level views read from.
         $withDetail = fn (string $type) => self::currentFor($property, $type)
-            ?->load(['observations.item', 'observations.photos', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
+            ?->load(['observations.item', 'observations.photos', 'photos', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
 
         $outInspection = $withDetail(self::TYPE_OUT);
         // 2026-09-20 fix — deliberately NOT $outInspection above. That value

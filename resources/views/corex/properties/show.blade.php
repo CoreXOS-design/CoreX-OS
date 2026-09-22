@@ -4526,6 +4526,9 @@
 
         {{-- ── RENTAL IMAGES TAB ─────────────────────────────────────────────── --}}
         @if(!$isNew && strtolower($property->listing_type ?? '') === 'rental')
+        {{-- §20.13, 2026-09-22 — the reusable bulk-upload/tag component;
+             cc6's rental-inventory capture surface includes this same file. --}}
+        <script src="{{ asset_v('js/corex-photo-batch-uploader.js') }}"></script>
         <div x-show="activeTab === 'inspections'" x-cloak class="p-6 space-y-4"
              x-data="rentalImages({
                 csrf: '{{ csrf_token() }}',
@@ -4986,6 +4989,54 @@
                 // Item 5, 2026-09-22 — "All Good" bulk-fill's target state.
                 baselineConditionKey: config.baselineConditionKey,
 
+                // §20.13, 2026-09-22 — one corexPhotoBatchUploader (public/js/
+                // corex-photo-batch-uploader.js, the reusable piece cc6 can
+                // also consume) per section, keyed by inspection id so a
+                // freshly-started inspection gets its own fresh instance
+                // rather than inheriting the previous one's photo list.
+                // `insp.photos` arrives already populated by tabPayloadFor()'s
+                // eager load — untagged (tray), room-tagged, or item-tagged.
+                dragOverRoom: null,
+                trayTagRoomChoice: '',
+                photoUploaders: {},
+                photoUploader(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return null;
+                    if (!this.photoUploaders[section] || this.photoUploaders[section]._cpu_inspId !== insp.id) {
+                        const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}`;
+                        this.photoUploaders[section] = window.corexPhotoBatchUploader({
+                            csrf: this.csrf,
+                            uploadUrl: `${base}/photos`,
+                            tagUrl: (photoId) => `${base}/photos/${photoId}/tag`,
+                            tagBulkUrl: `${base}/photos/tag-bulk`,
+                            untagUrl: (photoId) => `${base}/photos/${photoId}/untag`,
+                            archiveUrl: (photoId) => `${base}/photos/${photoId}`,
+                            photos: insp.photos || [],
+                        });
+                        this.photoUploaders[section]._cpu_inspId = insp.id;
+                    }
+                    return this.photoUploaders[section];
+                },
+                // Item 1 — the item camera control: multiple files, tagged
+                // to this item (and, via the controller's own item->room
+                // resolution, its room too) at upload time. An item with no
+                // observation yet has nothing to tag a photo TO (the
+                // endpoint requires a real observation id) — those files
+                // are staged on the pending obsField() the same way a
+                // single photo already was, and uploaded together once
+                // _commitObservation() creates the observation.
+                async onItemPhotosSelected(section, item, fileList) {
+                    if (!fileList || !fileList.length) return;
+                    const files = Array.from(fileList);
+                    const existing = this.conditionFor(section, item.id);
+                    if (existing) {
+                        await this.photoUploader(section).uploadFiles(files, { rental_inspection_observation_id: existing.id });
+                    } else {
+                        const form = this.obsField(section, item.id);
+                        form.photos = (form.photos || []).concat(files);
+                    }
+                },
+
                 // ── Inspections-tab rebuild, 2026-09-22 — ONE quiet save
                 // indicator for the whole screen (never per-row): every
                 // autosave (condition, notes, room note, overall notes,
@@ -5240,7 +5291,7 @@
                 isObsBusy(section, itemId) { return !!this.obsBusy[this._obsKey(section, itemId)]; },
                 obsField(section, itemId) {
                     const key = this._obsKey(section, itemId);
-                    return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '', photo: null });
+                    return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '', photos: [] });
                 },
                 // Item 3, 2026-09-22 — what the condition-button row shows as
                 // selected: a not-yet-committed tap (still waiting on a
@@ -5293,26 +5344,6 @@
                         }
                     }, 800);
                 },
-                // Item 6 — a photo picked before any condition is recorded
-                // for this item is staged and uploaded once an observation
-                // exists (below); a photo picked against an ALREADY-recorded
-                // item uploads immediately against its latest observation —
-                // no condition re-tap needed to attach another photo.
-                async onPhotoSelected(section, item, file) {
-                    if (!file) return;
-                    const existing = this.conditionFor(section, item.id);
-                    if (existing) {
-                        const insp = this.currentInspection(section);
-                        await this._autosave(async () => {
-                            const photo = await this._uploadObservationPhoto(insp.id, existing.id, file);
-                            existing.photos = existing.photos || [];
-                            existing.photos.push(photo);
-                        });
-                    } else {
-                        this.obsField(section, item.id).photo = file;
-                    }
-                },
-
                 // The ONE path an observation is actually recorded through —
                 // called by onConditionTap() (immediate) and onNotesInput()
                 // (debounced), never by a button click. The observation POST
@@ -5327,7 +5358,7 @@
                     if (this.conditionRequiresNotes(form.condition) && !form.notes.trim()) return;
                     clearTimeout(this._debounceTimers['notes_' + key]);
                     const insp = this.currentInspection(section);
-                    const photoFile = form.photo;
+                    const stagedPhotos = form.photos || [];
                     this.obsBusy[key] = true;
                     let observation = null;
                     await this._autosave(async () => {
@@ -5342,13 +5373,21 @@
                     });
                     this.obsBusy[key] = false;
                     if (!observation) return; // POST failed — _autosave already surfaced it with Retry.
-                    this.obsForm[key] = { condition: '', notes: '', photo: null };
+                    this.obsForm[key] = { condition: '', notes: '', photos: [] };
                     this._collapseRoomIfComplete(section, item);
-                    if (photoFile) {
-                        await this._autosave(async () => {
-                            const photo = await this._uploadObservationPhoto(insp.id, observation.id, photoFile);
-                            observation.photos.push(photo);
-                        });
+                    // Item 1, 2026-09-22 — a photo (or several) picked before
+                    // this item had an observation to attach to is staged
+                    // here (onItemPhotosSelected below); now that one exists,
+                    // upload them all tagged to it, through the same shared
+                    // batch uploader/endpoint every other photo control uses.
+                    if (stagedPhotos.length) {
+                        // Not wrapped in _autosave — uploadFiles() tracks
+                        // its own per-batch status/retry UI (the tray's
+                        // upload-progress list) and never throws, so it has
+                        // nothing useful to report through the single
+                        // saved/failed banner; a failed batch stays visibly
+                        // retryable in its own UI regardless.
+                        await this.photoUploader(section).uploadFiles(stagedPhotos, { rental_inspection_observation_id: observation.id });
                     }
                 },
 
@@ -5358,7 +5397,8 @@
                 itemPhotosFor(section, item) {
                     const insp = this.currentInspection(section);
                     if (!insp) return [];
-                    return insp.observations.filter(o => o.rental_inspection_item_id === item.id).flatMap(o => o.photos || []);
+                    const obsIds = insp.observations.filter(o => o.rental_inspection_item_id === item.id).map(o => o.id);
+                    return this.photoUploader(section).itemPhotos(obsIds);
                 },
                 openItemPhotos(section, item) {
                     const urls = this.itemPhotosFor(section, item).map(p => p.storage_path);
@@ -5371,8 +5411,22 @@
                 roomProgress(section, group) {
                     const total = group.items.length;
                     const recorded = group.items.filter(i => this.conditionFor(section, i.id)).length;
-                    const photos = group.items.reduce((sum, i) => sum + this.itemPhotosFor(section, i).length, 0);
-                    return { recorded, total, photos };
+                    const itemPhotos = group.items.reduce((sum, i) => sum + this.itemPhotosFor(section, i).length, 0);
+                    // Item 2, 2026-09-22 — the room's own general shots
+                    // (roomPhotosFor) count toward the heading total too, not
+                    // just item photos rolled up.
+                    const roomPhotos = group.room ? this.roomPhotosFor(section, group.room).length : 0;
+                    return { recorded, total, photos: itemPhotos + roomPhotos };
+                },
+                // Item 2, 2026-09-22 — general room shots only (no single
+                // item) — the room's OWN photo bucket, distinct from any
+                // item's.
+                roomPhotosFor(section, room) {
+                    return this.photoUploader(section).roomPhotos(room.id);
+                },
+                async onRoomPhotosSelected(section, room, fileList) {
+                    if (!fileList || !fileList.length) return;
+                    await this.photoUploader(section).uploadFiles(fileList, { property_room_id: room.id });
                 },
                 inspectionProgress(section) {
                     const items = this.activeItems();
@@ -5416,29 +5470,6 @@
                 _collapseRoomIfComplete(section, item) {
                     const roomId = item.room ? item.room.id : item.property_room_id;
                     if (roomId) this._collapseRoomIfCompleteById(section, roomId);
-                },
-
-                _uploadObservationPhoto(inspectionId, observationId, file) {
-                    return new Promise((resolve, reject) => {
-                        const fd = new FormData();
-                        fd.append('photo', file);
-                        const xhr = new XMLHttpRequest();
-                        xhr.open('POST', `${this.inspectionUrls.inspectionsBase}/${inspectionId}/observations/${observationId}/photos`);
-                        xhr.setRequestHeader('X-CSRF-TOKEN', this.csrf);
-                        xhr.setRequestHeader('Accept', 'application/json');
-                        xhr.onload = () => {
-                            if (xhr.status >= 200 && xhr.status < 400) {
-                                try { resolve(JSON.parse(xhr.responseText || '{}')); }
-                                catch (_) { resolve({}); }
-                            } else {
-                                let msg = 'Photo upload failed (HTTP ' + xhr.status + '). The observation itself was saved — retry just the photo.';
-                                try { const j = JSON.parse(xhr.responseText); if (j && j.message) msg = j.message; } catch (_) {}
-                                reject(new Error(msg));
-                            }
-                        };
-                        xhr.onerror = () => reject(new Error('Network error uploading the photo. The observation itself was saved — retry just the photo.'));
-                        xhr.send(fd);
-                    });
                 },
 
                 // §17, Johan 2026-09-21, from Retha's real paper form: "she
