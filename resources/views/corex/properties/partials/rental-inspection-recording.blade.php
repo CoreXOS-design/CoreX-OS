@@ -494,18 +494,58 @@
                                      strip's own sizing/positioning is untouched by
                                      that work, merge conflict resolved 2026-09-22
                                      by keeping this structure and bringing the
-                                     tagging controls over onto it. --}}
+                                     tagging controls over onto it.
+
+                                     FIX, 2026-09-22 (Johan, getBoundingClientRect
+                                     measurements off the deployed page — the giant-
+                                     photo bug again, this time inside the item
+                                     strip): the scroller below was `white-space:
+                                     nowrap` + `display:inline-block` tiles sized by
+                                     `height:100%` alone (no width). That is a
+                                     percentage-height chain FOUR levels deep (row →
+                                     this flex:1 wrapper → this position:relative
+                                     strip → the position:absolute scroller →
+                                     inline-block tile → img) — measured live: the
+                                     img rendered at its natural 847x635/860x645,
+                                     because somewhere in that chain `height:100%`
+                                     failed to resolve to a definite value, and an
+                                     inline-block tile with no explicit width sizes
+                                     itself from that now-natural-sized img. The
+                                     strip's own width (correctly ~1fr from flex)
+                                     then clipped the ~850px-wide result down to a
+                                     ~22px sliver — not an empty strip, an oversized
+                                     photo behind an overflow:hidden window onto it.
+                                     Same root class of bug as §22.3
+                                     (rental-inspections.md) one level deeper.
+
+                                     Fix: stop extending the percentage-height chain
+                                     and switch the scroller itself to flex+stretch
+                                     — the SAME mechanism the outer row/wrapper
+                                     already use successfully, which is why THEIR
+                                     height reliably propagates and the deeper
+                                     percentage chain did not. Each tile is now
+                                     `flex:none; align-self:stretch;
+                                     aspect-ratio:1/1` — height comes from flex
+                                     stretch (not a percentage), width comes from
+                                     aspect-ratio (not the image's native resolution
+                                     or an elastic container) — matching the room
+                                     gallery tiles' own aspect-ratio:1/1 approach one
+                                     row up. The img is a plain
+                                     width:100%/height:100%/object-fit:cover fill of
+                                     that now-properly-sized tile. No Tailwind class
+                                     added — every property here is an inline style,
+                                     same discipline as the rest of this block. --}}
                                 <div style="display:flex; align-items:stretch; flex:1; min-width:0; gap:0.375rem;">
                                     <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
-                                        <div style="position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
+                                        <div style="position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; display:flex; align-items:stretch; gap:0.375rem;">
                                             <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
-                                                <div class="relative rounded-md" style="display:inline-block; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;"
+                                                <div class="relative rounded-md" style="flex:none; align-self:stretch; aspect-ratio:1/1; overflow:hidden; background:var(--surface-3);"
                                                      :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
                                                     {{-- Clicking the photo opens it — the
                                                          controls below are their own small hit
                                                          targets, @click.stop, so none of them
                                                          also open the photo. --}}
-                                                    <img :src="photo.storage_path" style="display:inline-block; height:100%; width:auto; object-fit:cover; cursor:pointer;"
+                                                    <img :src="photo.storage_path" style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
                                                          @click="openInspectionPhoto({{ $sectionJs }}, itemPhotosFor({{ $sectionJs }}, item), photo, group.room)" alt="">
                                                     {{-- Multi-select toggle — same tap/click, no
                                                          modifier key, as every other tile on this

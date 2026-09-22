@@ -5266,36 +5266,45 @@
                 <div class="absolute bottom-5 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-xs font-semibold"
                      style="background:rgba(0,0,0,0.5);color:#fff;"
                      x-text="(viewer.index + 1) + ' / ' + viewer.images.length"></div>
-                <button type="button" @click.stop="downloadOne(viewer.images[viewer.index])"
-                        class="absolute bottom-4 right-4 inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold"
-                        style="background:rgba(255,255,255,0.12);color:#fff;">
-                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                    Download
-                </button>
-                {{-- Design constraint, 2026-09-22 (Johan): "on item and on room
-                     if you click the photo it opens up... wont work from room
-                     to item as there are many items to 1 room" — a
-                     many-destination move doesn't fit a small button on the
-                     tile, and a dropdown squeezed onto a thumbnail is exactly
-                     what was broken before. This is its real home: the
-                     already-open photo, which has room for a proper chooser.
-                     Only rendered when the viewer was opened from an
-                     inspection room/item photo (openInspectionPhoto() sets
-                     `section`/`room`) — every other caller of this same
+                {{-- FACT 5, 2026-09-22 (Johan, measured live: the select landed
+                     at left:16/top:686, the viewport's own bottom-left corner,
+                     on top of the app sidebar — the modal's real photo starts
+                     around x=334). `bottom-4 left-4` on its own standalone div
+                     positioned it against this FULL-VIEWPORT `fixed inset-0`
+                     lightbox, not against anything resembling "the modal" —
+                     there was no modal-scoped box for it to sit in. Fixed by
+                     folding "Move to…" into the SAME wrapper as Download,
+                     reusing Download's own already-correct `bottom-4 right-4`
+                     anchor instead of introducing a second, unproven
+                     left-edge one. Design constraint, 2026-09-22 (Johan): "on
+                     item and on room if you click the photo it opens up...
+                     wont work from room to item as there are many items to 1
+                     room" — a many-destination move doesn't fit a button or a
+                     dropdown squeezed onto a thumbnail; this is its real
+                     home, the already-open photo, which has room for a
+                     proper chooser. Only rendered when the viewer was opened
+                     from an inspection room/item photo (openInspectionPhoto()
+                     sets `section`/`room`) — every other caller of this same
                      shared viewer (the plain property gallery, documents,
                      etc.) never sets those fields, so this stays absent
                      there. --}}
-                <template x-if="viewer.section && viewer.room">
-                    <div class="absolute bottom-4 left-4" @click.stop>
+                <div class="absolute bottom-4 right-4 flex items-center gap-2" @click.stop>
+                    <template x-if="viewer.section && viewer.room">
                         <select class="prop-input text-xs" style="max-width:12rem;"
                                 @change="moveViewerPhotoTo($event.target.value); $event.target.value = ''">
                             <option value="">Move to…</option>
-                            <template x-for="i in itemChoicesFor(viewer.section, viewer.room)" :key="i.id">
-                                <option :value="i.observationId" x-text="i.label"></option>
+                            <template x-for="i in itemMoveChoicesFor(viewer.section, viewer.room)" :key="i.id">
+                                <option :value="i.id" x-text="i.label"></option>
                             </template>
                         </select>
-                    </div>
-                </template>
+                    </template>
+                    <button type="button" @click.stop="downloadOne(viewer.images[viewer.index])"
+                            class="inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold"
+                            style="background:rgba(255,255,255,0.12);color:#fff;">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+                        Download
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -6096,6 +6105,24 @@
                         .map(i => ({ id: i.id, label: i.label, observationId: this.conditionFor(section, i.id)?.id || null }))
                         .filter(i => i.observationId);
                 },
+                // FACT 4, 2026-09-22 (Johan) — the single-photo "Move to…"
+                // chooser in the opened viewer is a DIFFERENT question from
+                // itemChoicesFor() above: "the photo is usually what prompts
+                // the rating," so an item with nothing recorded yet must
+                // still be offered — moveViewerPhotoTo() below creates its
+                // observation on the fly. itemChoicesFor()/allItemChoices()
+                // themselves stay unchanged (still rated-items-only): they
+                // back the TRAY's bulk "Tag to…" dropdown, which tags several
+                // photos to one item in a single request and has no per-photo
+                // moment to create a missing observation against. Keyed by
+                // item id, not observation id — moveViewerPhotoTo() resolves
+                // whichever one it actually needs.
+                itemMoveChoicesFor(section, room) {
+                    if (!room) return [];
+                    const group = this.roomGroups().find(g => g.room && g.room.id === room.id);
+                    if (!group) return [];
+                    return group.items.map(i => ({ id: i.id, label: i.label }));
+                },
                 // Same list, every room — the untagged tray doesn't know a
                 // room yet, so its "move to item" choice has to span all of
                 // them (Room — Item labelling keeps them distinguishable).
@@ -6159,11 +6186,44 @@
                         room: room || null,
                     };
                 },
-                async moveViewerPhotoTo(observationId) {
-                    if (!observationId || !this.viewer.photos) return;
+                // FACT 4, 2026-09-22 (Johan) — takes an ITEM id now (see
+                // itemMoveChoicesFor() above), not an observation id: "the
+                // photo is usually what prompts the rating," so picking an
+                // item with nothing recorded yet must not be a dead end.
+                // "Do not invent a second code path... must be an ordinary
+                // observation, identical to one created by tapping a
+                // condition chip" — this posts to the exact same
+                // observations endpoint _commitObservation() does, with the
+                // agency's own baseline condition (RentalInspectionSetting::
+                // baselineConditionKeyFor(), already this.baselineConditionKey
+                // — the SAME starting-value mechanism markAllGood() already
+                // uses), never a null/placeholder condition of its own
+                // invention. The agent corrects it with a real chip tap once
+                // they've actually looked; that tap is a NEW observation
+                // (§3.1, append-only) and becomes current, so nothing about
+                // this starting value is ever locked in as the real finding.
+                async moveViewerPhotoTo(itemId) {
+                    if (!itemId || !this.viewer.photos) return;
                     const photo = this.viewer.photos[this.viewer.index];
                     if (!photo) return;
-                    await this.photoUploader(this.viewer.section).tagPhoto(photo.id, { rental_inspection_observation_id: Number(observationId) });
+                    itemId = Number(itemId);
+                    const section = this.viewer.section;
+                    let observation = this.conditionFor(section, itemId);
+                    try {
+                        if (!observation) {
+                            const insp = this.currentInspection(section);
+                            if (!insp) return;
+                            observation = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/observations`, {
+                                rental_inspection_item_id: itemId,
+                                condition: this.baselineConditionKey,
+                                notes: null,
+                                source: section === 'in' ? 'in_inspection' : 'out_inspection',
+                            });
+                            observation.photos = [];
+                            insp.observations.push(observation);
+                        }
+                        await this.photoUploader(section).tagPhoto(photo.id, { rental_inspection_observation_id: observation.id });
+                    } catch (e) { this.error = e.message; }
                 },
                 // Untagged → room OR item, one shared destination control
                 // (same interaction language as the viewer chooser above,

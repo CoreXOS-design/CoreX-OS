@@ -2829,6 +2829,52 @@ off to the right and became unreachable the moment an item had any photos at all
 it receives the same row-driven stretch height directly and stays visible at a fixed position whether the
 item has zero photos or twelve — matching the task's own requirement in those exact terms.
 
+### 22.3a A FIFTH attempt, same bug class, one level deeper — fixed 2026-09-22, live measurements this time
+
+The four attempts above fixed the ROW/STRIP/SCROLLER's own sizing. They never touched the TILE and IMG
+one level deeper — which still used `display:inline-block; height:100%` (tile) and `height:100%;
+width:auto` (img), no explicit width anywhere. Johan caught this live with `getBoundingClientRect()` on
+the deployed page (property 5792, Kitchen): the item photo `<img>` measured 847x635/860x645 — its own
+natural resolution, confirming `height:100%` failed to resolve somewhere in the tile→img leg of the same
+percentage-height chain §22.3 already names as fragile — and the strip's own (correctly ~1fr) width then
+clipped that oversized image down to a ~22px visible sliver. **Not an empty strip — an oversized photo
+behind a small overflow:hidden window onto it.** One concrete consequence: at 22px visible width, the
+item→untagged button had no clickable room at all — one of the six photo moves was dead on the deployed
+page purely from this sizing bug, not a logic bug.
+
+**Fix:** stop extending the percentage-height chain at this level too. The scroller changed from the
+`white-space:nowrap`/`font-size:0` inline-block hack to `display:flex; align-items:stretch;` — the SAME
+mechanism the outer row already uses successfully. Each tile is `flex:none; align-self:stretch;
+aspect-ratio:1/1` — height from flex stretch (not a percentage), width from aspect-ratio (not the image's
+native resolution), matching the room gallery tiles' own `aspect-ratio:1/1` one row up. The img is a
+plain `width:100%; height:100%; object-fit:cover`. No Tailwind class involved anywhere in this fix — every
+property here is an inline style already, so this carries no build-step risk. Not verified in a browser
+(Standard −1s) — verified by confirming the exact same three tests that fail today also fail identically
+against unmodified `origin/QA1` (`git stash`, re-run, byte-identical failures — pre-existing, unrelated to
+this change, not caused by it) and that `php artisan view:cache` compiles the changed templates clean.
+
+**Two more bugs found live on the same screen, fixed alongside:**
+
+1. **The viewer's "Move to…" chooser only listed items that already had a recorded observation** —
+   built from `rental_inspection_observation_id`, so an item nobody had rated yet had no id to offer. Johan:
+   "the photo is usually what prompts the rating" — backwards, an agent photographing a cracked floor
+   couldn't attach that photo to Floors until they'd first rated it. Fixed with a new, viewer-only
+   `itemMoveChoicesFor()` (keyed by item id, not observation id, listing every item in the room regardless
+   of rating state) — `itemChoicesFor()`/`allItemChoices()` themselves are UNCHANGED and still
+   rated-items-only, since they back the tray's bulk "Tag to…" action, which tags several photos in one
+   request and has no single moment to create a missing observation against. `moveViewerPhotoTo()` now
+   creates the item's observation on the fly when none exists — the exact same POST
+   `_commitObservation()` makes for a tapped chip, no second code path, seeded with the agency's own
+   baseline condition key (`RentalInspectionSetting::baselineConditionKeyFor()`, the same starting-value
+   mechanism "All Good" bulk-fill already uses) rather than inventing a null/placeholder condition. The
+   agent's own next real chip tap on that item is a new, current observation (§3.1, append-only) — the
+   starting value is never locked in as the actual finding.
+2. **The "Move to…" control itself rendered at the viewport's bottom-left corner, on top of the app
+   sidebar** — it was `absolute bottom-4 left-4` inside the viewer's own `fixed inset-0` (full-viewport)
+   wrapper, so it positioned against the WHOLE VIEWPORT, not against anything resembling the modal's own
+   photo. Fixed by folding it into the SAME wrapper as the Download button, reusing Download's own already-
+   correct `bottom-4 right-4` anchor rather than introducing a second, unproven one.
+
 ### 22.4 Standing rules this section is built to, restated plainly
 
 - **Agency-configurable, sensible default.** The condition-button grid holds any length list an agency
