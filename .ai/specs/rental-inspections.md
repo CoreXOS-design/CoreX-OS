@@ -2912,6 +2912,108 @@ reverted by this landing.
    item photos a second time in the room gallery (duplicating them on screen) — both worse than one word.
    The heading now reads "... · N photos total".
 
+### 22.3b The SIXTH attempt, and the actual root cause — Alpine's `:style` clobbers a static `style` — fixed 2026-09-22
+
+§22.3a's fix ("the fix that actually landed") was the right shape and still is — but it never actually
+reached the deployed page. Johan landed it (`8fccccb5a`), a new CSS bundle hash confirmed the qa-deploy
+build trigger fired, and the photos were STILL broken on live measurement: item tile and img both still
+860x645, untagged tray photos 1054x791, tray container 1606px tall. The tile element's `style` attribute
+read `style=""` — present, but EMPTY. Not missing, not wrong — wiped.
+
+**The cause**: Alpine's `x-bind:style` (`:style="..."`) does not merge with a co-located static
+`style="..."` attribute on the same element. It sets `style.cssText` wholesale from the bound expression
+on every reactive render. When that expression evaluates to `''` — the common, nothing-selected case for
+every tile on this screen — it wipes every static declaration too. The img right next to the broken tile
+had no `:style` binding at all, which is exactly why it rendered correctly while the tile, one attribute
+different, did not — same commit, same fix, one element affected and one not, purely by the presence of
+a `:style` attribute on the same tag as a static one.
+
+**The fix, per Johan's explicit instruction ("fix the bug class, not the instance")**: swept both
+`rental-inspection-recording.blade.php` and `show.blade.php` for every element carrying BOTH a static
+`style="..."` and a bound `:style="..."`. **17 found, all fixed** (not 16 — the tray-tile instance below
+was found mid-sweep, after the initial count had already been reported):
+
+- **`rental-inspection-recording.blade.php` (5)**: the marquee-select rectangle, the room photo gallery
+  tile, the item photo tile, the camera/add-photo slot, and — critically — **the untagged tray tile's
+  own §22.3a fix #3 above** (`width:3rem; height:3rem` as a static declaration sitting next to its own
+  `:style="isSelected(...) ? 'outline:...' : ''"`). That §22.3a fix never actually took effect on the
+  deployed page for this exact reason — it is the direct explanation for the 1054x791/1606px symptoms
+  Johan measured this round, three sections after it was first "fixed." All five moved their static
+  declarations into new CSS classes (`.rir-marquee-rect`, `.rir-room-photo-tile`, `.rir-item-photo-tile`,
+  `.rir-tray-tile`; the camera slot's class was later removed, see the add-tile fix below), leaving
+  `:style` with only the one thing it's actually meant to control.
+- **`show.blade.php` (12)**: the Overview tab button (static declaration was fully redundant with the
+  `:style` ternary — deleted outright, no class needed); the AI feature drag pill, the AI drop target,
+  the space tab button, and the feature-category tab button (all four one-off, `:style` always non-empty
+  on these — folded the static value straight into the `:style` expression rather than minting a class
+  for a single use); six identical visibility-toggle knobs for the advertising-flag switches
+  (masterHideAll, hideStreetNumber, hideStreetName, hideComplexName, hideUnitNumber, p24HideAddress) —
+  genuinely repeated markup, so one shared `.toggle-knob` class; and the gallery-upload dropzone label,
+  which also carries `onmouseover`/`onmouseout` setting `this.style.borderColor` directly — moved to
+  `.gallery-upload-dropzone` so the raw JS hover handlers now override a stable class-based default
+  instead of a static attribute Alpine could wipe out from under them.
+
+Real CSS shipped as inline `<style>` blocks directly in each Blade file (the recording partial's own
+block; `show.blade.php`'s pre-existing top-of-file block, same one `.corex-props-v2 .prop-tab-panel`
+etc. already live in) — no Vite build-step dependency, matching the `.compare-side` precedent already in
+`show.blade.php` (§20.15) and consistent with §22.3a's own "no Tailwind class, no build-step risk" choice,
+just applied one layer more strictly: the static declarations don't just avoid Tailwind, they now also
+avoid ever sharing a tag with a `:style` binding that could erase them.
+
+Verified with a tag-boundary scanner (treats `"` as the sole attribute-quote character — a naive scan
+that also honours `'` false-positives on apostrophes inside Blade `{{-- --}}` comments) confirming zero
+static-`style`-plus-`:style` pairs remain in either file after the fix. Not verified in a browser
+(Standard −1s) — `php -l` clean on both files, `php artisan view:cache` compiles both clean. Johan
+measured the deployed result directly and confirmed all four target numbers exactly: item tiles 165x124
+at the predicted x-stride, untagged tray tiles 48x48 with independent ×s, tray container 1606px → 64px,
+zero oversized images left on screen.
+
+**Lesson for this codebase generally (Johan's words)**: a static `style="..."` and a bound `:style="..."`
+must never share the same tag. If a property needs to be static, it goes in a class. If it needs to be
+reactive, either it's the only thing in `:style`, or every static property that tag needs is folded INTO
+the `:style` expression so the bound value is always the complete, correct style string on every render —
+never a partial one relying on an unrelated static attribute Alpine doesn't know exists.
+
+**Sixth, immediate follow-up — the add-tile, same screen, same row, 2026-09-22**: once the tile/tray fix
+landed, the item row's rightmost element (the camera/add-photo slot) turned out to be its own separate,
+visible defect: it was a `flex:none` sibling of the scroller-wrapper inside the row's outer flex
+container, and since the wrapper was `flex:1` (always claiming the full available row width regardless of
+how many photos it actually held), the add-slot was pinned to the far right edge of that full width —
+`~x=1410-1445` on a row with only three photos ending around `x=1082`, a large empty gap, reading as
+unfinished. On a row with zero photos it was a lone white sliver floating at the right edge.
+
+**Why it couldn't just become a shrink-to-fit flex sibling**: the scroller-wrapper's only child is the
+`position:absolute; inset:0` scroller div (§22.3a's own mechanism, still required — it's what makes
+`height:100%` resolve reliably on the tile). A `position:absolute` child contributes NOTHING to its
+parent's intrinsic/max-content size in CSS — so any flex-basis:auto/max-content sizing on the wrapper
+collapses to a phantom 0px, not "however wide the photos actually are." Content-based flex sizing was a
+dead end without either abandoning the (proven, three-rounds-costly) absolute-positioning tile mechanism
+or computing the width in JS.
+
+**The fix**: the add-tile is no longer a flex sibling of the wrapper at all. It moved INSIDE the wrapper,
+as a sibling of the `overflow-x:auto` scroller div (still never a descendant of the scroller itself — the
+exact placement Johan's instruction required, "it disappeared once before because it got put inside the
+scroller, do not repeat that"). It's `position:absolute; top:0; bottom:0;` (so it takes its height from
+the same already-proven wrapper-stretch mechanism as the scroller, and — being `position:absolute` —
+contributes nothing back to the row's own height, keeping the chip grid the row height's sole source, as
+required). Its `left` is computed in `:style` from the live photo count: `left:min(<count*171>px,
+calc(100% - 124px))` — `171px` is the tile's own stride (165px width + the 0.375rem/6px gap the scroller
+already uses between tiles), so the add-tile sits in exactly the position the NEXT tile would occupy; the
+`calc(100% - 124px)` clamp is against the wrapper's own actual rendered width via CSS, not a hardcoded
+pixel guess, so it degrades gracefully (flush at the strip's right edge, same as the old pinned position)
+if a row ever has enough photos to fill the whole visible strip, without ever running off-screen or
+becoming unreachable. At zero photos, `count*171 = 0`, so it renders at the wrapper's own left edge —
+exactly where the first photo tile would start.
+
+**Size chosen: square 124x124** (row-height square), not the 165x124 rectangle the photo tiles use — the
+square is deliberately NOT the same shape as a photo tile, so it reads at a glance as a distinct "add"
+affordance rather than as an empty/broken photo slot. The old `.rir-camera-slot` class (flex:none inline
+layout, 2.5rem/40px wide) was removed entirely — nothing else referenced it — and replaced by
+`.rir-add-tile` (`position:absolute; top:0; bottom:0; width:124px;` plus the existing flex-centering for
+the camera icon). The `:style` binding carries both the computed `left` and the existing
+has-photos/no-photos background/color ternary — one `:style`, no co-located static `style`, so this is
+not an eighteenth clobber pair.
+
 ### 22.4 Standing rules this section is built to, restated plainly
 
 - **Agency-configurable, sensible default.** The condition-button grid holds any length list an agency

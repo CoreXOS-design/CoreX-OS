@@ -43,9 +43,18 @@
 <style>
     .rir-item-photo-tile { display:inline-block; vertical-align:top; width:165px; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem; }
     .rir-room-photo-tile { aspect-ratio:1/1; background:var(--surface-3); }
-    .rir-camera-slot { display:flex; flex:none; align-items:center; justify-content:center; height:100%; width:2.5rem; font-size:1rem; }
     .rir-marquee-rect { position:absolute; border:1px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); pointer-events:none; }
     .rir-tray-tile { position:relative; width:3rem; height:3rem; }
+    /* Add-tile, 2026-09-22 — a sibling of the overflow-x:auto scroller (never a
+       descendant of it, so it can never scroll out of reach), absolutely
+       positioned against the same position:relative wrapper the scroller
+       anchors to. `left` is computed in :style from the photo count so it
+       sits immediately after the last tile — clamped with CSS min()/calc()
+       against the wrapper's own width so it can never run off the visible
+       strip when there are enough photos to fill it. top/bottom:0 (not a
+       px height) so it never becomes a source of the row's height — the
+       chip grid stays that. */
+    .rir-add-tile { position:absolute; top:0; bottom:0; width:124px; display:flex; align-items:center; justify-content:center; font-size:1.25rem; border-radius:6px; cursor:pointer; }
 </style>
 @php($sectionJs = "'{$section}'")
 
@@ -602,7 +611,7 @@
                                      class added — every property here is an inline
                                      style, same discipline as the rest of this
                                      block. --}}
-                                <div style="display:flex; align-items:stretch; flex:1; min-width:0; gap:0.375rem;">
+                                <div style="display:flex; align-items:stretch; flex:1; min-width:0;">
                                     <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
                                         <div style="position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
                                             <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
@@ -642,16 +651,16 @@
                                                 </div>
                                             </template>
                                         </div>
+                                        <label class="rounded-md cursor-pointer rir-add-tile"
+                                               :style="'left:min(' + (itemPhotosFor({{ $sectionJs }}, item).length * 171) + 'px, calc(100% - 124px));' + ((obsField({{ $sectionJs }}, item.id).photos || []).length
+                                                    ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
+                                                    : 'background:var(--surface-2); color:var(--text-secondary);')"
+                                               :title="(obsField({{ $sectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
+                                            <span>&#128247;</span>
+                                            <input type="file" accept="image/*" multiple class="hidden"
+                                                   @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
+                                        </label>
                                     </div>
-                                    <label class="rounded-md cursor-pointer rir-camera-slot"
-                                           :style="(obsField({{ $sectionJs }}, item.id).photos || []).length
-                                                ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
-                                                : 'background:var(--surface-2); color:var(--text-secondary);'"
-                                           :title="(obsField({{ $sectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
-                                        <span>&#128247;</span>
-                                        <input type="file" accept="image/*" multiple class="hidden"
-                                               @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
-                                    </label>
                                 </div>
                             </div>
                             {{-- Bulk case: item → room and item → untagged are both
