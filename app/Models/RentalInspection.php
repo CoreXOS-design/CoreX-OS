@@ -172,6 +172,70 @@ class RentalInspection extends Model
     }
 
     /**
+     * Property 5792, Johan: 46 empty "Notes (required)" fields reached
+     * awaiting_signature — the requires_notes vocabulary
+     * (RentalInspectionSetting::conditionStatesFor()) existed but nothing
+     * ever checked it. Every item's LATEST observation recorded ON THIS
+     * INSPECTION (not the property-wide "current" fact RentalInspectionItem::
+     * currentObservation() resolves — a deliberately different question:
+     * "did THIS walkthrough leave a required note blank") whose condition
+     * requires a note but whose note is empty.
+     *
+     * Grouped from $this->observations (already inspection-scoped via the
+     * FK) rather than per-item queries — one query, not N. Ties within the
+     * same inspection are broken by id (observations are append-only and
+     * insert-ordered; created_at is only whole-second precision, so an id
+     * comparison is the reliable "latest" the rest of this module already
+     * leans on for the identical reason — see RentalInspectionItem::
+     * currentObservation()'s own comment).
+     *
+     * @return \Illuminate\Support\Collection<int, RentalInspectionObservation>
+     */
+    public function itemsWithMissingRequiredNotes(): \Illuminate\Support\Collection
+    {
+        return $this->observations()
+            ->with('item.room')
+            ->get()
+            ->groupBy('rental_inspection_item_id')
+            ->map(fn ($group) => $group->sortByDesc('id')->first())
+            ->filter(fn (RentalInspectionObservation $obs) => RentalInspectionSetting::conditionRequiresNotesFor($this->agency_id, $obs->condition)
+                && trim((string) $obs->notes) === '')
+            ->values();
+    }
+
+    /**
+     * §"Notes (required)" gate — RentalInspectionSetting::
+     * requireNotesBlocksProgressionFor() decides whether this throws (the
+     * default) or is a no-op (an agency that only wants a warning); either
+     * way the caller can read itemsWithMissingRequiredNotes() directly for
+     * a warning banner. Deliberately does NOT retroactively touch any
+     * inspection already past this point (non-negotiable #1 territory in
+     * spirit, not letter — this method only ever runs going forward, on a
+     * transition that hasn't happened yet).
+     */
+    private function guardMissingRequiredNotes(string $action): void
+    {
+        if (! RentalInspectionSetting::requireNotesBlocksProgressionFor($this->agency_id)) {
+            return;
+        }
+
+        $missing = $this->itemsWithMissingRequiredNotes();
+        if ($missing->isEmpty()) {
+            return;
+        }
+
+        throw new \App\Exceptions\RentalInspectionRequiredNotesMissingException(
+            $action,
+            $missing->map(fn (RentalInspectionObservation $obs) => [
+                'item_id' => $obs->rental_inspection_item_id,
+                'item_label' => $obs->item->label,
+                'room_id' => $obs->item->property_room_id,
+                'room_label' => $obs->item->room?->label ?? 'General',
+            ])->all()
+        );
+    }
+
+    /**
      * §15.4/§15.7/§16 — every tenant on this inspection's own lease, plus the
      * landlord if Property::sellerOwnerContact() resolves one, who does NOT
      * yet have a live disposition (signed, refused, or wet_ink — a
@@ -266,6 +330,7 @@ class RentalInspection extends Model
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot start the signing window while a discrepancy is unresolved.');
         }
+        $this->guardMissingRequiredNotes('start the signing window');
 
         $this->forceFill([
             'status' => self::STATUS_AWAITING_SIGNATURE,
@@ -296,6 +361,7 @@ class RentalInspection extends Model
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot complete an inspection while a discrepancy is unresolved.');
         }
+        $this->guardMissingRequiredNotes('complete');
 
         if (in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
             $outstanding = $this->outstandingSignatories();

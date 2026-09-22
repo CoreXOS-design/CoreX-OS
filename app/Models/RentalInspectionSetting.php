@@ -160,11 +160,21 @@ class RentalInspectionSetting extends Model
      * reduces or renames this set entirely still expresses which of ITS
      * states need a reason on record.
      *
+     * Property 5792 progression-gate build, Johan, explicit ruling on the
+     * default: "the conditions that assert something adverse — Damaged,
+     * Not working, Missing, Other — require a note; Good, Fair and N/A do
+     * not." Corrects 'fair' from true to false — this shipped default had
+     * never actually been enforced anywhere until this build, so nothing
+     * that already relied on it existed to break; an agency that has
+     * already customized its own condition_states is entirely unaffected
+     * either way (this constant is only ever read when that column is
+     * still null).
+     *
      * @var array<int, array{key: string, label: string, requires_notes: bool}>
      */
     public const DEFAULT_CONDITION_STATES = [
         ['key' => 'good', 'label' => 'Good', 'requires_notes' => false],
-        ['key' => 'fair', 'label' => 'Fair', 'requires_notes' => true],
+        ['key' => 'fair', 'label' => 'Fair', 'requires_notes' => false],
         ['key' => 'damaged', 'label' => 'Damaged', 'requires_notes' => true],
         ['key' => 'not_working', 'label' => 'Not working', 'requires_notes' => true],
         ['key' => 'missing', 'label' => 'Missing', 'requires_notes' => true],
@@ -194,6 +204,7 @@ class RentalInspectionSetting extends Model
         'room_type_walking_order',
         'condition_states',
         'baseline_condition_key',
+        'require_notes_blocks_progression',
     ];
 
     protected $casts = [
@@ -204,7 +215,28 @@ class RentalInspectionSetting extends Model
         'room_type_item_defaults' => 'array',
         'room_type_walking_order' => 'array',
         'condition_states' => 'array',
+        'require_notes_blocks_progression' => 'boolean',
     ];
+
+    /**
+     * Property 5792, Johan: "whether the requirement BLOCKS progression or
+     * merely warns must itself be an agency setting, defaulting to
+     * block." True (the default) = RentalInspection::startAwaitingSignature()/
+     * markCompleted() refuse while a required note is missing. False =
+     * those same checks still run but never throw — the agent sees the
+     * same "which rooms and items" information, just not as a hard stop.
+     */
+    public const DEFAULT_REQUIRE_NOTES_BLOCKS_PROGRESSION = true;
+
+    public static function requireNotesBlocksProgressionFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REQUIRE_NOTES_BLOCKS_PROGRESSION;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('require_notes_blocks_progression');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_REQUIRE_NOTES_BLOCKS_PROGRESSION;
+    }
 
     public static function faultReportWindowDaysFor(?int $agencyId): int
     {
