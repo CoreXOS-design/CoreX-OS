@@ -170,22 +170,39 @@
                 this.photos = this.photos.filter(p => p.id !== photoId);
             },
             async tagSelectedToRoom(roomId) {
-                const ids = Array.from(this.selected);
-                if (!ids.length) return;
+                return this.tagIdsToRoom(Array.from(this.selected), roomId);
+            },
+            // Explicit-ids version of the above — used wherever the caller
+            // already scoped its own selection (an item's own selected
+            // photos, say) and must not sweep in whatever else happens to
+            // be selected elsewhere on the page.
+            async tagIdsToRoom(ids, roomId) {
+                if (!ids || !ids.length) return;
                 const res = await this._cpu_post(this._cpu_tagBulkUrl, { photo_ids: ids, property_room_id: roomId });
                 (res.photos || []).forEach(p => this._cpu_replacePhoto(p));
-                this.clearSelection();
+                this._cpu_dropFromSelection(ids);
             },
-            // Room → item, several photos at once — reuses the single-photo
-            // tag() call (already supersede-based) per id rather than a new
-            // bulk-by-item backend endpoint; there is no batch win to be had
-            // server-side here (each photo still needs its own row update),
-            // so a second endpoint would only duplicate tagPhoto()'s own
-            // validation for no benefit. An agent with 14 room photos to
-            // file against one item selects them all and does this once.
+            // Room/item → item, several photos at once — reuses the
+            // single-photo tag() call (already supersede-based) per id
+            // rather than a new bulk-by-item backend endpoint; there is no
+            // batch win to be had server-side here (each photo still needs
+            // its own row update), so a second endpoint would only
+            // duplicate tagPhoto()'s own validation for no benefit. An
+            // agent with 14 room photos to file against one item selects
+            // them all and does this once.
             async tagSelectedToItem(ids, roomId, observationId) {
                 if (!ids || !ids.length) return;
                 await Promise.all(ids.map(id => this.tagPhoto(id, { property_room_id: roomId, rental_inspection_observation_id: observationId })));
+                this._cpu_dropFromSelection(ids);
+            },
+            // Explicit-ids bulk untag — the reverse of tagIdsToRoom/
+            // tagSelectedToItem, same "several at once" shape.
+            async untagSelected(ids) {
+                if (!ids || !ids.length) return;
+                await Promise.all(ids.map(id => this.untagPhoto(id)));
+                this._cpu_dropFromSelection(ids);
+            },
+            _cpu_dropFromSelection(ids) {
                 ids.forEach(id => this.selected.delete(id));
                 this.selected = new Set(this.selected);
             },

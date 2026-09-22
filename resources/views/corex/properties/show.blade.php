@@ -4977,6 +4977,30 @@
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                     Download
                 </button>
+                {{-- Design constraint, 2026-09-22 (Johan): "on item and on room
+                     if you click the photo it opens up... wont work from room
+                     to item as there are many items to 1 room" — a
+                     many-destination move doesn't fit a small button on the
+                     tile, and a dropdown squeezed onto a thumbnail is exactly
+                     what was broken before. This is its real home: the
+                     already-open photo, which has room for a proper chooser.
+                     Only rendered when the viewer was opened from an
+                     inspection room/item photo (openInspectionPhoto() sets
+                     `section`/`room`) — every other caller of this same
+                     shared viewer (the plain property gallery, documents,
+                     etc.) never sets those fields, so this stays absent
+                     there. --}}
+                <template x-if="viewer.section && viewer.room">
+                    <div class="absolute bottom-4 left-4" @click.stop>
+                        <select class="prop-input text-xs" style="max-width:12rem;"
+                                @change="moveViewerPhotoTo($event.target.value); $event.target.value = ''">
+                            <option value="">Move to…</option>
+                            <template x-for="i in itemChoicesFor(viewer.section, viewer.room)" :key="i.id">
+                                <option :value="i.observationId" x-text="i.label"></option>
+                            </template>
+                        </select>
+                    </div>
+                </template>
             </div>
         </div>
 
@@ -5487,6 +5511,36 @@
                     const roomIds = new Set(this.roomPhotosFor(section, room).map(p => p.id));
                     return Array.from(this.photoUploader(section).selected).filter(id => roomIds.has(id));
                 },
+                // Which of this ROOM's items can actually receive a re-tagged
+                // photo. Fix, 2026-09-22: a photo's rental_inspection_
+                // observation_id points at an OBSERVATION row, never at the
+                // item itself — the item-only select this replaced sent
+                // item.id in that field, which 404'd against
+                // rental_inspection_observations (or, worse, matched an
+                // unrelated observation that happened to share the number).
+                // conditionFor() is this page's own existing "item's latest
+                // observation" lookup (already used by onItemPhotosSelected
+                // for the exact same reason) — the only correct source for
+                // this id. An item with nothing recorded yet has no
+                // observation row to file a photo against, so it is simply
+                // not offered as a destination (not a new rule — the same
+                // constraint onItemPhotosSelected already lives with).
+                itemChoicesFor(section, room) {
+                    if (!room) return [];
+                    const group = this.roomGroups().find(g => g.room && g.room.id === room.id);
+                    if (!group) return [];
+                    return group.items
+                        .map(i => ({ id: i.id, label: i.label, observationId: this.conditionFor(section, i.id)?.id || null }))
+                        .filter(i => i.observationId);
+                },
+                // Same list, every room — the untagged tray doesn't know a
+                // room yet, so its "move to item" choice has to span all of
+                // them (Room — Item labelling keeps them distinguishable).
+                allItemChoices(section) {
+                    return this.roomGroups().filter(g => g.room).flatMap(g =>
+                        this.itemChoicesFor(section, g.room).map(i => ({ ...i, roomLabel: g.room.label }))
+                    );
+                },
                 // Per-room "which item" choice for the multi-select tag bar
                 // below the room photo grid, keyed by room id so several
                 // rooms can be mid-pick at once without clobbering each
@@ -5496,8 +5550,76 @@
                     if (!observationId) return;
                     const ids = this.selectedRoomPhotoIds(section, room);
                     if (!ids.length) return;
-                    await this.photoUploader(section).tagSelectedToItem(ids, room.id, observationId);
+                    await this.photoUploader(section).tagSelectedToItem(ids, room.id, Number(observationId));
                     this.roomPhotoTagItemChoice[room.id] = '';
+                },
+                // Design constraint, 2026-09-22 (Johan): room→untagged is a
+                // SINGLE destination, so the single-photo case is a plain
+                // button on the tile (below) — this is only the bulk
+                // equivalent, same "select several, one action" shape as
+                // tagSelectedRoomPhotosToItem above.
+                async untagSelectedRoomPhotos(section, room) {
+                    await this.photoUploader(section).untagSelected(this.selectedRoomPhotoIds(section, room));
+                },
+                // Same shape, one level down: an item's own selected photos.
+                // Both item→room and item→untagged are single-destination
+                // (Johan), so neither needs a chooser — two plain buttons.
+                selectedItemPhotoIds(section, item) {
+                    const itemIds = new Set(this.itemPhotosFor(section, item).map(p => p.id));
+                    return Array.from(this.photoUploader(section).selected).filter(id => itemIds.has(id));
+                },
+                async untagSelectedItemPhotos(section, item) {
+                    await this.photoUploader(section).untagSelected(this.selectedItemPhotoIds(section, item));
+                },
+                async backToRoomSelectedItemPhotos(section, item, room) {
+                    if (!room) return;
+                    await this.photoUploader(section).tagIdsToRoom(this.selectedItemPhotoIds(section, item), room.id);
+                },
+                // Design constraint, 2026-09-22 (Johan): "on item and on room
+                // if you click the photo it opens up... wont work from room
+                // to item as there are many items to 1 room" — many-
+                // destination moves (room→item) don't fit a button OR a
+                // dropdown squeezed onto a thumbnail; their home is the
+                // already-open lightbox, which has room for a real chooser.
+                // Extends the existing shared `viewer` (used by the plain
+                // property gallery too) with just enough inspection context
+                // to carry it — any OTHER caller of `viewer = {...}` simply
+                // never sets `section`/`photos`/`room`, so the chooser stays
+                // absent there (see the lightbox markup below).
+                openInspectionPhoto(section, photoList, photo, room) {
+                    this.viewer = {
+                        open: true,
+                        images: photoList.map(p => p.storage_path),
+                        index: photoList.indexOf(photo),
+                        section,
+                        photos: photoList,
+                        room: room || null,
+                    };
+                },
+                async moveViewerPhotoTo(observationId) {
+                    if (!observationId || !this.viewer.photos) return;
+                    const photo = this.viewer.photos[this.viewer.index];
+                    if (!photo) return;
+                    await this.photoUploader(this.viewer.section).tagPhoto(photo.id, { rental_inspection_observation_id: Number(observationId) });
+                },
+                // Untagged → room OR item, one shared destination control
+                // (same interaction language as the viewer chooser above,
+                // just for the bulk tray case, where there's no single
+                // opened photo to attach a chooser to). Value is
+                // 'room:<id>' or 'item:<observationId>' — see the tray's
+                // <select> below. Reuses the existing trayTagRoomChoice
+                // field declared earlier in this component.
+                async applyTrayDestination(section, value) {
+                    if (!value) return;
+                    const ids = Array.from(this.photoUploader(section).selected);
+                    if (!ids.length) return;
+                    const [kind, rawId] = value.split(':');
+                    if (kind === 'room') {
+                        await this.photoUploader(section).tagIdsToRoom(ids, Number(rawId));
+                    } else if (kind === 'item') {
+                        await this.photoUploader(section).tagSelectedToItem(ids, null, Number(rawId));
+                    }
+                    this.trayTagRoomChoice = '';
                 },
                 inspectionProgress(section) {
                     const items = this.activeItems();
