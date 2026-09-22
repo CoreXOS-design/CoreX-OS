@@ -1,12 +1,14 @@
 # Rental Work Orders (and Fault Reports)
 
-**Status:** BUILT, all five stages — the fault report record, its lifecycle, the spend threshold, the
-work orders themselves, and the attached out-inspection history (see §11 for exactly what and when).
-Two questions remain genuinely open, not silently resolved: the fault-report-level owner/tenant mail
-gap and the mailbox-polling automation question (§3a.1a) — both named where they're discussed, neither
-blocking anything else here.
+**Status:** BUILT, all five stages, plus Stage 7 (quotes — §3.4c) — the fault report record, its
+lifecycle, the spend threshold (now property-level, §3.4b), the work orders themselves, the attached
+out-inspection history, and the quote an agent obtains before work starts, which is what the approval
+limit actually rides on (see §11 for exactly what and when). Two questions remain genuinely open, not
+silently resolved: the fault-report-level owner/tenant mail gap and the mailbox-polling automation
+question (§3a.1a) — both named where they're discussed, neither blocking anything else here.
 **Date:** 2026-09-14 (amended 2026-09-22, amended 2026-09-24, amended 2026-09-25, amended again
-2026-09-26, built Stages 1-5 through 2026-09-25/2026-09-20 — see below)
+2026-09-26, amended again 2026-09-29, built Stages 1-5 through 2026-09-25/2026-09-20, Stage 7
+2026-09-29 — see below)
 **Author:** cc4
 **Pillar:** Property (`Property`) — every work order and fault report anchors to a property; Contact
 (owner, tenant, supplier's own contact person) is who is notified and who reported it; touches Lease
@@ -49,6 +51,22 @@ amendment argues it through and recommends the PROPERTY (§3.4b), not the lease 
 A read-only investigation into whether CoreX's existing mailbox-polling
 and message-archive machinery could file an approval email automatically is reported in §3a.1a — not
 built, per instruction.
+
+**Amendment, 2026-09-29 — Johan has ruled on the missing piece the approval gate needed to mean
+anything: the QUOTE, and settled property-vs-lease the other way from 2026-09-26.** His words: "agents
+will obtain quotes and thats the value that approval will ride against. so an upload or attach of the
+quote, or punching in the details is whats needed." Until this amendment, `cost_amount` was the only
+money figure anywhere on a work order, and it was only ever set inside `complete()` — after the job was
+done — so nothing existed to test the spend threshold against before work started. §3.4c is new: a
+`rental_work_order_quotes` table, several per work order, exactly one selected at a time, and
+`RentalWorkOrder::selectQuote()` — the SELECTED quote's amount is what the threshold gate actually
+compares, never `cost_amount`. Separately, asked again directly while looking at the live lease screen,
+Johan reversed the 2026-09-26 property-vs-lease call this spec had argued through: "looking at it on
+the lease screen now. per property, populated to the leases screen." §3.4b is corrected below — the
+override now lives on the PROPERTY (sitting with `deposit_amount`/`admin_fee`), and
+`leases.rental_no_approval_spend_threshold` (built Stage 3, never consumed by any gate, no real data
+behind it — Standard −1q) is dropped rather than kept as a second, driftable mirror; the lease screen
+reads through to the property's value instead of storing its own.
 
 ---
 
@@ -547,15 +565,17 @@ rental_work_order_settings            -- one row per agency, §8
                                         --   notification (§4) fires. [cc4 design call — a
                                         --   sensible number, not specified by Johan; agency-
                                         --   configurable exactly because of that.]
-  no_approval_spend_threshold            -- nullable decimal, default 500 (§3.4b, settled 2026-09-26).
-                                        --   Overridden per-lease by leases.rental_no_approval_spend_
-                                        --   threshold (Johan's ruling) — null on THIS row still means
-                                        --   "R500", the read-time default; a lease with no override
-                                        --   falls through to whatever this column resolves to for its
-                                        --   agency. Built, Stage 3 — not yet consumed by any gate,
-                                        --   since fault reports carry no cost figure to compare it
-                                        --   against; Stage 4 wires the actual gate once a work order's
-                                        --   cost_amount exists to check it against.
+  no_approval_spend_threshold            -- nullable decimal, default 500 (§3.4b, current shape settled
+                                        --   2026-09-29). Overridden per-PROPERTY by
+                                        --   properties.rental_no_approval_spend_threshold — null on
+                                        --   THIS row still means "R500", the read-time default; a
+                                        --   property with no override falls through to whatever this
+                                        --   column resolves to for its agency. Built Stage 3
+                                        --   (2026-09-26, as a lease-level override then), the resolver
+                                        --   re-pointed at the property and consumed by the real gate in
+                                        --   Stage 7 (2026-09-29) — RentalWorkOrder::selectQuote() (§3.4c)
+                                        --   against the SELECTED quote's amount, never cost_amount
+                                        --   (which is still only ever known after the job is done).
   created_at, updated_at
 ```
 
@@ -766,7 +786,7 @@ options, built honestly rather than dressed up as more automated than it is:
   report — the same "current column + append-only log" shape this spec already uses for
   `rental_work_orders.status` / `rental_work_order_updates`, not a new pattern.
 
-### 3.4b The spend threshold — SETTLED, including the override, 2026-09-26 — Johan ruled LEASE, not the property this spec recommended
+### 3.4b The spend threshold — SETTLED, including the override — Johan ruled LEASE 2026-09-26, then PROPERTY 2026-09-29 (current)
 
 Johan's ruling, verbatim: *"we can build spend threshold in, Id say agency setting, then an override per
 lease agreement. agent captures approved no auth amount on property / lease and thats where the
@@ -803,14 +823,123 @@ When set, it overrides `rental_work_order_settings.no_approval_spend_threshold` 
 only — a new lease (renewal or new tenant) starts with no override, inheriting the agency default until
 an agent explicitly sets one for that tenancy.
 
-**Built, Stage 3 (2026-09-26):** both the agency-level setting AND the lease-level override, together —
+~~**Built, Stage 3 (2026-09-26):** both the agency-level setting AND the lease-level override, together —
 Johan's ruling settled the sub-question this spec previously left as a build-sequencing gate, so there
-is no reason left to build them separately.
+is no reason left to build them separately.~~
+
+**Superseded 2026-09-29 — Johan ruled PROPERTY when asked again, live, looking at the lease screen: "per
+property, populated to the leases screen."** Two live overrides at once (a lease column AND a property
+column) is exactly what his own words ruled against elsewhere in the same conversation — "exactly ONE
+place a human can change this number, and it is the property." Rather than keep
+`leases.rental_no_approval_spend_threshold` as a second, driftable mirror that has to be kept in step by
+hand, it is dropped (`2026_09_29_100100_drop_rental_no_approval_spend_threshold_from_leases.php`) — no
+real data behind it to migrate (Standard −1q: Stage 3 landed 2026-09-26, this correction is three days
+later, on QA1 only, never consumed by any gate in between). The lease detail screen
+(`resources/views/corex/leases/show.blade.php`) now reads through to the property's value
+(`RentalWorkOrderSetting::thresholdFor($lease->property)`) rather than storing or editing its own.
+
+**Current, settled shape**: a new nullable decimal, `properties.rental_no_approval_spend_threshold`
+(nullable — null means "use the agency default"), added
+2026-09-29 sitting with the property's other rental-tab money fields (`deposit_amount`, `admin_fee`) —
+same route (`PUT /{property}/rental-details` → `PropertyController::updateRentalDetails`), same
+`permission:access_properties` + `agency.required` scoping, same two blade panels
+(`resources/views/corex/properties/show.blade.php`). `RentalWorkOrderSetting::thresholdFor()` now takes
+a `Property`, not a `Lease` — property override → agency default → the `DEFAULT_*` constant. This is
+what `RentalWorkOrder::selectQuote()` (§3.4c) actually calls.
+
+**Built, Stage 7 (2026-09-29):** the property-level override, the retirement of the lease-level one, and
+the resolver signature change, together — see §11.
 
 **Still genuinely open, not decided here**: whether R500 is the right default, and whether an agent can
 override the gate outright with a reason (mirroring how `owner_approval_status='declined'` might still
 need an escape hatch for a genuine emergency repair) are real follow-on questions this section surfaces
 but does not answer.
+
+---
+
+## 3.4c Quotes — the value approval actually rides on, NEW 2026-09-29
+
+Johan's ruling, verbatim: *"agents will obtain quotes and thats the value that approval will ride
+against. so an upload or attach of the quote, or punching in the details is whats needed."* This closes
+a real gap: before this amendment, `cost_amount` was the only money figure anywhere on a
+`rental_work_order` row, and `RentalWorkOrder::complete()` was the only place it was ever set — after
+the job was already done. `rental_work_order_settings.no_approval_spend_threshold` and its property
+override (§3.4b) existed and resolved correctly but had nothing to compare against before work started.
+Quotes are that missing figure.
+
+```
+rental_work_order_quotes
+  id
+  agency_id                      -- BelongsToAgency
+  rental_work_order_id            -- required FK. Several quotes can exist per work order — Johan's own
+                                  --   wording, "agents will obtain quotes" (plural) — the agent marks
+                                  --   which one is being acted on.
+  agency_service_provider_id       -- required FK agency_service_providers. "At minimum: supplier" —
+                                  --   the same existing supplier directory every other part of this
+                                  --   spec uses (§2), not a second list.
+  amount                          -- required decimal(10,2). THE figure the approval gate compares.
+  quote_date                      -- required date.
+  document_storage_path            -- nullable string. Private disk (Storage::disk('local')), NOT the
+                                  --   public-disk PropertyImageStorer pattern rental_work_order_photos
+                                  --   uses — a quote is priced evidence, gated the same way
+                                  --   PropertyFileController gates a property Drive document. Downloaded
+                                  --   only through a route that re-checks the quote belongs to the
+                                  --   given work order on every request (RentalWorkOrderQuoteController::
+                                  --   download()), never a raw storage URL.
+  detail_text                     -- nullable text, the keyed-in alternative to an attachment.
+  is_selected                     -- bool, default false. Exactly one true per work order at a time —
+                                  --   RentalWorkOrder::selectQuote() is the only place this flips.
+  captured_by_user_id              -- nullable FK users — who recorded this quote.
+  created_at, updated_at, deleted_at   -- soft-delete only (non-negotiable #1) — a superseded or
+                                      --   withdrawn quote is archived, never destroyed.
+```
+
+**Neither the document nor the keyed-in detail is mandatory over the other** — Johan's own wording,
+"an upload or attach of the quote, or punching in the details is whats needed" (his "or," not "and").
+Enforced in `RentalWorkOrderQuoteController::store()`/`update()`: reject with a plain message if BOTH
+are absent, accept either alone or both together.
+
+**The gate — `RentalWorkOrder::selectQuote(RentalWorkOrderQuote $quote, User $by)`, sibling to
+`assignSupplier()`.** Marks the given quote `is_selected` (unselecting any other on the same work
+order), resolves `RentalWorkOrderSetting::thresholdFor($this->property)` (§3.4b), and sets
+`owner_approval_status`: at or under the threshold → `not_required` (the agent approves it themselves,
+no owner contact needed); over it → `pending`, which gates `assignSupplier()` exactly as it already did
+for a directly-raised work order's own `recordApproval()` flow (§3.4/§3.4a) — nothing about that gate's
+own mechanics changed, only what feeds it. Editing the SELECTED quote's amount re-runs this same
+resolution (`RentalWorkOrderQuoteController::update()`) — an edited amount can never leave a stale
+approval decision standing against a number nobody actually approved.
+
+**Archive/restore** (`RentalWorkOrder::archiveQuote()`/`restoreQuote()`) are soft-delete only, sibling
+methods on the same model, matching this spec's established "the parent record owns the audit trail"
+shape. Archiving the currently-selected quote clears `is_selected` (a hidden quote left marked
+"selected" is exactly the invisible-state bug BUILD_STANDARD's prevent-or-absorb rule exists to catch)
+but deliberately does NOT reset `owner_approval_status` — that stays whatever it last resolved to; an
+agent who archives a quote after approval was already granted has not un-approved anything.
+
+**Audit trail** — folded into the existing `RentalWorkOrder::history()` (§3.4/Johan, 2026-09-22) as four
+new `rental_work_order_updates.update_type` values: `quote_captured`, `quote_selected`,
+`quote_archived`, `quote_restored` — same table, same "who did what and when" convention as
+`supplier_assigned`/`supplier_changed`, not a second log.
+
+**Navigation** — none new. Reachable from the work order's own show screen
+(`resources/views/corex/rental-work-orders/show.blade.php`), same as photos/approvals/notes.
+
+**Permission** — `rental_work_orders.manage_quotes` (capture, select, archive, restore, edit), separate
+from `.create` for the same reason `.record_approval`/`.complete` already are — a decision that moves
+money past the approval gate is a heavier call than logging or editing the work order itself. Read
+access (list/download) rides the group's existing `.view`.
+
+**Scoping** — `rental_work_order_quotes` uses `BelongsToAgency`; every controller action additionally
+re-checks the quote's `rental_work_order_id` matches the route's own `{rentalWorkOrder}` (same
+discipline as `PropertyFileController::download()` checking a document belongs to the given property)
+so a quote id from one work order can never be acted on through another work order's URL, even within
+the same agency.
+
+**Currency** — matches the existing rental-tab convention exactly, per instruction: a plain
+`<input type="number">` with "(R)" in the label, no locale/currency setting invented for this. The
+hardcoded "R" itself is a separate, pre-existing pattern across this whole codebase (`deposit_amount`,
+`admin_fee`, and every other rental money field) — flagged to Johan once, outside this spec's scope to
+change unilaterally.
 
 ---
 
@@ -1353,12 +1482,15 @@ flagged for Johan to confirm or adjust at build time, same treatment `lease_sett
 window_days` gets for its own unconfirmed number in `leases.md` §5.2, though that one is pending legal
 confirmation and this one is pending only an operational preference).
 
-**Settled, including the override, 2026-09-26 (§3.4b):** `rental_work_order_settings.no_approval_spend_threshold`,
-agency-configurable, default **R500**, plus `leases.rental_no_approval_spend_threshold` — nullable, null
-meaning "use the agency default" — as the override, per Johan's own ruling (lease, not the property this
-spec had recommended). Both built together, Stage 3. Setup Wizard entry for the agency-level setting is
-designed in from the start (non-negotiable #10a) — the override, being per-lease rather than an
-agency-wide onboarding choice, belongs on the lease record itself, not the wizard.
+**Settled, including the override — current shape 2026-09-29 (§3.4b):**
+`rental_work_order_settings.no_approval_spend_threshold`, agency-configurable, default **R500**, plus
+`properties.rental_no_approval_spend_threshold` — nullable, null meaning "use the agency default" — as
+the override, sitting with the property's other rental-tab money fields (`deposit_amount`, `admin_fee`).
+The lease-level override built 2026-09-26 (`leases.rental_no_approval_spend_threshold`) is retired —
+Johan reversed his own ruling 2026-09-29, live, looking at the lease screen: "per property, populated to
+the leases screen." Setup Wizard entry for the agency-level setting is designed in from the start
+(non-negotiable #10a) — the property-level override, being per-property rather than an agency-wide
+onboarding choice, belongs on the property record itself, not the wizard.
 
 ---
 
@@ -1488,6 +1620,13 @@ their own record rather than a work-order status:
   - `tests/Feature/Onboarding/RentalsStepSaverIndependenceTest.php` — extended, not replaced: the
     combined-step test now posts all four fields, plus a new independence proof for the third saver
     (matching the two already there).
+
+  **Superseded 2026-09-29 (Stage 7, §3.4b) — the lease-level override bullet above is historical, not
+  current.** Johan reversed the property-vs-lease call live, looking at the lease screen: "per property,
+  populated to the leases screen." `leases.rental_no_approval_spend_threshold` is dropped; the override
+  now lives on `properties.rental_no_approval_spend_threshold`; `thresholdFor()` takes a `Property`, not
+  a `Lease`; the lease show blade lost its edit field and reads through to the property instead. See
+  Stage 7's own entry below for the current file list.
 - **BUILT, Stage 4, 2026-09-28 (the work orders themselves — §3/§3.4/§6):**
   - `database/migrations/2026_09_28_100000_create_rental_work_orders_table.php`,
     `..._100100_create_rental_work_order_updates_table.php`,
@@ -1652,6 +1791,44 @@ their own record rather than a work-order status:
     introduces zero new test regressions; both files carry pre-existing, unrelated baseline failures
     (`assertSessionHasErrors()`/`assertForbidden()` failing broadly across both files) not touched or
     diagnosed by this stage — reported, not fixed, per non-negotiable #2.
+- **BUILT, Stage 7, 2026-09-29 — Johan named exactly what Stage 6's own "not touched" note (above) flagged
+  as missing: the quote (§3.4c), and reversed the property-vs-lease call for the spend threshold (§3.4b).**
+  - `database/migrations/2026_09_29_100000_add_rental_no_approval_spend_threshold_to_properties.php` —
+    the property-level override, sitting `->after('admin_fee')`.
+  - `database/migrations/2026_09_29_100100_drop_rental_no_approval_spend_threshold_from_leases.php` —
+    retires the Stage 3 lease-level column. No backfill (Standard −1q — no real data behind it).
+  - `database/migrations/2026_09_29_100200_create_rental_work_order_quotes_table.php` — explicit short
+    FK/index names (`rwoq_work_order_fk`, `rwoq_supplier_fk`, `rwoq_agency_wo_idx`), same discipline as
+    Stage 4's own `rwo_item_fk` — MySQL's 64-character identifier limit has bitten three lanes.
+  - `app/Models/RentalWorkOrderQuote.php` — `use BelongsToAgency, SoftDeletes`.
+  - `app/Models/RentalWorkOrderSetting.php` — `thresholdFor()` re-signatured from `Lease $lease` to
+    `Property $property`.
+  - `app/Models/RentalWorkOrder.php` — `quotes()` relation; `recordQuote()`, `selectQuote()` (the gate),
+    `archiveQuote()`, `restoreQuote()`, sibling to `assignSupplier()`; `history()`'s action-label match
+    extended with the four new `quote_*` update types.
+  - `app/Models/Property.php` / `app/Models/Lease.php` — `rental_no_approval_spend_threshold` moved from
+    the latter's `$fillable`/`$casts` to the former's.
+  - `app/Http/Controllers/CoreX/RentalWorkOrderQuoteController.php` — full CRUD + archive/restore +
+    select + gated download (private disk, `Storage::disk('local')`, re-checks the quote belongs to the
+    given work order on every request — the `PropertyFileController::download()` pattern, deliberately
+    NOT the public-disk `PropertyImageStorer` pattern the sibling photo tables use).
+  - `app/Http/Controllers/CoreX/PropertyController.php` (`updateRentalDetails()`) — validates and saves
+    the new property field, same route/scoping as `deposit_amount`/`admin_fee`.
+  - `app/Http/Controllers/CoreX/LeaseController.php` (`update()`) — the lease-level field removed from
+    validation and the save.
+  - `resources/views/corex/properties/show.blade.php` — the new field added to BOTH rental-tab panels
+    (new/pending-type form and the settled-property dedicated form), matching the existing
+    `prop-input prop-field-money`/"(R)"-in-the-label convention exactly — no currency setting invented.
+  - `resources/views/corex/leases/show.blade.php` — the editable field removed; the display line now
+    reads through to `RentalWorkOrderSetting::thresholdFor($lease->property)` with a link to edit it on
+    the property.
+  - `resources/views/corex/rental-work-orders/show.blade.php` — new "Quotes" section: list (supplier,
+    amount, date, selected badge, document link/keyed detail), capture form, select/archive actions —
+    all `@permission('rental_work_orders.manage_quotes')`-gated. No sidebar entry, per instruction.
+  - `config/corex-permissions.php` — `rental_work_orders.manage_quotes`.
+  - `routes/web.php` — six new routes under the existing `rental-work-orders` prefix group.
+  - `tests/Feature/RentalWorkOrders/RentalWorkOrderSettingTest.php` — rewritten for property-based
+    resolution (was lease-based); `tests/Feature/RentalWorkOrders/RentalWorkOrderQuoteTest.php` — new.
 
 ---
 
@@ -1671,7 +1848,10 @@ their own record rather than a work-order status:
   reuse of existing machinery, worth doing at some point, but not built by this amendment; full
   content-based auto-filing is a real, separate, larger build, not proposed here at all.
 - ~~The spend-threshold property-vs-lease override — argued and recommended (§3.4b: property), NOT
-  unilaterally decided.~~ **SETTLED 2026-09-26 — Johan ruled lease, both built (§3.4b/§11, Stage 3).**
+  unilaterally decided.~~ ~~**SETTLED 2026-09-26 — Johan ruled lease, both built (§3.4b/§11, Stage 3).**~~
+  **SUPERSEDED 2026-09-29 — Johan ruled property, live, looking at the lease screen: "per property,
+  populated to the leases screen." Current, final shape in §3.4b/§11 Stage 7 — the lease column is
+  retired, not kept as a second mirror.**
 - A supplier-facing reply/secure-link mechanism to self-report completion (§4) — named as a future
   upgrade path (DR2's `DealSecureLinkMail` is the existing pattern to copy when wanted), not built here.
 - Automated WhatsApp notification of anyone (§4) — does not exist in CoreX and is not built here; a

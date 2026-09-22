@@ -111,6 +111,142 @@
     </div>
 
     @if($isOpen)
+    {{-- §3.4c — the value the approval-limit gate rides on. Available
+         regardless of how this work order was raised — a quote prices the
+         repair; the approval question underneath it is separate. --}}
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Quotes</h2>
+        <p class="text-xs" style="color: var(--text-muted);">No-approval threshold for this property: R{{ number_format($noApprovalThreshold, 2) }}. Select a quote at or under this and it's approved automatically; over it, owner approval is required below.</p>
+        @if($workOrder->quotes->isEmpty())
+            <p class="text-xs" style="color: var(--text-muted);">No quotes captured yet.</p>
+        @else
+            <ul class="space-y-2 text-sm">
+                @foreach($workOrder->quotes as $quote)
+                    <li class="flex items-center justify-between gap-2">
+                        <span>
+                            {{ $quote->supplier?->name ?? 'Unknown supplier' }} — R{{ number_format((float) $quote->amount, 2) }}
+                            <span style="color: var(--text-muted);">({{ $quote->quote_date?->format('Y-m-d') }})</span>
+                            @if($quote->is_selected)
+                                <span class="ds-badge ds-badge-success">Selected</span>
+                            @endif
+                            @if($quote->document_storage_path)
+                                <a href="{{ route('corex.rental-work-orders.quotes.download', [$workOrder, $quote]) }}" class="underline text-xs">Document</a>
+                            @endif
+                            @if($quote->detail_text)
+                                <span class="text-xs" style="color: var(--text-muted);">— {{ $quote->detail_text }}</span>
+                            @endif
+                        </span>
+                        @permission('rental_work_orders.manage_quotes')
+                        <span class="flex items-center gap-2">
+                            @unless($quote->is_selected)
+                                <form method="POST" action="{{ route('corex.rental-work-orders.quotes.select', [$workOrder, $quote]) }}">
+                                    @csrf
+                                    <button type="submit" class="corex-btn-outline text-xs">Select</button>
+                                </form>
+                            @endunless
+                            <button type="button" onclick="document.getElementById('edit-quote-form-{{ $quote->id }}').classList.toggle('hidden')" class="corex-btn-outline text-xs">Edit</button>
+                            <form method="POST" action="{{ route('corex.rental-work-orders.quotes.destroy', [$workOrder, $quote]) }}" onsubmit="return confirm('Archive this quote?');">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
+                            </form>
+                        </span>
+                        @endpermission
+                    </li>
+                    @permission('rental_work_orders.manage_quotes')
+                    <li id="edit-quote-form-{{ $quote->id }}" class="hidden">
+                        <form method="POST" action="{{ route('corex.rental-work-orders.quotes.update', [$workOrder, $quote]) }}" enctype="multipart/form-data" class="space-y-2 pt-1">
+                            @csrf
+                            @method('PUT')
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="text-xs">Supplier</label><br>
+                                    <select name="agency_service_provider_id" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                                        @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->pickerOrder()->get() as $provider)
+                                            <option value="{{ $provider->id }}" @selected($quote->agency_service_provider_id === $provider->id)>{{ $provider->name }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-xs">Amount (R)</label>
+                                    <input type="number" name="amount" required min="0" step="0.01" value="{{ $quote->amount }}" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                                </div>
+                                <div>
+                                    <label class="text-xs">Quote date</label>
+                                    <input type="date" name="quote_date" required value="{{ $quote->quote_date?->format('Y-m-d') }}" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                                </div>
+                                <div>
+                                    <label class="text-xs">Replace document (optional)</label>
+                                    <input type="file" name="document" accept=".pdf,image/*" class="w-full text-xs mt-1">
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="text-xs">Details</label>
+                                    <textarea name="detail_text" rows="2" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">{{ $quote->detail_text }}</textarea>
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button type="submit" class="corex-btn-primary text-xs">Save changes</button>
+                                <button type="button" onclick="document.getElementById('edit-quote-form-{{ $quote->id }}').classList.toggle('hidden')" class="corex-btn-outline text-xs">Cancel</button>
+                            </div>
+                        </form>
+                    </li>
+                    @endpermission
+                @endforeach
+            </ul>
+        @endif
+        @permission('rental_work_orders.manage_quotes')
+        @if($archivedQuotes->isNotEmpty())
+            <button type="button" onclick="document.getElementById('archived-quotes').classList.toggle('hidden')" class="corex-btn-outline text-xs">{{ $archivedQuotes->count() }} archived quote(s)</button>
+            <ul id="archived-quotes" class="hidden space-y-1 text-sm pt-1">
+                @foreach($archivedQuotes as $archived)
+                    <li class="flex items-center justify-between gap-2">
+                        <span style="color: var(--text-muted);">{{ $archived->supplier?->name ?? 'Unknown supplier' }} — R{{ number_format((float) $archived->amount, 2) }} ({{ $archived->quote_date?->format('Y-m-d') }})</span>
+                        <form method="POST" action="{{ route('corex.rental-work-orders.quotes.restore', [$workOrder, $archived->id]) }}">
+                            @csrf
+                            <button type="submit" class="corex-btn-outline text-xs">Restore</button>
+                        </form>
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+        <form method="POST" action="{{ route('corex.rental-work-orders.quotes.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-2 pt-2">
+            @csrf
+            <div class="grid grid-cols-2 gap-2">
+                <div>
+                    <label class="text-xs">Supplier</label><br>
+                    <select name="agency_service_provider_id" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                        <option value="">Select…</option>
+                        @foreach(\App\Models\DealV2\AgencyServiceProvider::active()->pickerOrder()->get() as $provider)
+                            <option value="{{ $provider->id }}">{{ $provider->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="text-xs">Amount (R)</label>
+                    <input type="number" name="amount" required min="0" step="0.01" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs">Quote date</label>
+                    <input type="date" name="quote_date" required class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">
+                </div>
+                <div>
+                    <label class="text-xs">Document (optional)</label>
+                    <input type="file" name="document" accept=".pdf,image/*" class="w-full text-xs mt-1">
+                </div>
+                <div class="col-span-2">
+                    <label class="text-xs">Details (optional — required if no document attached)</label>
+                    <textarea name="detail_text" rows="2" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);"></textarea>
+                </div>
+                <label class="flex items-center gap-2 text-xs col-span-2">
+                    <input type="checkbox" name="is_selected" value="1">
+                    Select this quote now
+                </label>
+            </div>
+            <button type="submit" class="corex-btn-outline text-xs">Capture quote</button>
+        </form>
+        @endpermission
+    </div>
+
     {{-- §3.4a — only for a work order raised directly (no upstream fault
          report already satisfied this). --}}
     @if(!$workOrder->reported_fault_report_id)

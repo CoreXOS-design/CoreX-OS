@@ -4254,6 +4254,16 @@
                         <label class="prop-label">Marketing Fee (R)</label>
                         <input type="number" name="marketing_fee" form="prop-update-form" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
                     </div>
+                    {{-- .ai/specs/rental-work-orders.md §3.4b/§3.4c, Johan's
+                         ruling 2026-09-29 — the amount this property's
+                         landlord permits an agent to approve on a repair
+                         quote without going back to them. Blank uses the
+                         agency's own default. The lease screen shows this
+                         value read-only, sourced from here. --}}
+                    <div>
+                        <label class="prop-label">No-Approval Spend Threshold (R)</label>
+                        <input type="number" name="rental_no_approval_spend_threshold" form="prop-update-form" value="{{ old('rental_no_approval_spend_threshold', $property->rental_no_approval_spend_threshold) }}" placeholder="Agency default" min="0" step="0.01" class="prop-input prop-field-money">
+                    </div>
                     {{-- AT-402 Part 4 — Furnished Status (agency-managed list,
                          Settings → Properties & Listings), move-in Availability
                          date (the existing occupation_date column — see the
@@ -4465,6 +4475,16 @@
                         <div>
                             <label class="prop-label">Marketing Fee (R)</label>
                             <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
+                        </div>
+                        {{-- .ai/specs/rental-work-orders.md §3.4b/§3.4c, Johan's
+                             ruling 2026-09-29 — the amount this property's
+                             landlord permits an agent to approve on a repair
+                             quote without going back to them. Blank uses the
+                             agency's own default. The lease screen shows this
+                             value read-only, sourced from here. --}}
+                        <div>
+                            <label class="prop-label">No-Approval Spend Threshold (R)</label>
+                            <input type="number" name="rental_no_approval_spend_threshold" value="{{ old('rental_no_approval_spend_threshold', $property->rental_no_approval_spend_threshold) }}" placeholder="Agency default" min="0" step="0.01" class="prop-input prop-field-money">
                         </div>
                         {{-- AT-402 Part 4 — Furnished Status (agency-managed
                              list), move-in Availability date (the existing

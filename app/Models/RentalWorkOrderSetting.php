@@ -73,19 +73,21 @@ class RentalWorkOrderSetting extends Model
     }
 
     /**
-     * §3.4b, settled 2026-09-26 — Johan's ruling: the override lives on the
-     * LEASE, with the agency default behind it. This is the one resolver
-     * anything gating a spend decision should call — never read either
-     * column directly. Not consumed by any gate yet (Stage 4); the resolver
-     * exists now so Stage 4 has one place to call, not two conventions to
-     * pick between.
+     * §3.4b/§3.4c — settled 2026-09-29, superseding the 2026-09-26 lease
+     * ruling. Johan, looking at the live lease screen: "per property,
+     * populated to the leases screen." The PROPERTY is the single editable
+     * source of truth for the override, with the agency default behind it —
+     * this is the one resolver anything gating a spend decision should call,
+     * never read either column directly. Consumed by
+     * RentalWorkOrder::selectQuote() (§3.4c) against the SELECTED quote's
+     * amount.
      */
-    public static function thresholdFor(Lease $lease): float
+    public static function thresholdFor(Property $property): float
     {
-        if ($lease->rental_no_approval_spend_threshold !== null) {
-            return (float) $lease->rental_no_approval_spend_threshold;
+        if ($property->rental_no_approval_spend_threshold !== null) {
+            return (float) $property->rental_no_approval_spend_threshold;
         }
 
-        return self::spendThresholdFor($lease->agency_id);
+        return self::spendThresholdFor($property->agency_id);
     }
 }

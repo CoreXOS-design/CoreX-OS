@@ -43,12 +43,19 @@
             <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
             @endif
             <div><span style="color: var(--text-muted);">Source:</span> {{ str_replace('_', ' ', ucfirst($lease->source)) }}</div>
-            {{-- .ai/specs/rental-work-orders.md §3.4b, Johan's ruling — only
-                 shown when set; a blank field for every lease would be a
-                 fact nobody needs printed on the common case (screen space
-                 to function only). --}}
-            @if($lease->rental_no_approval_spend_threshold !== null)
-                <div><span style="color: var(--text-muted);">No-approval spend threshold:</span> R{{ number_format((float) $lease->rental_no_approval_spend_threshold, 2) }}</div>
+            {{-- .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-29
+                 — "per property, populated to the leases screen." The
+                 property is the one editable place this number lives; this
+                 screen only ever reads through to it
+                 (RentalWorkOrderSetting::thresholdFor()), never stores its
+                 own value. --}}
+            @if($lease->property)
+                <div>
+                    <span style="color: var(--text-muted);">No-approval spend threshold:</span>
+                    R{{ number_format(\App\Models\RentalWorkOrderSetting::thresholdFor($lease->property), 2) }}
+                    <span class="text-xs" style="color: var(--text-muted);">(set on the property —
+                        <a href="{{ route('corex.properties.show', $lease->property_id) }}" class="underline">edit there</a>)</span>
+                </div>
             @endif
         </div>
 
@@ -104,11 +111,6 @@
                     <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month', $lease->is_month_to_month))>
                     Month-to-month (no fixed end date)
                 </label>
-                <div class="col-span-2">
-                    <label class="text-xs font-medium">No-approval spend threshold (R)</label>
-                    <input type="number" name="rental_no_approval_spend_threshold" step="0.01" min="0" value="{{ old('rental_no_approval_spend_threshold', $lease->rental_no_approval_spend_threshold) }}" placeholder="Agency default" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                    <p class="text-xs mt-1" style="color: var(--text-muted);">Leave blank to use the agency's own default. Set here only when this specific owner has approved a different amount.</p>
-                </div>
             </div>
             <div class="flex gap-2">
                 <button type="submit" class="corex-btn-primary text-xs">Save changes</button>

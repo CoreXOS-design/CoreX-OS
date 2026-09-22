@@ -2528,6 +2528,12 @@ class PropertyController extends Controller
             'commission_percent' => 'nullable|numeric|min:0|max:100',
             'admin_fee'          => "nullable|numeric|min:0|max:{$feeCeiling}",
             'marketing_fee'      => "nullable|numeric|min:0|max:{$feeCeiling}",
+            // .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-29
+            // — "per property, populated to the leases screen." The single
+            // editable place a landlord's no-approval spend limit lives; the
+            // lease screen only ever reads through to this column. Null
+            // (cleared) means "use the agency default."
+            'rental_no_approval_spend_threshold' => 'nullable|numeric|min:0',
             // AT-402 Part 4 — Furnished Status / Availability / Utilities.
             // furnished_status: free-text-shaped but UI-constrained to the
             // agency's own PropertySettingItem list (group 'furnished_status')
