@@ -873,9 +873,9 @@ the reader would have been the actual violation. No other change was made to tha
 ### 13.2 Pipeline
 
 1. Rasterize the upload. A PDF is rendered via PHP's `Imagick` (Ghostscript-backed) at a fixed internal
-   DPI; an image upload (a phone photo) is loaded as-is, one page. Both `gs` and `pdftoppm`/`pdftocairo`
-   (Poppler) were already installed on the box, and the `imagick`/`gd` PHP extensions were already
-   enabled — nothing new was installed.
+   DPI; an image upload (a phone photo) is loaded as-is, one page. `gs` and the `imagick` PHP extension were
+   already installed on the box — nothing new was installed. Poppler (`pdftoppm`/`pdftocairo`) is also
+   present but this code never calls it — see §13.12a for the full, checked dependency list.
 2. **Calibrate** each page: locate the four fiducials, resolve which pixel blob is which manifest corner as
    TWO separate questions (Johan, 2026-09-22 — see §13.12 for the full story and its one known limit): the
    fiducial rectangle's own edge-length structure answers "portrait or sideways" from position alone, at
@@ -1076,6 +1076,29 @@ be real work for a case that does not occur, and I would rather spend it on inve
 revisited, it needs a different search strategy, not a tighter threshold — start from the corner-quadrant
 search notes above, not from the correspondence-resolution code, which is already correct at every angle it
 can see.
+
+### 13.12a Runtime dependencies — the checkable list
+
+Checked directly on QA1's `php8.2-fpm` pool (the one that actually serves the site), 2026-09-22 — not
+assumed, not taken from a package name alone:
+
+| Component | What | Version | Role |
+|---|---|---|---|
+| PHP extension | `imagick` (PECL) | 3.8.1 | Required. `rasterize()` instantiates `Imagick` directly; without this extension `process()` fails immediately with a clear message (§13.4-adjacent guard, `RentalInspectionScanReaderService::process()`), never a raw class-not-found error. |
+| Library | ImageMagick | 6.9.12-98 (Q16) | Required. What the `imagick` extension binds to. |
+| System binary | Ghostscript (`gs`) | 10.02.1 | Required for the PDF-upload path only. The code never shells out to `gs` itself — `Imagick::readImage()` on a `.pdf` delegates to it internally as ImageMagick's own PDF coder backend. A photographed-image upload (the common case) never touches this. |
+| System binary | Poppler (`pdftoppm`/`pdftocairo`) | 24.02.0 (present) | **Not used.** Installed on this box for unrelated reasons; this service never calls it, directly or indirectly. Listed here only so nobody adds it to a "required" checklist by mistake. |
+
+**The ±24° tolerance and the 25°–65°/115°–155° dead band (§13.12 above) were measured against exactly this
+stack.** A different ImageMagick build, a different Ghostscript version, or a different PDF rendering path
+can change anti-aliasing, edge softness, or rasterization fidelity at the pixel level — the numbers above are
+not guaranteed to hold unchanged across a stack upgrade. Re-measure the sweep (same method as §13.12) after
+any change to `imagick`, ImageMagick, or Ghostscript before trusting the envelope again.
+
+**Staging and live were not checked — cannot be, by standing rule** (no lane has access to either). Confirm
+the same three components (`imagick` version, ImageMagick version, Ghostscript presence) exist on whichever
+PHP-FPM pool actually serves each environment before this feature is promoted there. A promotion is the
+expensive place to discover a missing extension; checking first is not.
 
 ### 13.13 Files created
 
