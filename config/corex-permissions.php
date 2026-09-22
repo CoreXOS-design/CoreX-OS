@@ -909,6 +909,13 @@ return [
                 // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
                 // granted here to preserve this role's existing effective access unchanged.
                 'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
+                // 2026-09-22, Johan's ruling: "it should be a role setting but all
+                // should have access but agencies can set who can use inventory" —
+                // a sensible broad default, agency-configurable via Role Manager,
+                // same pattern as every other role default in this file.
+                // manage_settings deliberately NOT included (narrower, matching
+                // every sibling module's own manage_settings key).
+                'rental_inventories.view', 'rental_inventories.create',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'tv_messages.view', 'tv_messages.create', 'tv_messages.edit',
                 'targets.view', 'targets.create', 'targets.edit',
@@ -1035,6 +1042,13 @@ return [
                 // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
                 // granted here to preserve this role's existing effective access unchanged.
                 'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
+                // 2026-09-22, Johan's ruling: "it should be a role setting but all
+                // should have access but agencies can set who can use inventory" —
+                // a sensible broad default, agency-configurable via Role Manager,
+                // same pattern as every other role default in this file.
+                // manage_settings deliberately NOT included (narrower, matching
+                // every sibling module's own manage_settings key).
+                'rental_inventories.view', 'rental_inventories.create',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',
@@ -1127,6 +1141,13 @@ return [
                 'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
                 'view_rentals', 'view_daily_activity',
                 'deals.view', 'listings.view', 'rentals.view', 'daily_activity.view', 'targets.view',
+                // 2026-09-22, Johan's ruling: "it should be a role setting but all
+                // should have access but agencies can set who can use inventory" —
+                // a sensible broad default, agency-configurable via Role Manager.
+                // Explicitly includes .create here too, per that ruling — not
+                // narrowed to view-only despite that being this role's usual
+                // pattern elsewhere in this file.
+                'rental_inventories.view', 'rental_inventories.create',
                 'access_training', 'training.view',
                 'access_communication', 'communication.view',
                 'access_client_portal',
@@ -1175,6 +1196,10 @@ return [
             'include' => [
                 'communications.view',
                 'communication_mailboxes.view', // AT-395 — not in scope_defaults, falls to 'own'
+                // 2026-09-22, Johan's ruling: "it should be a role setting but all
+                // should have access but agencies can set who can use inventory" —
+                // a sensible broad default, agency-configurable via Role Manager.
+                'rental_inventories.view', 'rental_inventories.create',
             ],
         ],
 
