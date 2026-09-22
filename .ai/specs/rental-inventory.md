@@ -1,11 +1,12 @@
 # Spec: Rental Inventory
 
-**Status:** Capture surface REBUILT 2026-09-22 (cc6) — property-embedded, room-based, autosaving,
-mobile-ready — per Johan's own description of what it should be; see §0b. Supersedes §0a's
-reachability-only pass from earlier the same day (kept below for the record — its "not fixed" item
-about a sale property's missing Lease is still open, see §0b's own restatement). Comparison half
-(§8) is unaffected by this rebuild and remains as built 2026-10-01 — cc5's recommendations,
-Johan's approval, all four open questions resolved as stated.
+**Status:** Capture surface design pass 2 landed 2026-09-22 (cc6) — one-row item entry, no announced
+autosave, one shared column grid for the list and the entry row, phone width verified; see §0c. Built
+on top of §0b's rebuild (property-embedded, room-based, autosaving, mobile-ready), which supersedes
+§0a's reachability-only pass from earlier the same day (kept below for the record — its "not fixed"
+item about a sale property's missing Lease is still open, see §0b's own restatement). Comparison half
+(§8) is unaffected by either pass and remains as built 2026-10-01 — cc5's recommendations, Johan's
+approval, all four open questions resolved as stated.
 
 ---
 
@@ -172,6 +173,71 @@ file (cc2's concurrent work) was read for content beyond confirming the `roomGro
 convention to mirror, and nothing else in it was edited. `rental-inspections/show.blade.php` /
 `leases/show.blade.php` needed NO direct edits — they already included the shared partial, so
 rewriting the partial once updated both automatically.
+
+---
+
+## 0c. Design pass 2 — entry-row layout, helper text, alignment (2026-09-22, cc6)
+
+Johan's review of the deployed §0b capture screen: *"in what world will this screen use different
+configs to upload photos than what the inspections uses? Not sure but the inventory screen is still
+preschool design."* He was right on both. Photos are explicitly out of scope for this pass — see the
+new §4a below for why and what changes once cc2's shared uploader lands. Four things fixed, in
+`capture.blade.php` only:
+
+1. **One-row item entry.** The add-line row (quantity, description, Add) is one row — quantity narrow,
+   description gets the space, Add sized to the action, not a full-width block. Enter in the
+   description field submits the same as clicking Add (unchanged from §0b — this already worked;
+   see the root-cause note below for why it didn't *look* like it worked on the deployed box).
+2. **No announced autosave.** Removed the line *"Every change here saves itself — nothing to press."*
+   Per Johan's standing rule: autosave is proven by behaviour, never announced. What's left in that
+   banner (`Signatures & complete →`) is a real navigation control, not narration — every remaining
+   line on the screen is either data the agent needs or a control they act on. The empty-state and
+   locked-state copy elsewhere on the page (§3 of the original spec above) is unchanged — that copy
+   explains a state and offers a path forward, which STANDARDS.md's "No Silent Locks" rule requires;
+   it is not the kind of narration this pass removes.
+3. **One column template, three surfaces.** The add-line row and every item row in the list now share
+   ONE layout — qty (4.5rem) | description (1fr) | actions (7.5rem) — so a room's item list reads as
+   an aligned table at any item count, not loose boxes, and the entry row lines up with the list it's
+   adding to. Verified against a seeded 20-item Kitchen room: reads as one tidy column-aligned list,
+   Remove right-aligned on every row, the entry row directly beneath on the same columns.
+4. **Phone width holds.** At 390px the entry row stays one row — quantity box, description box, Add
+   button, no stacking. The description cell is narrow (roughly 100–120px net of the fixed
+   quantity/actions columns) and a long description wraps to 2–3 lines within its own cell; the row
+   itself never breaks into stacked controls.
+
+### 0c.1 Root cause of what Johan actually saw — a stale asset build, not a markup defect
+
+The add-line row *was already* a single-row grid in the §0b source (`grid-cols-[4.5rem_1fr_auto]`, a
+Tailwind arbitrary-value class) — Johan saw it as three stacked full-width fields with a heavy
+full-width navy button because the **compiled CSS bundle on the deployed checkout predated this file**
+(`public/build/manifest.json` was ~12 days older than `capture.blade.php`'s own commit), so Tailwind's
+JIT scan never compiled that class in, and the row fell back to unstyled block flow: an `<input>`
+sized by its own default width, a `<form>` (block-level) forcing a new line before the button, no grid
+applied. Confirmed directly, read-only, against `/corex-qa1` (never modified): the blade file's mtime
+was newer than `public/build/manifest.json`'s.
+
+**This is a class of defect that can recur on any future page**, so the fix in this pass is structural,
+not a one-off patch: every grid layout this screen needs is now inline
+`style="display:grid; grid-template-columns:..."`, never a Tailwind arbitrary-value utility class.
+Inline style has no build step to go stale — it renders identically whether or not `npm run build` has
+run since the file last changed. Flagged to the conductor as a deploy-hygiene finding independent of
+this screen: any other page added or changed in roughly the same window may be relying on Tailwind
+classes the current deployed bundle never compiled, and needs an asset rebuild at next landing to
+actually look like its own source, not just this one screen.
+
+### 0c.2 Verification, and why it looks different from §0b's
+
+Per Johan's own standing rule (relayed 2026-09-22, mid-build): a lane's local render is not proof — he
+verifies every visible change himself on the deployed site, and local verification scaffolding
+(dev servers, headless-browser harnesses, minted session cookies) burns real time without producing
+proof he trusts. This pass's verification is therefore narrower than §0b's, by instruction, not by
+omission: `php -l` on the changed file, `php artisan view:clear`, and the existing
+`tests/Feature/RentalInventory/RentalInventoryCaptureTest.php` (4/4 passing, 24 assertions, unchanged
+by this pass — it already covers the add-line/photo/tag/reload loop this pass's markup change sits
+inside). No new test was added — this pass changes only the layout classes/copy of an already-tested
+surface, not its behaviour; the existing suite already proves the behaviour is intact. No browser
+harness, no local dev server, no seeded preview fixture was left behind. The real-browser proof is
+Johan's own pass against the deployed QA1 URL once cc1 lands this.
 
 ---
 

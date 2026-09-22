@@ -17,6 +17,20 @@
 
     Autosave throughout — every add/edit/tag fires its own request the
     moment the agent acts; there is no Save button anywhere on this page.
+    Autosave is not announced with helper text (Johan: never say it, just
+    behave that way) — every line on this screen is either data or a
+    control.
+
+    2026-09-22, design pass 2 (cc6): the add-line row and every item row
+    share ONE grid template (qty 4.5rem | description 1fr | actions 7.5rem)
+    so a room's item list reads as an aligned table, not loose boxes, at
+    any item count, and lines up with the entry row beneath it. That grid
+    is inline `style="display:grid; grid-template-columns:..."`, not a
+    Tailwind grid-cols-[...] arbitrary-value class — the first version of
+    this row (design pass 1) used exactly that utility and it rendered as
+    three stacked full-width fields on the deployed box, because the
+    compiled CSS bundle there predated this file and Tailwind never
+    compiled the class in. Inline style has no build step to go stale.
 --}}
 
 @section('content')
@@ -54,9 +68,8 @@
                 @endif
             </div>
         @else
-            <div class="rounded-md p-3 text-xs flex items-center justify-between gap-3" style="background: var(--surface-2); color: var(--text-secondary);">
-                <span>Every change here saves itself — nothing to press.</span>
-                <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="font-semibold shrink-0" style="color: var(--brand-button,#0ea5e9);">Signatures &amp; complete →</a>
+            <div class="flex items-center justify-end">
+                <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Signatures &amp; complete →</a>
             </div>
         @endif
 
@@ -80,18 +93,27 @@
                 </button>
 
                 <div x-show="openRooms[room.id]" x-collapse class="px-4 pb-4 space-y-3">
-                    {{-- Line items --}}
-                    <div class="space-y-1">
+                    {{-- Line items — same 3-column layout as the entry row
+                         below, so quantity/description/actions line up
+                         exactly whether the room has 1 item or 20. Inline
+                         `display:grid` on purpose, not a Tailwind
+                         grid-cols-[...] utility — an arbitrary-value class
+                         like that only exists in the compiled CSS if the
+                         asset bundle was rebuilt after this file was added,
+                         and this screen has already shipped once with a
+                         stale bundle on the deployed box. Inline style has
+                         no such dependency. --}}
+                    <div>
                         <template x-for="line in linesFor(room.id)" :key="line.id">
-                            <div class="flex items-start justify-between gap-2 py-1.5 text-sm" style="border-bottom:1px solid var(--border);">
+                            <div class="text-sm" style="display:grid; grid-template-columns:4.5rem 1fr 7.5rem; gap:0.5rem; align-items:center; padding:0.375rem 0; border-bottom:1px solid var(--border);">
+                                <span style="color: var(--text-secondary);" x-text="line.quantity + '×'"></span>
                                 <div class="min-w-0">
-                                    <span class="font-semibold" x-text="line.quantity + 'x'"></span>
                                     <span x-text="line.description"></span>
                                     <template x-if="line.photos && line.photos.length">
                                         <span class="text-xs ml-1" style="color: var(--text-muted);" x-text="'(' + line.photos.length + ' photo tag' + (line.photos.length === 1 ? '' : 's') + ')'"></span>
                                     </template>
                                 </div>
-                                <div class="flex items-center gap-2 shrink-0">
+                                <div style="display:flex; align-items:center; justify-content:flex-end; gap:0.5rem;">
                                     <button type="button" x-show="photosFor(room.id).length" @click="openTagger(line)" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Tag photo</button>
                                     <button type="button" @click="retireLine(line)" class="text-xs font-semibold" style="color: var(--ds-crimson,#c41e3a);">Remove</button>
                                 </div>
@@ -100,14 +122,17 @@
                         <p x-show="!linesFor(room.id).length" class="text-xs py-1" style="color: var(--text-muted);">No items yet.</p>
                     </div>
 
-                    {{-- Add line — autosaves on Enter or on leaving the description field, no Save button --}}
-                    <form @submit.prevent="addLine(room)" class="grid grid-cols-[4.5rem_1fr_auto] gap-2 items-center pt-1">
+                    {{-- Add line — one row: qty, description, add. Same
+                         columns as the item rows above, so the entry row
+                         lines up with the list it's adding to. Enter in the
+                         description field adds the item; no Save button. --}}
+                    <form @submit.prevent="addLine(room)" style="display:grid; grid-template-columns:4.5rem 1fr 7.5rem; gap:0.5rem; align-items:center; padding-top:0.5rem;">
                         <input type="number" min="0" x-model="newLine[room.id].quantity" placeholder="Qty"
                                class="prop-input" style="width:100%;">
                         <input type="text" x-model="newLine[room.id].description" placeholder="e.g. White wooden headboard"
                                class="prop-input" @keydown.enter.prevent="addLine(room)">
                         <button type="submit" :disabled="lineBusy[room.id]"
-                                class="text-xs font-semibold px-3 py-2 rounded-md text-white shrink-0" style="background:var(--brand-button,#0ea5e9);">Add</button>
+                                class="text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9); padding:0.375rem 0.75rem; justify-self:end;">Add</button>
                     </form>
 
                     {{-- Photos --}}
