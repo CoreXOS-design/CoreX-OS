@@ -12894,6 +12894,35 @@ CREATE TABLE `rental_inspection_discrepancy_observations` (
   CONSTRAINT `ri_disc_obs_observation_fk` FOREIGN KEY (`observation_id`) REFERENCES `rental_inspection_observations` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_inspection_forms`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_inspection_forms` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `branch_id` bigint unsigned DEFAULT NULL,
+  `rental_inspection_id` bigint unsigned NOT NULL,
+  `version` int unsigned NOT NULL,
+  `content_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pdf_storage_path` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `manifest_json` json NOT NULL,
+  `page_count` smallint unsigned NOT NULL,
+  `box_count` int unsigned NOT NULL,
+  `generated_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rental_inspection_forms_rental_inspection_id_version_unique` (`rental_inspection_id`,`version`),
+  KEY `rental_inspection_forms_branch_id_foreign` (`branch_id`),
+  KEY `rental_inspection_forms_generated_by_user_id_foreign` (`generated_by_user_id`),
+  KEY `rental_inspection_forms_agency_id_rental_inspection_id_index` (`agency_id`,`rental_inspection_id`),
+  CONSTRAINT `rental_inspection_forms_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_inspection_forms_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_inspection_forms_generated_by_user_id_foreign` FOREIGN KEY (`generated_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_inspection_forms_rental_inspection_id_foreign` FOREIGN KEY (`rental_inspection_id`) REFERENCES `rental_inspections` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_inspection_item_findings`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12986,6 +13015,36 @@ CREATE TABLE `rental_inspection_observations` (
   CONSTRAINT `rental_inspection_observations_rental_inspection_id_foreign` FOREIGN KEY (`rental_inspection_id`) REFERENCES `rental_inspections` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rental_inspection_observations_rental_inspection_item_id_foreign` FOREIGN KEY (`rental_inspection_item_id`) REFERENCES `rental_inspection_items` (`id`) ON DELETE CASCADE,
   CONSTRAINT `ri_observations_window_decision_by_user_fk` FOREIGN KEY (`window_decision_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_inspection_photo_matches`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_inspection_photo_matches` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `property_id` bigint unsigned NOT NULL,
+  `photo_id_a` bigint unsigned NOT NULL,
+  `photo_id_b` bigint unsigned NOT NULL,
+  `matched_by_user_id` bigint unsigned DEFAULT NULL,
+  `matched_at` timestamp NOT NULL,
+  `unmatched_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ripm_pair_unique` (`photo_id_a`,`photo_id_b`),
+  KEY `ripm_property_fk` (`property_id`),
+  KEY `ripm_photo_b_fk` (`photo_id_b`),
+  KEY `ripm_matched_by_fk` (`matched_by_user_id`),
+  KEY `ripm_unmatched_by_fk` (`unmatched_by_user_id`),
+  KEY `ripm_agency_property_idx` (`agency_id`,`property_id`),
+  CONSTRAINT `ripm_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ripm_matched_by_fk` FOREIGN KEY (`matched_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ripm_photo_a_fk` FOREIGN KEY (`photo_id_a`) REFERENCES `rental_inspection_photos` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ripm_photo_b_fk` FOREIGN KEY (`photo_id_b`) REFERENCES `rental_inspection_photos` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ripm_property_fk` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ripm_unmatched_by_fk` FOREIGN KEY (`unmatched_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_inspection_photos`;
@@ -17663,3 +17722,6 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1426,'2026_09_21_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1427,'2026_09_22_100000_add_show_lease_type_field_to_lease_settings_table',352);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1428,'2026_09_22_140000_add_room_and_tray_support_to_rental_inspection_photos_table',352);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1429,'2026_09_22_150000_add_sort_order_to_rental_inspection_items_table',352);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1430,'2026_09_22_160000_create_rental_inspection_photo_matches_table',353);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1431,'2026_09_30_100700_add_deferred_foreign_keys_for_later_created_tables',353);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1432,'2026_10_02_150000_create_rental_inspection_forms_table',353);

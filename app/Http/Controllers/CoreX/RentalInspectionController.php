@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalInspection;
+use App\Services\Rentals\RentalInspectionFormPdfService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 /**
@@ -164,6 +166,27 @@ class RentalInspectionController extends Controller
             // (never blank) via the blade's own fallback.
             'refusalReasonPresets' => \App\Models\RentalInspectionSetting::refusalReasonPresetsFor($rentalInspection->agency_id),
         ]);
+    }
+
+    /**
+     * GET /corex/rental-inspections/{rentalInspection}/form — the
+     * printable tick-box form. Generates (or reuses the current version of,
+     * if nothing about the room/item/condition shape has changed since it
+     * was last generated) the PDF, then streams it. Same query-layer
+     * scoping as show() — route-model-binding + the global AgencyScope; a
+     * user who cannot open this inspection cannot download its form
+     * either, by construction, since both resolve the identical bound
+     * model the identical way.
+     */
+    public function form(Request $request, RentalInspection $rentalInspection, RentalInspectionFormPdfService $service)
+    {
+        $rentalInspection->loadMissing(['property', 'lease.tenants.contact', 'createdBy']);
+
+        $form = $service->generate($rentalInspection, $request->user());
+
+        abort_unless(Storage::disk('local')->exists($form->pdf_storage_path), 404);
+
+        return Storage::disk('local')->download($form->pdf_storage_path, $service->filenameFor($form));
     }
 
     public function cancel(Request $request, RentalInspection $rentalInspection): RedirectResponse
