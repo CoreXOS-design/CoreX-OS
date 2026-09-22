@@ -3014,6 +3014,65 @@ the camera icon). The `:style` binding carries both the computed `left` and the 
 has-photos/no-photos background/color ternary — one `:style`, no co-located static `style`, so this is
 not an eighteenth clobber pair.
 
+### 22.3c Out-inspection photos couldn't be tagged to most items — the destination lists required an observation to already exist — fixed 2026-09-22
+
+Johan's report: "out inspections photos cannot be tagged to ceiling like on in inspections." Reproduced
+and measured on property 5792 (both sections expanded): the IN inspection (17/23 recorded) offered 23
+destinations in its bulk "Tag to…" dropdowns; the OUT inspection (1/23 recorded) offered 7 — the 4 rooms
+plus exactly the 3 items that already happened to have an observation (2 from cc6's seeding, 1 created
+thirty seconds earlier by testing the viewer's "Move to…" fix). On a genuinely fresh out-inspection —
+the normal real-world case, an agent walking in on move-out day with a blank form — almost no items were
+reachable at all, and it got worse the emptier the inspection was.
+
+**Root cause**: `itemChoicesFor(section, room)` — the function building the room-bulk "Tag selected → item"
+`<select>` and (via `allItemChoices()`) the untagged tray's "Tag to…" `<select>` — filtered its list to
+`.filter(i => i.observationId)`. An item only appeared as a destination if it already had a recorded
+observation, because both selects' options carried an OBSERVATION id (`tagSelectedToItem()` posts
+`rental_inspection_observation_id` directly, no create-on-demand) rather than an item id. This is the
+exact same defect §22.3a's FACT 4 already fixed once, in a different control — the single-photo viewer's
+"Move to…" chooser, which was rebuilt to offer every item and create its observation on the fly
+(`moveViewerPhotoTo()`). `itemChoicesFor()`/`allItemChoices()` were deliberately left filtered at the
+time, reasoned (wrongly, per Johan now) to be a genuinely different case because a bulk action "has no
+per-photo moment to create a missing observation against" — true for a single photo, false for the batch
+as a whole, which only ever needs ONE observation created before tagging every selected photo to it.
+
+**How many controls shared the bad list — two**: the room-photo bulk "Tag selected" dropdown
+(`roomPhotoTagItemChoice`, `tagSelectedRoomPhotosToItem()`) and the untagged-tray bulk "Tag to…" dropdown
+(`trayTagRoomChoice`, `applyTrayDestination()`'s `item:` branch) — both fed by `itemChoicesFor()` via
+`allItemChoices()` for the tray. The per-tile arrows (item→room, room→untagged — both single-destination,
+no chooser, tag directly to a room id, never an item/observation) and the drag-and-drop room targets
+(`dragOverRoom`, built from `roomGroups()` directly — rooms are structural, never observation-gated) were
+never affected; neither was the viewer's "Move to…" chooser, already fixed in §22.3a.
+
+**Is the destination list now computed in one place — yes.** `itemChoicesFor()` is now the single
+function every item-destination control is built from (`allItemChoices()` still wraps it per-room for the
+tray; `itemMoveChoicesFor()` — the viewer's own function — now simply delegates to it instead of carrying
+a second, parallel implementation). Fixing the filter there once fixes both bulk controls; a third
+item-destination control added later inherits the fix automatically by calling the same function rather
+than re-deriving its own list.
+
+**The fix**: removed the `.filter(i => i.observationId)` from `itemChoicesFor()` — it now returns every
+item of the room, with `observationId` present-but-nullable so callers know whether one exists yet. Both
+`<select>` options switched from binding `i.observationId` to binding `i.id` (the tray's `:key` moved off
+`i.observationId` too, since it's null for most items now and would collide across several). Extracted
+the create-on-demand logic §22.3a's `moveViewerPhotoTo()` already had into a new shared
+`ensureObservationFor(section, itemId)` — same baseline-condition POST, same
+`RentalInspectionSetting::baselineConditionKeyFor()` starting value, same never-a-null-placeholder-
+condition rule — and both `tagSelectedRoomPhotosToItem()` and `applyTrayDestination()`'s item branch now
+call it before tagging (one observation created per bulk action, then every selected photo tagged to
+it — not one create-call per photo). `moveViewerPhotoTo()` itself now also calls the shared helper instead
+of carrying its own copy of the same three lines — one code path, three callers.
+
+**Confirmed on a genuinely blank inspection (0/23 recorded)**: `allItemChoices()`'s room list comes from
+`roomGroups()`, which is built from `activeItems()` (the property's own rooms/items, structural — has no
+dependency on any observation existing) — and `itemChoicesFor()` no longer filters by observation either,
+so on a zero-observation inspection both bulk dropdowns list every room and every item from the first
+photo taken, not just the ones an agent happens to have already rated.
+
+Not verified in a browser (Standard −1s) — `php -l` clean on both files, `php artisan view:cache` compiles
+clean, and the static-style/`:style` clobber rescan (§22.3b) still returns zero, confirming this change
+didn't reintroduce that class of bug while editing the same templates.
+
 ### 22.4 Standing rules this section is built to, restated plainly
 
 - **Agency-configurable, sensible default.** The condition-button grid holds any length list an agency

@@ -6087,43 +6087,30 @@
                 },
                 // Which of this ROOM's items can actually receive a re-tagged
                 // photo. Fix, 2026-09-22: a photo's rental_inspection_
-                // observation_id points at an OBSERVATION row, never at the
-                // item itself — the item-only select this replaced sent
-                // item.id in that field, which 404'd against
-                // rental_inspection_observations (or, worse, matched an
-                // unrelated observation that happened to share the number).
-                // conditionFor() is this page's own existing "item's latest
-                // observation" lookup (already used by onItemPhotosSelected
-                // for the exact same reason) — the only correct source for
-                // this id. An item with nothing recorded yet has no
-                // observation row to file a photo against, so it is simply
-                // not offered as a destination (not a new rule — the same
-                // constraint onItemPhotosSelected already lives with).
+                // FIX, 2026-09-22 (Johan, reproduced on property 5792) — this
+                // used to filter to `.filter(i => i.observationId)`, so on a
+                // fresh out-inspection (the normal case: agent walks in on
+                // move-out day with a blank form) it offered almost no item
+                // destinations at all — only items cc6's seeding or an
+                // earlier photo move happened to have already touched. Every
+                // room/item destination control on this screen is now built
+                // from THIS ONE function — filtering it once here means every
+                // caller inherits the fix, instead of each control carrying
+                // its own copy of the same bug. observationId is still
+                // returned (an item with nothing recorded has it as null) so
+                // callers that need to create-on-demand (ensureObservationFor
+                // below) know whether they have to.
                 itemChoicesFor(section, room) {
                     if (!room) return [];
                     const group = this.roomGroups().find(g => g.room && g.room.id === room.id);
                     if (!group) return [];
-                    return group.items
-                        .map(i => ({ id: i.id, label: i.label, observationId: this.conditionFor(section, i.id)?.id || null }))
-                        .filter(i => i.observationId);
+                    return group.items.map(i => ({ id: i.id, label: i.label, observationId: this.conditionFor(section, i.id)?.id || null }));
                 },
-                // FACT 4, 2026-09-22 (Johan) — the single-photo "Move to…"
-                // chooser in the opened viewer is a DIFFERENT question from
-                // itemChoicesFor() above: "the photo is usually what prompts
-                // the rating," so an item with nothing recorded yet must
-                // still be offered — moveViewerPhotoTo() below creates its
-                // observation on the fly. itemChoicesFor()/allItemChoices()
-                // themselves stay unchanged (still rated-items-only): they
-                // back the TRAY's bulk "Tag to…" dropdown, which tags several
-                // photos to one item in a single request and has no per-photo
-                // moment to create a missing observation against. Keyed by
-                // item id, not observation id — moveViewerPhotoTo() resolves
-                // whichever one it actually needs.
+                // The viewer's "Move to…" chooser used to duplicate
+                // itemChoicesFor()'s own room-lookup/mapping — now the same
+                // list, one function, one place to fix.
                 itemMoveChoicesFor(section, room) {
-                    if (!room) return [];
-                    const group = this.roomGroups().find(g => g.room && g.room.id === room.id);
-                    if (!group) return [];
-                    return group.items.map(i => ({ id: i.id, label: i.label }));
+                    return this.itemChoicesFor(section, room);
                 },
                 // Same list, every room — the untagged tray doesn't know a
                 // room yet, so its "move to item" choice has to span all of
@@ -6133,16 +6120,55 @@
                         this.itemChoicesFor(section, g.room).map(i => ({ ...i, roomLabel: g.room.label }))
                     );
                 },
+                // FIX, 2026-09-22 (Johan) — shared by every control that tags
+                // photos to an item: an item with nothing recorded yet has no
+                // observation row to file a photo against, so this creates
+                // one on the fly (the agency's own baseline condition,
+                // RentalInspectionSetting::baselineConditionKeyFor(), the
+                // same starting-value mechanism markAllGood() uses — never a
+                // null/placeholder condition of its own invention) rather
+                // than leaving the item unreachable until it's separately
+                // rated first. The agent's own next real chip tap is a new,
+                // current observation (§3.1, append-only) — this starting
+                // value is never locked in as the actual finding. Extracted
+                // from moveViewerPhotoTo() so every caller (the viewer, the
+                // room bulk "Tag selected", the tray bulk "Tag to…") creates
+                // an observation the exact same way — one code path, not one
+                // per control.
+                async ensureObservationFor(section, itemId) {
+                    let observation = this.conditionFor(section, itemId);
+                    if (observation) return observation;
+                    const insp = this.currentInspection(section);
+                    if (!insp) return null;
+                    observation = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/observations`, {
+                        rental_inspection_item_id: itemId,
+                        condition: this.baselineConditionKey,
+                        notes: null,
+                        source: section === 'in' ? 'in_inspection' : 'out_inspection',
+                    });
+                    observation.photos = [];
+                    insp.observations.push(observation);
+                    return observation;
+                },
                 // Per-room "which item" choice for the multi-select tag bar
                 // below the room photo grid, keyed by room id so several
                 // rooms can be mid-pick at once without clobbering each
                 // other (matches roomPhotosExpanded/roomOpenOverride).
                 roomPhotoTagItemChoice: {},
-                async tagSelectedRoomPhotosToItem(section, room, observationId) {
-                    if (!observationId) return;
+                // FIX, 2026-09-22 (Johan) — took an observation id before, so
+                // it only ever worked for an item that already had one (the
+                // same bug itemChoicesFor() carried). Now takes the item id
+                // and resolves/creates the observation via the shared
+                // ensureObservationFor(), same as the viewer and the tray.
+                async tagSelectedRoomPhotosToItem(section, room, itemId) {
+                    if (!itemId) return;
                     const ids = this.selectedRoomPhotoIds(section, room);
                     if (!ids.length) return;
-                    await this.photoUploader(section).tagSelectedToItem(ids, room.id, Number(observationId));
+                    try {
+                        const observation = await this.ensureObservationFor(section, Number(itemId));
+                        if (!observation) return;
+                        await this.photoUploader(section).tagSelectedToItem(ids, room.id, observation.id);
+                    } catch (e) { this.error = e.message; return; }
                     this.roomPhotoTagItemChoice[room.id] = '';
                 },
                 // Design constraint, 2026-09-22 (Johan): room→untagged is a
@@ -6188,42 +6214,23 @@
                         room: room || null,
                     };
                 },
-                // FACT 4, 2026-09-22 (Johan) — takes an ITEM id now (see
+                // FACT 4, 2026-09-22 (Johan) — takes an ITEM id (see
                 // itemMoveChoicesFor() above), not an observation id: "the
                 // photo is usually what prompts the rating," so picking an
                 // item with nothing recorded yet must not be a dead end.
-                // "Do not invent a second code path... must be an ordinary
-                // observation, identical to one created by tapping a
-                // condition chip" — this posts to the exact same
-                // observations endpoint _commitObservation() does, with the
-                // agency's own baseline condition (RentalInspectionSetting::
-                // baselineConditionKeyFor(), already this.baselineConditionKey
-                // — the SAME starting-value mechanism markAllGood() already
-                // uses), never a null/placeholder condition of its own
-                // invention. The agent corrects it with a real chip tap once
-                // they've actually looked; that tap is a NEW observation
-                // (§3.1, append-only) and becomes current, so nothing about
-                // this starting value is ever locked in as the real finding.
+                // Observation create-on-demand now lives in the shared
+                // ensureObservationFor() above — the room bulk "Tag
+                // selected" and the tray bulk "Tag to…" both create theirs
+                // through the exact same call.
                 async moveViewerPhotoTo(itemId) {
                     if (!itemId || !this.viewer.photos) return;
                     const photo = this.viewer.photos[this.viewer.index];
                     if (!photo) return;
                     itemId = Number(itemId);
                     const section = this.viewer.section;
-                    let observation = this.conditionFor(section, itemId);
                     try {
-                        if (!observation) {
-                            const insp = this.currentInspection(section);
-                            if (!insp) return;
-                            observation = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/observations`, {
-                                rental_inspection_item_id: itemId,
-                                condition: this.baselineConditionKey,
-                                notes: null,
-                                source: section === 'in' ? 'in_inspection' : 'out_inspection',
-                            });
-                            observation.photos = [];
-                            insp.observations.push(observation);
-                        }
+                        const observation = await this.ensureObservationFor(section, itemId);
+                        if (!observation) return;
                         await this.photoUploader(section).tagPhoto(photo.id, { rental_inspection_observation_id: observation.id });
                     } catch (e) { this.error = e.message; }
                 },
@@ -6231,19 +6238,30 @@
                 // (same interaction language as the viewer chooser above,
                 // just for the bulk tray case, where there's no single
                 // opened photo to attach a chooser to). Value is
-                // 'room:<id>' or 'item:<observationId>' — see the tray's
+                // 'room:<roomId>' or 'item:<itemId>' — see the tray's
                 // <select> below. Reuses the existing trayTagRoomChoice
                 // field declared earlier in this component.
+                // FIX, 2026-09-22 (Johan) — the item branch used to treat
+                // rawId as an observation id (matching the old, now-removed
+                // filter in itemChoicesFor()); the option's :value is now the
+                // item id (see the tray <select> in the recording partial),
+                // resolved/created through the same shared
+                // ensureObservationFor() the viewer and room-bulk tag use —
+                // one create-on-demand for the whole batch, not one per photo.
                 async applyTrayDestination(section, value) {
                     if (!value) return;
                     const ids = Array.from(this.photoUploader(section).selected);
                     if (!ids.length) return;
                     const [kind, rawId] = value.split(':');
-                    if (kind === 'room') {
-                        await this.photoUploader(section).tagIdsToRoom(ids, Number(rawId));
-                    } else if (kind === 'item') {
-                        await this.photoUploader(section).tagSelectedToItem(ids, null, Number(rawId));
-                    }
+                    try {
+                        if (kind === 'room') {
+                            await this.photoUploader(section).tagIdsToRoom(ids, Number(rawId));
+                        } else if (kind === 'item') {
+                            const observation = await this.ensureObservationFor(section, Number(rawId));
+                            if (!observation) return;
+                            await this.photoUploader(section).tagSelectedToItem(ids, null, observation.id);
+                        }
+                    } catch (e) { this.error = e.message; return; }
                     this.trayTagRoomChoice = '';
                 },
                 inspectionProgress(section) {

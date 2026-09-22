@@ -304,8 +304,8 @@
                             <template x-for="group in roomGroups().filter(g => g.room)" :key="'tray-room-' + group.room.id">
                                 <option :value="'room:' + group.room.id" x-text="group.room.label"></option>
                             </template>
-                            <template x-for="i in allItemChoices({{ $sectionJs }})" :key="'tray-item-' + i.observationId">
-                                <option :value="'item:' + i.observationId" x-text="i.roomLabel + ' — ' + i.label"></option>
+                            <template x-for="i in allItemChoices({{ $sectionJs }})" :key="'tray-item-' + i.id">
+                                <option :value="'item:' + i.id" x-text="i.roomLabel + ' — ' + i.label"></option>
                             </template>
                         </select>
                         <button type="button" :disabled="!trayTagRoomChoice" @click="applyTrayDestination({{ $sectionJs }}, trayTagRoomChoice)"
@@ -425,7 +425,9 @@
                      is a many-destination move, so it doesn't belong on
                      the tile at all now; it lives in the opened photo view
                      (see the lightbox), which has room for a real chooser
-                     and the correct observation ids (itemChoicesFor()).
+                     built from itemChoicesFor() — item ids now (2026-09-22
+                     fix), which creates the observation on demand rather
+                     than requiring one to already exist.
                      Height-based clipping is also replaced with COUNT-based
                      slicing (first 3, "Show all" for the rest) so a
                      rendered tile is always whole regardless of width. --}}
@@ -476,7 +478,7 @@
                                     <select class="prop-input text-xs" style="max-width:10rem;" x-model.number="roomPhotoTagItemChoice[group.room.id]">
                                         <option value="">Tag to…</option>
                                         <template x-for="i in itemChoicesFor({{ $sectionJs }}, group.room)" :key="i.id">
-                                            <option :value="i.observationId" x-text="i.label"></option>
+                                            <option :value="i.id" x-text="i.label"></option>
                                         </template>
                                     </select>
                                     <button type="button" :disabled="!roomPhotoTagItemChoice[group.room.id]"
