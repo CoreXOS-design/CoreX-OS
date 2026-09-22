@@ -5,8 +5,9 @@
 #   Usage:  cd /corex-qa1 && ./scripts/qa-deploy.sh
 #
 # Deploys whatever is on origin/QA1 to the qa1 host: fast-forward pull → (only if
-# frontend changed) npm build → migrate → reference data → clear caches → reload
-# the shared php8.2-fpm pool → restart the qa1 worker. Idempotent; safe to re-run.
+# frontend changed) npm build → migrate → reference data → permission keys →
+# clear caches → reload the shared php8.2-fpm pool → restart the qa1 worker.
+# Idempotent; safe to re-run.
 #
 # NOT for staging/live. Refuses to run anywhere but the qa1 checkout. The general
 # scripts/deploy.sh is BANNED on qa1 — this is the blessed path.
@@ -69,19 +70,31 @@ php artisan migrate --force 2>&1 | tail -4
 echo "-- 5. reference data (global seeder-owned rows; idempotent) --"
 php artisan deploy:sync-reference-data 2>&1 | tail -3
 
-echo "-- 6. clear caches --"
+# scripts/deploy.sh (staging/production) has always run this on every deploy
+# (see its own step 6) — qa-deploy.sh never did, which is exactly why
+# rental_work_orders.manage_quotes had no grant rows on QA1 and looked
+# unbuilt (2026-09-22, cc6). --merge-defaults is additive only: it diffs
+# each role's config-expected key set against what's already in
+# role_permissions and inserts only the missing keys — existing rows,
+# including any agency's own Role Manager customisations, are never
+# touched, updated, or deleted. Never --seed-defaults here, same reasoning
+# as scripts/deploy.sh.
+echo "-- 6. permission keys (additive — customisations preserved) --"
+php artisan corex:sync-permissions --merge-defaults 2>&1 | tail -3
+
+echo "-- 7. clear caches --"
 php artisan config:clear 2>&1 | tail -1
 php artisan route:clear 2>&1 | tail -1
 php artisan view:clear 2>&1 | tail -1
 
-echo "-- 7. reload $FPM (clears opcache) --"
+echo "-- 8. reload $FPM (clears opcache) --"
 sudo systemctl reload "$FPM" 2>&1 | tail -1 || systemctl reload "$FPM" 2>&1 | tail -1
 
-echo "-- 8. restart qa1 worker --"
+echo "-- 9. restart qa1 worker --"
 sudo systemctl restart "$WORKER" 2>&1 | tail -1 || systemctl restart "$WORKER" 2>&1 | tail -1
 php artisan queue:restart 2>&1 | tail -1
 
-echo "-- 9. smoke: app boots (route table resolves) --"
+echo "-- 10. smoke: app boots (route table resolves) --"
 php artisan route:list >/dev/null 2>&1 && echo "   route table OK" || { echo "   ROUTE TABLE FAILED — investigate"; exit 1; }
 
 echo "== qa-deploy DONE @ $NEWHEAD =="
