@@ -437,11 +437,15 @@ class RoleManagerController extends Controller
         $now   = now();
         $count = 0;
 
+        // 2026-09-22, Johan — same fix and same reasoning as savePermissions()
+        // above: forceDelete() here would destroy the tombstone savePermissions()
+        // now depends on, so a role copy could silently undo a target role's own
+        // deliberate revocations. delete()+upsert(), not forceDelete()+insert().
         DB::transaction(function () use ($targets, $sourcePerms, $now, $agencyId, &$count) {
             foreach ($targets as $target) {
                 RolePermission::where('role', $target)
                     ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
-                    ->forceDelete();
+                    ->delete();
 
                 $rows = $sourcePerms->map(fn($p) => [
                     'role'           => $target,
@@ -450,11 +454,12 @@ class RoleManagerController extends Controller
                     'agency_id'      => $agencyId,
                     'created_at'     => $now,
                     'updated_at'     => $now,
+                    'deleted_at'     => null,
                 ])->all();
 
                 if (count($rows)) {
                     foreach (array_chunk($rows, 500) as $chunk) {
-                        RolePermission::insert($chunk);
+                        RolePermission::upsert($chunk, ['role', 'permission_key', 'agency_id'], ['scope', 'updated_at', 'deleted_at']);
                     }
                 }
 
@@ -532,9 +537,18 @@ class RoleManagerController extends Controller
 
             // Clear anything the archived role was still carrying so the agent
             // baseline below is the whole permission set, not a merge onto it.
+            //
+            // 2026-09-22, Johan — same fix as savePermissions()/copyPermissions()
+            // above: soft delete, not forceDelete(), so a tombstone survives.
+            // Does NOT change the documented behaviour just above (the archived
+            // role's old grants are still never inherited — the reseed below
+            // always writes the CURRENT agent baseline, regardless of what this
+            // role held before archival); it only means the clearing step here
+            // is itself undoable/auditable rather than a hard delete, matching
+            // every other write path against this table.
             RolePermission::where('role', $role->name)
                 ->when($agencyId, fn ($q) => $q->where('agency_id', $agencyId), fn ($q) => $q->whereNull('agency_id'))
-                ->forceDelete();
+                ->delete();
         } else {
             $role = Role::create($attributes);
         }
@@ -557,8 +571,15 @@ class RoleManagerController extends Controller
                 'agency_id'      => $agencyId,
                 'created_at'     => $now,
                 'updated_at'     => $now,
+                'deleted_at'     => null,
             ])->all();
-            RolePermission::insert($rows);
+            // upsert, not insert: for the $archived (revival) branch, the delete()
+            // just above leaves tombstoned rows sitting on this exact (role, key,
+            // agency) slot — a plain insert() would 1062 against them the moment
+            // an agent-baseline key matches one. Harmless for a genuinely new
+            // role (Role::create() branch): no prior rows exist to collide with,
+            // so this is a plain insert in that case either way.
+            RolePermission::upsert($rows, ['role', 'permission_key', 'agency_id'], ['scope', 'updated_at', 'deleted_at']);
         }
 
         Role::clearCache();
