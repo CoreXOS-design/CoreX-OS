@@ -3246,6 +3246,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.signatures.store');
         Route::post('/{rentalInventory}/complete', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'complete'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.complete');
+
+        // §0b — room-tagged photo capture, batched multi-file upload, and
+        // optional line-to-photo tagging (the TV serial number example).
+        Route::post('/{rentalInventory}/photos', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'storePhotos'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photos.store');
+        Route::post('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'attachLinePhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.attach');
+        Route::delete('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'detachLinePhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.detach');
     });
 
     // .ai/specs/rental-work-orders.md §3a/§6a — Rental Fault Reports, its own
@@ -3995,6 +4004,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::prefix('properties')->middleware(['permission:access_properties', 'agency.required', 'deny_assistant_property_write'])->name('corex.properties.')->group(function () {
         // Marketing compliance — go live
         Route::post('/{property}/go-live', [\App\Http\Controllers\CoreX\PropertyController::class, 'goLive'])->name('go-live');
+
+        // .ai/specs/rental-inventory.md §0b — "it lives on a property." One
+        // click from the property, straight into the room-based capture
+        // surface. Sale or rental, not gated on listing_type.
+        Route::get('/{property}/inventory', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'show'])
+            ->middleware('permission:rental_inventories.view')->name('inventory.show');
 
         // Presentations V2 — one-button generator (Phase 1) + coverage scorer (Phase 2)
         Route::post('/{property}/generate-presentation', [\App\Http\Controllers\Presentation\PresentationGeneratorController::class, 'generate'])

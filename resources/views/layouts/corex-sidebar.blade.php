@@ -1099,11 +1099,10 @@
                 <a href="{{ route('corex.rental-inspections.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inspections.*') ? 'active' : '' }}">Rental Inspections</a>
                 @endpermission
 
-                {{-- .ai/specs/rental-inventory.md — its own document, not a tab on the
-                     inspection. Same-day nav entry per non-negotiable #2. --}}
-                @permission('rental_inventories.view')
-                <a href="{{ route('corex.rental-inventories.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inventories.*') ? 'active' : '' }}">Rental Inventories</a>
-                @endpermission
+                {{-- .ai/specs/rental-inventory.md §0b — Johan, 2026-09-22: "theres no
+                     seperate inventory left pane menu item. it lives on a property."
+                     Removed intentionally — reached only from a property's own
+                     Inventory link (properties/show.blade.php), never the sidebar. --}}
 
                 {{-- .ai/specs/rental-work-orders.md §3a/§6a — a fault report is its own
                      record (settled 2026-09-24/25), not a tab within work orders. Same-day

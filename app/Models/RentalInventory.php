@@ -82,6 +82,11 @@ class RentalInventory extends Model
         return $this->hasMany(RentalInventorySignature::class);
     }
 
+    public function photos(): HasMany
+    {
+        return $this->hasMany(RentalInventoryPhoto::class);
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
@@ -123,6 +128,25 @@ class RentalInventory extends Model
             'lease_id' => $lease->id,
             'created_by_user_id' => $by->id,
         ]);
+    }
+
+    /**
+     * §0b, Johan 2026-09-22 — "selecting inventory from the property we
+     * already know which property its for. done simple." One click from the
+     * property, straight into the capture surface: resume the current
+     * (non-cancelled) inventory for the property's active lease if one
+     * exists, or start a fresh one transparently — no separate "create"
+     * step. Returns null only when the property genuinely has no active
+     * lease to attach to (§0a's still-open sale-property question).
+     */
+    public static function resolveOrStartFor(Property $property, User $by): ?self
+    {
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+        if (! $lease) {
+            return null;
+        }
+
+        return self::currentFor($lease) ?? self::start($property, $lease, $by);
     }
 
     /** Every tenant on the lease, plus the landlord if resolvable, who does NOT yet have a live disposition. */

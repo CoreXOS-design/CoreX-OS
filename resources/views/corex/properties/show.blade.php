@@ -1762,6 +1762,17 @@
                         </div>
                     </div>
                 @endif
+
+                {{-- .ai/specs/rental-inventory.md §0b — Johan, 2026-09-22: "it
+                     lives on a property... selecting inventory from the
+                     property we already know which property its for." One
+                     link, straight into the room-based capture surface — sale
+                     or rental, listing type never gates it. This is the ONLY
+                     entry point into Inventory; the old related-inventories
+                     panel (and its standalone list/create screens) are gone. --}}
+                @if(!$isNew)
+                    @include('corex.rental-inventories.partials._related-inventories', ['property' => $property])
+                @endif
             </div>
         </div>
 

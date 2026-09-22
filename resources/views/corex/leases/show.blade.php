@@ -188,5 +188,11 @@
         </div>
     </div>
     @endif
+
+    {{-- .ai/specs/rental-inventory.md §4 — reachable from where the work
+         happens, not only the sidebar list (Johan, 2026-09-22). --}}
+    @if($lease->property)
+        @include('corex.rental-inventories.partials._related-inventories', ['property' => $lease->property])
+    @endif
 </div>
 @endsection

@@ -26,8 +26,15 @@ class RentalInventoryController extends Controller
 {
     public function create(Request $request): View
     {
-        $properties = Property::where('listing_type', 'rental')
-            ->whereIn('id', Lease::where('status', Lease::STATUS_ACTIVE)->pluck('property_id'))
+        // Corrected 2026-09-22 (Johan) — an inventory is a PROPERTY feature,
+        // sale or rental, not rental-only; the listing_type filter this
+        // picker had is removed. NOTE, reported not silently absorbed: the
+        // whereIn() below still requires an ACTIVE LEASE, and RentalInventory
+        // ::start() hard-requires one — a Lease is a rental-tenancy concept,
+        // so in practice a sale property still won't appear here (or
+        // succeed at creation) until that deeper requirement is addressed.
+        // See .ai/specs/rental-inventory.md §0a.
+        $properties = Property::whereIn('id', Lease::where('status', Lease::STATUS_ACTIVE)->pluck('property_id'))
             ->orderBy('title')
             ->limit(500)
             ->get();
