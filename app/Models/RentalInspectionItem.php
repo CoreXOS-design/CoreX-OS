@@ -35,11 +35,13 @@ class RentalInspectionItem extends Model
         'label',
         'space_type',
         'source',
+        'sort_order',
         'is_retired',
         'created_by_user_id',
     ];
 
     protected $casts = [
+        'sort_order' => 'integer',
         'is_retired' => 'boolean',
     ];
 
@@ -73,6 +75,44 @@ class RentalInspectionItem extends Model
     public function scopeNotRetired(Builder $q): Builder
     {
         return $q->where('is_retired', false);
+    }
+
+    /**
+     * §3.2, Johan (property 4862): "how do I add to a room, not a new
+     * room." A single facet added to an ALREADY-EXISTING room — not a new
+     * room, no checklist reseed. Behaves exactly like a vocabulary-seeded
+     * facet (kind=space, same room, same observation/discrepancy/photo
+     * machinery) because it IS one; only its origin differs.
+     * `source='manual'` matches createRoomChecklist()'s own manually-added
+     * rooms — there is no separate provenance flag to drift out of sync.
+     */
+    public static function addToRoom(PropertyRoom $room, string $label, User $by): self
+    {
+        $nextSortOrder = ((int) static::where('property_room_id', $room->id)->max('sort_order')) + 1;
+
+        return static::create([
+            'agency_id' => $room->agency_id,
+            'property_id' => $room->property_id,
+            'property_room_id' => $room->id,
+            'kind' => self::KIND_SPACE,
+            'label' => $label,
+            'space_type' => $room->type,
+            'source' => 'manual',
+            'sort_order' => $nextSortOrder,
+            'created_by_user_id' => $by->id,
+        ]);
+    }
+
+    /** Display text only — never touches history, observations reference item_id, not label. */
+    public function rename(string $label): void
+    {
+        $this->update(['label' => $label]);
+    }
+
+    /** §3.3 — is_retired is this table's soft-delete floor (never deleted_at, see the spec's own reasoning). */
+    public function restoreItem(): void
+    {
+        $this->update(['is_retired' => false]);
     }
 
     /**

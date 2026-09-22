@@ -4578,6 +4578,7 @@
                 data: {{ Js::from($property->rentalImagesStructure()) }},
                 inspectionUrls: {
                     itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
+                    itemsReorder: '{{ route('corex.properties.rental-inspection-items.reorder', $property) }}',
                     seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
                     roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
@@ -4741,6 +4742,24 @@
                         </button>
                     </div>
 
+                    {{-- 2026-09-22 — retired items are never deleted (§3.3); this is
+                         their only way back. Closed by default so a working list of
+                         active items is never cluttered by ones nobody is using. --}}
+                    <div x-show="retiredItems().length" class="flex justify-end">
+                        <button type="button" @click="retiredItemsOpen = !retiredItemsOpen"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
+                                x-text="retiredItemsOpen ? 'Hide retired items' : retiredItems().length + ' retired item(s)'"></button>
+                    </div>
+                    <div x-show="retiredItemsOpen" x-collapse class="space-y-1">
+                        <template x-for="item in retiredItems()" :key="'retired-' + item.id">
+                            <div class="flex items-center justify-between py-1 pl-3" style="border-bottom:1px solid var(--border);">
+                                <span class="text-sm" style="color:var(--text-muted);" x-text="item.label + (item.room ? ' — ' + item.room.label : '')"></span>
+                                <button type="button" :disabled="itemBusy" @click="restoreItem(item)"
+                                        class="text-xs font-semibold" style="color:var(--brand-button,#0ea5e9);">Restore</button>
+                            </div>
+                        </template>
+                    </div>
+
                     {{-- 2026-09-21, Johan on property 5792: a room's name was printed
                          once per facet item (15 rows, 3 rooms, "Bedroom 2 —" repeated
                          5 times) — pure repeated metadata with nothing the agent needs
@@ -4768,9 +4787,21 @@
                                 </div>
                             </div>
                             <template x-for="item in group.items" :key="item.id">
-                                <div class="flex items-center justify-between py-1.5 pl-3" style="border-bottom:1px solid var(--border);">
-                                    <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
-                                    <div class="flex items-center gap-3">
+                                <div class="flex items-center justify-between py-1.5 pl-3 flex-wrap gap-1" style="border-bottom:1px solid var(--border);">
+                                    <template x-if="renamingItemId !== item.id">
+                                        <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                                    </template>
+                                    <template x-if="renamingItemId === item.id">
+                                        <div class="flex items-center gap-1">
+                                            <input type="text" x-model="renameDraft" maxlength="191" class="prop-input text-xs" style="max-width:11rem;"
+                                                   @keydown.enter.prevent="renameItem(item)" @keydown.escape.prevent="renamingItemId = null">
+                                            <button type="button" :disabled="itemBusy || !renameDraft.trim()" @click="renameItem(item)"
+                                                    class="text-xs font-semibold" style="color:var(--brand-button,#0ea5e9);">Save</button>
+                                            <button type="button" @click="renamingItemId = null"
+                                                    class="text-xs font-semibold" style="color:var(--text-muted);">Cancel</button>
+                                        </div>
+                                    </template>
+                                    <div class="flex items-center gap-3 flex-wrap">
                                         {{-- 2026-09-21 — a space created before the room-type
                                              picker existed has no room and no space_type; give
                                              it one retroactively instead of leaving it stuck
@@ -4788,6 +4819,19 @@
                                             </div>
                                         </template>
                                         <span class="text-xs uppercase tracking-wide" style="color:var(--text-muted);" x-text="item.kind"></span>
+                                        {{-- Reorder within this room — same convention as the
+                                             room-level Move up/down above, one level down.
+                                             Only meaningful with more than one item to reorder. --}}
+                                        <template x-if="group.room && group.items.length > 1">
+                                            <span class="flex items-center gap-1">
+                                                <button type="button" :disabled="itemBusy" @click="moveItemUp(group, item)"
+                                                        class="text-xs font-semibold" style="color:var(--text-muted);">Move up</button>
+                                                <button type="button" :disabled="itemBusy" @click="moveItemDown(group, item)"
+                                                        class="text-xs font-semibold" style="color:var(--text-muted);">Move down</button>
+                                            </span>
+                                        </template>
+                                        <button type="button" :disabled="itemBusy" @click="renamingItemId = item.id; renameDraft = item.label"
+                                                class="text-xs font-semibold" style="color:var(--text-muted);">Rename</button>
                                         <button type="button" :disabled="itemBusy" @click="retireItem(item)"
                                                 class="text-xs font-semibold" style="color:var(--ds-crimson);">Retire</button>
                                     </div>
@@ -4796,12 +4840,18 @@
                         </div>
                     </template>
 
-                    <form @submit.prevent="addItem()" class="flex items-end gap-2 pt-2">
-                        <select x-model="newItem.kind" class="prop-input" style="max-width:8rem;">
-                            <option value="space">Space</option>
+                    <form @submit.prevent="addItem()" class="flex items-end gap-2 pt-2 flex-wrap">
+                        {{-- 2026-09-22 — Johan, property 4862, read Space here as which
+                             room to add INTO and got a new room instead: this picker was
+                             only ever a what-am-I-creating choice, never a which-room
+                             choice. Item (in a space) is a third, distinct choice — add
+                             ONE facet to a room that already exists, never a new room. --}}
+                        <select x-model="newItem.kind" class="prop-input" style="max-width:11rem;">
+                            <option value="space">Space (new room)</option>
                             <option value="meter">Meter</option>
+                            <option value="item">Item (in a space)</option>
                         </select>
-                        {{-- Room type — only meaningful for a Space; a Meter has no
+                        {{-- Room type — only meaningful for a NEW Space; a Meter has no
                              room. Sourced from the real PHP config, not the JS copy
                              of this list elsewhere on this page — that copy has been
                              found to drift for a DIFFERENT catalog (feature labels),
@@ -4812,9 +4862,18 @@
                                 <option value="{{ $spaceType }}">{{ $spaceType }}</option>
                             @endforeach
                         </select>
-                        <input type="text" x-model="newItem.label" placeholder="e.g. Bedroom 2, Water meter" maxlength="191"
+                        {{-- Which EXISTING room the item goes into — this is the control
+                             that did not exist before. Sourced from this property's own
+                             already-built rooms, never a room-type catalog. --}}
+                        <select x-show="newItem.kind === 'item'" x-model="newItem.property_room_id" class="prop-input" style="max-width:10rem;">
+                            <option value="">Which space…</option>
+                            <template x-for="group in roomGroups().filter(g => g.room)" :key="'pick-' + group.room.id">
+                                <option :value="group.room.id" x-text="group.room.label"></option>
+                            </template>
+                        </select>
+                        <input type="text" x-model="newItem.label" :placeholder="newItemPlaceholder()" maxlength="191"
                                class="prop-input flex-1" @keydown.enter.prevent="addItem()">
-                        <button type="submit" :disabled="itemBusy || !newItem.label.trim() || (newItem.kind === 'space' && !newItem.space_type)"
+                        <button type="submit" :disabled="itemBusy || !newItem.label.trim() || (newItem.kind === 'space' && !newItem.space_type) || (newItem.kind === 'item' && !newItem.property_room_id)"
                                 class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">
                             Add
                         </button>
@@ -5126,11 +5185,27 @@
 
                 itemError: '',
                 itemBusy: false,
-                newItem: { kind: 'space', label: '', space_type: '' },
+                newItem: { kind: 'space', label: '', space_type: '', property_room_id: '' },
                 // 2026-09-21 — one pending room-type choice per legacy
                 // typeless item, keyed by item id (several can be mid-pick
                 // at once without clobbering each other).
                 assignTypeChoice: {},
+                // 2026-09-22 — inline rename, one item at a time (matches the
+                // assign-type picker's own one-at-a-time convention above).
+                renamingItemId: null,
+                renameDraft: '',
+                // 2026-09-22 — retired items are already loaded (this.items
+                // holds every item regardless of is_retired) but hidden from
+                // every group; a closed-by-default toggle keeps the working
+                // list uncluttered, matching the archived/restore convention
+                // already used elsewhere in CoreX rather than inventing one.
+                retiredItemsOpen: false,
+                retiredItems() { return this.items.filter(i => i.is_retired); },
+                newItemPlaceholder() {
+                    if (this.newItem.kind === 'meter') return 'e.g. Water meter';
+                    if (this.newItem.kind === 'item') return 'e.g. Built-in cupboard (BIC)';
+                    return 'e.g. Bedroom 2';
+                },
 
                 activeItems() { return this.items.filter(i => !i.is_retired); },
                 // 2026-09-21, Johan on property 5792 — replaces the old flat
@@ -5159,6 +5234,13 @@
                         } else {
                             general.push(item);
                         }
+                    }
+                    // 2026-09-22 — same tiebreak reasoning as the room-level
+                    // sort just below, one level down: an item added before
+                    // sort_order existed, or two items that happen to share
+                    // one, must not flip order between page loads.
+                    for (const group of byRoom.values()) {
+                        group.items.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.id - b.id));
                     }
                     // 2026-09-21, Johan on property 5792 — `id` is a required
                     // secondary tiebreak, not decoration: two rooms of the
@@ -5227,21 +5309,26 @@
                     const label = this.newItem.label.trim();
                     if (!label) return;
                     if (this.newItem.kind === 'space' && !this.newItem.space_type) return;
+                    if (this.newItem.kind === 'item' && !this.newItem.property_room_id) return;
                     this.itemBusy = true;
                     this.itemError = '';
                     try {
-                        // 2026-09-21 — a Space add now returns the checklist rows
+                        // 2026-09-21 — a Space add returns the checklist rows
                         // created under its new room, not the bare space itself;
-                        // a Meter add still returns its own one bare item. Both
-                        // come back the same shape ({items: [...]}) so this push
-                        // path covers both without branching.
+                        // a Meter add returns its own one bare item. 2026-09-22 —
+                        // an Item add returns its own one new facet, under the
+                        // EXISTING room it was pointed at, no new room created.
+                        // All three come back the same shape ({items: [...]}) so
+                        // this push path covers them without branching.
                         const result = await this._post(this.inspectionUrls.itemStore, {
                             kind: this.newItem.kind, label,
                             space_type: this.newItem.kind === 'space' ? this.newItem.space_type : null,
+                            property_room_id: this.newItem.kind === 'item' ? this.newItem.property_room_id : null,
                         });
                         this.items.push(...result.items);
                         this.newItem.label = '';
                         this.newItem.space_type = '';
+                        this.newItem.property_room_id = '';
                     } catch (e) { this.itemError = e.message; }
                     finally { this.itemBusy = false; }
                 },
@@ -5273,6 +5360,62 @@
                     try {
                         await this._post(`${this.inspectionUrls.itemStore}/${item.id}/retire`, {});
                         item.is_retired = true;
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // 2026-09-22 — never a hard delete; brings a retired item back
+                // exactly as it was, same row, same history, nothing recreated.
+                async restoreItem(item) {
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const restored = await this._post(`${this.inspectionUrls.itemStore}/${item.id}/restore`, {});
+                        item.is_retired = restored.is_retired;
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // 2026-09-22 — label only; never touches item.id, so every
+                // observation/photo/discrepancy already recorded stays
+                // attached to exactly the same item, unaffected by a rename.
+                async renameItem(item) {
+                    const label = this.renameDraft.trim();
+                    if (!label) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const updated = await this._post(`${this.inspectionUrls.itemStore}/${item.id}/rename`, { label });
+                        item.label = updated.label;
+                        this.renamingItemId = null;
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+
+                // 2026-09-22 — reorder within one room, same swap-then-persist
+                // shape as _moveRoom()/_persistRoomOrder() above, one level
+                // down: only this room's own items are ever touched.
+                moveItemUp(group, item) { this._moveItem(group, item, -1); },
+                moveItemDown(group, item) { this._moveItem(group, item, 1); },
+                _moveItem(group, item, delta) {
+                    const ids = group.items.map(i => i.id);
+                    const from = ids.indexOf(item.id);
+                    const to = from + delta;
+                    if (from === -1 || to < 0 || to >= ids.length) return;
+                    const tmp = ids[from];
+                    ids[from] = ids[to];
+                    ids[to] = tmp;
+                    this._persistItemOrder(group.room.id, ids);
+                },
+                async _persistItemOrder(roomId, itemIds) {
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.itemsReorder, {
+                            property_room_id: roomId, item_ids: itemIds,
+                        });
+                        const bySortOrder = new Map(result.items.map(i => [i.id, i.sort_order]));
+                        this.items.forEach(i => { if (bySortOrder.has(i.id)) i.sort_order = bySortOrder.get(i.id); });
                     } catch (e) { this.itemError = e.message; }
                     finally { this.itemBusy = false; }
                 },

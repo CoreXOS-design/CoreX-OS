@@ -4249,6 +4249,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
         Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
         Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
+        // 2026-09-22 — Johan, property 4862: "how do I add to a room, not a
+        // new room." restore/rename/reorder complete the CRUD floor for an
+        // item added to an existing room (retire already existed above).
+        Route::post('/{property}/rental-inspection-items/{item}/restore', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'restoreItem'])->name('rental-inspection-items.restore');
+        Route::post('/{property}/rental-inspection-items/{item}/rename', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'renameItem'])->name('rental-inspection-items.rename');
+        Route::post('/{property}/rental-inspection-items/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderItems'])->name('rental-inspection-items.reorder');
         // 2026-09-21 — retrofit a room type onto a legacy typeless space item
         // (e.g. one created before this fix). See RentalInspectionRecordingController::assignType().
         Route::post('/{property}/rental-inspection-items/{item}/assign-type', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'assignType'])->name('rental-inspection-items.assign-type');

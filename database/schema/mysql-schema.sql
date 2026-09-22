@@ -7615,6 +7615,7 @@ CREATE TABLE `lease_settings` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `expiry_notice_window_days` smallint unsigned DEFAULT NULL,
+  `show_lease_type_field` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -12933,6 +12934,7 @@ CREATE TABLE `rental_inspection_items` (
   `kind` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `label` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `space_type` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
   `source` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
   `is_retired` tinyint(1) NOT NULL DEFAULT '0',
   `created_by_user_id` bigint unsigned DEFAULT NULL,
@@ -12992,20 +12994,34 @@ DROP TABLE IF EXISTS `rental_inspection_photos`;
 CREATE TABLE `rental_inspection_photos` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `rental_inspection_observation_id` bigint unsigned NOT NULL,
+  `rental_inspection_id` bigint unsigned DEFAULT NULL,
+  `rental_inspection_observation_id` bigint unsigned DEFAULT NULL,
+  `property_room_id` bigint unsigned DEFAULT NULL,
   `storage_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `uploaded_by_user_id` bigint unsigned DEFAULT NULL,
   `client_idempotency_key` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_size_bytes` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NOT NULL,
+  `tagged_at` timestamp NULL DEFAULT NULL,
+  `tagged_by_user_id` bigint unsigned DEFAULT NULL,
+  `archived_by_user_id` bigint unsigned DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `rental_inspection_photos_client_idempotency_key_unique` (`client_idempotency_key`),
   KEY `ri_photos_observation_fk` (`rental_inspection_observation_id`),
   KEY `rental_inspection_photos_uploaded_by_user_id_foreign` (`uploaded_by_user_id`),
   KEY `ri_photos_agency_observation_idx` (`agency_id`,`rental_inspection_observation_id`),
+  KEY `ri_photos_inspection_fk` (`rental_inspection_id`),
+  KEY `ri_photos_room_fk` (`property_room_id`),
+  KEY `ri_photos_tagged_by_fk` (`tagged_by_user_id`),
+  KEY `ri_photos_archived_by_fk` (`archived_by_user_id`),
   CONSTRAINT `rental_inspection_photos_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rental_inspection_photos_uploaded_by_user_id_foreign` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `ri_photos_observation_fk` FOREIGN KEY (`rental_inspection_observation_id`) REFERENCES `rental_inspection_observations` (`id`) ON DELETE CASCADE
+  CONSTRAINT `ri_photos_archived_by_fk` FOREIGN KEY (`archived_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ri_photos_inspection_fk` FOREIGN KEY (`rental_inspection_id`) REFERENCES `rental_inspections` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ri_photos_observation_fk` FOREIGN KEY (`rental_inspection_observation_id`) REFERENCES `rental_inspection_observations` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `ri_photos_room_fk` FOREIGN KEY (`property_room_id`) REFERENCES `property_rooms` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `ri_photos_tagged_by_fk` FOREIGN KEY (`tagged_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_inspection_room_notes`;
@@ -13043,7 +13059,7 @@ CREATE TABLE `rental_inspection_settings` (
   `room_type_item_defaults` json DEFAULT NULL,
   `room_type_walking_order` json DEFAULT NULL,
   `condition_states` json DEFAULT NULL,
-  `baseline_condition_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `baseline_condition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -13177,9 +13193,9 @@ CREATE TABLE `rental_inventory_line_dispositions` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_inventory_line_id` bigint unsigned NOT NULL,
   `rental_inventory_id` bigint unsigned NOT NULL,
-  `disposition_key` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `disposition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `quantity_found` int unsigned DEFAULT NULL,
-  `notes` text COLLATE utf8mb4_unicode_ci,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `recorded_by_user_id` bigint unsigned DEFAULT NULL,
   `recorded_at` timestamp NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -13250,10 +13266,10 @@ CREATE TABLE `rental_inventory_photos` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_inventory_id` bigint unsigned NOT NULL,
   `property_room_id` bigint unsigned DEFAULT NULL,
-  `storage_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `storage_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_size_bytes` bigint unsigned DEFAULT NULL,
   `uploaded_by_user_id` bigint unsigned DEFAULT NULL,
-  `client_idempotency_key` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `client_idempotency_key` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -13398,8 +13414,8 @@ CREATE TABLE `rental_work_order_quotes` (
   `agency_service_provider_id` bigint unsigned NOT NULL,
   `amount` decimal(10,2) NOT NULL,
   `quote_date` date NOT NULL,
-  `document_storage_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `detail_text` text COLLATE utf8mb4_unicode_ci,
+  `document_storage_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `detail_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `is_selected` tinyint(1) NOT NULL DEFAULT '0',
   `captured_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -17642,3 +17658,8 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1421,'2026_10_01_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1422,'2026_10_02_100000_add_property_room_to_rental_inventory_lines',351);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1423,'2026_10_02_100100_create_rental_inventory_photos_table',351);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1424,'2026_10_02_100200_create_rental_inventory_line_photos_table',351);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1425,'2026_09_21_180000_backfill_rental_price_type_property_settings',352);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1426,'2026_09_21_190000_backfill_lease_type_property_settings',352);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1427,'2026_09_22_100000_add_show_lease_type_field_to_lease_settings_table',352);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1428,'2026_09_22_140000_add_room_and_tray_support_to_rental_inspection_photos_table',352);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1429,'2026_09_22_150000_add_sort_order_to_rental_inspection_items_table',352);

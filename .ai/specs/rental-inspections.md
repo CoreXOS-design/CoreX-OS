@@ -2510,3 +2510,86 @@ unchanged. Verified: `sbCollapsed` flips to `true` the moment In Inspection alon
   picker, the readiness panel, and others. Not touched here; flagged for whoever owns those areas.
 - §20.13.6's own "Found, not fixed" item (archive affordance missing on already-tagged room/item photo
   views) is still not built — out of this build's two-bugs-plus-R1-R3 scope, unchanged from before.
+
+---
+
+## 21. Add an item to an EXISTING room (2026-09-22, cc1) — there was no way to do this at all
+
+Johan, verbatim, looking at property 4862's Inspection Items panel: *"I want to add lets say bic to
+bedroom 1 - no ways to do this? I tried to select kitchen, enter the inspection item name clicked add
+and it adds a whole space. so please explain to me how do I add to a room, not a new room."*
+
+**What was actually there, checked directly against the deployed screen, not assumed:** the Inspection
+Items "Add" row had exactly one type picker — **Space | Meter** — a WHAT-AM-I-CREATING choice, never a
+WHICH-ROOM choice. Selecting "Space" and picking a room TYPE (e.g. Kitchen) from the second dropdown
+looks like naming an existing room but isn't — `RentalInspectionRecordingController::storeItem()`
+(§14.1) unconditionally created a brand-new `PropertyRoom` from whatever label was typed, seeded with
+that room type's checklist (`RentalInspectionSetting::roomTypeItemsFor()`). There was no code path
+anywhere — web or, by extension, the future mobile API (§14.2) that calls the same method — that took
+an existing `property_room_id` and added one facet to it. The control did exactly what it was built to
+do; it just could not do the thing Johan needed.
+
+**Checked and answered directly, not assumed: editing the room-type vocabulary in Settings would not
+have helped either.** `RentalInspectionSetting::roomTypeItemsFor()` is read exactly once, at the moment
+`createRoomChecklist()` creates a NEW room (`storeItem()`/`assignType()`) — it is never re-applied to a
+room that already exists. Bedroom 1 on property 4862 already existed; nothing in Settings reaches back
+into an already-built room, regardless of what the agency's checklist defaults say today.
+
+### 21.1 The fix — a third, additive `kind` at the request level, not a new stored kind
+
+`RentalInspectionItem::KIND_SPACE`/`KIND_METER` (the two STORED values) are unchanged. `storeItem()`
+now also accepts `kind=item`, which is a REQUEST-shape distinction only — the row it creates still
+stores `kind='space'`, because it behaves exactly like any other facet under that room (§3.1: an item
+has no condition of its own; conditions/notes/photos are observations against it, identical machinery
+regardless of how the item came to exist). `kind=item` requires `property_room_id` (an existing,
+non-retired `PropertyRoom` on this property) instead of `space_type`, and creates exactly the one row
+asked for — no checklist reseed, no new room. The existing `space`/`meter` branches are byte-for-byte
+unchanged; Space still creates a new room, Meter still creates a bare item, neither regressed.
+
+The Add row's type picker gained a third option, **"Item (in a space)"**, and a room-picker `<select>`
+(sourced from the property's own already-built rooms, shown only when `kind=item`) appears in the same
+slot the room-TYPE picker occupies for `kind=space` — one row, one control set, matching the shape Johan
+asked for. The placeholder text is now kind-dependent (`newItemPlaceholder()`) rather than the old
+static "e.g. Bedroom 2, Water meter", which no longer implies only two kinds exist.
+
+### 21.2 Full CRUD — rename, reorder within the room, retire/restore
+
+- **Rename** — `RentalInspectionItem::rename()`, a new `.../rename` endpoint. Label only; never touches
+  `id`, so every observation/photo/discrepancy already recorded against the item stays attached to the
+  exact same row, unaffected.
+- **Reorder within a room** — new `sort_order` column (mirrors `property_rooms.sort_order` exactly —
+  same type, same default, same `orderBy('sort_order')->orderBy('id')` tiebreak convention already used
+  for rooms). Move up/down per item, scoped to `property_room_id` so one room's reorder can never touch
+  another room's items even on the same property. A freshly-seeded room's checklist facets now get
+  sequential `sort_order` at creation (previously all `0`, relying only on the `id` tiebreak) —
+  cosmetic today, meaningful now that items are explicitly reorderable.
+- **Retire/restore** — retire already existed (§3.3, `is_retired`, never `deleted_at` — the architectural
+  reason is unchanged and not revisited here). **Restore did not exist** — a retired item had no way
+  back in the UI at all. New `.../restore` endpoint + a closed-by-default "N retired item(s)" toggle on
+  the panel (matching the archive/restore convention already used elsewhere in CoreX), never a badge on
+  every row.
+- Every one of these follows the exact same `abort_if($item->property_id !== $property->id, 404)`
+  scoping already used by `retireItem()`/`assignType()` — AGENCY is the `Property` route-model-binding's
+  own global scope (never crossed); this is the additional per-property check within it. No new
+  permission key — these routes sit in the exact same `access_properties` group every sibling item route
+  already does, unchanged.
+
+### 21.3 Not built, deliberately
+
+No new agency setting was added. Johan's build brief asked for "agency-configurable... for any limit or
+label" — checked against what was actually needed: the only field-level constraint here is the item
+label's 191-character max, which already matches the pre-existing convention every other label on this
+same panel uses (space label, meter label, room-type-picker free text). There is no new numeric
+threshold (e.g. a max-items-per-room cap) anywhere in this build for a setting to govern — inventing one
+nobody asked for would be exactly the kind of unrequested addition CLAUDE.md rules against. If Johan
+wants such a cap, that is a real, separate ask.
+
+### 21.4 Verified
+
+`php -l` on every changed file; `php artisan view:clear`; the existing
+`tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php` extended in place (not a
+new file) with the add-to-existing-room path (including the regression proof that `kind=space` still
+creates a new room, untouched), rename, restore, and reorder-scoped-to-one-room cases, run against the
+per-lane isolated test database. No browser harness, no dev server, no minted session — per Johan's own
+standing instruction for this build, verification stopped at that line; the deployed screen is his to
+confirm.

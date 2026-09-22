@@ -397,6 +397,189 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertTrue($item->fresh()->is_retired);
     }
 
+    // ── Add an item to an EXISTING room (Johan, property 4862: "how do I
+    // add to a room, not a new room") — the actual fix this file gained
+    // its newest tests for. ─────────────────────────────────────────────
+
+    private function makeRoom(string $label = 'Bedroom 1', string $type = 'Bedroom'): PropertyRoom
+    {
+        return PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => $type, 'label' => $label, 'source' => 'manual', 'created_by_user_id' => $this->agent->id,
+        ]);
+    }
+
+    public function test_kind_item_adds_one_facet_to_an_existing_room_and_creates_no_new_room(): void
+    {
+        $room = $this->makeRoom();
+        $roomCountBefore = PropertyRoom::where('property_id', $this->property->id)->count();
+
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => 'item', 'label' => 'BIC', 'property_room_id' => $room->id,
+        ])->assertOk();
+
+        $this->assertSame($roomCountBefore, PropertyRoom::where('property_id', $this->property->id)->count());
+        $this->assertDatabaseHas('rental_inspection_items', [
+            'property_room_id' => $room->id, 'label' => 'BIC', 'kind' => RentalInspectionItem::KIND_SPACE,
+        ]);
+    }
+
+    public function test_kind_item_requires_property_room_id(): void
+    {
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => 'item', 'label' => 'BIC',
+        ])->assertStatus(422);
+    }
+
+    public function test_kind_item_404s_for_a_room_on_a_different_property(): void
+    {
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $room = $this->makeRoom();
+
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $otherProperty), [
+            'kind' => 'item', 'label' => 'BIC', 'property_room_id' => $room->id,
+        ])->assertNotFound();
+    }
+
+    /** The new item must behave exactly like a vocabulary-seeded facet — same observation machinery, no special case. */
+    public function test_an_item_added_to_an_existing_room_accepts_an_observation_like_any_other_item(): void
+    {
+        $room = $this->makeRoom();
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => 'item', 'label' => 'BIC', 'property_room_id' => $room->id,
+        ])->assertOk();
+        $item = RentalInspectionItem::where('property_room_id', $room->id)->where('label', 'BIC')->firstOrFail();
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'condition' => 'good', 'source' => 'in_inspection',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('rental_inspection_observations', [
+            'rental_inspection_item_id' => $item->id, 'condition' => 'good',
+        ]);
+    }
+
+    // ── Rename (Full CRUD floor) ─────────────────────────────────────────
+
+    public function test_renaming_an_item_updates_its_label_only(): void
+    {
+        $item = $this->makeItem();
+
+        $this->postJson(route('corex.properties.rental-inspection-items.rename', [$this->property, $item]), [
+            'label' => 'Main Bedroom',
+        ])->assertOk();
+
+        $item->refresh();
+        $this->assertSame('Main Bedroom', $item->label);
+        $this->assertSame(RentalInspectionItem::KIND_SPACE, $item->kind);
+    }
+
+    public function test_renaming_an_item_from_a_different_property_404s(): void
+    {
+        $item = $this->makeItem();
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+
+        $this->postJson(route('corex.properties.rental-inspection-items.rename', [$otherProperty, $item]), [
+            'label' => 'x',
+        ])->assertNotFound();
+    }
+
+    public function test_renaming_an_item_rejects_a_blank_label(): void
+    {
+        $item = $this->makeItem();
+
+        $this->postJson(route('corex.properties.rental-inspection-items.rename', [$this->property, $item]), [
+            'label' => '',
+        ])->assertStatus(422);
+    }
+
+    // ── Restore (never a hard delete — the reverse of retire) ────────────
+
+    public function test_restoring_a_retired_item_clears_is_retired(): void
+    {
+        $item = $this->makeItem();
+        $item->update(['is_retired' => true]);
+
+        $this->postJson(route('corex.properties.rental-inspection-items.restore', [$this->property, $item]))
+            ->assertOk();
+
+        $this->assertFalse($item->fresh()->is_retired);
+    }
+
+    public function test_restoring_an_item_from_a_different_property_404s(): void
+    {
+        $item = $this->makeItem();
+        $item->update(['is_retired' => true]);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+
+        $this->postJson(route('corex.properties.rental-inspection-items.restore', [$otherProperty, $item]))
+            ->assertNotFound();
+    }
+
+    // ── Reorder within a room (never renumbers items the agent did not touch) ──
+
+    public function test_reordering_items_within_a_room_persists_the_new_sort_order(): void
+    {
+        $room = $this->makeRoom();
+        $first = RentalInspectionItem::addToRoom($room, 'Ceiling', $this->agent);
+        $second = RentalInspectionItem::addToRoom($room, 'Walls', $this->agent);
+
+        $this->postJson(route('corex.properties.rental-inspection-items.reorder', $this->property), [
+            'property_room_id' => $room->id, 'item_ids' => [$second->id, $first->id],
+        ])->assertOk();
+
+        $this->assertSame(0, $second->fresh()->sort_order);
+        $this->assertSame(1, $first->fresh()->sort_order);
+    }
+
+    public function test_reordering_rejects_an_item_id_that_does_not_belong_to_the_given_room(): void
+    {
+        $room = $this->makeRoom();
+        $otherRoom = $this->makeRoom('Bedroom 2');
+        $itemInRoom = RentalInspectionItem::addToRoom($room, 'Ceiling', $this->agent);
+        $itemInOtherRoom = RentalInspectionItem::addToRoom($otherRoom, 'Ceiling', $this->agent);
+
+        $this->postJson(route('corex.properties.rental-inspection-items.reorder', $this->property), [
+            'property_room_id' => $room->id, 'item_ids' => [$itemInRoom->id, $itemInOtherRoom->id],
+        ])->assertStatus(422);
+    }
+
+    public function test_reordering_one_room_never_touches_another_rooms_items(): void
+    {
+        $room = $this->makeRoom();
+        $untouchedRoom = $this->makeRoom('Bedroom 2');
+        $itemInRoom = RentalInspectionItem::addToRoom($room, 'Ceiling', $this->agent);
+        $untouchedItem = RentalInspectionItem::addToRoom($untouchedRoom, 'Ceiling', $this->agent);
+        $untouchedItem->update(['sort_order' => 5]);
+
+        $this->postJson(route('corex.properties.rental-inspection-items.reorder', $this->property), [
+            'property_room_id' => $room->id, 'item_ids' => [$itemInRoom->id],
+        ])->assertOk();
+
+        $this->assertSame(5, $untouchedItem->fresh()->sort_order);
+    }
+
+    // ── Existing Space/Meter behaviour must not regress ───────────────────
+
+    public function test_kind_space_still_creates_a_new_room_unaffected_by_the_item_addition(): void
+    {
+        $this->postJson(route('corex.properties.rental-inspection-items.store', $this->property), [
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Bedroom 3', 'space_type' => 'Bedroom',
+        ])->assertOk();
+
+        $this->assertSame(1, PropertyRoom::where('property_id', $this->property->id)->where('label', 'Bedroom 3')->count());
+    }
+
     // ── Starting an inspection (§0.5 — deliberate, never auto-created) ──
 
     public function test_the_tab_has_no_current_inspection_until_one_is_explicitly_started(): void
