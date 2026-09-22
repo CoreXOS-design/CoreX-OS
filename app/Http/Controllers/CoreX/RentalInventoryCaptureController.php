@@ -89,6 +89,16 @@ class RentalInventoryCaptureController extends Controller
             'roomsForJs' => $roomsForJs,
             'linesForJs' => $linesForJs,
             'photosForJs' => $photosForJs,
+            // Johan: "we specced inventory being blank then you can create
+            // the spaces same as with inspections." Reuses
+            // RentalInspectionRecordingController::storeItem() (kind=space)
+            // directly — the SAME PropertyRoom write path inspections' own
+            // "Space (new room)" control already uses, not a second space
+            // model. A room created here is immediately visible to
+            // inspections too, and vice versa, because it is the same
+            // table, same query, same permission (access_properties).
+            'spaceStoreUrl' => route('corex.properties.rental-inspection-items.store', $property),
+            'spaceTypes' => config('property-spaces.all_space_types', []),
         ]);
     }
 

@@ -146,6 +146,61 @@ final class RentalInventoryCaptureTest extends TestCase
         $this->assertCount(0, RentalInventoryLine::find($lineId)->photos);
     }
 
+    /**
+     * .ai/specs/rental-inventory.md §4b — Johan: "we specced inventory being
+     * blank then you can create the spaces same as with inspections."
+     * Proves the whole point of reusing the inspections write path rather
+     * than building a second space model: a space created from the
+     * inventory screen is the exact same PropertyRoom row the Inspection
+     * Items section's own "Space (new room)" control would have created —
+     * so it is immediately visible on the inspection side too, not a
+     * lookalike record in a parallel table.
+     */
+    public function test_a_space_created_from_a_blank_property_is_the_same_property_room_inspections_would_see(): void
+    {
+        // A genuinely blank property — no rooms at all, the real state of
+        // every new property, which is exactly the state Johan was blocked
+        // on tonight.
+        $blankProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Blank Property', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $blankProperty->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9500, 'start_date' => now()->subMonth(),
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $this->assertSame(0, PropertyRoom::where('property_id', $blankProperty->id)->count());
+
+        $this->get(route('corex.properties.inventory.show', $blankProperty))->assertOk();
+
+        // Same write path the Inspection Items section's own control calls
+        // (RentalInspectionRecordingController::storeItem, kind=space) —
+        // proving reuse by calling the identical route, not a new one.
+        $response = $this->postJson(route('corex.properties.rental-inspection-items.store', $blankProperty), [
+            'kind' => 'space',
+            'label' => 'Bedroom 1',
+            'space_type' => 'Bedroom',
+        ])->assertOk();
+
+        $roomId = $response->json('items.0.room.id');
+        $this->assertNotNull($roomId, 'storeItem(kind=space) must return the new room on every created item.');
+
+        $room = PropertyRoom::find($roomId);
+        $this->assertNotNull($room, 'The space must be a real PropertyRoom row.');
+        $this->assertSame($blankProperty->id, $room->property_id);
+        $this->assertSame('Bedroom 1', $room->label);
+        $this->assertFalse((bool) $room->is_retired);
+
+        // The inventory capture page's own room list uses the exact same
+        // query PropertyRoom::where('property_id')->where('is_retired',
+        // false) — this IS the query the inspections tab data endpoint uses
+        // too, so a room visible here is, by construction, visible there.
+        $reload = $this->get(route('corex.properties.inventory.show', $blankProperty));
+        $reload->assertOk();
+        $reload->assertSee('Bedroom 1', false);
+    }
+
     public function test_line_and_photo_are_scoped_to_the_inventory_they_belong_to(): void
     {
         Storage::fake('public');

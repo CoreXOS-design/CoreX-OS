@@ -470,6 +470,35 @@ No new Tailwind utility classes were introduced — `grid-cols-3 sm:grid-cols-5`
 
 ---
 
+## 4b. Create spaces from blank — BUILT (2026-09-22, cc4)
+
+Johan, restating the spec: *"we specced inventory being blank then you can create the spaces same as
+with inspections."* §0b's own honest-state message ("Add rooms from the property's Inspection Items
+section first") described the blank-property gap accurately but left the agent stuck mid-walkthrough —
+every new property starts with zero rooms, which is exactly the state this fixes.
+
+**Reuses the inspections write path directly — no second space model.** The capture screen's own "Add
+space" form (room type + name, always visible, not just when blank) posts to the EXACT SAME endpoint
+Inspection Items' own "Space (new room)" control uses —
+`RentalInspectionRecordingController::storeItem()` (`kind=space`), which creates a real `PropertyRoom`
+row plus the agency's default checklist under it. Inventory only needs the room id/label from the
+response and discards the checklist rows — but their existence means a space created from Inventory is
+immediately inspection-ready too, not a bare shell. Gated by `access_properties` (the same permission
+every other property-page write already requires), not a new inventory-specific permission.
+
+**Proven, not assumed**: `test_a_space_created_from_a_blank_property_is_the_same_property_room_inspections_would_see`
+starts from a genuinely empty property (zero `PropertyRoom` rows), calls the shared route, and asserts
+the returned room is a real `PropertyRoom` — same table, same query
+(`PropertyRoom::where('property_id')->where('is_retired', false)`) both surfaces already use, so a room
+visible to one is visible to the other by construction, not by convention.
+
+**`:style` clobber scan (rental-inspections.md §22.3b's bug class)** — swept `capture.blade.php` for any
+tag carrying both a static `style="..."` and a bound `:style="..."`: one found (the room-heading chevron,
+inherited from §0c's own build), fixed by moving the static `transition:transform .15s;` into a new
+`.riv-room-chevron` class, leaving `:style` to control only the rotate. Zero remain.
+
+---
+
 ## 5. Signing — reused from §15, minus what wasn't asked for here
 
 Built: three party roles, refusal as a first-class disposition with a mandatory reason, the agent signing

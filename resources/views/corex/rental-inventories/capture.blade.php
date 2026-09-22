@@ -38,9 +38,18 @@
      (rental-inspections.md §20.13.4), not a second bespoke one. --}}
 @if($inventory)
 <script src="{{ asset_v('js/corex-photo-batch-uploader.js') }}"></script>
+{{-- Alpine's :style clobber trap (rental-inspections.md §22.3b): a bound
+     :style="..." REPLACES the whole style attribute on every reactive
+     render rather than merging with a co-located static style="...", so
+     the static declaration silently disappears the moment the bound
+     expression evaluates to ''. Static declarations that share a tag with
+     a :style binding live in a real class instead. --}}
+<style>
+    .riv-room-chevron { transition:transform .15s; }
+</style>
 @endif
 <div class="p-4 sm:p-6 max-w-3xl mx-auto space-y-4"
-     @if($inventory) x-data="rentalInventoryCapture({{ $inventory->id }}, {{ $property->id }})" @endif>
+     @if($inventory) x-data="rentalInventoryCapture({{ $inventory->id }}, {{ $property->id }}, '{{ $spaceStoreUrl ?? '' }}')" @endif>
 
     <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
@@ -78,12 +87,41 @@
             </div>
         @endif
 
-        @if($rooms->isEmpty())
-            <div class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
-                This property has no rooms set up yet. Add rooms from the property's Inspection Items section first —
-                inventory always uses the same room list as inspections, so an agent never retypes a room name.
-            </div>
-        @endif
+        {{-- Add space — Johan: "we specced inventory being blank then you can
+             create the spaces same as with inspections." Same write path
+             the Inspection Items section's own "Space (new room)" control
+             uses (RentalInspectionRecordingController::storeItem(), kind=
+             space) — a room created here is the SAME PropertyRoom row
+             inspections sees, not a second space model. Always available,
+             not just when blank — an agent adds more spaces as the walk-
+             through finds them, same as on the inspection side. --}}
+        <div class="rounded-md p-3" style="background: var(--surface-2);">
+            <template x-if="!rooms.length">
+                <p class="text-xs pb-2" style="color: var(--text-secondary);">
+                    This property has no spaces set up yet — add the first one below. Inventory and Inspections share the same room list.
+                </p>
+            </template>
+            <form @submit.prevent="addSpace()" class="flex items-end gap-2 flex-wrap">
+                <div>
+                    <label class="text-xs font-semibold block" style="color: var(--text-secondary);">Room type</label>
+                    <select x-model="newSpace.space_type" class="prop-input" style="max-width:11rem;">
+                        <option value="">Room type…</option>
+                        @foreach($spaceTypes as $spaceType)
+                            <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="flex-1" style="min-width:10rem;">
+                    <label class="text-xs font-semibold block" style="color: var(--text-secondary);">Name</label>
+                    <input type="text" x-model="newSpace.label" placeholder="e.g. Bedroom 1" maxlength="191"
+                           class="prop-input w-full" @keydown.enter.prevent="addSpace()">
+                </div>
+                <button type="submit" :disabled="spaceBusy || !newSpace.label.trim() || !newSpace.space_type"
+                        class="text-xs font-semibold rounded-md text-white px-3 py-1.5" style="background:var(--brand-button,#0ea5e9);"
+                        x-text="spaceBusy ? 'Adding…' : 'Add space'"></button>
+            </form>
+            <p x-show="spaceError" x-cloak class="text-xs pt-1" style="color:#ef4444;" x-text="spaceError"></p>
+        </div>
 
         <template x-for="room in rooms" :key="room.id">
             <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
@@ -93,7 +131,7 @@
                         <span x-text="linesFor(room.id).length + ' item' + (linesFor(room.id).length === 1 ? '' : 's')"></span>
                         <span>·</span>
                         <span x-text="photoUploader().roomPhotos(room.id).length + ' photo' + (photoUploader().roomPhotos(room.id).length === 1 ? '' : 's')"></span>
-                        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" :style="openRooms[room.id] ? 'transform:rotate(90deg);' : ''" style="transition:transform .15s;"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" class="riv-room-chevron" :style="openRooms[room.id] ? 'transform:rotate(90deg);' : ''"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </span>
                 </button>
 
@@ -230,16 +268,20 @@
 @if($inventory)
 @push('scripts')
 <script>
-function rentalInventoryCapture(inventoryId, propertyId) {
+function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
     return {
         csrf: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
         baseUrl: `/corex/rental-inventories/${inventoryId}`,
+        spaceStoreUrl,
         rooms: @json($roomsForJs),
         lines: @json($linesForJs),
 
         openRooms: {},
         newLine: {},
         lineBusy: {},
+        newSpace: { space_type: '', label: '' },
+        spaceBusy: false,
+        spaceError: '',
         // §4a — same photo layout discipline as inspections (rental-
         // inspections.md §20.14.3): clipping is COUNT-based (first 3, "Show
         // all N"), never height-based — a height clip is what cut real
@@ -248,14 +290,57 @@ function rentalInventoryCapture(inventoryId, propertyId) {
         tagger: { open: false, mode: null, line: null, photo: null, photos: [], lines: [] },
 
         init() {
-            this.rooms.forEach(r => {
-                this.openRooms[r.id] = this.linesFor(r.id).length === 0;
-                this.newLine[r.id] = { quantity: 1, description: '' };
-                this.lineBusy[r.id] = false;
-            });
+            this.rooms.forEach(r => this._initRoomState(r));
+        },
+        // Extracted so a room added live via addSpace() (never present at
+        // page-load init()) gets the exact same per-room state a
+        // server-seeded room gets — one place, not two copies of this setup
+        // that could drift.
+        _initRoomState(room) {
+            this.openRooms[room.id] = this.linesFor(room.id).length === 0;
+            this.newLine[room.id] = { quantity: 1, description: '' };
+            this.lineBusy[room.id] = false;
         },
         toggleRoom(id) { this.openRooms[id] = !this.openRooms[id]; },
         linesFor(roomId) { return this.lines.filter(l => Number(l.property_room_id) === Number(roomId)); },
+
+        // Johan: "we specced inventory being blank then you can create the
+        // spaces same as with inspections." Calls the SAME
+        // rental-inspection-items.store endpoint (kind=space) the
+        // Inspection Items section's own "Space (new room)" control uses —
+        // a real PropertyRoom row, not a second space model. The response
+        // is a list of freshly-created RentalInspectionItem checklist rows
+        // (this room's default inspection facets) each carrying its own
+        // `.room` relation — inventory only cares about the room itself,
+        // never the checklist, so it takes items[0].room and discards the
+        // rest; every item shares the exact same room, so which one is
+        // arbitrary.
+        async addSpace() {
+            const label = this.newSpace.label.trim();
+            if (!label || !this.newSpace.space_type) return;
+            this.spaceBusy = true;
+            this.spaceError = '';
+            try {
+                const res = await fetch(this.spaceStoreUrl, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ kind: 'space', label, space_type: this.newSpace.space_type }),
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    this.spaceError = body.message || 'Could not add that space — try again.';
+                    return;
+                }
+                const result = await res.json();
+                const room = result.items?.[0]?.room;
+                if (!room) return;
+                this.rooms.push({ id: room.id, label: room.label });
+                this._initRoomState({ id: room.id });
+                this.newSpace = { space_type: '', label: '' };
+            } finally {
+                this.spaceBusy = false;
+            }
+        },
 
         // §4a — the SAME reusable component rental-inspections built
         // (public/js/corex-photo-batch-uploader.js, rental-inspections.md
