@@ -79,8 +79,19 @@ php artisan deploy:sync-reference-data 2>&1 | tail -3
 # including any agency's own Role Manager customisations, are never
 # touched, updated, or deleted. Never --seed-defaults here, same reasoning
 # as scripts/deploy.sh.
+#
+# `tail -3` used to sit here, same as every other step — wrong for this one:
+# this command emits one line per (role, agency), so a real WARNING can be
+# any of dozens of lines up the scrollback and silently never printed. Found
+# 2026-09-22: 90 "assistant" rows exist across every agency including the
+# real one (Home Finders Coastal), so 89 of 90 WARNING lines were being
+# swallowed on every run, on every deploy, since the day this step was
+# added. Fix: never drop a WARNING/ERROR line, whatever else gets
+# summarised down.
 echo "-- 6. permission keys (additive — customisations preserved) --"
-php artisan corex:sync-permissions --merge-defaults 2>&1 | tail -3
+PERM_SYNC_OUT="$(php artisan corex:sync-permissions --merge-defaults 2>&1)"
+echo "$PERM_SYNC_OUT" | grep -E "WARNING|ERROR" || true
+echo "$PERM_SYNC_OUT" | tail -3
 
 echo "-- 7. clear caches --"
 php artisan config:clear 2>&1 | tail -1
