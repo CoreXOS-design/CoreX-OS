@@ -4980,7 +4980,43 @@
                  inspection". Rooms/items are property-wide (roomGroups()
                  is the same list already used by both recording sections
                  above), so alignment by room and item is automatic — this
-                 section never sorts or matches rooms by hand. --}}
+                 section never sorts or matches rooms by hand.
+
+                 FIX, 2026-09-22 (deployed-site regression, Johan): the mobile
+                 side-toggle previously relied on a Tailwind `sm:block` class
+                 to re-show the non-selected side from 640px up — that exact
+                 class had never been used anywhere else in this codebase, so
+                 it was absent from the deployed (no-build-step) CSS bundle
+                 and silently did nothing at ANY viewport width, collapsing
+                 the view to a single full-width column even on a 1568px
+                 screen. Confirmed by fetching the actual deployed CSS and
+                 grepping for the compiled rule — zero matches. Replaced with
+                 a plain `<style>` block below: real CSS shipped as part of
+                 this page's own HTML, never a Vite-built asset, so nothing
+                 here can ever again depend on whether a build step ran. Each
+                 side is now unconditionally rendered at all times — a room/
+                 item with photos on only one side still shows BOTH panels,
+                 the empty one with its own explicit "Nothing yet" state, so
+                 an agent can see what's still missing (an out-inspection
+                 starting at zero photos is the normal case, not an edge
+                 case). A room/item with nothing on EITHER side still renders
+                 no row at all — the existing screen-space convention this
+                 whole tab already follows (§9) — there is nothing to compare
+                 yet either way.
+
+                 Frame sizing also fixed, same discipline as the item photo
+                 strip: aspect-ratio-from-an-elastic-width was what made the
+                 tile balloon to whatever width the (in this case, wrongly
+                 single) column happened to be — an explicit height, with the
+                 image at height:100%/width:100%/object-fit:cover, means the
+                 frame's size can never come from either the image's native
+                 resolution or its own container's width. --}}
+            <style>
+                .compare-side { display: block; }
+                @media (max-width: 639px) {
+                    .compare-side.compare-side-hide-mobile { display: none; }
+                }
+            </style>
             <template x-if="compareRight">
                 <div class="prop-section">
                     <button type="button" class="prop-section-toggle" @click="toggle('compare_inspection')">
@@ -4995,9 +5031,8 @@
                         {{-- Item 7, Johan: "two panels side by side will not
                              work at 390px... one panel at a time with a way
                              to switch sides" — a plain toggle at phone
-                             width; both sides show side by side from sm:
-                             up (hidden/sm:block are already proven
-                             utilities throughout this page). --}}
+                             width; both sides show side by side from 640px
+                             up via the media query above. --}}
                         <div class="sm:hidden flex items-center justify-center gap-3 pb-1" style="border-bottom:1px solid var(--border);">
                             <button type="button" @click="compareMobileSide = 'left'"
                                     class="text-xs font-semibold px-2 py-1"
@@ -5012,22 +5047,27 @@
                             <div class="space-y-2 pt-2" style="border-top:1px solid var(--border);">
                                 <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);" x-text="group.room ? group.room.label : 'General'"></h4>
 
-                                {{-- Room-level general photos, both sides. --}}
+                                {{-- Room-level general photos, both sides — row renders
+                                     once EITHER side has something; each panel inside
+                                     it always renders regardless of that side's own
+                                     count (empty state when it has none). --}}
                                 <template x-if="group.room && (compareRoomPhotos('left', group.room).length || compareRoomPhotos('right', group.room).length)">
                                     <div x-init="compareIndexes('room_' + group.room.id, compareRoomPhotos('left', group.room), compareRoomPhotos('right', group.room))"
                                          class="flex gap-2 items-start">
                                         @foreach(['left', 'right'] as $side)
-                                        <div class="flex-1 min-w-0 space-y-1"
-                                             :class="(compareMobileSide === '{{ $side }}' ? 'block' : 'hidden') + ' sm:block'">
-                                            <div class="rounded-md overflow-hidden cursor-pointer" style="aspect-ratio:1/1; background:var(--surface-3);"
+                                        <div class="compare-side flex-1 min-w-0 space-y-1" :class="compareMobileSide === '{{ $side }}' ? '' : 'compare-side-hide-mobile'">
+                                            <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:10rem; overflow:hidden; background:var(--surface-3);"
                                                  @click="openCompareModal('room', 'room_' + group.room.id, group.room, null)">
                                                 <template x-if="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room))">
-                                                    <img :src="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room)).storage_path" class="w-full h-full object-cover" alt="">
+                                                    <img :src="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room)).storage_path" style="display:block; height:100%; width:100%; object-fit:cover;" alt="">
+                                                </template>
+                                                <template x-if="!compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room))">
+                                                    <span class="text-xs" style="color:var(--text-muted);">Nothing yet</span>
                                                 </template>
                                             </div>
                                             <div class="flex items-center justify-center gap-2">
                                                 <button type="button" @click.stop="compareFlip('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room), -1)" x-show="compareRoomPhotos('{{ $side }}', group.room).length > 1" class="text-xs" style="color:var(--text-secondary);">&larr;</button>
-                                                <span class="text-xs" style="color:var(--text-muted);" x-text="({{ $side === 'left' ? '(compareIndex[\'left_room_\' + group.room.id] || 0)' : '(compareIndex[\'right_room_\' + group.room.id] || 0)' }} + 1) + '/' + compareRoomPhotos('{{ $side }}', group.room).length"></span>
+                                                <span class="text-xs" style="color:var(--text-muted);" x-text="compareRoomPhotos('{{ $side }}', group.room).length ? (({{ $side === 'left' ? '(compareIndex[\'left_room_\' + group.room.id] || 0)' : '(compareIndex[\'right_room_\' + group.room.id] || 0)' }} + 1) + '/' + compareRoomPhotos('{{ $side }}', group.room).length) : '0/0'"></span>
                                                 <button type="button" @click.stop="compareFlip('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room), 1)" x-show="compareRoomPhotos('{{ $side }}', group.room).length > 1" class="text-xs" style="color:var(--text-secondary);">&rarr;</button>
                                             </div>
                                         </div>
@@ -5046,24 +5086,28 @@
                                     </div>
                                 </template>
 
-                                {{-- Item-level photos, both sides. --}}
+                                {{-- Item-level photos, both sides — same rule: the
+                                     row renders once either side has something, each
+                                     panel always renders with its own empty state. --}}
                                 <template x-for="item in group.items" :key="item.id">
                                     <template x-if="compareItemPhotos('left', item).length || compareItemPhotos('right', item).length">
                                         <div class="pl-3 space-y-1" x-init="compareIndexes('item_' + item.id, compareItemPhotos('left', item), compareItemPhotos('right', item))">
                                             <span class="text-xs" style="color:var(--text-primary);" x-text="item.label"></span>
                                             <div class="flex gap-2 items-start">
                                                 @foreach(['left', 'right'] as $side)
-                                                <div class="flex-1 min-w-0 space-y-1"
-                                                     :class="(compareMobileSide === '{{ $side }}' ? 'block' : 'hidden') + ' sm:block'">
-                                                    <div class="rounded-md overflow-hidden cursor-pointer" style="aspect-ratio:1/1; background:var(--surface-3);"
+                                                <div class="compare-side flex-1 min-w-0 space-y-1" :class="compareMobileSide === '{{ $side }}' ? '' : 'compare-side-hide-mobile'">
+                                                    <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:10rem; overflow:hidden; background:var(--surface-3);"
                                                          @click="openCompareModal('item', 'item_' + item.id, null, item)">
                                                         <template x-if="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item))">
-                                                            <img :src="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item)).storage_path" class="w-full h-full object-cover" alt="">
+                                                            <img :src="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item)).storage_path" style="display:block; height:100%; width:100%; object-fit:cover;" alt="">
+                                                        </template>
+                                                        <template x-if="!compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item))">
+                                                            <span class="text-xs" style="color:var(--text-muted);">Nothing yet</span>
                                                         </template>
                                                     </div>
                                                     <div class="flex items-center justify-center gap-2">
                                                         <button type="button" @click.stop="compareFlip('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item), -1)" x-show="compareItemPhotos('{{ $side }}', item).length > 1" class="text-xs" style="color:var(--text-secondary);">&larr;</button>
-                                                        <span class="text-xs" style="color:var(--text-muted);" x-text="({{ $side === 'left' ? '(compareIndex[\'left_item_\' + item.id] || 0)' : '(compareIndex[\'right_item_\' + item.id] || 0)' }} + 1) + '/' + compareItemPhotos('{{ $side }}', item).length"></span>
+                                                        <span class="text-xs" style="color:var(--text-muted);" x-text="compareItemPhotos('{{ $side }}', item).length ? (({{ $side === 'left' ? '(compareIndex[\'left_item_\' + item.id] || 0)' : '(compareIndex[\'right_item_\' + item.id] || 0)' }} + 1) + '/' + compareItemPhotos('{{ $side }}', item).length) : '0/0'"></span>
                                                         <button type="button" @click.stop="compareFlip('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item), 1)" x-show="compareItemPhotos('{{ $side }}', item).length > 1" class="text-xs" style="color:var(--text-secondary);">&rarr;</button>
                                                     </div>
                                                 </div>
@@ -5101,9 +5145,17 @@
                     <div class="p-4 flex flex-col sm:flex-row gap-4">
                         @foreach(['left', 'right'] as $side)
                         <div class="flex-1 min-w-0 space-y-2">
-                            <div class="rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
+                            {{-- Same sizing fix as the compact row above — an explicit
+                                 height the image can never drive, plus an empty state
+                                 so this side is never blank with no explanation. Bigger
+                                 than the compact row's own frame since the modal's whole
+                                 point is a proper look at the photo. --}}
+                            <div class="rounded-md flex items-center justify-center" style="height:20rem; overflow:hidden; background:var(--surface-3);">
                                 <template x-if="compareModal{{ ucfirst($side) }}Photos().length">
-                                    <img :src="compareCurrentPhoto('{{ $side }}', compareModal.key, compareModal{{ ucfirst($side) }}Photos()).storage_path" class="w-full h-full object-cover" alt="">
+                                    <img :src="compareCurrentPhoto('{{ $side }}', compareModal.key, compareModal{{ ucfirst($side) }}Photos()).storage_path" style="display:block; height:100%; width:100%; object-fit:contain;" alt="">
+                                </template>
+                                <template x-if="!compareModal{{ ucfirst($side) }}Photos().length">
+                                    <span class="text-xs" style="color:var(--text-muted);">Nothing yet</span>
                                 </template>
                             </div>
                             <div class="flex items-center justify-center gap-3">
