@@ -8,6 +8,7 @@ use App\Models\Property;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderPhoto;
 use App\Models\RentalWorkOrderSetting;
+use App\Services\Rentals\RentalDocumentPdfService;
 use App\Services\Rentals\RentalWorkOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -33,7 +34,7 @@ class RentalWorkOrderController extends Controller
 
         $sort = $request->get('sort', 'reported_at');
         $direction = $request->get('direction', 'desc');
-        $allowedSorts = ['reported_at', 'property', 'status'];
+        $allowedSorts = ['reported_at', 'property', 'status', 'priority'];
         if (!in_array($sort, $allowedSorts, true)) {
             $sort = 'reported_at';
         }
@@ -62,8 +63,26 @@ class RentalWorkOrderController extends Controller
         if ($tradeType = $request->get('trade_type')) {
             $query->where('rental_work_orders.trade_type', $tradeType);
         }
+        if ($priority = $request->get('priority')) {
+            $query->where('rental_work_orders.priority', $priority);
+        }
         if ($propertyId = $request->get('property_id')) {
             $query->where('rental_work_orders.property_id', $propertyId);
+        }
+        // Navigation, 2026-09-22 — reached from a lease's own detail page
+        // (Johan: "every feature needs a navigation link where the work
+        // happens"), same query-parameter shape as property_id above.
+        if ($leaseId = $request->get('lease_id')) {
+            $query->where('rental_work_orders.lease_id', $leaseId);
+        }
+        // Reached from a contact's own detail page — a contact can be a
+        // tenant (via lease_tenants) or a landlord (via contact_property);
+        // matches either, since the link doesn't know or care which.
+        if ($contactId = $request->get('contact_id')) {
+            $query->where(function ($q) use ($contactId) {
+                $q->whereHas('lease.tenants', fn ($t) => $t->where('contact_id', $contactId))
+                    ->orWhereHas('property.contacts', fn ($c) => $c->where('contacts.id', $contactId));
+            });
         }
         if ($paidBy = $request->get('paid_by')) {
             $query->where('rental_work_orders.paid_by', $paidBy);
@@ -90,12 +109,21 @@ class RentalWorkOrderController extends Controller
 
         $workOrders = $query->paginate(25)->withQueryString();
 
+        // §"List screen gaps" — property_id/lease_id are reached via a link
+        // from that record's own page (property tab, lease detail), never
+        // picked from a dropdown of every property/lease in the agency;
+        // the active filter is surfaced as a named, clearable chip instead.
+        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
+        $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
+
         return view('corex.rental-work-orders.index', [
             'workOrders' => $workOrders,
             'sort' => $sort,
             'direction' => $direction,
             'hasAnyWorkOrders' => $hasAnyWorkOrders,
-            'filters' => $request->only(['q', 'status', 'trade_type', 'property_id', 'paid_by', 'date_from', 'date_to', 'overdue']),
+            'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'date_from', 'date_to', 'overdue']),
+            'filteredProperty' => $filteredProperty,
+            'filteredLease' => $filteredLease,
         ]);
     }
 
@@ -159,6 +187,21 @@ class RentalWorkOrderController extends Controller
             'workOrder' => $rentalWorkOrder,
             'completionRequiresPhoto' => RentalWorkOrderSetting::completionRequiresPhotoFor($rentalWorkOrder->agency_id),
         ]);
+    }
+
+    /**
+     * §"Printing" — a work order handed to a supplier. Same query-layer
+     * scoping as show() above (route-model-binding + the global AgencyScope) —
+     * a user who cannot open this record's own detail page cannot download
+     * it either, since both resolve the SAME bound model the SAME way.
+     */
+    public function pdf(RentalWorkOrder $rentalWorkOrder, RentalDocumentPdfService $service)
+    {
+        $pdf = $service->workOrderPdf($rentalWorkOrder);
+
+        return request()->boolean('dl')
+            ? $pdf->download($service->workOrderFilename($rentalWorkOrder))
+            : $pdf->stream($service->workOrderFilename($rentalWorkOrder));
     }
 
     /** Editable only while status='reported' — the reportable facts, not the lifecycle. */
@@ -288,7 +331,7 @@ class RentalWorkOrderController extends Controller
             return back()->withErrors(['rental_work_order' => 'This work order has evidence logged against it and cannot be deleted — cancel it instead.']);
         }
 
-        $rentalWorkOrder->delete();
+        $rentalWorkOrder->archive($request->user());
 
         return redirect()->route('corex.rental-work-orders.index')->with('success', 'Work order archived.');
     }
@@ -296,7 +339,7 @@ class RentalWorkOrderController extends Controller
     public function restore(Request $request, int $rentalWorkOrder): RedirectResponse
     {
         $workOrder = RentalWorkOrder::withTrashed()->findOrFail($rentalWorkOrder);
-        $workOrder->restore();
+        $workOrder->restoreRecord($request->user());
 
         return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order restored.');
     }

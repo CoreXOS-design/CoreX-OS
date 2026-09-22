@@ -3258,6 +3258,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'store'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.store');
         Route::get('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'show'])->name('corex.rental-fault-reports.show');
+        // §"Printing" — landlord-facing PDF. Same .view gate as show() itself.
+        Route::get('/{rentalFaultReport}/pdf', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'pdf'])->name('corex.rental-fault-reports.pdf');
         Route::put('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'update'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.update');
         Route::post('/{rentalFaultReport}/cancel', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'cancel'])
@@ -3295,6 +3297,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'store'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.store');
         Route::get('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'show'])->name('corex.rental-work-orders.show');
+        // §"Printing" — supplier-facing PDF. Same .view gate as show() itself.
+        Route::get('/{rentalWorkOrder}/pdf', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'pdf'])->name('corex.rental-work-orders.pdf');
         Route::put('/{rentalWorkOrder}', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'update'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.update');
         Route::post('/{rentalWorkOrder}/approval', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'recordApproval'])

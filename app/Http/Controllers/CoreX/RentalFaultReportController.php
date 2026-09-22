@@ -8,6 +8,7 @@ use App\Models\Property;
 use App\Models\RentalFaultReport;
 use App\Models\RentalFaultReportPhoto;
 use App\Services\Images\PropertyImageStorer;
+use App\Services\Rentals\RentalDocumentPdfService;
 use App\Services\Rentals\RentalFaultReportService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -64,6 +65,24 @@ class RentalFaultReportController extends Controller
             $query->where('rental_fault_reports.outcome', $outcome);
         }
 
+        // Navigation, 2026-09-22 — reached from a property/lease/contact's
+        // own detail page (Johan: "every feature needs a navigation link
+        // where the work happens"), not picked from a dropdown.
+        if ($propertyId = $request->get('property_id')) {
+            $query->where('rental_fault_reports.property_id', $propertyId);
+        }
+        if ($leaseId = $request->get('lease_id')) {
+            $query->where('rental_fault_reports.lease_id', $leaseId);
+        }
+        // Reached from a contact's own detail page — a contact can be a
+        // tenant (via lease_tenants) or a landlord (via contact_property).
+        if ($contactId = $request->get('contact_id')) {
+            $query->where(function ($q) use ($contactId) {
+                $q->whereHas('lease.tenants', fn ($t) => $t->where('contact_id', $contactId))
+                    ->orWhereHas('property.contacts', fn ($c) => $c->where('contacts.id', $contactId));
+            });
+        }
+
         if ($dateFrom = $request->get('date_from')) {
             $query->where('rental_fault_reports.reported_at', '>=', $dateFrom);
         }
@@ -83,12 +102,17 @@ class RentalFaultReportController extends Controller
 
         $faultReports = $query->paginate(25)->withQueryString();
 
+        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
+        $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
+
         return view('corex.rental-fault-reports.index', [
             'faultReports' => $faultReports,
             'sort' => $sort,
             'direction' => $direction,
             'hasAnyFaultReports' => $hasAnyFaultReports,
-            'filters' => $request->only(['q', 'status', 'outcome', 'date_from', 'date_to']),
+            'filters' => $request->only(['q', 'status', 'outcome', 'property_id', 'lease_id', 'date_from', 'date_to']),
+            'filteredProperty' => $filteredProperty,
+            'filteredLease' => $filteredLease,
         ]);
     }
 
@@ -169,10 +193,23 @@ class RentalFaultReportController extends Controller
             // 'workOrder' — added in Stage 4 once App\Models\RentalWorkOrder
             // exists (see RentalFaultReport::workOrder()'s own note).
             'reportedByContact', 'reportedByUser', 'capturedByUser', 'cancelledByUser',
-            'createdByUser', 'photos.uploadedBy', 'approvals.recordedByUser',
+            'createdByUser', 'photos.uploadedBy', 'approvals.recordedByUser', 'updates.createdByUser',
         ]);
 
         return view('corex.rental-fault-reports.show', ['faultReport' => $rentalFaultReport]);
+    }
+
+    /**
+     * §"Printing" — a fault report handed to a landlord. Same query-layer
+     * scoping as show() above (route-model-binding + the global AgencyScope).
+     */
+    public function pdf(RentalFaultReport $rentalFaultReport, RentalDocumentPdfService $service)
+    {
+        $pdf = $service->faultReportPdf($rentalFaultReport);
+
+        return request()->boolean('dl')
+            ? $pdf->download($service->faultReportFilename($rentalFaultReport))
+            : $pdf->stream($service->faultReportFilename($rentalFaultReport));
     }
 
     /**
@@ -203,7 +240,7 @@ class RentalFaultReportController extends Controller
     public function requestApproval(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
         try {
-            $rentalFaultReport->requestApproval();
+            $rentalFaultReport->requestApproval($request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
@@ -276,7 +313,7 @@ class RentalFaultReportController extends Controller
         ]);
 
         try {
-            $rentalFaultReport->setOutcome($validated);
+            $rentalFaultReport->setOutcome($validated, $request->user());
         } catch (\LogicException|\InvalidArgumentException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
@@ -327,7 +364,7 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => 'This fault report has photos or a linked work order and cannot be deleted — cancel it instead.']);
         }
 
-        $rentalFaultReport->delete();
+        $rentalFaultReport->archive($request->user());
 
         return redirect()->route('corex.rental-fault-reports.index')->with('success', 'Fault report archived.');
     }
@@ -335,7 +372,7 @@ class RentalFaultReportController extends Controller
     public function restore(Request $request, int $rentalFaultReport): RedirectResponse
     {
         $faultReport = RentalFaultReport::withTrashed()->findOrFail($rentalFaultReport);
-        $faultReport->restore();
+        $faultReport->restoreRecord($request->user());
 
         return redirect()->route('corex.rental-fault-reports.show', $faultReport)->with('success', 'Fault report restored.');
     }

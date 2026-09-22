@@ -176,3 +176,21 @@
         @endif
     @endif
 @endif
+
+{{-- Johan, 2026-09-22 — "every feature needs a navigation link where the
+     work happens." A contact can be a tenant (via lease_tenants) or a
+     landlord (via contact_property) or both — the filter behind these
+     links covers either, so this works regardless of which this contact is. --}}
+@if(auth()->user()?->hasPermission('rental_fault_reports.view') || auth()->user()?->hasPermission('rental_work_orders.view'))
+    <div class="pt-4 mt-4" style="border-top: 1px solid var(--border);">
+        <h3 class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">This contact's rentals activity</h3>
+        <div class="flex gap-2 pt-2">
+            @permission('rental_fault_reports.view')
+                <a href="{{ route('corex.rental-fault-reports.index', ['contact_id' => $contact->id]) }}" class="corex-btn-outline text-xs">Fault reports</a>
+            @endpermission
+            @permission('rental_work_orders.view')
+                <a href="{{ route('corex.rental-work-orders.index', ['contact_id' => $contact->id]) }}" class="corex-btn-outline text-xs">Work orders</a>
+            @endpermission
+        </div>
+    </div>
+@endif

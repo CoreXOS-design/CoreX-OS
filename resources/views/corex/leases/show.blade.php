@@ -171,5 +171,22 @@
             <p class="text-xs" style="color: var(--text-muted);">No escalations recorded yet.</p>
         @endforelse
     </div>
+
+    {{-- Johan, 2026-09-22 — "every feature needs a navigation link where the
+         work happens." Both records carry a real lease_id FK; this is where
+         an agent looking at a tenancy actually needs to reach them from. --}}
+    @if(auth()->user()?->hasPermission('rental_fault_reports.view') || auth()->user()?->hasPermission('rental_work_orders.view'))
+    <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">This tenancy</h2>
+        <div class="flex gap-2">
+            @permission('rental_fault_reports.view')
+                <a href="{{ route('corex.rental-fault-reports.index', ['lease_id' => $lease->id]) }}" class="corex-btn-outline text-xs">Fault reports</a>
+            @endpermission
+            @permission('rental_work_orders.view')
+                <a href="{{ route('corex.rental-work-orders.index', ['lease_id' => $lease->id]) }}" class="corex-btn-outline text-xs">Work orders</a>
+            @endpermission
+        </div>
+    </div>
+    @endif
 </div>
 @endsection

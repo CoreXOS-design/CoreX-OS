@@ -29,7 +29,10 @@
                 @endif
             </span>
         </div>
-        <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">&larr; All fault reports</a>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('corex.rental-fault-reports.pdf', $faultReport) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
+            <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">&larr; All fault reports</a>
+        </div>
     </div>
 
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
@@ -259,5 +262,32 @@
     </div>
     @endpermission
     @endif
+
+    {{-- Johan, 2026-09-22 — "who did what": a plain chronological history,
+         not a status badge on every row. RentalFaultReport::history() merges
+         creation, every logged update, and every approval decision into one
+         timeline, oldest first. Shown regardless of status — a resolved or
+         cancelled report's history is exactly as real as an open one's. --}}
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">History</h2>
+        <ul class="space-y-1 text-sm">
+            @foreach($faultReport->history() as $entry)
+                <li>
+                    <span style="color: var(--text-muted);">{{ $entry['at']->format('Y-m-d H:i') }}</span>
+                    —
+                    {{ $entry['action'] }}
+                    @if($entry['from'] || $entry['to'])
+                        ({{ $entry['from'] ?? '—' }} &rarr; {{ $entry['to'] ?? '—' }})
+                    @endif
+                    @if($entry['note'])
+                        — {{ $entry['note'] }}
+                    @endif
+                    @if($entry['actor'])
+                        <span style="color: var(--text-muted);">({{ $entry['actor'] }})</span>
+                    @endif
+                </li>
+            @endforeach
+        </ul>
+    </div>
 </div>
 @endsection

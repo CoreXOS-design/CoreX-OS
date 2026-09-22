@@ -69,6 +69,21 @@
         @endif
     </form>
 
+    {{-- §"Navigation" — reached via a link (property tab, lease's own page,
+         contact's own page), never a dropdown of every property/lease. --}}
+    @if($filteredProperty || $filteredLease)
+    <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
+        Filtered to:
+        @if($filteredProperty)
+            <span class="ds-badge ds-badge-info">{{ $filteredProperty->buildDisplayAddress() }}</span>
+        @endif
+        @if($filteredLease)
+            <span class="ds-badge ds-badge-info">{{ $filteredLease->tenantNames() ?: ('Lease #' . $filteredLease->id) }}</span>
+        @endif
+        <a href="{{ route('corex.rental-fault-reports.index', request()->except(['property_id', 'lease_id', 'page'])) }}" class="underline">Clear</a>
+    </div>
+    @endif
+
     <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
         <table class="w-full text-sm">
             <thead>

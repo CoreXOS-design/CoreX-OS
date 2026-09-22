@@ -94,6 +94,12 @@ class RentalWorkOrder extends Model
         return $this->belongsTo(Property::class);
     }
 
+    /** Branch logo fallback for the supplier PDF (§"Printing", 2026-09-22). */
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
+
     public function lease(): BelongsTo
     {
         return $this->belongsTo(Lease::class);
@@ -155,12 +161,88 @@ class RentalWorkOrder extends Model
     }
 
     /**
+     * A single, plain, chronological history — every state-changing action
+     * on this record, actor + action + from/to + note + when, oldest first.
+     * Merges the synthetic "logged" event (this record's own creation —
+     * created_by_user_id/created_at already carry it, never duplicated into
+     * a row), the real rental_work_order_updates rows, and the approval
+     * decisions (a separate table, §3.4a, folded in so an agent reads ONE
+     * timeline). Same shape as RentalFaultReport::history() — this feature's
+     * two records share one audit convention, not two.
+     *
+     * @return \Illuminate\Support\Collection<int, array{at: \Illuminate\Support\Carbon, actor: ?string, action: string, from: ?string, to: ?string, note: ?string}>
+     */
+    public function history(): \Illuminate\Support\Collection
+    {
+        $entries = collect();
+
+        $entries->push([
+            'at' => $this->created_at,
+            'actor' => $this->createdByUser?->name,
+            'action' => 'Logged',
+            'from' => null,
+            'to' => null,
+            'note' => null,
+        ]);
+
+        foreach ($this->updates as $update) {
+            $entries->push([
+                'at' => $update->created_at,
+                'actor' => $update->createdByUser?->name,
+                'action' => match ($update->update_type) {
+                    'supplier_assigned' => 'Supplier assigned',
+                    'supplier_changed' => 'Supplier changed',
+                    'status_change' => 'Status changed',
+                    'note' => 'Note added',
+                    default => ucfirst(str_replace('_', ' ', $update->update_type)),
+                },
+                'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,
+                'to' => $update->to_status ? ucfirst(str_replace('_', ' ', $update->to_status)) : null,
+                'note' => $update->note,
+            ]);
+        }
+
+        foreach ($this->approvals as $approval) {
+            $entries->push([
+                'at' => $approval->created_at,
+                'actor' => $approval->recordedByUser?->name,
+                'action' => $approval->decision === RentalApproval::DECISION_APPROVED ? 'Approved' : 'Declined',
+                'from' => null,
+                'to' => null,
+                'note' => $approval->evidence_text,
+            ]);
+        }
+
+        return $entries->sortBy('at')->values();
+    }
+
+    /**
      * §3.1 — deletable only while nothing has been logged against it: no
      * update row, no photo. Once either exists, only 'cancelled'.
      */
     public function isDeletable(): bool
     {
         return $this->updates()->doesntExist() && $this->photos()->doesntExist();
+    }
+
+    /**
+     * Johan, 2026-09-22 — archive/restore captured in the same "who did
+     * what" history as every other action on this record.
+     */
+    public function archive(User $by): void
+    {
+        $this->delete();
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'archived', 'created_by_user_id' => $by->id,
+        ]);
+    }
+
+    public function restoreRecord(User $by): void
+    {
+        $this->restore();
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'restored', 'created_by_user_id' => $by->id,
+        ]);
     }
 
     /**

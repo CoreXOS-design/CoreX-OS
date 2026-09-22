@@ -24,7 +24,10 @@
             <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}</span>
             <span class="text-xs" style="color: var(--text-muted);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}</span>
         </div>
-        <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">&larr; All work orders</a>
+        <div class="flex items-center gap-2">
+            <a href="{{ route('corex.rental-work-orders.pdf', $workOrder) }}" target="_blank" class="corex-btn-outline text-xs">Download PDF</a>
+            <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">&larr; All work orders</a>
+        </div>
     </div>
 
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
@@ -240,28 +243,30 @@
         @endpermission
     </div>
 
+    {{-- Johan, 2026-09-22 — "who did what": a plain chronological history,
+         not a status badge on every row. RentalWorkOrder::history() merges
+         creation, every logged update, and every approval decision into one
+         timeline, oldest first. --}}
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <h2 class="text-sm font-semibold">Log</h2>
-        @if($workOrder->updates->isEmpty())
-            <p class="text-xs" style="color: var(--text-muted);">No updates yet.</p>
-        @else
-            <ul class="space-y-1 text-sm">
-                @foreach($workOrder->updates as $update)
-                    <li>
-                        <span style="color: var(--text-muted);">{{ $update->created_at->format('Y-m-d H:i') }}</span>
-                        —
-                        @if($update->update_type === 'status_change')
-                            {{ ucfirst(str_replace('_', ' ', $update->from_status)) }} &rarr; {{ ucfirst(str_replace('_', ' ', $update->to_status)) }}
-                        @elseif($update->update_type === 'note')
-                            {{ $update->note }}
-                        @else
-                            {{ ucfirst(str_replace('_', ' ', $update->update_type)) }}
-                        @endif
-                        <span style="color: var(--text-muted);">({{ $update->createdByUser?->name }})</span>
-                    </li>
-                @endforeach
-            </ul>
-        @endif
+        <h2 class="text-sm font-semibold">History</h2>
+        <ul class="space-y-1 text-sm">
+            @foreach($workOrder->history() as $entry)
+                <li>
+                    <span style="color: var(--text-muted);">{{ $entry['at']->format('Y-m-d H:i') }}</span>
+                    —
+                    {{ $entry['action'] }}
+                    @if($entry['from'] || $entry['to'])
+                        ({{ $entry['from'] ?? '—' }} &rarr; {{ $entry['to'] ?? '—' }})
+                    @endif
+                    @if($entry['note'])
+                        — {{ $entry['note'] }}
+                    @endif
+                    @if($entry['actor'])
+                        <span style="color: var(--text-muted);">({{ $entry['actor'] }})</span>
+                    @endif
+                </li>
+            @endforeach
+        </ul>
         @permission('rental_work_orders.create')
         <form method="POST" action="{{ route('corex.rental-work-orders.notes.store', $workOrder) }}" class="flex items-end gap-2">
             @csrf

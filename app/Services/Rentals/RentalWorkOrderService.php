@@ -81,10 +81,7 @@ class RentalWorkOrderService
             'created_by_user_id' => $by->id,
         ]));
 
-        $faultReport->forceFill([
-            'rental_work_order_id' => $workOrder->id,
-            'status' => RentalFaultReport::STATUS_WORK_ORDER_RAISED,
-        ])->save();
+        $faultReport->recordWorkOrderRaised($workOrder, $by);
 
         $this->notifyCreated($workOrder);
         $this->notifyOwner($workOrder, RentalWorkOrderOwnerMail::STAGE_CREATED);
