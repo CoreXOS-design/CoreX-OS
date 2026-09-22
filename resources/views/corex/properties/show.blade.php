@@ -5053,10 +5053,16 @@
                                      count (empty state when it has none). --}}
                                 <template x-if="group.room && (compareRoomPhotos('left', group.room).length || compareRoomPhotos('right', group.room).length)">
                                     <div x-init="compareIndexes('room_' + group.room.id, compareRoomPhotos('left', group.room), compareRoomPhotos('right', group.room))"
-                                         class="flex gap-2 items-start">
+                                         class="flex gap-2 items-start" style="overflow-x:auto;">
                                         @foreach(['left', 'right'] as $side)
-                                        <div class="compare-side flex-1 min-w-0 space-y-1" :class="compareMobileSide === '{{ $side }}' ? '' : 'compare-side-hide-mobile'">
-                                            <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:10rem; overflow:hidden; background:var(--surface-3);"
+                                        <div class="compare-side space-y-1" :class="compareMobileSide === '{{ $side }}' ? '' : 'compare-side-hide-mobile'" style="flex:none; width:18rem;">
+                                            {{-- FIX, 2026-09-22, Johan: 10rem square was cropping over half a
+                                                 normal ~1.5:1 landscape photo's height away. Fixed 18rem×12rem
+                                                 (1.5:1) — a sensible photo shape, matched to the room gallery's
+                                                 own visual scale — and flex:none (not flex-1) so the frame's
+                                                 size is a literal constant, never derived from the wrapper's
+                                                 own elastic width, exactly like the item strip fix. --}}
+                                            <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:12rem; width:18rem; overflow:hidden; background:var(--surface-3);"
                                                  @click="openCompareModal('room', 'room_' + group.room.id, group.room, null)">
                                                 <template x-if="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room))">
                                                     <img :src="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room)).storage_path" style="display:block; height:100%; width:100%; object-fit:cover;" alt="">
@@ -5093,10 +5099,11 @@
                                     <template x-if="compareItemPhotos('left', item).length || compareItemPhotos('right', item).length">
                                         <div class="pl-3 space-y-1" x-init="compareIndexes('item_' + item.id, compareItemPhotos('left', item), compareItemPhotos('right', item))">
                                             <span class="text-xs" style="color:var(--text-primary);" x-text="item.label"></span>
-                                            <div class="flex gap-2 items-start">
+                                            <div class="flex gap-2 items-start" style="overflow-x:auto;">
                                                 @foreach(['left', 'right'] as $side)
-                                                <div class="compare-side flex-1 min-w-0 space-y-1" :class="compareMobileSide === '{{ $side }}' ? '' : 'compare-side-hide-mobile'">
-                                                    <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:10rem; overflow:hidden; background:var(--surface-3);"
+                                                <div class="compare-side space-y-1" :class="compareMobileSide === '{{ $side }}' ? '' : 'compare-side-hide-mobile'" style="flex:none; width:18rem;">
+                                                    {{-- Same fixed-frame fix as the room-level row above. --}}
+                                                    <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:12rem; width:18rem; overflow:hidden; background:var(--surface-3);"
                                                          @click="openCompareModal('item', 'item_' + item.id, null, item)">
                                                         <template x-if="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item))">
                                                             <img :src="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item)).storage_path" style="display:block; height:100%; width:100%; object-fit:cover;" alt="">
@@ -5144,13 +5151,12 @@
                     <button type="button" @click="compareModal.open = false" class="absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center text-white" style="background:rgba(0,0,0,0.6);">&times;</button>
                     <div class="p-4 flex flex-col sm:flex-row gap-4">
                         @foreach(['left', 'right'] as $side)
-                        <div class="flex-1 min-w-0 space-y-2">
-                            {{-- Same sizing fix as the compact row above — an explicit
-                                 height the image can never drive, plus an empty state
-                                 so this side is never blank with no explanation. Bigger
-                                 than the compact row's own frame since the modal's whole
-                                 point is a proper look at the photo. --}}
-                            <div class="rounded-md flex items-center justify-center" style="height:20rem; overflow:hidden; background:var(--surface-3);">
+                        <div class="space-y-2" style="display:flex; flex-direction:column; align-items:center;">
+                            {{-- FIX, 2026-09-22, Johan: same 1.5:1 landscape correction as
+                                 the compact row — 21rem×14rem (bigger than the compact
+                                 row's 18rem×12rem, "a proper look at the photo"), fixed
+                                 and centered, never derived from the modal's own width. --}}
+                            <div class="rounded-md flex items-center justify-center" style="height:14rem; width:21rem; overflow:hidden; background:var(--surface-3);">
                                 <template x-if="compareModal{{ ucfirst($side) }}Photos().length">
                                     <img :src="compareCurrentPhoto('{{ $side }}', compareModal.key, compareModal{{ ucfirst($side) }}Photos()).storage_path" style="display:block; height:100%; width:100%; object-fit:contain;" alt="">
                                 </template>
