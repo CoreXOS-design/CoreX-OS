@@ -47,6 +47,16 @@ This applies to the conductor too.
 
 ## Standard −1 — The render gate (REQUIRED, before any push touching a Blade file)
 
+**Amended 2026-09-22 — see Standard −1s below.** The gate this section describes is still real and still
+required, but Johan's 2026-09-22 ruling moves WHO runs it: a lane no longer stands up its own
+`fetch-authenticated-page.php`/`verify-alpine-render.mjs`/`rental-click-through.mjs` chain against a
+minted session and an isolated worktree/database before pushing — that is exactly the "verification
+scaffolding" his ruling stops. A lane's own pre-push verification is now the three-step check in
+Standard −1s (`php -l`, `view:clear`, the relevant existing test). The render gate described below still
+runs, but against the actually-deployed site, after landing — cc1's or the conductor's job, not a lane's.
+Read this section for what the gate checks and why each check exists (that reasoning is unchanged); read
+Standard −1s for who runs it and when.
+
 Three times in one week a rental-applications screen reached QA1 completely
 non-functional — `initialResult`, then `sidebarOpen`/`markupModeActive`/
 `markupSidebarPinned` — and every time `php -l` passed, PHPUnit passed, and
@@ -817,6 +827,20 @@ The conductor had been holding finished, tested work off QA1 until she had perso
 **The rule, corrected: finished, tested work lands on QA1 as soon as it's ready — no one waits for a browser walk to land it there.** The walk happens AFTER it's live, on QA1 itself; if something's wrong, it gets fixed there, which is exactly what a dev environment is for. The walk gate moves to Staging, where it has always belonged — nothing goes to Staging without Johan's approval and without a real verification first, unchanged, not loosened at all. What still legitimately stops a landing on QA1, unchanged: a migration nobody has read, a real conflict between two lanes' work, tests that aren't green, or anything that touches a live/shared system. Those are correctness gates. A pre-landing browser walk on QA1 was ceremony wearing correctness's clothes.
 
 **The principle behind the correction, in the conductor's own words, worth carrying to the next gate someone proposes**: *"A verification gate in the wrong place is not caution, it is a bottleneck. The question to ask of any gate is what it protects."* Her gate was protecting a dev environment from a bug — which is the one thing a dev environment exists to absorb. Before adding or keeping any gate anywhere in this pipeline, name specifically what it protects and whether the environment it sits in front of is the environment that actually needs that protection. If the answer is "this environment is disposable/single-user/exists to catch exactly this," the gate belongs one step further down, not here.
+
+---
+
+## Standard −1s — Lanes do not build browser verification harnesses (2026-09-22, Johan, standing policy)
+
+Three lanes each burned over an hour the same day on mint-session-cookie scripts, dev servers bound to isolated databases, and ad hoc Puppeteer/headless-Chromium scripts written to prove a change worked before pushing it. Johan's ruling, verbatim in substance: **"Lanes do not build browser harnesses. My own rule is that a lane's test results are never proof anyway — I verify every change myself in a real browser on the deployed site. Your local render proves nothing to him and costs him time and usage."**
+
+**The rule: a lane's own verification, before push, is exactly three things — `php -l` on every changed PHP file, `php artisan view:clear`, and the relevant EXISTING test file if one already exists. That is all.** If a change has no existing test covering it, a lane does not write a Puppeteer script, a minted-cookie curl harness, or any other browser-verification scaffolding to compensate — it pushes on the three-step verification above and lets the deployed-site check catch what the existing tests don't. Writing a NEW test (a real PHPUnit feature test, not a browser harness) is still the normal, encouraged way to prove new behaviour — this rule is about NOT standing up throwaway dev-server/browser tooling as a substitute for either an existing test or a real one, not about avoiding tests altogether.
+
+**Why this is the right line, not just a faster one**: Johan verifies every visible change himself, in a real browser, against the actually-deployed site, after cc1 lands it — that is the one verification that counts, because it is the one that matches what a real agent will actually see. A lane's own local render, however elaborate (isolated MySQL schema, minted session cookie, headless Chromium screenshot), is a DIFFERENT environment from the one being shipped to, proves nothing about the deployed asset build (`rental-inventory.md` §0c — a stale `public/build` bundle made a correct local render look nothing like the deployed page), and costs real time and token/compute usage that produces a report Johan does not trust anyway, by his own stated rule. The fast path and the trustworthy path are the same path: three cheap local checks, then push, then Johan's own eyes on the real thing.
+
+**What this replaces, concretely**: no `php artisan serve` bound to a throwaway database for manual click-through. No `scripts/fetch-authenticated-page.php` / `mint-session-cookie.php` chains run from a lane to pre-verify a Blade change. No Puppeteer/Chromium screenshot scripts written ad hoc to prove a CSS fix. No `corex:sync-permissions --seed-defaults` runs against a scratch database just to get a local login working for a verification pass. If a lane finds itself doing any of this, stop — the three-step check above is the whole job.
+
+**What this does NOT change**: `scripts/rental-smoke.mjs`, `scripts/verify-alpine-render.mjs`, and `scripts/rental-click-through.mjs` (Standard −1/−1f) remain real, correct gates — they still run, checking exactly what they've always checked. What changes is WHO runs them and WHEN: against the actually-deployed site, after cc1 lands the change, not by the lane itself against a local render before pushing. A lane does not stand these up pre-push under any circumstance, "explicitly requested" or not — if a prompt asks for a browser-verified change, the lane still stops at the three-step check and says so plainly in its report; the browser proof is the deployed-site pass that happens after landing.
 
 ---
 

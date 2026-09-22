@@ -2459,18 +2459,27 @@ round trip, not just a single-direction happy path.
 
 ### 20.14.3 R1 — room photos, gallery-sized, one row by default
 
+**Corrected, 2026-09-22 (same day, photo-tagging pass) — this subsection originally described a
+HEIGHT-based clip; that was a real defect, since fixed, and the text below now matches the actual
+shipped mechanism, not the superseded one.** The original `max-height:6.5rem; overflow:hidden` clip cut
+every tile short at gallery sizing (a grid column is easily 150-300px wide, so an `aspect-ratio:1/1`
+tile is that tall too — 104px clipped it mid-tile), which also hid the bottom-anchored per-tile
+controls (the room→item chooser select, the room→untagged button) inside the clipped-away area on any
+real screen width. **Clipping is now COUNT-based, never height-based**: the collapsed state renders
+`roomPhotosFor(...).slice(0, 3)` (the first 3 photos only, by array index — never a CSS clip on a
+rendered tile), expanding to every photo on "Show all N" via the same `roomPhotosExpanded[roomId]` flag.
+Every rendered tile is always whole; nothing is ever cut in half.
+
 Johan: "the small images is a waste of time. it either has to show it big enough like on gallery... maybe
-show 1 row of photos, then expand to see more?" The room-photo strip now uses the SAME tile size/grid as
-the property Gallery (`rental-section-body.blade.php`: `grid-cols-3 sm:grid-cols-5`, `aspect-ratio:1/1`,
-`object-cover`) — every photo still renders in the DOM (never truncated server- or client-side), clipped
-to roughly one row (`max-height:6.5rem; overflow:hidden`) by default via a per-room, per-section
-`roomPhotosExpanded[roomId]` flag, with a "Show all N" / "Show less" toggle appearing once a room has more
-than 3 (the tighter of the two responsive column counts, so the toggle is never missing on mobile even
-though it's occasionally a harmless no-op on desktop at exactly 4–5 photos). Never gated on a hardcoded
-photo count for WHETHER to clip — only the toggle's own visibility threshold, chosen to hold reasonably at
-both breakpoints rather than requiring a live column-count read. A 15-room property no longer pushes its
-own items ten screens down. Verified with an 11-photo room: all 11 render in the DOM, clipped to
-`max-height:104px` by default, `max-height:none` after "Show all".
+show 1 row of photos, then expand to see more?" The room-photo strip uses the SAME tile size/grid as the
+property Gallery (`rental-section-body.blade.php`: `grid-cols-3 sm:grid-cols-5`, `aspect-ratio:1/1`,
+`object-cover`). The "Show all N" / "Show less" toggle appears once a room has more than 3 (the tighter
+of the two responsive column counts, so the toggle is never missing on mobile even though it's
+occasionally a harmless no-op on desktop at exactly 4–5 photos). Never gated on a hardcoded photo count
+for WHETHER to clip — only the toggle's own visibility threshold, chosen to hold reasonably at both
+breakpoints rather than requiring a live column-count read. A 15-room property no longer pushes its own
+items ten screens down. Verified with an 11-photo room: 3 render collapsed, all 11 after "Show all", no
+tile ever partially clipped in either state.
 
 ### 20.14.4 R2 — item row: two-column condition buttons, photo strip at a matched, fixed height
 
@@ -2714,3 +2723,201 @@ creates a new room, untouched), rename, restore, and reorder-scoped-to-one-room 
 per-lane isolated test database. No browser harness, no dev server, no minted session — per Johan's own
 standing instruction for this build, verification stopped at that line; the deployed screen is his to
 confirm.
+
+---
+
+## 22. Photo tagging — the governing model, all six moves BUILT (2026-09-22, consolidated same day)
+
+**Consolidation note (spec-only pass, no code changed):** §20.13/§20.14 above were each written mid-build,
+before the full photo-tagging pass landed. This section pulls the finished shape together in one place —
+the model that governs it, exactly which of the six required moves are built and where each one lives —
+so a lane resetting tomorrow reads the actual finished design instead of reconstructing it from several
+mid-build sections. Nothing here contradicts §20.13/§20.14's own factual claims about what THEY built;
+§20.14.3 above has its own inline correction for the one place it did go stale (the room-photo clip
+mechanism). This section additionally records the debugging story behind the item-photo-strip sizing
+fix, which existed only in commit history before now, so it survives a lane reset.
+
+### 22.1 The model
+
+A photo lives in exactly one of three places, never more than one at a time:
+
+- **UNTAGGED** — sitting in the inspection's own tray (`rental_inspection_id` set, `property_room_id`
+  AND `rental_inspection_observation_id` both null).
+- **ROOM** — a general shot of a space (`property_room_id` set, `rental_inspection_observation_id`
+  null).
+- **ITEM** — filed against one specific facet within that space, e.g. "Ceiling" (both set — the item's
+  own room is always resolved server-side from the observation, never trusted from the client; §20.13.1).
+
+**Tagging supersedes, it never appends** (`RentalInspectionPhoto::tagTo()`) — moving a photo is a plain
+column update, not a new row. **Untag is the identical operation in reverse** (`tagTo(null, null)`) — no
+separate "undo" mechanism exists because none is needed. **Soft delete only** — `archive()` is a real
+`deleted_at`, never a hard delete (non-negotiable #1); wired into the tray today, not yet into the
+already-tagged room/item views (§20.13.6's own "Found, not fixed," unchanged by this consolidation).
+
+### 22.2 All six moves — confirmed built, one action each, not a two-step trip
+
+| Move | Control | Destination count | Where it lives | Code |
+|---|---|---|---|---|
+| untagged → room | drag-drop onto a room heading, OR select photo(s) + "Tag to…" dropdown + "Tag selected" | many (every room) | the tray's own selection bar | `dropOnRoom()` / `applyTrayDestination()`, `rental-inspection-recording.blade.php` |
+| untagged → item | select photo(s) + "Tag to…" dropdown (rooms AND individual items in one list) + "Tag selected" | many (every item across every room) | the SAME tray selection bar as above — one combined chooser, not two | `applyTrayDestination()` → `tagSelectedToItem()`. **Was genuinely missing** until this same-day pass — an agent had to route through a room first; the combined dropdown closes that gap in one action, not two |
+| room → item | click the room photo → the opened photo viewer's "Move to…" chooser (single photo), OR select several + the room heading's own "Tag to…" dropdown (bulk) | many (every item in this one room) | opened photo viewer (single) / room heading bulk bar (multi) | `openInspectionPhoto()` sets `viewer.room`; `moveViewerPhotoTo()` (single) / `tagSelectedRoomPhotosToItem()` (bulk), `show.blade.php` + `rental-inspection-recording.blade.php` |
+| room → untagged | small ↑ button, top-right of the tile | one (the tray) | on the tile itself | `untagPhoto()`, room-photo tile |
+| item → room | small ↑ button, top-right of the tile ("Back to room") — hidden for the roomless "General" group, since there is no room to step back to | one (this item's own room) | on the tile itself | `tagPhoto(photo.id, { property_room_id })`, item-photo tile |
+| item → untagged | small ⇗ button, bottom-right of the tile ("Back to untagged") — a visually distinct double-arrow icon from item→room's single arrow, since both are one-button moves on the same tile and must read as two different destinations at a glance | one (the tray) | on the tile itself | `untagPhoto()`, item-photo tile |
+
+**The rule behind the control choice, stated once so it never needs re-deriving:** a move with exactly
+ONE possible destination gets a small button, directly on the tile. A move with MANY possible
+destinations (which room? which of a room's several items?) needs a chooser, not a button — squeezing a
+dropdown onto a thumbnail was tried first and was a real, shipped defect (wrong id type, clipped out of
+the clickable area by the height bug in §22.3 below) — so the many-destination choosers live in the
+opened photo viewer (room→item, single-photo case) or in a selection bar with room enough for a real
+`<select>` (untagged→room, untagged→item, and the bulk case of room→item).
+
+**Clicking a photo opens the viewer. Every other control on a tile is its own small hit target,
+`@click.stop`, so no tile control ever also opens the photo it sits on** — confirmed in code at every
+tile (select toggle, untag button, back-to-room button all carry `@click.stop`).
+
+### 22.3 The item-photo-strip height bug — the real cause, so it is never rebuilt wrong
+
+Johan's ask (§20.14.4) was simple to state and took **four attempts** to actually ship, because the
+first three each fixed a real but incomplete piece of the real cause. Recorded here in full because none
+of the three false starts is visible from reading the final code — only from the commit history, which a
+lane reset does not have.
+
+**The real cause**: uploaded inspection photos are resized to **2560px on the long edge**
+(`PropertyImageStorer`, §3.6 — the same pipeline the marketing gallery uses). Nothing in the button-
+grid/photo-strip row constrained that. A flex row's default `min-height` is `auto`, which means a flex
+child's own CONTENT-based height (a real photo's natural, unconstrained rendered height — potentially
+hundreds of pixels even inside a strip meant to be ~124px tall) can override the row's intended
+`stretch` sizing and become the row's real height floor instead. The button grid was never the tall one;
+the photo, at its full natural resolution, was.
+
+**Why local verification passed at every attempt except the last**: the R2 build's own local checks used
+a **1×1 pixel test fixture** for the "photo." A 1×1 image has no meaningful natural size to expose a
+`min-height:auto` gotcha — it measured correctly by coincidence, not because the layout was sound.
+**Any future test of this specific layout must use a real, large photo (near the actual 2560px ceiling),
+never a 1×1 or other trivially-small fixture** — that substitution is exactly what let this ship broken
+three times before it was caught on the real deployed page with a real photo.
+
+**The four attempts, in order** (full detail in each commit's own message — `fa8a52490`, `3426afd82`,
+`543cc3a2d`, `f409f8061`):
+1. First pass (part of §20.14.4 as originally built) sized the strip via flex `stretch` alone — correct
+   in principle, incomplete because nothing set `min-height:0` anywhere in the chain, so the
+   `min-height:auto` gotcha above still applied.
+2. `fa8a52490` added `min-height:0` at each level plus explicit `max-height`/`object-fit` on the `img`
+   itself. Better, but a photo's native resolution still found a path through the remaining
+   percentage/stretch cascade on the real deployed page.
+3. `3426afd82` abandoned percentage/flex sizing for the strip entirely in favour of literal pixel values
+   (`80px`) on every dimension. This genuinely fixed the immediate symptom, but hardcoded a number that
+   was only correct for the one agency's condition-list length it was measured against — wrong the
+   moment an agency configures 9 states instead of 6 (Johan: "surely theres a specific size the buttons
+   take up and that same size can be applied to photos size or height").
+4. `543cc3a2d` (the shape that shipped, reinforced by `f409f8061`'s belt-and-braces `align-self`/longhand
+   `inset` pass) is the actual final mechanism: the row is `flex; align-items:stretch`, the button grid is
+   `flex:none` (so the buttons alone set the row's real height, whatever an agency's condition-list length
+   needs), and the photo strip is `flex:1; min-width:0; min-height:0; position:relative` holding NOTHING
+   that can itself contribute height — the actual horizontally-scrolling photos live in a `position:
+   absolute; inset:0` scroller INSIDE that strip. Because the scroller is taken out of normal flow, a
+   photo's native resolution — 2560px or otherwise — has no path back into the row's height at all,
+   regardless of how large the source file is. This holds for any agency's condition-list length and for
+   any photo resolution, which is the actual requirement — not a number tuned to today's fixture data.
+
+The camera/add-photo control sits in its own `flex:none` slot, a plain sibling of the scroller, not
+inside it — a real regression this same day (Johan: "Ive now lost the tagging per item. the little
+camera per item is gone?") when an earlier draft put it inside the scrollable strip, where it scrolled
+off to the right and became unreachable the moment an item had any photos at all. Outside the scroller,
+it receives the same row-driven stretch height directly and stays visible at a fixed position whether the
+item has zero photos or twelve — matching the task's own requirement in those exact terms.
+
+### 22.4 Standing rules this section is built to, restated plainly
+
+- **Agency-configurable, sensible default.** The condition-button grid holds any length list an agency
+  configures (6 states, 9 states, whatever) with no hardcoded split or count anywhere in the sizing
+  mechanism (§22.3) — this is not incidental, it is the actual requirement the four-attempt bug hunt was
+  chasing.
+- **Screen space goes to function.** Room photos render nothing when a room has none (§20.13.5); the
+  "Show all N" toggle only appears once there is something to show more of (§20.14.3); no separate
+  "N untagged" badge exists beyond the tray's own count (§20.13.6); no fact is printed twice.
+- **Soft delete only.** Photo archive is a real `deleted_at`, never a hard delete (§22.1).
+- **OWN/BRANCH/AGENCY at the query layer.** Every photo route is bound through the agency-scoped
+  `{rentalInspection}` and cross-checked against `rental_inspection_id` inside the controller — a photo
+  from a different inspection or a different agency's 404s, never leaks (§20.13.8, unchanged).
+
+---
+
+## 23. Compare view — the in/out (or ad-hoc) comparison panel — SPECCED, NOT YET BUILT (2026-09-22)
+
+**Status: this entire section describes a decided design. No code exists for it yet — do not read
+anything below as a description of what is currently on screen.** Recorded now, before it is built, so
+the decisions survive a lane reset intact rather than needing to be re-litigated.
+
+### 23.1 The shape
+
+When a property has a second inspection (an out-inspection, or an ad-hoc check, once an in-inspection
+already exists), the recording surface gains a two-panel comparison view: **In Inspection on the left,
+the NEXT inspection on the right** — labelled by its real type (Out Inspection, or the ad-hoc
+inspection's own label), never a generic "before/after." Panels align by room and by item automatically
+— the same `rental_inspection_item_id` on both sides, since items are property-scoped and reused across
+every inspection on that property (§3.1), so "Ceiling — Bedroom 1" on the left is guaranteed to be the
+identical row as "Ceiling — Bedroom 1" on the right, never a name-matching heuristic.
+
+### 23.2 Photos flip INDEPENDENTLY per side — explicitly not synchronised
+
+**Johan overruled synchronised flipping directly, verbatim**: *"photo 1 on in inspection shows damages.
+photos 4 on out shows same. so the agent needs to match it that way."* The two panels' photo strips each
+have their own, independent current-index — paging through the left (in) panel's photos never moves the
+right (out) panel's index, and vice versa. This is deliberate, not an oversight to fix later: the photo
+that best shows a given piece of damage is very rarely at the same array position on both sides (a wall
+might be photo 1 at move-in and photo 4 at move-out, depending on what else was photographed that day),
+so forcing the two indices to move together would make it actively HARDER for an agent to line up the
+comparison, not easier.
+
+### 23.3 "Match photos" — a persisted link, not a per-view convenience
+
+Because the two strips flip independently, the agent needs an explicit way to say "this specific in-photo
+and this specific out-photo show the same thing" — the **"Match photos" control**, which links whichever
+photo is currently showing on the left to whichever photo is currently showing on the right.
+
+- **The link is PERSISTED** (a real row, not a client-side/session-only pairing) — it must survive and
+  carry into every later surface that shows these photos: the compare view itself, the photo viewer/modal
+  described in §22, and any report or document generated afterwards (deposit-dispute paperwork).
+- **Unmatch breaks the link** — the reverse of Match, same discipline as untag (§22.1): no separate
+  "remove match" mechanism, the same control reversed.
+- **A photo may hold more than one match** — e.g. one wide in-photo of a wall might reasonably match
+  several close-up out-photos of different damage on that same wall. The link is many-to-many, not a
+  single paired-photo-id column on either side.
+- **Who matched and when is recorded on the link itself** — this is deposit-dispute evidence: a match an
+  agent made needs the same "who said so, when" provenance every other observation on this feature
+  already carries (§3.1's own `observed_by_user_id`/`created_at` discipline applies here by the same
+  reasoning, not by coincidence).
+
+**Data model implication, not yet built**: a new pivot-shaped table (working name
+`rental_inspection_photo_matches` — final name at build time) — `in_photo_id`, `out_photo_id` (or a more
+general `photo_id_a`/`photo_id_b` shape if ad-hoc-to-ad-hoc matching is ever needed), `matched_by_user_id`,
+`matched_at`, soft-deletable to match this feature's existing archive-not-hard-delete discipline for
+photos (§22.1). Exact column shape is a build-time decision, not fixed by this record — the REQUIREMENTS
+above (persisted, many-to-many, who/when, survives into every later surface) are what's fixed.
+
+### 23.4 Future dependency to protect — the mobile ghost-image feature
+
+**Not built now, but the API/data shape decided above must not foreclose it**: the mobile app is
+expected to use the room, the item, and the match link together to **ghost the in-photo on screen while
+an agent takes the matching out-photo** — i.e., overlay a faded version of the original photo as a
+framing guide so the agent reproduces the same angle at move-out. This is why room/item/match-link must
+stay reachable through the same API-shaped endpoints every other inspection action already uses
+(§14.2's established mobile-API pattern) rather than being built as a web-only convenience — a future
+mobile client needs to resolve "what was the matched in-photo for this item, so I can show it as a
+ghost overlay before this out-photo is taken," and that resolution path does not exist if the match link
+is, for example, computed only in a Blade view with no underlying queryable record.
+
+### 23.5 Out of scope for this section (named, not decided)
+
+- The exact UI mechanism for triggering "Match photos" (a button between the two panels, drag-and-drop
+  between strips, or something else) is a build-time UI decision, not fixed here.
+- Whether a match, once made, should visually annotate BOTH photos everywhere they appear (e.g. a small
+  "matched" badge on the thumbnail) — a real UX question, not decided by this record. **If built, the
+  badge must not violate §22.4's "no badge lit on every row" screen-space discipline** — a badge that
+  appears on every photo regardless of match state is exactly what that rule exists to prevent;
+  the badge, if built, must be conditional on an actual match existing.
+- Report/document generation itself consuming matched photo pairs — named as a future consumer (§23.3),
+  not designed here.
