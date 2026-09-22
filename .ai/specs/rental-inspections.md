@@ -2511,6 +2511,127 @@ unchanged. Verified: `sbCollapsed` flips to `true` the moment In Inspection alon
 - §20.13.6's own "Found, not fixed" item (archive affordance missing on already-tagged room/item photo
   views) is still not built — out of this build's two-bugs-plus-R1-R3 scope, unchanged from before.
 
+## 20.15 The compare view — In vs the next inspection, photo matching (2026-09-22)
+
+Johan, restated after an earlier "synchronised sliders" draft was overruled: "on any further inspections
+we split into 2 panels - left is in inspection, right is the next inspection (and i state next inspection
+as it can be ad hoc or out inspection)... you cannot let both rotate together... the clever part is to
+match photos - flip in to photo 1, flip out to photo 3, hit a link photos or match photos button and the
+photos move to stay together on the view, reports etc afterwards."
+
+### 20.15.1 Data model — `rental_inspection_photo_matches`
+
+A many-to-many self-join over `rental_inspection_photos`: `photo_id_a`/`photo_id_b` (always stored lower-id-
+first, canonicalized in `RentalInspectionPhotoMatch::matchPhotos()`, never at the DB layer), denormalized
+`agency_id`/`property_id` (same reasoning as `rental_inspection_photos.rental_inspection_id`), `matched_by_
+user_id`/`matched_at` and `unmatched_by_user_id` mirroring that table's own `tagged_by`/`archived_by`
+pairing — this is deposit-dispute evidence and carries the same audit weight as a recorded condition
+(Johan's own words). Soft-deletable (unmatch), never hard-deleted (non-negotiable #1). A photo may carry
+more than one match — the same damage can show in several shots — so this is a genuine many-to-many, not a
+column on the photo.
+
+Every index/constraint name is explicit and short (`ripm_*`), not left to Laravel's auto-generated naming —
+the same MySQL 64-character identifier limit already documented on `rental_inspection_photos`' own
+migrations applies here too, and a two-long-column-name unique pair index on this table's full name would
+risk it.
+
+`RentalInspectionPhotoMatch::matchPhotos($a, $b, $by)` is idempotent and restore-aware (BUILD_STANDARD §5a):
+re-matching an already-active pair returns the same row; re-matching a previously-unmatched pair restores
+it rather than colliding with the pair's own unique index (a soft-deleted row still occupies that slot).
+
+### 20.15.2 Resolving the pair — `RentalInspection::compareRightFor()`/`mostRecentFor()`
+
+`mostRecentFor($property, $type)` generalizes the existing `mostRecentOutFor()` (now a one-line delegate to
+it) — completed-inclusive, excludes only cancelled. `compareRightFor($property)` finds the LEFT side first
+(`mostRecentFor($property, TYPE_IN)`), then the earliest non-in, non-cancelled inspection on that SAME
+lease. Deliberately generic over type — never a literal `TYPE_OUT` check — so a future ad-hoc inspection
+(the `TYPE_AD_HOC` constant already exists; this build does not add any way to create one) slots into
+"the next inspection" without touching this method. Both lookups are completed-inclusive on purpose: by the
+time a second inspection exists to compare against, the in-inspection is almost always already completed,
+and the pair must stay comparable after the out-inspection completes too (the deposit-dispute case), not
+only while it's in progress.
+
+`RentalInspection::tabPayloadFor()` gained `compare_left_inspection`/`compare_right_inspection` (both null
+when there's nothing yet to compare — the common single-inspection case) and `photo_matches` (every match
+touching either side's photos, eager-loaded with both `photoA`/`photoB`).
+
+### 20.15.3 One endpoint pair, property-scoped like items/rooms
+
+`POST /corex/properties/{property}/rental-inspection-photo-matches` (`photo_id_a`, `photo_id_b`) and
+`DELETE .../rental-inspection-photo-matches/{match}` — property-scoped (not inspection-scoped, unlike the
+photo tag/untag/archive routes) because a match genuinely spans two different inspections on the same
+property, the same reasoning `rental-inspection-items`/`rental-inspection-rooms` are already property-
+scoped. Both photos must belong to inspections on the request's own property (404 otherwise, same
+cross-scope check pattern as `retireItem`/room-note routes); matching a photo to itself or to another photo
+on the SAME inspection is rejected (422) — matching only makes sense across a comparison. Gated by the same
+`rental_inspections.create` permission as every other recording action.
+
+### 20.15.4 Alignment is automatic, for free
+
+Rooms and items belong to the PROPERTY, not to a specific inspection — both the in- and the next inspection
+reference the exact same underlying `PropertyRoom`/`RentalInspectionItem` rows. `roomGroups()` (already
+built for the single-inspection recording view) is reused UNCHANGED as the compare view's own row source —
+Bedroom 1/Ceiling on one side and Bedroom 1/Ceiling on the other are, structurally, the same `item.id`
+iterated twice. The agent never aligns rooms by hand because there is nothing to align.
+
+### 20.15.5 Independent flip, persisted match (items 3/4)
+
+`comparePhotoUploader(side)` mirrors the existing `photoUploader(section)` factory but resolves the
+inspection from `compareLeft`/`compareRight` (§20.15.2's completed-inclusive lookups) instead of
+`currentInspection()` (which excludes completed and would go null on the left side almost immediately) —
+same shared `corexPhotoBatchUploader` component either way, so `roomPhotos()`/`itemPhotos()` work
+identically.
+
+`compareIndex` tracks each side's current photo position independently, keyed by `side + '_' + rowKey`
+(`room_<id>` or `item_<id>`) — flipping the left side of Bedroom 1/Ceiling never touches the right side's
+position, or any other row's. Per Johan: "you cannot let both rotate together."
+
+`toggleCompareMatch(leftPhoto, rightPhoto)` links (or, if already linked, unlinks) whichever photo is
+CURRENTLY showing on each side — the real feature: flip to the pair that shows the same damage, hit
+"Match photos", and the persisted link is what the next visit reads. `compareIndexes(key, leftPhotos,
+rightPhotos)`, called once per row via `x-init`, is what makes a matched pair "stay together... afterwards"
+(Johan) — on a row nobody has manually flipped yet this session, if a persisted match exists between any
+photo on the left and any photo on the right for that row, both indices jump straight to that pair instead
+of sitting at an arbitrary 0/0.
+
+### 20.15.6 Expand to a modal (item 5)
+
+`openCompareModal(kind, key, room, item)` opens a larger side-by-side view sharing the EXACT same
+`compareIndex`/`photoMatches` state as the compact row — flipping or matching in the modal is reflected in
+the row underneath immediately (and vice versa), never a second, disconnected copy of the state.
+
+### 20.15.7 Reused, not rebuilt
+
+The tagging controls (single-destination buttons, the opened-photo-viewer "Move to…" chooser) landed
+separately this same day (`ca5d69a27`) and are untouched by this build — the compare view is purely
+additive in `show.blade.php`, never touching `rental-inspection-recording.blade.php` (the file that work
+lives in). The item photo strip's own height mechanism (also landed separately, `503429dab`) is likewise
+untouched.
+
+### 20.15.8 Mobile — one panel at a time, not stacked
+
+Johan: "two panels side by side will not work at 390px... I would expect one panel at a time with a way to
+switch sides" — a plain toggle (`compareMobileSide`) above the compare section at phone width, switching
+which side is visible; both sides show side by side from the `sm:` breakpoint up. Implemented as a reactive
+`:class` binding (`'block'`/`'hidden'` combined with `sm:block`), not a `window.innerWidth` check — the
+latter isn't reactive to a real resize/rotate in Alpine, only to whatever expression the class binding
+itself depends on.
+
+### 20.15.9 API shape (item 6) — deliberately not made impossible for AT-429 (parked, not built)
+
+Every photo already carries `rental_inspection_id`/`property_room_id`/`rental_inspection_observation_id`;
+every match record carries `photo_id_a`/`photo_id_b`/`matched_at`/`matched_by_user_id` with both photos
+eager-loadable. A mobile client can find "the in-photo for this item" (Andre's parked AT-429 ghost-overlay
+idea) by querying photos for the in-inspection filtered by `rental_inspection_observation_id`, and can find
+"is there a match for this photo" by filtering the matches list for either id column — no reverse-engineering
+of the screen required. Nothing here builds any part of AT-429 itself.
+
+### 20.15.10 Not in this build
+
+Ad-hoc inspection type creation, deposit outcome/dispute resolution, and report/document generation are all
+explicitly out of scope — `compareRightFor()` is written generically enough that a future ad-hoc inspection
+slots in as "the next inspection" without changing this method, but nothing here adds a way to create one.
+
 ---
 
 ## 21. Add an item to an EXISTING room (2026-09-22, cc1) — there was no way to do this at all

@@ -4583,6 +4583,11 @@
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
                     roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
                     roomsApplyDefaultOrder: '{{ route('corex.properties.rental-inspection-rooms.apply-default-order', $property) }}',
+                    // §20.15 — compare view match/unmatch. Base only for the
+                    // destroy route since it needs a match id appended at
+                    // call time (the id is not known until a match exists).
+                    photoMatchesStore: '{{ route('corex.properties.rental-inspection-photo-matches.store', $property) }}',
+                    photoMatchesBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspection-photo-matches') }}',
                     // Base for the inspection-scoped actions below — each one appends
                     // /{id}/... itself, since which inspection is current changes at
                     // runtime (a new one can be started without a page reload).
@@ -4942,6 +4947,162 @@
                     </div>
                 </div>
 
+            {{-- §20.15 — the two-panel compare view. Gated entirely on
+                 compareRight (server-resolved: the earliest non-in,
+                 non-cancelled inspection on the same lease as the most
+                 recent in-inspection — Out today, a future ad-hoc type
+                 slots in without any change here) — a property with only
+                 an in-inspection so far shows nothing extra at all.
+                 Johan: "left is in inspection, right is the next
+                 inspection". Rooms/items are property-wide (roomGroups()
+                 is the same list already used by both recording sections
+                 above), so alignment by room and item is automatic — this
+                 section never sorts or matches rooms by hand. --}}
+            <template x-if="compareRight">
+                <div class="prop-section">
+                    <button type="button" class="prop-section-toggle" @click="toggle('compare_inspection')">
+                        <h3 class="prop-section-heading">
+                            <span class="prop-section-heading-text">Compare</span>
+                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="'In vs ' + (compareRight.type === 'out' ? 'Out' : compareRight.type)"></span>
+                        </h3>
+                        <svg class="prop-section-chevron" :class="open['compare_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                    </button>
+                    <div x-show="open['compare_inspection']" x-collapse class="prop-section-body space-y-3">
+                        {{-- Item 7, Johan: "two panels side by side will not
+                             work at 390px... one panel at a time with a way
+                             to switch sides" — a plain toggle at phone
+                             width; both sides show side by side from sm:
+                             up (hidden/sm:block are already proven
+                             utilities throughout this page). --}}
+                        <div class="sm:hidden flex items-center justify-center gap-3 pb-1" style="border-bottom:1px solid var(--border);">
+                            <button type="button" @click="compareMobileSide = 'left'"
+                                    class="text-xs font-semibold px-2 py-1"
+                                    :style="compareMobileSide === 'left' ? 'color:var(--brand-icon,#0ea5e9); text-decoration:underline;' : 'color:var(--text-muted);'">In</button>
+                            <button type="button" @click="compareMobileSide = 'right'"
+                                    class="text-xs font-semibold px-2 py-1"
+                                    :style="compareMobileSide === 'right' ? 'color:var(--brand-icon,#0ea5e9); text-decoration:underline;' : 'color:var(--text-muted);'"
+                                    x-text="compareRight.type === 'out' ? 'Out' : compareRight.type"></button>
+                        </div>
+
+                        <template x-for="group in roomGroups()" :key="group.room ? 'croom-' + group.room.id : 'cgeneral'">
+                            <div class="space-y-2 pt-2" style="border-top:1px solid var(--border);">
+                                <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);" x-text="group.room ? group.room.label : 'General'"></h4>
+
+                                {{-- Room-level general photos, both sides. --}}
+                                <template x-if="group.room && (compareRoomPhotos('left', group.room).length || compareRoomPhotos('right', group.room).length)">
+                                    <div x-init="compareIndexes('room_' + group.room.id, compareRoomPhotos('left', group.room), compareRoomPhotos('right', group.room))"
+                                         class="flex gap-2 items-start">
+                                        @foreach(['left', 'right'] as $side)
+                                        <div class="flex-1 min-w-0 space-y-1"
+                                             :class="(compareMobileSide === '{{ $side }}' ? 'block' : 'hidden') + ' sm:block'">
+                                            <div class="rounded-md overflow-hidden cursor-pointer" style="aspect-ratio:1/1; background:var(--surface-3);"
+                                                 @click="openCompareModal('room', 'room_' + group.room.id, group.room, null)">
+                                                <template x-if="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room))">
+                                                    <img :src="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room)).storage_path" class="w-full h-full object-cover" alt="">
+                                                </template>
+                                            </div>
+                                            <div class="flex items-center justify-center gap-2">
+                                                <button type="button" @click.stop="compareFlip('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room), -1)" x-show="compareRoomPhotos('{{ $side }}', group.room).length > 1" class="text-xs" style="color:var(--text-secondary);">&larr;</button>
+                                                <span class="text-xs" style="color:var(--text-muted);" x-text="({{ $side === 'left' ? '(compareIndex[\'left_room_\' + group.room.id] || 0)' : '(compareIndex[\'right_room_\' + group.room.id] || 0)' }} + 1) + '/' + compareRoomPhotos('{{ $side }}', group.room).length"></span>
+                                                <button type="button" @click.stop="compareFlip('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room), 1)" x-show="compareRoomPhotos('{{ $side }}', group.room).length > 1" class="text-xs" style="color:var(--text-secondary);">&rarr;</button>
+                                            </div>
+                                        </div>
+                                        @endforeach
+                                    </div>
+                                </template>
+                                <template x-if="group.room && (compareRoomPhotos('left', group.room).length && compareRoomPhotos('right', group.room).length)">
+                                    <div class="flex justify-center">
+                                        <button type="button"
+                                                @click="toggleCompareMatch(compareCurrentPhoto('left', 'room_' + group.room.id, compareRoomPhotos('left', group.room)), compareCurrentPhoto('right', 'room_' + group.room.id, compareRoomPhotos('right', group.room)))"
+                                                class="text-xs font-semibold px-3 py-1 rounded-md"
+                                                :style="matchFor(compareCurrentPhoto('left', 'room_' + group.room.id, compareRoomPhotos('left', group.room))?.id, compareCurrentPhoto('right', 'room_' + group.room.id, compareRoomPhotos('right', group.room))?.id)
+                                                    ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
+                                                    : 'background:var(--surface-2); color:var(--text-secondary);'"
+                                                x-text="matchFor(compareCurrentPhoto('left', 'room_' + group.room.id, compareRoomPhotos('left', group.room))?.id, compareCurrentPhoto('right', 'room_' + group.room.id, compareRoomPhotos('right', group.room))?.id) ? 'Matched — unmatch' : 'Match photos'"></button>
+                                    </div>
+                                </template>
+
+                                {{-- Item-level photos, both sides. --}}
+                                <template x-for="item in group.items" :key="item.id">
+                                    <template x-if="compareItemPhotos('left', item).length || compareItemPhotos('right', item).length">
+                                        <div class="pl-3 space-y-1" x-init="compareIndexes('item_' + item.id, compareItemPhotos('left', item), compareItemPhotos('right', item))">
+                                            <span class="text-xs" style="color:var(--text-primary);" x-text="item.label"></span>
+                                            <div class="flex gap-2 items-start">
+                                                @foreach(['left', 'right'] as $side)
+                                                <div class="flex-1 min-w-0 space-y-1"
+                                                     :class="(compareMobileSide === '{{ $side }}' ? 'block' : 'hidden') + ' sm:block'">
+                                                    <div class="rounded-md overflow-hidden cursor-pointer" style="aspect-ratio:1/1; background:var(--surface-3);"
+                                                         @click="openCompareModal('item', 'item_' + item.id, null, item)">
+                                                        <template x-if="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item))">
+                                                            <img :src="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item)).storage_path" class="w-full h-full object-cover" alt="">
+                                                        </template>
+                                                    </div>
+                                                    <div class="flex items-center justify-center gap-2">
+                                                        <button type="button" @click.stop="compareFlip('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item), -1)" x-show="compareItemPhotos('{{ $side }}', item).length > 1" class="text-xs" style="color:var(--text-secondary);">&larr;</button>
+                                                        <span class="text-xs" style="color:var(--text-muted);" x-text="({{ $side === 'left' ? '(compareIndex[\'left_item_\' + item.id] || 0)' : '(compareIndex[\'right_item_\' + item.id] || 0)' }} + 1) + '/' + compareItemPhotos('{{ $side }}', item).length"></span>
+                                                        <button type="button" @click.stop="compareFlip('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item), 1)" x-show="compareItemPhotos('{{ $side }}', item).length > 1" class="text-xs" style="color:var(--text-secondary);">&rarr;</button>
+                                                    </div>
+                                                </div>
+                                                @endforeach
+                                            </div>
+                                            <template x-if="compareItemPhotos('left', item).length && compareItemPhotos('right', item).length">
+                                                <div class="flex justify-center">
+                                                    <button type="button"
+                                                            @click="toggleCompareMatch(compareCurrentPhoto('left', 'item_' + item.id, compareItemPhotos('left', item)), compareCurrentPhoto('right', 'item_' + item.id, compareItemPhotos('right', item)))"
+                                                            class="text-xs font-semibold px-3 py-1 rounded-md"
+                                                            :style="matchFor(compareCurrentPhoto('left', 'item_' + item.id, compareItemPhotos('left', item))?.id, compareCurrentPhoto('right', 'item_' + item.id, compareItemPhotos('right', item))?.id)
+                                                                ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
+                                                                : 'background:var(--surface-2); color:var(--text-secondary);'"
+                                                            x-text="matchFor(compareCurrentPhoto('left', 'item_' + item.id, compareItemPhotos('left', item))?.id, compareCurrentPhoto('right', 'item_' + item.id, compareItemPhotos('right', item))?.id) ? 'Matched — unmatch' : 'Match photos'"></button>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </template>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </template>
+
+            {{-- §20.15, item 5 — expand to a bigger modal: same flip/match
+                 controls, shared state with the compact row above (matching
+                 or flipping here updates the row underneath immediately). --}}
+            <div x-show="compareModal.open" x-cloak
+                 class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+                 style="background:rgba(0,0,0,0.85);"
+                 @keydown.escape.window="compareModal.open = false">
+                <div class="relative w-full max-w-4xl rounded-lg overflow-hidden" style="background:var(--surface);" @click.stop>
+                    <button type="button" @click="compareModal.open = false" class="absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center text-white" style="background:rgba(0,0,0,0.6);">&times;</button>
+                    <div class="p-4 flex flex-col sm:flex-row gap-4">
+                        @foreach(['left', 'right'] as $side)
+                        <div class="flex-1 min-w-0 space-y-2">
+                            <div class="rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
+                                <template x-if="compareModal{{ ucfirst($side) }}Photos().length">
+                                    <img :src="compareCurrentPhoto('{{ $side }}', compareModal.key, compareModal{{ ucfirst($side) }}Photos()).storage_path" class="w-full h-full object-cover" alt="">
+                                </template>
+                            </div>
+                            <div class="flex items-center justify-center gap-3">
+                                <button type="button" @click="compareFlip('{{ $side }}', compareModal.key, compareModal{{ ucfirst($side) }}Photos(), -1)" x-show="compareModal{{ ucfirst($side) }}Photos().length > 1" class="text-sm font-semibold px-2 py-1" style="color:var(--text-secondary);">&larr;</button>
+                                <span class="text-xs" style="color:var(--text-muted);" x-text="compareModal{{ ucfirst($side) }}Photos().length ? ((compareIndex['{{ $side }}_' + compareModal.key] || 0) + 1) + '/' + compareModal{{ ucfirst($side) }}Photos().length : '0/0'"></span>
+                                <button type="button" @click="compareFlip('{{ $side }}', compareModal.key, compareModal{{ ucfirst($side) }}Photos(), 1)" x-show="compareModal{{ ucfirst($side) }}Photos().length > 1" class="text-sm font-semibold px-2 py-1" style="color:var(--text-secondary);">&rarr;</button>
+                            </div>
+                        </div>
+                        @endforeach
+                    </div>
+                    <div class="px-4 pb-4 flex justify-center" x-show="compareModalLeftPhotos().length && compareModalRightPhotos().length">
+                        <button type="button"
+                                @click="toggleCompareMatch(compareCurrentPhoto('left', compareModal.key, compareModalLeftPhotos()), compareCurrentPhoto('right', compareModal.key, compareModalRightPhotos()))"
+                                class="text-sm font-semibold px-4 py-2 rounded-md"
+                                :style="matchFor(compareCurrentPhoto('left', compareModal.key, compareModalLeftPhotos())?.id, compareCurrentPhoto('right', compareModal.key, compareModalRightPhotos())?.id)
+                                    ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
+                                    : 'background:var(--surface-2); color:var(--text-secondary);'"
+                                x-text="matchFor(compareCurrentPhoto('left', compareModal.key, compareModalLeftPhotos())?.id, compareCurrentPhoto('right', compareModal.key, compareModalRightPhotos())?.id) ? 'Matched — unmatch' : 'Match photos'"></button>
+                    </div>
+                </div>
+            </div>
+
             {{-- Custom sections --}}
             <template x-for="sec in data.custom" :key="sec.id">
                 <div class="prop-section">
@@ -5092,6 +5253,12 @@
                 items: config.inspectionData.items,
                 inInspection: config.inspectionData.in_inspection,
                 outInspection: config.inspectionData.out_inspection,
+                // §20.15 — the two-panel compare view. Null/null when there is
+                // nothing yet to compare (only an in-inspection so far, the
+                // common case) — compareRight gates the whole section.
+                compareLeft: config.inspectionData.compare_left_inspection,
+                compareRight: config.inspectionData.compare_right_inspection,
+                photoMatches: config.inspectionData.photo_matches,
                 // .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 — read-only,
                 // never edited from here (a fault report is resolved from its
                 // own screen or the property tab, §6a's own instruction).
@@ -5155,6 +5322,163 @@
                     }
                     return this.photoUploaders[section];
                 },
+
+                // ── §20.15 — the two-panel compare view ──────────────────────
+                // Mirrors photoUploader() above but resolves the inspection
+                // from compareLeft/compareRight (mostRecentFor() on the
+                // server, completed-inclusive) instead of currentInspection()
+                // (currentFor(), which excludes completed) — by the time a
+                // second inspection exists to compare against, the
+                // in-inspection is almost always already completed, and
+                // currentInspection('in') would go null right when compare
+                // needs it most. Same shared corexPhotoBatchUploader
+                // component either way, just a different inspection source,
+                // so roomPhotos()/itemPhotos() work identically.
+                compareUploaders: {},
+                comparePhotoUploader(side) {
+                    const insp = side === 'left' ? this.compareLeft : this.compareRight;
+                    if (!insp) return null;
+                    if (!this.compareUploaders[side] || this.compareUploaders[side]._cpu_inspId !== insp.id) {
+                        const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}`;
+                        this.compareUploaders[side] = window.corexPhotoBatchUploader({
+                            csrf: this.csrf,
+                            uploadUrl: `${base}/photos`,
+                            tagUrl: (photoId) => `${base}/photos/${photoId}/tag`,
+                            tagBulkUrl: `${base}/photos/tag-bulk`,
+                            untagUrl: (photoId) => `${base}/photos/${photoId}/untag`,
+                            archiveUrl: (photoId) => `${base}/photos/${photoId}`,
+                            photos: insp.photos || [],
+                        });
+                        this.compareUploaders[side]._cpu_inspId = insp.id;
+                    }
+                    return this.compareUploaders[side];
+                },
+                // Item 2 — room's own general shots, one side. Rooms/items are
+                // property-wide (roomGroups() is the SAME list for both sides
+                // already), so alignment is automatic — this is the only part
+                // that differs per side, and it's a plain filter of that
+                // side's own photo pool.
+                compareRoomPhotos(side, room) {
+                    const uploader = this.comparePhotoUploader(side);
+                    return uploader && room ? uploader.roomPhotos(room.id) : [];
+                },
+                compareItemPhotos(side, item) {
+                    const uploader = this.comparePhotoUploader(side);
+                    const insp = side === 'left' ? this.compareLeft : this.compareRight;
+                    if (!uploader || !insp) return [];
+                    const obsIds = (insp.observations || [])
+                        .filter(o => o.rental_inspection_item_id === item.id)
+                        .map(o => o.id);
+                    return uploader.itemPhotos(obsIds);
+                },
+
+                // Item 3, Johan: "you cannot let both rotate together" — each
+                // side flips independently, keyed by side+row so Bedroom 1's
+                // own flip position never bleeds into Bedroom 2's. Item 4,
+                // Johan: "flip in to photo 1, flip out to photo 3, hit match
+                // and the photos move to stay together... afterwards" — the
+                // first time a row is shown, if the CURRENT (default index 0)
+                // photo on one side already has a persisted match to a photo
+                // on the other side, both indices jump straight to that pair
+                // instead of sitting at an arbitrary 0/0 — this is what makes
+                // a matched pair "stay together" on later views.
+                compareIndex: {},
+                compareIndexes(key, leftPhotos, rightPhotos) {
+                    const lk = 'left_' + key, rk = 'right_' + key;
+                    if (!(lk in this.compareIndex) && !(rk in this.compareIndex)) {
+                        for (let li = 0; li < leftPhotos.length; li++) {
+                            const partnerId = this.matchPartnerId(leftPhotos[li].id);
+                            if (!partnerId) continue;
+                            const ri = rightPhotos.findIndex(p => p.id === partnerId);
+                            if (ri !== -1) {
+                                this.compareIndex[lk] = li;
+                                this.compareIndex[rk] = ri;
+                                break;
+                            }
+                        }
+                    }
+                    return { left: this.compareIndex[lk] || 0, right: this.compareIndex[rk] || 0 };
+                },
+                compareCurrentPhoto(side, key, photos) {
+                    if (!photos.length) return null;
+                    const idx = this.compareIndex[side + '_' + key] || 0;
+                    return photos[Math.min(idx, photos.length - 1)];
+                },
+                compareFlip(side, key, photos, delta) {
+                    if (!photos.length) return;
+                    const cur = this.compareIndex[side + '_' + key] || 0;
+                    let next = (cur + delta) % photos.length;
+                    if (next < 0) next += photos.length;
+                    this.compareIndex[side + '_' + key] = next;
+                },
+
+                // Item 4 — persisted match/unmatch, evidence-weight audit
+                // (matched_by_user_id/matched_at, unmatched_by_user_id — the
+                // server side, RentalInspectionPhotoMatch). A photo may carry
+                // more than one match; matchFor() finds the one relevant to
+                // THIS currently-shown pairing (does the OTHER side's current
+                // photo specifically match this one), never just "any match
+                // on this photo at all".
+                matchFor(photoId, otherPhotoId) {
+                    return (this.photoMatches || []).find(m =>
+                        (m.photo_id_a === photoId && m.photo_id_b === otherPhotoId) ||
+                        (m.photo_id_b === photoId && m.photo_id_a === otherPhotoId));
+                },
+                matchPartnerId(photoId) {
+                    const m = (this.photoMatches || []).find(m => m.photo_id_a === photoId || m.photo_id_b === photoId);
+                    if (!m) return null;
+                    return m.photo_id_a === photoId ? m.photo_id_b : m.photo_id_a;
+                },
+                async toggleCompareMatch(leftPhoto, rightPhoto) {
+                    if (!leftPhoto || !rightPhoto) return;
+                    const existing = this.matchFor(leftPhoto.id, rightPhoto.id);
+                    if (existing) {
+                        await fetch(`${this.inspectionUrls.photoMatchesBase}/${existing.id}`, {
+                            method: 'DELETE',
+                            headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        });
+                        this.photoMatches = this.photoMatches.filter(m => m.id !== existing.id);
+                        return;
+                    }
+                    const res = await fetch(this.inspectionUrls.photoMatchesStore, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        body: JSON.stringify({ photo_id_a: leftPhoto.id, photo_id_b: rightPhoto.id }),
+                    });
+                    if (res.ok) {
+                        const match = await res.json();
+                        this.photoMatches.push(match);
+                    }
+                },
+
+                // Item 7 — one side visible at a time at phone width (Johan:
+                // "two panels side by side will not work at 390px... one
+                // panel at a time with a way to switch sides"), both visible
+                // side by side from sm: up.
+                compareMobileSide: 'left',
+
+                // Item 5 — expand to a bigger modal for the same row (room or
+                // item), same flip/match controls, just more room. Shares the
+                // exact same compareIndex/photoMatches state as the inline
+                // row — flipping or matching in the modal is visible in the
+                // compact row underneath immediately, and vice versa.
+                compareModal: { open: false, key: null, kind: null, room: null, item: null },
+                openCompareModal(kind, key, room, item) {
+                    this.compareModal = { open: true, kind, key, room: room || null, item: item || null };
+                },
+                compareModalLeftPhotos() {
+                    if (!this.compareModal.open) return [];
+                    return this.compareModal.kind === 'room'
+                        ? this.compareRoomPhotos('left', this.compareModal.room)
+                        : this.compareItemPhotos('left', this.compareModal.item);
+                },
+                compareModalRightPhotos() {
+                    if (!this.compareModal.open) return [];
+                    return this.compareModal.kind === 'room'
+                        ? this.compareRoomPhotos('right', this.compareModal.room)
+                        : this.compareItemPhotos('right', this.compareModal.item);
+                },
+
                 // Item 1 — the item camera control: multiple files, tagged
                 // to this item (and, via the controller's own item->room
                 // resolution, its room too) at upload time. An item with no

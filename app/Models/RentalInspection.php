@@ -400,10 +400,51 @@ class RentalInspection extends Model
      */
     public static function mostRecentOutFor(Property $property): ?self
     {
-        return self::where('type', self::TYPE_OUT)
+        return self::mostRecentFor($property, self::TYPE_OUT);
+    }
+
+    /**
+     * Generic form of mostRecentOutFor() above — the most recent inspection
+     * of a given type ever recorded for this property, regardless of
+     * status (including completed), except cancelled. Added for §20.15's
+     * compare view: the In Inspection being COMPARED against an in-progress
+     * Out is, by definition, already completed by then, so the compare
+     * view's left side needs this same completed-inclusive lookup that
+     * currentFor() (which excludes completed) cannot answer.
+     */
+    public static function mostRecentFor(Property $property, string $type): ?self
+    {
+        return self::where('type', $type)
             ->where('status', '!=', self::STATUS_CANCELLED)
             ->whereHas('lease', fn ($q) => $q->where('property_id', $property->id))
             ->latest('id')
+            ->first();
+    }
+
+    /**
+     * §20.15 — the RIGHT-hand panel of the two-panel compare view. Johan:
+     * "left is in inspection, right is the next inspection (and i state
+     * next inspection as it can be ad hoc or out inspection)". Deliberately
+     * generic over type (never a literal TYPE_OUT check) so a future
+     * ad-hoc inspection slots into this same resolution without a rewrite —
+     * TYPE_AD_HOC is not otherwise buildable yet (no start UI/route), but
+     * the model constant already exists and this method never needs to
+     * know which non-in type it found. Scoped to the SAME lease as the
+     * in-inspection it pairs against, so a previous tenancy's leftover
+     * out-inspection is never paired against a new tenancy's in-inspection.
+     * "Next" = whichever non-in inspection was created FIRST on that lease.
+     */
+    public static function compareRightFor(Property $property): ?self
+    {
+        $in = self::mostRecentFor($property, self::TYPE_IN);
+        if (! $in) {
+            return null;
+        }
+
+        return self::where('lease_id', $in->lease_id)
+            ->where('type', '!=', self::TYPE_IN)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->oldest('id')
             ->first();
     }
 
@@ -536,6 +577,19 @@ class RentalInspection extends Model
         // the tab show" instead, and keeps answering it after completion.
         $mostRecentOut = self::mostRecentOutFor($property);
 
+        // §20.15 — the two-panel compare view. Both sides deliberately use
+        // completed-inclusive lookups (mostRecentFor()/compareRightFor()),
+        // same reasoning as $mostRecentOut above: by the time a second
+        // inspection exists to compare against, the in-inspection is almost
+        // always already completed, and Johan's own framing ("this is
+        // evidence in a deposit dispute") means the pair must stay
+        // comparable after completion too, not just while in progress.
+        $compareRight = self::compareRightFor($property);
+        $compareLeft = $compareRight ? self::mostRecentFor($property, self::TYPE_IN) : null;
+        $compareDetail = fn (?self $insp) => $insp?->load(['observations.item', 'photos']);
+        $compareLeft = $compareDetail($compareLeft);
+        $compareRight = $compareDetail($compareRight);
+
         return [
             'items' => $items,
             'in_inspection' => $withDetail(self::TYPE_IN),
@@ -573,6 +627,20 @@ class RentalInspection extends Model
             // into the recording UI's condition picker instead of a
             // hardcoded set of <option> tags.
             'condition_states' => \App\Models\RentalInspectionSetting::conditionStatesFor($property->agency_id),
+            // §20.15 — null/null when there is nothing yet to compare (only
+            // an in-inspection exists so far, the common case); the compare
+            // UI is gated entirely on compare_right_inspection being present.
+            'compare_left_inspection' => $compareLeft,
+            'compare_right_inspection' => $compareRight,
+            'photo_matches' => ($compareLeft && $compareRight)
+                ? \App\Models\RentalInspectionPhotoMatch::with(['photoA', 'photoB'])
+                    ->where(function ($q) use ($compareLeft, $compareRight) {
+                        $ids = [$compareLeft->id, $compareRight->id];
+                        $q->whereHas('photoA', fn ($qq) => $qq->whereIn('rental_inspection_id', $ids))
+                            ->orWhereHas('photoB', fn ($qq) => $qq->whereIn('rental_inspection_id', $ids));
+                    })
+                    ->get()
+                : collect(),
         ];
     }
 }

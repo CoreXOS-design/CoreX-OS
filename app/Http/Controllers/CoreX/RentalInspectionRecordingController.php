@@ -856,6 +856,43 @@ class RentalInspectionRecordingController extends Controller
         return response()->json(['message' => 'Photo archived.']);
     }
 
+    /**
+     * POST /corex/properties/{property}/rental-inspection-photo-matches —
+     * §20.15, the compare view's "match photos" control. Property-scoped
+     * (not inspection-scoped, like the routes above) because a match
+     * genuinely spans two different inspections on the same property —
+     * the same pattern already used for items/rooms, which are also
+     * property-wide, cross-inspection concepts.
+     */
+    public function storePhotoMatch(Request $request, Property $property): JsonResponse
+    {
+        $validated = $request->validate([
+            'photo_id_a' => ['required', 'integer', 'different:photo_id_b'],
+            'photo_id_b' => ['required', 'integer'],
+        ]);
+
+        $photoA = RentalInspectionPhoto::findOrFail($validated['photo_id_a']);
+        $photoB = RentalInspectionPhoto::findOrFail($validated['photo_id_b']);
+
+        abort_if((int) $photoA->inspection?->property_id !== (int) $property->id, 404, 'That photo is not part of this property.');
+        abort_if((int) $photoB->inspection?->property_id !== (int) $property->id, 404, 'That photo is not part of this property.');
+        abort_if((int) $photoA->rental_inspection_id === (int) $photoB->rental_inspection_id, 422, 'Photos on the same inspection cannot be matched to each other.');
+
+        $match = \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoA, $photoB, $request->user());
+
+        return response()->json($match->load(['photoA', 'photoB']), 201);
+    }
+
+    /** DELETE /corex/properties/{property}/rental-inspection-photo-matches/{match} — unmatch, the exact reverse. */
+    public function destroyPhotoMatch(Request $request, Property $property, \App\Models\RentalInspectionPhotoMatch $match): JsonResponse
+    {
+        abort_if((int) $match->property_id !== (int) $property->id, 404);
+
+        $match->unmatch($request->user());
+
+        return response()->json(['message' => 'Photos unmatched.']);
+    }
+
     /** POST /corex/rental-inspections/{inspection}/discrepancies/{discrepancy}/resolve */
     public function resolveDiscrepancy(Request $request, RentalInspection $rentalInspection, RentalInspectionDiscrepancy $discrepancy): JsonResponse
     {

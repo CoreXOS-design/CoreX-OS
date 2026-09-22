@@ -1502,4 +1502,148 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertContains('n_a', $keys);
         $this->assertContains('good', $keys);
     }
+
+    // ── Compare view — photo matching (§20.15, 2026-09-22) ──────────────
+
+    /** @return array{0: RentalInspectionPhoto, 1: RentalInspectionPhoto} [in-side photo, out-side photo] */
+    private function makeMatchablePair(): array
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = $this->makeInspection(RentalInspection::TYPE_OUT);
+
+        $this->postJson(route('corex.rental-inspections.photos.store', $in), [
+            'photos' => [UploadedFile::fake()->image('in.jpg')],
+        ])->assertStatus(201);
+        $this->postJson(route('corex.rental-inspections.photos.store', $out), [
+            'photos' => [UploadedFile::fake()->image('out.jpg')],
+        ])->assertStatus(201);
+
+        $photoIn = RentalInspectionPhoto::where('rental_inspection_id', $in->id)->first();
+        $photoOut = RentalInspectionPhoto::where('rental_inspection_id', $out->id)->first();
+
+        return [$photoIn, $photoOut];
+    }
+
+    public function test_two_photos_on_different_inspections_can_be_matched(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+
+        $response = $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
+            'photo_id_a' => $photoIn->id, 'photo_id_b' => $photoOut->id,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertDatabaseHas('rental_inspection_photo_matches', [
+            'photo_id_a' => min($photoIn->id, $photoOut->id),
+            'photo_id_b' => max($photoIn->id, $photoOut->id),
+            'agency_id' => $this->agency->id,
+            'property_id' => $this->property->id,
+            'matched_by_user_id' => $this->agent->id,
+        ]);
+    }
+
+    public function test_matching_a_photo_to_itself_is_rejected(): void
+    {
+        [$photoIn] = $this->makeMatchablePair();
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
+            'photo_id_a' => $photoIn->id, 'photo_id_b' => $photoIn->id,
+        ])->assertStatus(422);
+    }
+
+    public function test_matching_two_photos_on_the_same_inspection_is_rejected(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $inspection = $this->makeInspection();
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'photos' => [UploadedFile::fake()->image('a.jpg'), UploadedFile::fake()->image('b.jpg')],
+        ])->assertStatus(201);
+        $photos = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->get();
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
+            'photo_id_a' => $photos[0]->id, 'photo_id_b' => $photos[1]->id,
+        ])->assertStatus(422);
+    }
+
+    public function test_matching_a_photo_from_a_different_property_is_not_reachable(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $otherProperty), [
+            'photo_id_a' => $photoIn->id, 'photo_id_b' => $photoOut->id,
+        ])->assertNotFound();
+    }
+
+    public function test_unmatching_a_pair_soft_deletes_it_never_hard_deletes(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+        $match = \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoIn, $photoOut, $this->agent);
+
+        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$this->property, $match]))
+            ->assertOk();
+
+        $this->assertSoftDeleted('rental_inspection_photo_matches', ['id' => $match->id]);
+        $this->assertDatabaseHas('rental_inspection_photo_matches', ['id' => $match->id, 'unmatched_by_user_id' => $this->agent->id]);
+    }
+
+    /** BUILD_STANDARD §5a — a soft-deleted pair's unique slot must not block re-matching the same two photos. */
+    public function test_rematching_a_previously_unmatched_pair_restores_it_rather_than_colliding(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+        $match = \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoIn, $photoOut, $this->agent);
+        $match->unmatch($this->agent);
+
+        $response = $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
+            'photo_id_a' => $photoIn->id, 'photo_id_b' => $photoOut->id,
+        ]);
+
+        $response->assertStatus(201);
+        $this->assertSame($match->id, $response->json('id'));
+        $this->assertSame(1, \App\Models\RentalInspectionPhotoMatch::withTrashed()->where('id', $match->id)->count());
+        $this->assertDatabaseHas('rental_inspection_photo_matches', ['id' => $match->id, 'deleted_at' => null]);
+    }
+
+    public function test_unmatching_a_match_from_a_different_property_is_not_reachable(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+        $match = \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoIn, $photoOut, $this->agent);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+
+        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$otherProperty, $match]))
+            ->assertNotFound();
+    }
+
+    public function test_tab_payload_exposes_the_compare_pair_and_its_matches_once_an_out_inspection_exists(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+        \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoIn, $photoOut, $this->agent);
+
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+
+        $response->assertOk();
+        $this->assertNotNull($response->json('compare_left_inspection'));
+        $this->assertNotNull($response->json('compare_right_inspection'));
+        $this->assertSame(RentalInspection::TYPE_IN, $response->json('compare_left_inspection.type'));
+        $this->assertSame(RentalInspection::TYPE_OUT, $response->json('compare_right_inspection.type'));
+        $this->assertCount(1, $response->json('photo_matches'));
+    }
+
+    public function test_tab_payload_has_no_compare_pair_when_only_an_in_inspection_exists(): void
+    {
+        $this->makeInspection(RentalInspection::TYPE_IN);
+
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+
+        $response->assertOk();
+        $this->assertNull($response->json('compare_right_inspection'));
+        $this->assertSame([], $response->json('photo_matches'));
+    }
 }

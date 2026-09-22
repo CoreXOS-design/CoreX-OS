@@ -4264,6 +4264,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // rooms; reorder persists the agent's own manual up/down moves.
         Route::post('/{property}/rental-inspection-rooms/apply-default-order', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'applyDefaultRoomOrder'])->name('rental-inspection-rooms.apply-default-order');
         Route::post('/{property}/rental-inspection-rooms/reorder', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'reorderRooms'])->name('rental-inspection-rooms.reorder');
+        // §20.15 — the two-panel compare view's "match photos" control.
+        // Property-scoped like items/rooms above: a match spans two
+        // different inspections on the same property, never one.
+        Route::post('/{property}/rental-inspection-photo-matches', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhotoMatch'])
+            ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.store');
+        Route::delete('/{property}/rental-inspection-photo-matches/{match}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'destroyPhotoMatch'])
+            ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.destroy');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new
         // property or a type-change draft still saves its rental fields
