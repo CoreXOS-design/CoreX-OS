@@ -844,6 +844,29 @@ Three lanes each burned over an hour the same day on mint-session-cookie scripts
 
 ---
 
+## Standard −1t — Verification artefacts never go on a demo record (2026-09-22, Johan, standing policy)
+
+Property 5792 (1 Kenmuir Road, Uvongo, Margate) is the demo property. It accumulated four junk rooms —
+"Kitchen CC1 Verify", "Bedroom CC1 Verify", "ZZ Conductor Verify", "ZZ Conductor Verify Parking" — left
+behind by lanes, and by the conductor, using it to verify that a feature worked. Half the demo property
+became test litter, visible on the inspections tab, the inventory screen, and the compare view, and had
+to be cleaned up by hand before an agency saw the screen. Johan's ruling, verbatim in substance: **"I
+broke this rule too, so it is not aimed at anyone."**
+
+**The rule: verification artefacts must never be created on demo property 5792, or on any record a
+lane or the conductor demos from.** If a lane needs to create a room, a space, a property, or any other
+record to verify something works, it creates that record on a throwaway record of its own — never on a
+record used for demos — and removes it afterwards once the verification is done. "Removes it" means
+archived / soft-deleted / `is_retired`, per every non-negotiable and standing rule on hard deletes in
+this codebase — never a hard delete, and never left in place.
+
+A distinctive name is not a substitute for cleanup. "CC1 Verify" or "ZZ Conductor Verify" makes a junk
+record easy to *identify* later, which is better than an unnamed one, but it is not the same as removing
+it — the four rooms above were all clearly named and still sat there for days. Naming a throwaway record
+clearly is good practice; it does not discharge the obligation to clean it up.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
