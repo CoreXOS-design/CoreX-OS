@@ -937,6 +937,53 @@ class PropertyController extends Controller
         }
     }
 
+    /**
+     * Johan, 2026-09-22 (property 4283 / rental application 290) —
+     * has_deposit=1 with a blank deposit_amount is what produced an empty
+     * Deposit field downstream on the tenant-linking screen. Rather than
+     * rejecting the save outright (which would make every property
+     * ALREADY saved in that state un-editable the next time an agent
+     * touches an unrelated field), a blank deposit_amount is auto-filled
+     * from the agency's configured deposit multiple
+     * (LeaseSetting::defaultDepositMonthsFor(), default 1 month — "one
+     * month" is what .ai/specs/rental-property-tab.md's own scraped
+     * listing example already assumes: "Deposit R4710 One Month's
+     * rental R1500 Once off" reads as deposit = 1x rent in a typical SA
+     * listing) x the submitted/existing rental_amount, and flagged
+     * deposit_amount_is_default=true so it is never mistaken for a
+     * human-entered figure downstream. A real amount the agent actually
+     * typed always wins and clears the flag; unchecking "Has deposit"
+     * clears the flag too (no default applies when a deposit isn't
+     * being taken at all). Shared by store()/update()/
+     * updateRentalDetails() — one rule, not three copies of it.
+     *
+     * $data['has_deposit'] must already be a real, normalized boolean
+     * (via $request->boolean('has_deposit')) before calling this — the
+     * raw validate() output is a "1" string when checked and simply
+     * ABSENT from $data when unchecked, neither of which this can test
+     * reliably on its own.
+     */
+    private function applyDepositDefault(array &$data, ?int $agencyId, ?float $existingRentalAmount = null): void
+    {
+        $hasDeposit = (bool) ($data['has_deposit'] ?? false);
+
+        if (!$hasDeposit) {
+            $data['deposit_amount_is_default'] = false;
+            return;
+        }
+
+        $depositAmount = $data['deposit_amount'] ?? null;
+        if ($depositAmount !== null && $depositAmount !== '') {
+            $data['deposit_amount_is_default'] = false;
+            return;
+        }
+
+        $rentalAmount = $data['rental_amount'] ?? $existingRentalAmount;
+        $multiple = LeaseSetting::defaultDepositMonthsFor($agencyId);
+        $data['deposit_amount'] = round((float) ($rentalAmount ?? 0) * $multiple, 2);
+        $data['deposit_amount_is_default'] = true;
+    }
+
     public function store(Request $request)
     {
         /** @var User $user */
@@ -1085,6 +1132,13 @@ class PropertyController extends Controller
             $data['agent_id'] = $user->id;
         }
         $data['agency_id'] = $user->effectiveAgencyId();
+
+        // FIX, 2026-09-22 (Johan) — normalize has_deposit to a real boolean
+        // (raw validate() output is a "1" string when checked, absent when
+        // not) so applyDepositDefault() below can test it reliably. See
+        // that method's own docblock for the full reasoning.
+        $data['has_deposit'] = $request->boolean('has_deposit');
+        $this->applyDepositDefault($data, $data['agency_id']);
 
         // Branch follows the primary agent — every property is owned by its agent's branch.
         // If the agent has no branch, leave whatever the form/default supplied so we don't null it out.
@@ -1589,6 +1643,18 @@ class PropertyController extends Controller
                 unset($data[$notNullField]);
             }
         }
+
+        // FIX, 2026-09-22 (Johan) — has_deposit was left as raw validate()
+        // output (a "1" string when checked, simply ABSENT from $data when
+        // unchecked, per Laravel's nullable-checkbox behaviour) rather than
+        // a real boolean, so unticking "Has deposit" silently left the OLD
+        // value in place instead of clearing it — the same checkbox-
+        // omission shape updateRentalDetails() below already guards
+        // against. Normalized here so applyDepositDefault() can rely on a
+        // real boolean, and so unticking the box actually persists as
+        // false like every other checkbox on this form.
+        $data['has_deposit'] = $request->boolean('has_deposit');
+        $this->applyDepositDefault($data, $property->agency_id, (float) $property->rental_amount);
 
         $previousP24SuburbId = $property->p24_suburb_id;
         $property->update($data);
@@ -2609,6 +2675,9 @@ class PropertyController extends Controller
         $data['water_included']      = $request->boolean('water_included');
         $data['electricity_included'] = $request->boolean('electricity_included');
         $data['levies_included']     = $request->boolean('levies_included');
+
+        // FIX, 2026-09-22 (Johan) — see applyDepositDefault()'s own docblock.
+        $this->applyDepositDefault($data, $property->agency_id, (float) $property->rental_amount);
 
         DB::transaction(function () use ($property, $data) {
             $property->update($data);

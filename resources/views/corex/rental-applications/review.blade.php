@@ -2047,6 +2047,12 @@
                         @endif
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
                         <input type="text" inputmode="decimal" x-model="approveAmount" :disabled="approveConfirming" class="corex-input text-sm w-full mb-2" placeholder="0.00">
+                        {{-- Johan, 2026-09-22 (property 4283) — optional: most
+                             approvals never set a deposit here, and the
+                             tenant-link screen falls back to the property's
+                             own deposit_amount when this is left blank. --}}
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Deposit (optional)</label>
+                        <input type="text" inputmode="decimal" x-model="approveDepositAmount" :disabled="approveConfirming" class="corex-input text-sm w-full mb-2" placeholder="0.00">
                         <textarea x-model="approveReason" rows="2" :disabled="approveConfirming" class="corex-input text-xs w-full mb-3" placeholder="{{ $alreadyDecided ? 'Reason for override (required)' : 'Notes (optional)' }}"></textarea>
                         {{-- 2026-09-16, Johan — native confirm() removed, same
                              reasoning as the decline path (see that modal's own
@@ -2074,9 +2080,10 @@
                             </div>
                         </template>
                         <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}"
-                              @submit="window.__raSuppressUnloadGuard = true; $refs.approveAmountField.value = approveAmount; $refs.approveReasonField.value = approveReason">
+                              @submit="window.__raSuppressUnloadGuard = true; $refs.approveAmountField.value = approveAmount; $refs.approveDepositAmountField.value = approveDepositAmount; $refs.approveReasonField.value = approveReason">
                             @csrf
                             <input type="hidden" name="approved_rental_amount" x-ref="approveAmountField">
+                            <input type="hidden" name="approved_deposit_amount" x-ref="approveDepositAmountField">
                             <input type="hidden" name="reason" x-ref="approveReasonField">
                             <div class="flex justify-end gap-2">
                                 <template x-if="!approveConfirming">
@@ -3624,6 +3631,11 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
 
         // Decision panel fields — unchanged from before this screen grew a document viewer.
         approveAmount: '',
+        // Johan, 2026-09-22 (property 4283) — optional, same shape as
+        // approveAmount: the tenant-link screen prefers this over the
+        // property's own deposit_amount when present, but most approvals
+        // will never set one.
+        approveDepositAmount: '',
         approveReason: '',
         // 2026-09-16 — the in-page confirmation step that replaced native
         // confirm() on this form (see the modal's own comment). Reset to

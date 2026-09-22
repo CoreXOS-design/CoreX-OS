@@ -941,6 +941,12 @@ class RentalApplication extends Model
     protected $fillable = [
         'agency_id', 'branch_id', 'contact_id', 'property_id', 'created_by_user_id',
         'status', 'delivery_mode', 'token', 'token_expires_at', 'submitted_at', 'draft_saved_at', 'submitted_for_approval_at', 'approved_rental_amount',
+        // Johan, 2026-09-22 (property 4283) — same shape as
+        // approved_rental_amount, captured optionally alongside it in
+        // RentalApplicationAuthorisationController::approve(). Nullable:
+        // the tenant-link precedence chain (view-readonly.blade.php) falls
+        // back to the property's own deposit_amount when this is absent.
+        'approved_deposit_amount',
         'current_generation', 'reopened_at', 'reopened_by_user_id', 'reopened_note',
         // Submission identity gate, 2026-09-13 — safe to mass-assign despite
         // being internal-tracking columns: the public form's own fill($fields)
@@ -974,6 +980,7 @@ class RentalApplication extends Model
         'applicant_notified_at' => 'datetime',
         'current_generation' => 'integer',
         'approved_rental_amount' => 'decimal:2',
+        'approved_deposit_amount' => 'decimal:2',
         'current_rental_amount' => 'decimal:2',
         'monthly_salary' => 'decimal:2',
         'current_rental_from' => 'date',

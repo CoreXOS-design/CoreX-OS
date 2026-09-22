@@ -563,6 +563,14 @@ class Property extends Model
         'special_levy',
         'rental_amount',
         'deposit_amount',
+        // Johan, 2026-09-22 (property 4283) — set true when
+        // PropertyController::applyDepositDefault() computed deposit_amount
+        // above from LeaseSetting::defaultDepositMonthsFor() x rental_amount
+        // rather than an agent typing a real figure; cleared the moment a
+        // real figure is submitted. Never written to true anywhere else —
+        // "if it is computed, it is identifiable as computed until someone
+        // confirms it."
+        'deposit_amount_is_default',
         'commission_percent',
         'admin_fee',
         'marketing_fee',
@@ -770,6 +778,7 @@ class Property extends Model
         'half_baths'          => 'integer',
         'rental_amount'       => 'float',
         'deposit_amount'      => 'float',
+        'deposit_amount_is_default' => 'boolean',
         'commission_percent'  => 'float',
         'admin_fee'           => 'float',
         'marketing_fee'       => 'float',

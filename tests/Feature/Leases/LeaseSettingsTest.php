@@ -56,4 +56,47 @@ final class LeaseSettingsTest extends TestCase
         $this->actingAs($user)->get(route('corex.settings.leases.edit'))
             ->assertSee('value="90"', false);
     }
+
+    // ── deposit default multiple, 2026-09-22 (property 4283) ────────────
+
+    public function test_default_deposit_months_defaults_to_one_when_nothing_saved(): void
+    {
+        self::assertSame(1.0, LeaseSetting::defaultDepositMonthsFor(null));
+        self::assertSame(1.0, LeaseSetting::defaultDepositMonthsFor(999999));
+    }
+
+    public function test_the_settings_page_saves_a_new_deposit_multiple(): void
+    {
+        $agency = Agency::create(['name' => 'Agency ' . uniqid(), 'slug' => 'agency-' . uniqid()]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Branch A']);
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+
+        $this->actingAs($user)->post(route('corex.settings.leases.update'), [
+            'expiry_notice_window_days' => 60,
+            'default_deposit_months' => 1.5,
+        ])->assertSessionDoesntHaveErrors();
+
+        self::assertSame(1.5, LeaseSetting::defaultDepositMonthsFor($agency->id));
+    }
+
+    /**
+     * §6.1 guard, proven directly: a request that omits
+     * default_deposit_months entirely (not just an old test fixture — a
+     * genuine partial post) must still save the fields it DOES carry, not
+     * 422 or silently blank an existing agency-configured multiple.
+     */
+    public function test_omitting_the_deposit_multiple_never_blocks_the_rest_of_the_save(): void
+    {
+        $agency = Agency::create(['name' => 'Agency ' . uniqid(), 'slug' => 'agency-' . uniqid()]);
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Branch A']);
+        $user = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+        LeaseSetting::create(['agency_id' => $agency->id, 'default_deposit_months' => 2]);
+
+        $this->actingAs($user)->post(route('corex.settings.leases.update'), [
+            'expiry_notice_window_days' => 75,
+        ])->assertSessionDoesntHaveErrors();
+
+        self::assertSame(75, LeaseSetting::expiryNoticeWindowDaysFor($agency->id), 'the field this request DID carry must still save');
+        self::assertSame(2.0, LeaseSetting::defaultDepositMonthsFor($agency->id), 'omitted from the request -- must be left exactly as it was, not blanked');
+    }
 }

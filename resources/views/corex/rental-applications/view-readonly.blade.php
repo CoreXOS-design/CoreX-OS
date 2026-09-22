@@ -207,14 +207,27 @@
                      just picked from search. --}}
                 propertyLabel: {{ Js::from($rentalApplication->property?->buildDisplayAddress()) }},
                 unlinkConfirming: false,
-                {{-- Johan, 2026-09-22 — "the monthly rental, deposit should
-                     populate from the property screen" once a property is
-                     picked here. Starting values the agent can still change,
-                     never locked. Initial state matches the fields' own
-                     existing pre-fill (approved_rental_amount / empty)
-                     until the agent actually picks a property below. --}}
+                {{-- Johan, 2026-09-22 (property 4283 / rental application
+                     290) — PRECEDENCE RULING: the approved application
+                     amount wins; the property is the fallback when the
+                     application carries no approved amount. "the approved
+                     figure is what the landlord actually agreed to for this
+                     tenant, and the property listing price is often stale
+                     or negotiated down." Same rule for both rent and
+                     deposit. Kept as their own values (not read live off
+                     $rentalApplication again) so select() below can compare
+                     against them without a second data source appearing
+                     mid-form. rentalAmountSource/depositAmountSource drive
+                     the short "from ..." label next to each field — cleared
+                     the moment the agent actually types in that field
+                     (@input below), since a value they typed themselves
+                     isn't "from" anywhere any more. --}}
+                approvedRentalAmount: {{ Js::from($rentalApplication->approved_rental_amount) }},
+                approvedDepositAmount: {{ Js::from($rentalApplication->approved_deposit_amount) }},
                 rentalAmount: {{ Js::from(old('rental_amount', $rentalApplication->approved_rental_amount)) }},
-                depositAmount: {{ Js::from(old('deposit_amount')) }},
+                depositAmount: {{ Js::from(old('deposit_amount', $rentalApplication->approved_deposit_amount)) }},
+                rentalAmountSource: {{ Js::from($rentalApplication->approved_rental_amount !== null ? 'approved' : null) }},
+                depositAmountSource: {{ Js::from($rentalApplication->approved_deposit_amount !== null ? 'approved' : null) }},
                 async search() {
                     if (this.query.length < 2) { this.results = []; return; }
                     const res = await fetch({{ Js::from(route('corex.rental-applications.search-properties')) }} + '?q=' + encodeURIComponent(this.query));
@@ -223,13 +236,26 @@
                 select(p) {
                     this.propertyId = p.id;
                     this.propertyLabel = p.label;
-                    // Populate from the selected property's own rental
-                    // details — a starting value only, still editable. No
-                    // value on the property (null) means an empty field,
-                    // never a written zero; ?? only catches null/undefined,
-                    // so a genuinely-stored 0 is preserved as 0.
-                    this.rentalAmount = p.rental_amount ?? '';
-                    this.depositAmount = p.deposit_amount ?? '';
+                    // PRECEDENCE (see the ruling above): the approved
+                    // application amount always wins when it exists; the
+                    // property's own rental details are only the fallback.
+                    // No value anywhere (null) means an empty field, never
+                    // a written zero; ?? only catches null/undefined, so a
+                    // genuinely-stored 0 is preserved as 0.
+                    if (this.approvedRentalAmount !== null) {
+                        this.rentalAmount = this.approvedRentalAmount;
+                        this.rentalAmountSource = 'approved';
+                    } else {
+                        this.rentalAmount = p.rental_amount ?? '';
+                        this.rentalAmountSource = p.rental_amount != null ? 'property' : null;
+                    }
+                    if (this.approvedDepositAmount !== null) {
+                        this.depositAmount = this.approvedDepositAmount;
+                        this.depositAmountSource = 'approved';
+                    } else {
+                        this.depositAmount = p.deposit_amount ?? '';
+                        this.depositAmountSource = p.deposit_amount != null ? 'property' : null;
+                    }
                     this.searching = false;
                     this.query = '';
                     this.results = [];
@@ -338,18 +364,23 @@
                     <div class="w-full flex flex-wrap items-end gap-2 mt-1 pt-2" style="border-top: 1px dashed var(--border);">
                         <div>
                             <label class="text-[11px]" style="color: var(--text-muted);">Monthly rental (R)</label><br>
-                            {{-- Johan, 2026-09-22 — populates from the selected
-                                 property's own rental details (select() above);
-                                 still a plain editable starting value, not locked. --}}
+                            {{-- Johan, 2026-09-22 — precedence: approved
+                                 application amount wins, property is the
+                                 fallback (select()/ruling above); still a
+                                 plain editable starting value, not locked. --}}
                             <input type="number" name="rental_amount" step="0.01" min="0" required
-                                   x-model="rentalAmount"
-                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;">
+                                   x-model="rentalAmount" @input="rentalAmountSource = null"
+                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;"><br>
+                            <span class="text-[10px]" style="color: var(--text-muted);" x-show="rentalAmountSource"
+                                  x-text="rentalAmountSource === 'approved' ? 'from approved application' : 'from property'"></span>
                         </div>
                         <div>
                             <label class="text-[11px]" style="color: var(--text-muted);">Deposit (R)</label><br>
                             <input type="number" name="deposit_amount" step="0.01" min="0"
-                                   x-model="depositAmount"
-                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;">
+                                   x-model="depositAmount" @input="depositAmountSource = null"
+                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;"><br>
+                            <span class="text-[10px]" style="color: var(--text-muted);" x-show="depositAmountSource"
+                                  x-text="depositAmountSource === 'approved' ? 'from approved application' : 'from property'"></span>
                         </div>
                         <div>
                             <label class="text-[11px]" style="color: var(--text-muted);">Lease start date</label><br>

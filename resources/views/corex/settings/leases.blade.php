@@ -71,6 +71,25 @@
             </div>
         </div>
 
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Deposit default</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Default deposit, as a multiple of monthly rent</label>
+                    <input type="number" name="default_deposit_months" value="{{ old('default_deposit_months', $defaultDepositMonths) }}"
+                           step="0.1" min="0.1" max="12" required
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ number_format((float) $defaultDepositMonthsDefault, 1) }} month(s) of rent. Used to fill in a property's
+                        deposit amount when an agent ticks "Has deposit" but leaves the amount blank —
+                        always shown as a starting figure the agent can change, never locked in.
+                    </p>
+                </div>
+            </div>
+        </div>
+
         <div class="flex justify-end">
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
         </div>
