@@ -2407,3 +2407,106 @@ touched during this build. Real click-through verification (multi-file select, d
 room, marquee-select, tag-then-reload persistence) happened against a local `php artisan serve` instance
 bound to this worktree and its own database, not the deployed URL — the deployed site is verified by the
 conductor after cc1 lands this branch, per instruction.
+
+## 20.14 Two field bugs fixed, layout redesigned per Johan's own spec (2026-09-22, same day)
+
+Same worktree, a fresh branch (`cc2-inspection-photos-fixes-2026-09-22`) rebased onto `origin/QA1` after
+cc1 landed §20.13. Verified locally exactly per §20.13.9's methodology — never against the deployed site;
+cc1 lands, the conductor checks the deployed URL after.
+
+### 20.14.1 Bug 1 — the upload progress row never reached a terminal state
+
+Root cause, found by reproducing Johan's exact report (6 photos, real browser, real upload) rather than
+guessing: `public/js/corex-photo-batch-uploader.js`'s `uploadFiles()` pushed a freshly-created plain object
+(`entry`) into the reactive `uploadBatches` array, then mutated that SAME pre-push closure reference
+(`entry.status = 'done'`) from inside `_cpu_uploadBatch()`. Alpine/Vue's reactivity only intercepts
+property writes made THROUGH its own proxy — pushing the raw object into the array is a structural change
+that correctly renders once, but a later property mutation on the raw, never-re-read reference never fires
+through any proxy `set` trap, so the template's tracked dependency is never notified. The row froze on its
+first render ("Uploading N photo(s)… 0%") forever, even though the photo had already uploaded and rendered
+correctly as a thumbnail — exactly Johan's report. `retryBatch(entry)` never had this bug because its
+`entry` argument comes from the template's own `x-for` iteration, which DOES read through the reactive
+array's proxy.
+
+Fix: after `this.uploadBatches.push(...)`, re-read the just-pushed entry back OFF the reactive array
+(`this.uploadBatches[this.uploadBatches.length - 1]`) before passing it into `_cpu_uploadBatch()`, so every
+subsequent mutation (percent, done, failed) goes through the tracked proxy. One fix in the shared component
+fixes it for all three upload surfaces (item/room/tray) and for cc6's future reuse — no controller change
+needed; the server-side response was already correct. Verified: a real 6-file upload now reaches `done`
+and disappears from the progress list; a batch with one invalid file (mixed jpg+txt) reaches `failed` with
+a visible Retry button, never hangs.
+
+### 20.14.2 Bug 2 — no secondary tag (room, then item within that room)
+
+Johan: "clicking a photo allows you to tag the room, but theres no secondary tag yet. cant tag room and
+then ceiling as example." No backend change was needed — `tagPhoto()` (§20.13.2) already accepted
+`property_room_id` and `rental_inspection_observation_id` together and already resolved an item's own room
+server-side; only the UI had no control to reach it. Built as part of the R1/R2 photo-strip redesign below
+(kept together since Johan's own redesign IS where these photos now live):
+
+- **Room → item**: each general room-photo tile (R1) carries a small `<select>` overlay listing the room's
+  own items, defaulting to "General". Choosing an item calls `tagPhoto(photo.id, { property_room_id,
+  rental_inspection_observation_id })` — the same supersede-never-append discipline as §20.13.1, just a
+  reachable UI path to it.
+- **Item → room**: each item photo tile (R2) carries a small "↑ back to room" button — the exact reverse,
+  one click, `tagPhoto(photo.id, { property_room_id })` with no observation id. Hidden for the roomless
+  "General" group (meters/legacy items with no room — there is nothing to step back to). Untag steps back
+  the same way, as asked, with no separate mechanism.
+
+Verified: tagging a room photo to "Ceiling" moves it out of `roomPhotosFor()` and into `itemPhotosFor()`;
+clicking "back to room" on it moves it back — confirmed via the exact counter deltas across a real browser
+round trip, not just a single-direction happy path.
+
+### 20.14.3 R1 — room photos, gallery-sized, one row by default
+
+Johan: "the small images is a waste of time. it either has to show it big enough like on gallery... maybe
+show 1 row of photos, then expand to see more?" The room-photo strip now uses the SAME tile size/grid as
+the property Gallery (`rental-section-body.blade.php`: `grid-cols-3 sm:grid-cols-5`, `aspect-ratio:1/1`,
+`object-cover`) — every photo still renders in the DOM (never truncated server- or client-side), clipped
+to roughly one row (`max-height:6.5rem; overflow:hidden`) by default via a per-room, per-section
+`roomPhotosExpanded[roomId]` flag, with a "Show all N" / "Show less" toggle appearing once a room has more
+than 3 (the tighter of the two responsive column counts, so the toggle is never missing on mobile even
+though it's occasionally a harmless no-op on desktop at exactly 4–5 photos). Never gated on a hardcoded
+photo count for WHETHER to clip — only the toggle's own visibility threshold, chosen to hold reasonably at
+both breakpoints rather than requiring a live column-count read. A 15-room property no longer pushes its
+own items ten screens down. Verified with an 11-photo room: all 11 render in the DOM, clipped to
+`max-height:104px` by default, `max-height:none` after "Show all".
+
+### 20.14.4 R2 — item row: two-column condition buttons, photo strip at a matched, fixed height
+
+Johan: "why dont we stack the buttons neat and tidy on top of each other and use 2 columns for all the
+buttons under ceiling. sizing should work out that its essentially the same height as the photos running
+next to the buttons towards the right and we allow the scroll if more than the screen allows." Each item
+row is now a `flex items-stretch` row: a left, content-sized block (a `grid grid-cols-2` of the agency's own
+`conditionStates` — any length, never a hardcoded count or split — plus the notes field when the selected
+condition requires one), and a right block (`flex-1 min-w-0 overflow-x-auto`) holding that item's own
+photos at a real size plus one always-present "add photo(s)" tile at the end (replacing the old separate
+"no photo yet" vs "add more" branches — one structure covers both). The row's own height comes from
+ordinary flex `stretch` alignment, not a hardcoded pixel value — whatever height the button grid + notes
+need is exactly the height every photo tile gets too (`height:100%`, `aspect-ratio:1/1` for the width), so
+the shape holds for a 3-state or a 9-state agency condition list without any special-casing. More photos
+never grow the row; the strip scrolls horizontally instead. Verified: a real item row with 7 condition
+buttons measured `rowHeight` and `stripHeight` identically (124px each), `overflow-x:auto` confirmed on the
+strip.
+
+### 20.14.5 R3 — full width for a single open inspection
+
+Johan: "in in inspection we can use the full width of the screen." Reuses the property page's EXISTING
+sidebar collapse toggle (`sbCollapsed`, defined on the page's outer `x-data`, persisted to
+`localStorage('hfc.propSidebar.collapsed')`) rather than inventing a second one — an `x-effect` on the
+Inspections tab's own root collapses it (`sbCollapsed = true`) whenever exactly one of In/Out Inspection is
+open. Deliberately one-directional: it only ever collapses, never force-reopens, and only ever runs while
+`activeTab === 'inspections'` — a user who manually re-expands the sidebar keeps that choice until they
+next toggle an inspection section, and the effect can never touch the sidebar preference on any other tab.
+No auto-restore was built; the existing collapse-rail's own "Expand sidebar" button is the way back,
+unchanged. Verified: `sbCollapsed` flips to `true` the moment In Inspection alone is opened.
+
+### 20.14.6 Found, not fixed (out of scope for this build)
+
+- The render gate (`verify-alpine-render.mjs`) reports a set of pre-existing scope-gap warnings and a
+  `form.getAttribute is not a function` script-eval error on this property page. Confirmed via an identical
+  before/after run (stashing this build's changes and re-rendering) that every one of these is byte-for-byte
+  pre-existing on `origin/QA1` already — unrelated to inspections, spanning the marketing gallery, the spaces
+  picker, the readiness panel, and others. Not touched here; flagged for whoever owns those areas.
+- §20.13.6's own "Found, not fixed" item (archive affordance missing on already-tagged room/item photo
+  views) is still not built — out of this build's two-bugs-plus-R1-R3 scope, unchanged from before.

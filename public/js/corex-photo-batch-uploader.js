@@ -79,8 +79,18 @@
                 const batches = window.planUploadBatches(files, 10, 40 * 1024 * 1024);
                 this.uploadBusy = true;
                 for (const batchFiles of batches) {
-                    const entry = { files: batchFiles, status: 'uploading', error: null, extraFields };
-                    this.uploadBatches.push(entry);
+                    this.uploadBatches.push({ files: batchFiles, status: 'uploading', error: null, extraFields });
+                    // Mutate the entry AS READ BACK from the reactive array, never the raw
+                    // object literal just pushed — Alpine/Vue's reactivity only intercepts
+                    // property writes through its own proxy, so setting .status on the
+                    // pre-push closure reference below (the previous shape of this code)
+                    // silently updates the real data without ever notifying the template.
+                    // The array push itself DOES trigger a render (a structural array
+                    // change), which is why the initial "Uploading… 0%" row appeared at
+                    // all — only the LATER done/failed/percent updates went unseen, so the
+                    // row froze on its first render forever, even though the upload had
+                    // already succeeded and the photo was already showing.
+                    const entry = this.uploadBatches[this.uploadBatches.length - 1];
                     await this._cpu_uploadBatch(entry);
                 }
                 this.uploadBusy = false;

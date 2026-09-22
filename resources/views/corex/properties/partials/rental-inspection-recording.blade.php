@@ -310,16 +310,44 @@
                     </div>
                 </div>
 
-                {{-- Item 2 — the room's own general shots, shown as a
-                     compact thumbnail strip only when at least one exists
-                     (screen space: nothing rendered otherwise). --}}
+                {{-- R1, 2026-09-22, Johan: "the small images is a waste of
+                     time. it either has to show it big enough like on
+                     gallery" — same square-tile size/grid as the property
+                     Gallery (rental-section-body.blade.php: grid-cols-3
+                     sm:grid-cols-5, aspect-ratio 1/1), one row by default
+                     (a 15-room property must not push items ten screens
+                     down), expanding to every row on click. Only rendered
+                     when at least one general room photo exists (screen
+                     space: nothing rendered otherwise). --}}
                 <template x-if="group.room && roomPhotosFor({{ $sectionJs }}, group.room).length">
-                    <div class="flex items-center gap-1 pl-5 flex-wrap">
-                        <template x-for="photo in roomPhotosFor({{ $sectionJs }}, group.room)" :key="photo.id">
-                            <button type="button" @click="viewer = { open: true, images: roomPhotosFor({{ $sectionJs }}, group.room).map(p => p.storage_path), index: roomPhotosFor({{ $sectionJs }}, group.room).indexOf(photo) }">
-                                <img :src="photo.storage_path" class="rounded-md object-cover" style="width:2rem; height:2rem;" alt="">
-                            </button>
-                        </template>
+                    <div class="pl-5 space-y-1">
+                        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2 overflow-hidden"
+                             :style="roomPhotosExpanded[group.room.id] ? '' : 'max-height:6.5rem;'">
+                            <template x-for="photo in roomPhotosFor({{ $sectionJs }}, group.room)" :key="photo.id">
+                                <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
+                                    <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer"
+                                         @click="viewer = { open: true, images: roomPhotosFor({{ $sectionJs }}, group.room).map(p => p.storage_path), index: roomPhotosFor({{ $sectionJs }}, group.room).indexOf(photo) }" alt="">
+                                    {{-- Bug 2, 2026-09-22, Johan: "cant tag room and
+                                         then ceiling as example" — room first, then
+                                         an item within that room. Supersedes the
+                                         room-only tag (kept, same server call), never
+                                         a second tag. --}}
+                                    <select class="absolute bottom-0 left-0 right-0 text-[0.65rem]" style="background:rgba(0,0,0,0.65); color:#fff; border:0;"
+                                            @click.stop
+                                            :value="photo.rental_inspection_observation_id || ''"
+                                            @change="photoUploader({{ $sectionJs }}).tagPhoto(photo.id, { property_room_id: group.room.id, rental_inspection_observation_id: $event.target.value || null })">
+                                        <option value="">General</option>
+                                        <template x-for="i in group.items" :key="i.id">
+                                            <option :value="i.id" x-text="i.label"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                            </template>
+                        </div>
+                        <button type="button" x-show="roomPhotosFor({{ $sectionJs }}, group.room).length > 3"
+                                @click="roomPhotosExpanded[group.room.id] = !roomPhotosExpanded[group.room.id]"
+                                class="text-xs font-semibold underline" style="color:var(--text-secondary);"
+                                x-text="roomPhotosExpanded[group.room.id] ? 'Show less' : ('Show all ' + roomPhotosFor({{ $sectionJs }}, group.room).length)"></button>
                     </div>
                 </template>
 
@@ -327,41 +355,78 @@
                     <template x-for="item in group.items" :key="item.id">
                         <div class="py-2 pl-3 space-y-1.5" style="border-bottom:1px solid var(--border);">
                             <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
-                            <div class="flex flex-wrap items-center gap-2">
-                                {{-- Item 3, 2026-09-22 — one tap, agency's
-                                     own condition vocabulary
-                                     (RentalInspectionSetting::
-                                     conditionStatesFor()), rendered
-                                     left-to-right in the agency's configured
-                                     order. Item 4 — no separate condition
-                                     text anywhere else; the selected button
-                                     itself is the only place the current
-                                     condition is shown. --}}
-                                <template x-for="state in conditionStates" :key="state.key">
-                                    <button type="button"
-                                            :disabled="isObsBusy({{ $sectionJs }}, item.id)"
-                                            @click="onConditionTap({{ $sectionJs }}, item, state.key)"
-                                            class="text-xs font-semibold px-2.5 py-1.5 rounded-md"
-                                            :style="selectedConditionFor({{ $sectionJs }}, item) === state.key
-                                                ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
-                                                : 'background:var(--surface-2); color:var(--text-secondary);'"
-                                            x-text="state.label"></button>
-                                </template>
-                                <input type="text"
-                                       x-show="selectedConditionFor({{ $sectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $sectionJs }}, item))"
-                                       x-model="obsField({{ $sectionJs }}, item.id).notes"
-                                       @input="onNotesInput({{ $sectionJs }}, item)"
-                                       placeholder="Notes (required)"
-                                       class="prop-input flex-1" style="min-width:10rem;">
+                            {{-- R2, 2026-09-22, Johan: "why dont we stack the buttons
+                                 neat and tidy on top of each other and use 2 columns
+                                 for all the buttons... sizing should work out that
+                                 its essentially the same height as the photos running
+                                 next to the buttons towards the right and we allow
+                                 the scroll if more than the screen allows" — a flex
+                                 row with the default stretch alignment gives the
+                                 right-hand photo strip the LEFT block's own height
+                                 for free, no hardcoded pixel value (any condition
+                                 list length — 3, 5, 9 states — still holds, since
+                                 the row's height is just whatever the button grid
+                                 + notes naturally need). More photos never grow the
+                                 row; the strip scrolls horizontally instead. --}}
+                            <div class="flex items-stretch gap-3">
+                                <div class="flex-none space-y-1.5">
+                                    {{-- Item 3, 2026-09-22 — one tap, agency's own
+                                         condition vocabulary
+                                         (RentalInspectionSetting::conditionStatesFor()),
+                                         now a 2-column grid (R2) instead of a wrapping
+                                         row — holds for any list length, never a
+                                         hardcoded count. Item 4 — no separate condition
+                                         text anywhere else; the selected button itself
+                                         is the only place the current condition shows. --}}
+                                    <div class="grid grid-cols-2 gap-1">
+                                        <template x-for="state in conditionStates" :key="state.key">
+                                            <button type="button"
+                                                    :disabled="isObsBusy({{ $sectionJs }}, item.id)"
+                                                    @click="onConditionTap({{ $sectionJs }}, item, state.key)"
+                                                    class="text-xs font-semibold px-2.5 py-1.5 rounded-md"
+                                                    :style="selectedConditionFor({{ $sectionJs }}, item) === state.key
+                                                        ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
+                                                        : 'background:var(--surface-2); color:var(--text-secondary);'"
+                                                    x-text="state.label"></button>
+                                        </template>
+                                    </div>
+                                    <input type="text"
+                                           x-show="selectedConditionFor({{ $sectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $sectionJs }}, item))"
+                                           x-model="obsField({{ $sectionJs }}, item.id).notes"
+                                           @input="onNotesInput({{ $sectionJs }}, item)"
+                                           placeholder="Notes (required)"
+                                           class="prop-input w-full">
+                                </div>
 
-                                {{-- Item 1/6, 2026-09-22 — camera control
-                                     only when the item has no photo yet
-                                     (multi-file: several attach in one go);
-                                     a thumbnail + count (clickable) once it
-                                     does, with a compact "+" (also
-                                     multi-file) to add more. --}}
-                                <template x-if="!itemPhotosFor({{ $sectionJs }}, item).length">
-                                    <label class="text-xs font-semibold px-2.5 py-1.5 rounded-md cursor-pointer inline-flex items-center"
+                                {{-- R2 — item photos at a useful size (not the old
+                                     2rem thumbnail), height matched to the button
+                                     block via the row's own stretch alignment above,
+                                     horizontal scroll for anything that doesn't fit
+                                     (the row itself never grows). One always-present
+                                     add tile at the end covers both the "no photo
+                                     yet" and "add more" cases from before — same
+                                     multi-file input, same staged-until-recorded
+                                     behaviour (Item 1/6). --}}
+                                <div class="flex-1 min-w-0 flex items-stretch gap-1.5 overflow-x-auto">
+                                    <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
+                                        <div class="relative flex-none rounded-md overflow-hidden" style="aspect-ratio:1/1; height:100%; background:var(--surface-3);">
+                                            <img :src="photo.storage_path" class="h-full w-full object-cover cursor-pointer"
+                                                 @click="viewer = { open: true, images: itemPhotosFor({{ $sectionJs }}, item).map(p => p.storage_path), index: itemPhotosFor({{ $sectionJs }}, item).indexOf(photo) }" alt="">
+                                            {{-- Bug 2 — untag steps back the same way:
+                                                 the exact reverse of the room→item tag
+                                                 above, one click, back to a general
+                                                 room shot. Only offered when this item
+                                                 actually belongs to a real room (never
+                                                 shown in the roomless "General"
+                                                 meters/legacy group — there is no room
+                                                 to step back to). --}}
+                                            <button type="button" x-show="group.room" @click.stop="photoUploader({{ $sectionJs }}).tagPhoto(photo.id, { property_room_id: group.room?.id })"
+                                                    class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                                    style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to room">&uarr;</button>
+                                        </div>
+                                    </template>
+                                    <label class="flex-none rounded-md cursor-pointer flex items-center justify-center"
+                                           style="aspect-ratio:1/1; height:100%;"
                                            :style="(obsField({{ $sectionJs }}, item.id).photos || []).length
                                                 ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
                                                 : 'background:var(--surface-2); color:var(--text-secondary);'"
@@ -370,20 +435,7 @@
                                         <input type="file" accept="image/*" multiple class="hidden"
                                                @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
                                     </label>
-                                </template>
-                                <template x-if="itemPhotosFor({{ $sectionJs }}, item).length">
-                                    <div class="flex items-center gap-1">
-                                        <button type="button" @click="openItemPhotos({{ $sectionJs }}, item)" title="View photos">
-                                            <img :src="itemPhotosFor({{ $sectionJs }}, item).slice(-1)[0].storage_path" class="rounded-md object-cover" style="width:2rem; height:2rem;" alt="">
-                                        </button>
-                                        <span class="text-xs" style="color:var(--text-muted);" x-text="itemPhotosFor({{ $sectionJs }}, item).length"></span>
-                                        <label class="text-xs font-semibold px-1.5 py-1 rounded-md cursor-pointer" style="background:var(--surface-2); color:var(--text-secondary);" title="Add more photos">
-                                            <span>&#43;</span>
-                                            <input type="file" accept="image/*" multiple class="hidden"
-                                                   @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
-                                        </label>
-                                    </div>
-                                </template>
+                                </div>
                             </div>
                         </div>
                     </template>

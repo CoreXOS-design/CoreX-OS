@@ -4595,7 +4595,19 @@
                      state, resolved server-side so the client never
                      hardcodes which key means "the baseline". --}}
                 baselineConditionKey: {{ Js::from(\App\Models\RentalInspectionSetting::baselineConditionKeyFor($property->agency_id)) }}
-             })">
+             })"
+             {{-- R3, 2026-09-22, Johan: "in in inspection we can use the full
+                  width of the screen" — collapses the existing property
+                  sidebar toggle (sbCollapsed, defined on the page's OUTER
+                  x-data, §line 34) when exactly one of In/Out Inspection is
+                  open, giving the item row's new button+photo layout (R2)
+                  room to breathe. One-directional by design: it only ever
+                  collapses, never force-reopens, so a user who manually
+                  expands the sidebar again keeps that choice until they next
+                  toggle an inspection section. Never fires outside this tab
+                  (activeTab check) so it can't touch the sidebar preference
+                  on any other tab. --}}
+             x-effect="if (activeTab === 'inspections' && (!!open['in_inspection'] !== !!open['out_inspection'])) sbCollapsed = true">
 
             <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
 
@@ -5015,6 +5027,12 @@
                 // eager load — untagged (tray), room-tagged, or item-tagged.
                 dragOverRoom: null,
                 trayTagRoomChoice: '',
+                // R1, 2026-09-22 — room photos default to one row (Johan:
+                // "maybe show 1 row of photos, then expand to see more?"),
+                // keyed per section+room so In and Out Inspection expand
+                // independently. Never gated on a hardcoded photo count —
+                // it's a pure row-height clip, holds for any number.
+                roomPhotosExpanded: {},
                 photoUploaders: {},
                 photoUploader(section) {
                     const insp = this.currentInspection(section);
@@ -5417,12 +5435,6 @@
                     const obsIds = insp.observations.filter(o => o.rental_inspection_item_id === item.id).map(o => o.id);
                     return this.photoUploader(section).itemPhotos(obsIds);
                 },
-                openItemPhotos(section, item) {
-                    const urls = this.itemPhotosFor(section, item).map(p => p.storage_path);
-                    if (!urls.length) return;
-                    this.viewer = { open: true, images: urls, index: urls.length - 1 };
-                },
-
                 // Item 7 — recorded/total + photo count, per room and for
                 // the whole inspection.
                 roomProgress(section, group) {
