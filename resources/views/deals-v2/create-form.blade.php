@@ -323,8 +323,15 @@
     </form>
 </div>
 
+@php
+    // Blade's @json() compiler splits its raw argument text on every
+    // top-level comma, so an inline multi-key array literal corrupts the
+    // compiled statement. Building the array here first (zero commas at
+    // the @json() call site) is always safe regardless of key count.
+    $agencyAgentsForJs = $agents->map(fn($a) => ['id' => (string) $a->id, 'name' => $a->name])->values();
+@endphp
 <script>
-    const AGENCY_AGENTS = @json($agents->map(fn($a) => ['id' => (string) $a->id, 'name' => $a->name])->values());
+    const AGENCY_AGENTS = @json($agencyAgentsForJs);
 
     function dealCapture() {
         return {

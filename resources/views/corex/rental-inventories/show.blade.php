@@ -247,6 +247,19 @@
 </div>
 @endsection
 
+@php
+    // Built here, not inline inside @json() below: Blade's @json compiler
+    // splits its raw argument text on EVERY top-level comma (it assumes
+    // @json($value, $options, $depth)), so any array literal with more
+    // than one key corrupts the compiled statement. A PHP variable holding
+    // the finished array has zero top-level commas in the @json() call
+    // itself, which is always safe regardless of how many keys it has.
+    $signaturesForJs = $inventory->signatures->map(fn($s) => [
+        'party_role' => $s->party_role,
+        'party_contact_id' => $s->party_contact_id,
+        'disposition' => $s->disposition,
+    ]);
+@endphp
 @push('scripts')
 <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
 <script>
@@ -254,7 +267,7 @@ function rentalInventoryShow(inventoryId) {
     return {
         csrf: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
         baseUrl: `/corex/rental-inventories/${inventoryId}`,
-        signatures: @json($inventory->signatures->map(fn($s) => ['party_role' => $s->party_role, 'party_contact_id' => $s->party_contact_id, 'disposition' => $s->disposition])),
+        signatures: @json($signaturesForJs),
         landlordContactId: {{ $inventory->property?->sellerOwnerContact()?->id ?? 'null' }},
         tenantContactIds: @json(($inventory->lease?->tenants ?? collect())->pluck('contact_id')),
 

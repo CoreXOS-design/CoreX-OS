@@ -1911,6 +1911,13 @@
     </template>
 </div>
 
+@php
+    // Blade's @json() compiler splits its raw argument text on every
+    // top-level comma, so an inline multi-key array literal corrupts the
+    // compiled statement. Building the array here first (zero commas at
+    // the @json() call site) is always safe regardless of key count.
+    $currentUserForJs = auth()->user()->only(['id', 'name', 'email']);
+@endphp
 <script>
 function esignWizard() {
     // Server data
@@ -1939,7 +1946,7 @@ function esignWizard() {
     const serverIsWebTemplate = @json($isWebTemplate ?? false);
     const serverTemplateId = @json($templateId ?? null);
     const csrfToken = '{{ csrf_token() }}';
-    const currentUser = @json(auth()->user()->only(['id', 'name', 'email']));
+    const currentUser = @json($currentUserForJs);
     const storeUrl = '{{ route("docuperfect.esign.store") }}';
 
     // Transform drafts from server (with relative time and property address)

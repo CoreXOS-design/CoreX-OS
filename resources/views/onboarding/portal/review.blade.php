@@ -330,6 +330,13 @@
     </div>
 </div>
 
+@php
+    // Blade's @json() compiler splits its raw argument text on every
+    // top-level comma, so an inline multi-key array literal corrupts the
+    // compiled statement. Building the array here first (zero commas at
+    // the @json() call site) is always safe regardless of key count.
+    $parseForJs = $parse ?? ['status' => null, 'parsed_so_far' => null, 'error' => null];
+@endphp
 <script>
 function portalReview(token) {
     return {
@@ -339,7 +346,7 @@ function portalReview(token) {
         // Async parse progress (.ai/specs/importer-async-parse.md) — server-
         // seeded so a "still parsing" page shows the right state on first
         // paint, before the first poll tick.
-        parse: @json($parse ?? ['status' => null, 'parsed_so_far' => null, 'error' => null]),
+        parse: @json($parseForJs),
         // Property-write progress (the fast, wide lane — the Bus batch).
         progress: { active: false, total: 0, done: 0, errors: 0, label: '' },
         // Gallery-download progress (the slow, narrow lane — streams in behind).

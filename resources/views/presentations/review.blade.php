@@ -781,13 +781,21 @@
 
 </div>
 
+@php
+    // Blade's @json() compiler splits its raw argument text on every
+    // top-level comma, so an inline multi-key array literal corrupts the
+    // compiled statement. Building the values here first (zero commas at
+    // the @json() call site) is always safe regardless of key count.
+    $toggleCompUrlForJs = route('presentations.review.toggle-comp', ['version' => $version->id, 'comp' => '__COMP_ID__']);
+    $toggleCompetitorUrlForJs = route('presentations.review.toggle-competitor', ['version' => $version->id, 'listingId' => '__LISTING_ID__']);
+@endphp
 <script>
 (function () {
     'use strict';
     const csrf = document.querySelector('meta[name=csrf-token]')?.content || '';
     const VERSION_ID = {{ $version->id }};
-    const TOGGLE_TPL = @json(route('presentations.review.toggle-comp', ['version' => $version->id, 'comp' => '__COMP_ID__']));
-    const COMPETITOR_TOGGLE_TPL = @json(route('presentations.review.toggle-competitor', ['version' => $version->id, 'listingId' => '__LISTING_ID__']));
+    const TOGGLE_TPL = @json($toggleCompUrlForJs);
+    const COMPETITOR_TOGGLE_TPL = @json($toggleCompetitorUrlForJs);
     const CONTINUE_URL = @json(route('presentations.review.continue', $version->id));
     const REVERT_URL  = @json(route('presentations.review.revert',  $version->id));
     const CONDITION_URL = @json(route('presentations.review.condition', $version->id));
