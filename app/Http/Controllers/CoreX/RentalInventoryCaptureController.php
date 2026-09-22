@@ -89,6 +89,15 @@ class RentalInventoryCaptureController extends Controller
             'roomsForJs' => $roomsForJs,
             'linesForJs' => $linesForJs,
             'photosForJs' => $photosForJs,
+            // Johan: "we specced inventory being blank then you can create
+            // the spaces same as with inspections." Reuses
+            // RentalInspectionRecordingController::storeItem() (kind=space)
+            // directly — the SAME PropertyRoom write path inspections' own
+            // "Space (new room)" control uses, not a second space model. A
+            // room created here is immediately visible to inspections too,
+            // and vice versa, because it is the same table.
+            'spaceStoreUrl' => route('corex.properties.rental-inspection-items.store', $property),
+            'spaceTypes' => config('property-spaces.all_space_types', []),
         ]);
     }
 
@@ -143,12 +152,7 @@ class RentalInventoryCaptureController extends Controller
         // ($photosForJs) — 'lines' must always be present, even empty, or
         // `photo.lines.length` on a freshly-uploaded tile throws client-side.
         return response()->json([
-            'photos' => collect($created)->map(fn (RentalInventoryPhoto $p) => [
-                'id' => $p->id,
-                'property_room_id' => $p->property_room_id,
-                'storage_path' => $p->storage_path,
-                'lines' => $p->lines->pluck('id'),
-            ])->values(),
+            'photos' => collect($created)->map(fn (RentalInventoryPhoto $p) => $this->photoForJs($p))->values(),
         ], 201);
     }
 
@@ -166,15 +170,77 @@ class RentalInventoryCaptureController extends Controller
         return response()->json(['message' => 'Photo archived.']);
     }
 
-    /** POST /corex/rental-inventories/{inventory}/lines/{line}/photos/{photo} — tag a line to a photo. Optional, never required (§0b). */
+    /**
+     * POST /corex/rental-inventories/{inventory}/photos/tag-bulk — the
+     * untagged tray's own multi-select-then-tag action: many ids, one room,
+     * one request. Mirrors RentalInspectionRecordingController::
+     * tagPhotosBulk() (§20.13.2) — an id that doesn't belong to this
+     * inventory is silently skipped rather than failing the whole batch.
+     */
+    public function tagPhotosBulk(Request $request, RentalInventory $rentalInventory): JsonResponse
+    {
+        $validated = $request->validate([
+            'photo_ids' => ['required', 'array', 'min:1'],
+            'photo_ids.*' => ['integer'],
+            'property_room_id' => ['required', 'integer', 'exists:property_rooms,id'],
+        ]);
+
+        abort_unless(
+            PropertyRoom::where('id', $validated['property_room_id'])->where('property_id', $rentalInventory->property_id)->exists(),
+            404,
+            'That room does not belong to this inventory\'s property.'
+        );
+
+        $photos = RentalInventoryPhoto::where('rental_inventory_id', $rentalInventory->id)
+            ->whereIn('id', $validated['photo_ids'])
+            ->get();
+
+        $tagged = $photos->map(function (RentalInventoryPhoto $photo) use ($validated) {
+            $photo->retagRoom((int) $validated['property_room_id']);
+
+            return $this->photoForJs($photo);
+        });
+
+        return response()->json(['photos' => $tagged->values()]);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/photos/{photo}/untag —
+     * back to the tray. Clears the room AND every line tag
+     * (RentalInventoryPhoto::untagFromRoom()) — the single-destination move
+     * used by BOTH "room → untagged" (no line tags to begin with) and
+     * "line item → untagged" (the tile's own "all the way back" control),
+     * matching the exact-reverse-of-every-tag-that-got-it-here rule §22.1
+     * (rental-inspections.md) already established.
+     */
+    public function untagPhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryPhoto $photo): JsonResponse
+    {
+        abort_if((int) $photo->rental_inventory_id !== (int) $rentalInventory->id, 404);
+
+        $photo->untagFromRoom();
+
+        return response()->json($this->photoForJs($photo));
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/lines/{line}/photos/{photo}
+     * — tag a line to a photo. Optional, never required (§0b). The line's
+     * OWN room always wins (RentalInventoryPhoto::retagRoom()) — mirrors
+     * RentalInspectionPhoto::tagTo()'s "the item's own room resolved
+     * server-side, never trusted from client" rule (rental-inspections.md
+     * §20.13.1) — so this single endpoint correctly serves BOTH "room →
+     * line item" (room unchanged, a no-op retag) and "untagged → line item"
+     * (the photo's room is set for the first time, in the same call).
+     */
     public function attachLinePhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line, RentalInventoryPhoto $photo): JsonResponse
     {
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
         abort_unless((int) $photo->rental_inventory_id === (int) $rentalInventory->id, 404);
 
+        $photo->retagRoom((int) $line->property_room_id);
         $line->photos()->syncWithoutDetaching([$photo->id => ['agency_id' => $line->agency_id]]);
 
-        return response()->json(['message' => 'Tagged.']);
+        return response()->json($this->photoForJs($photo));
     }
 
     /** DELETE /corex/rental-inventories/{inventory}/lines/{line}/photos/{photo} — remove the tag. The line and the photo are both untouched. */
@@ -185,5 +251,16 @@ class RentalInventoryCaptureController extends Controller
         $line->photos()->detach($photo->id);
 
         return response()->json(['message' => 'Untagged.']);
+    }
+
+    /** The one JS-facing photo shape, used by every action that hands a photo back to the client (§4a). */
+    private function photoForJs(RentalInventoryPhoto $photo): array
+    {
+        return [
+            'id' => $photo->id,
+            'property_room_id' => $photo->property_room_id,
+            'storage_path' => $photo->storage_path,
+            'lines' => $photo->lines()->pluck('id'),
+        ];
     }
 }
