@@ -876,11 +876,18 @@ the reader would have been the actual violation. No other change was made to tha
    DPI; an image upload (a phone photo) is loaded as-is, one page. Both `gs` and `pdftoppm`/`pdftocairo`
    (Poppler) were already installed on the box, and the `imagick`/`gd` PHP extensions were already
    enabled — nothing new was installed.
-2. **Calibrate** each page: locate the four fiducials, resolve which pixel blob is which manifest corner
-   (the bottom-right one is always the filled circle — unambiguous by shape regardless of rotation), then
-   fit ONE affine transform (least squares over the four correspondences) mapping manifest pt-space onto
-   that page's actual pixels. A 180-degree rotation and a small camera-angle skew are both just different
-   affine matrices to this step — there is no separate rotation-handling code path.
+2. **Calibrate** each page: locate the four fiducials, resolve which pixel blob is which manifest corner as
+   TWO separate questions (Johan, 2026-09-22 — see §13.12 for the full story and its one known limit): the
+   fiducial rectangle's own edge-length structure answers "portrait or sideways" from position alone, at
+   any rotation angle — an A4 page is never square, so no shape/fill-ratio classification is needed for
+   this half. That narrows to exactly two candidates differing only by "right way up or upside down" — the
+   one question the bottom-right circle actually exists to answer — resolved primarily by decoding the
+   printed page identifier under each candidate and keeping whichever matches this scan's own known
+   `rental_inspection_id` (deterministic, shape-independent, no rotation blind spot), falling back to
+   relative fill-ratio comparison only if that's inconclusive. Then fit ONE affine transform (least squares
+   over the four correspondences) mapping manifest pt-space onto that page's actual pixels. A 180-degree
+   rotation and a camera-angle skew are both just different affine matrices to this step — there is no
+   separate rotation-handling code path.
 3. **Decode the page identifier** through that transform, using `pageIdentifierGridLayout()` (§13.1) — this
    is possible before any manifest is loaded, exactly as designed.
 4. **Match against the inspection's CURRENT form version.** If the decoded version doesn't match, the scan
@@ -993,8 +1000,11 @@ different condition per item so a systematic offset bug couldn't accidentally pa
 reader, and asserted to read back exactly what was inked:
 - a straight page,
 - the SAME page rotated 180 degrees,
-- the SAME page skewed 6 degrees (not a 90-degree multiple — proves the general affine fit, not just the
-  shape-based rotation-disambiguation path),
+- the SAME page skewed 6 degrees and, separately, 20 degrees (not 90-degree multiples — proves the general
+  affine fit, and the 20-degree case proves the working envelope genuinely reaches well past the ~7-degree
+  ceiling the original shape-threshold approach had — see §13.12),
+- the SAME page rotated a clean 90 degrees (photographed sideways — a realistic mistake, and the exact case
+  that used to resolve CONFIDENTLY WRONG under the original approach, not merely reject; now reads correctly),
 - two marks inked on one row → flagged ambiguous, not guessed,
 - zero marks inked on one row → also flagged ambiguous, never silently treated as a valid "unmarked" reading,
 - a scan of an old form version (the item list changed after it was printed, producing v2) → flagged
@@ -1017,7 +1027,57 @@ No browser harness, no dev server (Standard −1s) — a file-level PHPUnit test
 - A UI to reconcile two independent scans of the same physical page (§13.8).
 - Queued/background processing, should QA ever gain a queue worker.
 
-### 13.11 Files created
+### 13.12 Rotation envelope — what it handles, and one known, deliberate limit
+
+**History.** The first working version resolved fiducial correspondence by classifying the bottom-right
+blob as "the circle" via an absolute fill-ratio threshold. That worked, but Johan pushed back the same
+night it shipped: measured, the envelope was only ±5 degrees around upright plus the full 180-degree
+upside-down case — too narrow for how an agent actually takes the photo (phone held in hand, not braced
+against anything). The root cause: a rotated SQUARE's own axis-aligned fill ratio is not rotation-invariant
+(it falls from 1.0 toward 0.5 as rotation increases), so past roughly 8 degrees it can read as MORE
+circle-like than the true circle — and worse, at exactly 90 degrees the old logic didn't just fail, it
+resolved a wrong-but-plausible-looking transform and reported it as trustworthy. Confidently wrong, not
+merely narrow — the one outcome this feature can never produce.
+
+**The fix — two questions, not one.** Johan's own framing, verbatim: "orientation is really TWO separate
+questions, and only one of them needs the circle." Portrait-vs-sideways is answered by the fiducial
+rectangle's own edge-length structure (A4 is never square) — true at ANY rotation angle, from position
+alone, no shape classification involved at all. That narrows four possible orientations to exactly two,
+differing only by "right way up or upside down" — the ONE question the circle exists to answer, and now a
+binary choice between two candidates rather than a 1-vs-3 classification against a threshold that drifts
+with angle. Resolved primarily via the printed page identifier (decoded under each candidate, matched
+against this scan's own known target) — deterministic, shape-independent, no rotation blind spot — with
+fill-ratio comparison demoted to a fallback for the rare case that's inconclusive.
+
+**Measured result** (fine-grained sweep against a real generated form; every ACCEPTED angle checked against
+both the exact rotation applied and the decoded page identifier — zero confidently-wrong reads anywhere in
+the sweep):
+
+| Range | Result |
+|---|---|
+| 0°–24° | Reads correctly |
+| 25°–65° | Rejected (`status = failed`, scan retained, human re-scans) |
+| 66°–114° | Reads correctly (includes a clean 90-degree sideways photo) |
+| 115°–155° | Rejected |
+| 156°–180° | Reads correctly (includes upside-down) |
+
+**Known, deliberate limit — the 25°–65° / 115°–155° bands.** This is NOT a gap in the correspondence logic
+above — that now resolves correctly at ANY angle wherever it receives valid input. It's a SEPARATE,
+earlier bottleneck: the fiducial search itself looks for each corner mark inside a quadrant anchored to one
+of the four IMAGE corners. Past roughly 25 degrees of rotation, canvas expansion moves the true fiducials
+away from every image corner entirely (confirmed directly: at 45 degrees, three of the four corner searches
+find nothing at all) — there is nothing for the correspondence logic to work with, regardless of how good
+it is. Closing this would mean changing WHERE the search looks (e.g. scanning image edge-midpoints, or a
+full-frame blob sweep) — a genuinely separate piece of work, not a refinement of this one.
+
+**Deliberately left as-is.** Johan, 2026-09-22: "Nobody photographs a document at 45°. A phone held roughly
+upright, or turned a quarter turn, or upside down, covers what agents actually do... Closing that band would
+be real work for a case that does not occur, and I would rather spend it on inventory." If this is ever
+revisited, it needs a different search strategy, not a tighter threshold — start from the corner-quadrant
+search notes above, not from the correspondence-resolution code, which is already correct at every angle it
+can see.
+
+### 13.13 Files created
 
 - `database/migrations/2026_10_02_160000_add_omr_mark_threshold_to_rental_inspection_settings_table.php`
 - `database/migrations/2026_10_02_160100_create_rental_inspection_scans_table.php`
