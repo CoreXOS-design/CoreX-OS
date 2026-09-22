@@ -232,15 +232,23 @@
                         </template>
                     </div>
 
+                    {{-- Untagged → room (many destinations, already worked) and
+                         untagged → item (many destinations, was missing — an
+                         agent had to route through the room first) share one
+                         destination control: same interaction as every other
+                         many-destination move on this screen. --}}
                     <div class="flex items-center gap-2 flex-wrap" x-show="photoUploader({{ $sectionJs }}).selected.size">
                         <span class="text-xs" style="color:var(--text-secondary);" x-text="photoUploader({{ $sectionJs }}).selected.size + ' selected'"></span>
-                        <select class="prop-input text-xs" style="max-width:10rem;" x-model.number="trayTagRoomChoice">
-                            <option value="">Tag to room…</option>
-                            <template x-for="group in roomGroups().filter(g => g.room)" :key="group.room.id">
-                                <option :value="group.room.id" x-text="group.room.label"></option>
+                        <select class="prop-input text-xs" style="max-width:12rem;" x-model="trayTagRoomChoice">
+                            <option value="">Tag to…</option>
+                            <template x-for="group in roomGroups().filter(g => g.room)" :key="'tray-room-' + group.room.id">
+                                <option :value="'room:' + group.room.id" x-text="group.room.label"></option>
+                            </template>
+                            <template x-for="i in allItemChoices({{ $sectionJs }})" :key="'tray-item-' + i.observationId">
+                                <option :value="'item:' + i.observationId" x-text="i.roomLabel + ' — ' + i.label"></option>
                             </template>
                         </select>
-                        <button type="button" :disabled="!trayTagRoomChoice" @click="photoUploader({{ $sectionJs }}).tagSelectedToRoom(trayTagRoomChoice); trayTagRoomChoice = ''"
+                        <button type="button" :disabled="!trayTagRoomChoice" @click="applyTrayDestination({{ $sectionJs }}, trayTagRoomChoice)"
                                 class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Tag selected</button>
                         <button type="button" @click="photoUploader({{ $sectionJs }}).clearSelection()" class="text-xs font-semibold underline" style="color:var(--text-secondary);">Clear</button>
                     </div>
@@ -318,36 +326,91 @@
                      (a 15-room property must not push items ten screens
                      down), expanding to every row on click. Only rendered
                      when at least one general room photo exists (screen
-                     space: nothing rendered otherwise). --}}
+                     space: nothing rendered otherwise).
+
+                     FIX, 2026-09-22 (photo-tagging pass) — the room→item
+                     move used to live as a <select> squeezed onto this
+                     tile; two real problems with that, not one. (1) this
+                     row's own `max-height:6.5rem; overflow-hidden` clip —
+                     at gallery tile sizing a grid column is easily
+                     150-300px wide, so an aspect-ratio:1/1 tile is that
+                     tall too, and 104px clipped every tile short, cutting
+                     the bottom-anchored control out of the clickable area
+                     on any real screen width. (2) even reachable, its
+                     value was the ITEM's id, not the OBSERVATION id
+                     tagPhoto() actually needs — a photo files against an
+                     observation, and an item with nothing recorded yet has
+                     none, so this could 404 or (worse) hit an unrelated
+                     observation that happened to share the number. Design
+                     constraint, 2026-09-22 (Johan): "on item and on room if
+                     you click the photo it opens up... wont work from room
+                     to item as there are many items to 1 room" — room→item
+                     is a many-destination move, so it doesn't belong on
+                     the tile at all now; it lives in the opened photo view
+                     (see the lightbox), which has room for a real chooser
+                     and the correct observation ids (itemChoicesFor()).
+                     Height-based clipping is also replaced with COUNT-based
+                     slicing (first 3, "Show all" for the rest) so a
+                     rendered tile is always whole regardless of width. --}}
                 <template x-if="group.room && roomPhotosFor({{ $sectionJs }}, group.room).length">
                     <div class="pl-5 space-y-1">
-                        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2 overflow-hidden"
-                             :style="roomPhotosExpanded[group.room.id] ? '' : 'max-height:6.5rem;'">
-                            <template x-for="photo in roomPhotosFor({{ $sectionJs }}, group.room)" :key="photo.id">
-                                <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
+                        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                            <template x-for="photo in (roomPhotosExpanded[group.room.id] ? roomPhotosFor({{ $sectionJs }}, group.room) : roomPhotosFor({{ $sectionJs }}, group.room).slice(0, 3))" :key="photo.id">
+                                <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);"
+                                     :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
+                                    {{-- Clicking the photo opens it (unchanged) — any
+                                         control on the tile is its own small hit target,
+                                         @click.stop, so it never also opens the photo. --}}
                                     <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer"
-                                         @click="viewer = { open: true, images: roomPhotosFor({{ $sectionJs }}, group.room).map(p => p.storage_path), index: roomPhotosFor({{ $sectionJs }}, group.room).indexOf(photo) }" alt="">
-                                    {{-- Bug 2, 2026-09-22, Johan: "cant tag room and
-                                         then ceiling as example" — room first, then
-                                         an item within that room. Supersedes the
-                                         room-only tag (kept, same server call), never
-                                         a second tag. --}}
-                                    <select class="absolute bottom-0 left-0 right-0 text-[0.65rem]" style="background:rgba(0,0,0,0.65); color:#fff; border:0;"
-                                            @click.stop
-                                            :value="photo.rental_inspection_observation_id || ''"
-                                            @change="photoUploader({{ $sectionJs }}).tagPhoto(photo.id, { property_room_id: group.room.id, rental_inspection_observation_id: $event.target.value || null })">
-                                        <option value="">General</option>
-                                        <template x-for="i in group.items" :key="i.id">
-                                            <option :value="i.id" x-text="i.label"></option>
-                                        </template>
-                                    </select>
+                                         @click="openInspectionPhoto({{ $sectionJs }}, roomPhotosFor({{ $sectionJs }}, group.room), photo, group.room)" alt="">
+                                    {{-- Multi-select toggle — one tap/click, no modifier
+                                         key, so it works identically at phone width. Feeds
+                                         the same `selected` Set the tray's own multi-select
+                                         already uses; the "N selected" bar below lets a
+                                         whole run of room photos move at once. --}}
+                                    <button type="button" @click.stop="photoUploader({{ $sectionJs }}).toggleSelected(photo.id)"
+                                            class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                            :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:rgba(0,0,0,0.5); color:#fff;'"
+                                            title="Select">&check;</button>
+                                    {{-- Room → untagged — a SINGLE destination (the
+                                         tray), so a plain button is correct here (Johan).
+                                         Same ↑ = "up a level" convention as the item
+                                         tile's own back-to-room button. --}}
+                                    <button type="button" @click.stop="photoUploader({{ $sectionJs }}).untagPhoto(photo.id)"
+                                            class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                            style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to tray">&uarr;</button>
                                 </div>
                             </template>
                         </div>
-                        <button type="button" x-show="roomPhotosFor({{ $sectionJs }}, group.room).length > 3"
-                                @click="roomPhotosExpanded[group.room.id] = !roomPhotosExpanded[group.room.id]"
-                                class="text-xs font-semibold underline" style="color:var(--text-secondary);"
-                                x-text="roomPhotosExpanded[group.room.id] ? 'Show less' : ('Show all ' + roomPhotosFor({{ $sectionJs }}, group.room).length)"></button>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button type="button" x-show="roomPhotosFor({{ $sectionJs }}, group.room).length > 3"
+                                    @click="roomPhotosExpanded[group.room.id] = !roomPhotosExpanded[group.room.id]"
+                                    class="text-xs font-semibold underline" style="color:var(--text-secondary);"
+                                    x-text="roomPhotosExpanded[group.room.id] ? 'Show less' : ('Show all ' + roomPhotosFor({{ $sectionJs }}, group.room).length)"></button>
+                            {{-- Bulk case: room → item still needs a chooser (many
+                                 destinations), so it keeps its own dropdown here — the
+                                 single-photo path moved to the opened view, but there's
+                                 no "opened view" for several photos at once. Room →
+                                 untagged is single-destination even in bulk, so it's
+                                 just a second plain button, no chooser. --}}
+                            <template x-if="selectedRoomPhotoIds({{ $sectionJs }}, group.room).length">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs" style="color:var(--text-secondary);" x-text="selectedRoomPhotoIds({{ $sectionJs }}, group.room).length + ' selected'"></span>
+                                    <select class="prop-input text-xs" style="max-width:10rem;" x-model.number="roomPhotoTagItemChoice[group.room.id]">
+                                        <option value="">Tag to…</option>
+                                        <template x-for="i in itemChoicesFor({{ $sectionJs }}, group.room)" :key="i.id">
+                                            <option :value="i.observationId" x-text="i.label"></option>
+                                        </template>
+                                    </select>
+                                    <button type="button" :disabled="!roomPhotoTagItemChoice[group.room.id]"
+                                            @click="tagSelectedRoomPhotosToItem({{ $sectionJs }}, group.room, roomPhotoTagItemChoice[group.room.id])"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Tag selected</button>
+                                    <button type="button" @click="untagSelectedRoomPhotos({{ $sectionJs }}, group.room)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Untag selected</button>
+                                    <button type="button" @click="photoUploader({{ $sectionJs }}).clearSelection()" class="text-xs font-semibold underline" style="color:var(--text-secondary);">Clear</button>
+                                </div>
+                            </template>
+                        </div>
                     </div>
                 </template>
 
@@ -424,25 +487,51 @@
                                      flex sibling of the scrollable strip, so it
                                      receives the SAME row-driven stretch height
                                      directly and is visible at a fixed position
-                                     whether the item has zero photos or twelve. --}}
+                                     whether the item has zero photos or twelve.
+                                     Tile controls (select/tag/untag, all six photo
+                                     moves) are the photo-tagging feature (cc,
+                                     2026-09-22) layered onto this sizing — this
+                                     strip's own sizing/positioning is untouched by
+                                     that work, merge conflict resolved 2026-09-22
+                                     by keeping this structure and bringing the
+                                     tagging controls over onto it. --}}
                                 <div style="display:flex; align-items:stretch; flex:1; min-width:0; gap:0.375rem;">
                                     <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
                                         <div style="position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
                                             <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
-                                                <div class="relative rounded-md" style="display:inline-block; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;">
+                                                <div class="relative rounded-md" style="display:inline-block; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;"
+                                                     :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
+                                                    {{-- Clicking the photo opens it — the
+                                                         controls below are their own small hit
+                                                         targets, @click.stop, so none of them
+                                                         also open the photo. --}}
                                                     <img :src="photo.storage_path" style="display:inline-block; height:100%; width:auto; object-fit:cover; cursor:pointer;"
-                                                         @click="viewer = { open: true, images: itemPhotosFor({{ $sectionJs }}, item).map(p => p.storage_path), index: itemPhotosFor({{ $sectionJs }}, item).indexOf(photo) }" alt="">
-                                                    {{-- Bug 2 — untag steps back the same way:
-                                                         the exact reverse of the room→item tag
-                                                         above, one click, back to a general
-                                                         room shot. Only offered when this item
-                                                         actually belongs to a real room (never
-                                                         shown in the roomless "General"
-                                                         meters/legacy group — there is no room
-                                                         to step back to). --}}
+                                                         @click="openInspectionPhoto({{ $sectionJs }}, itemPhotosFor({{ $sectionJs }}, item), photo, group.room)" alt="">
+                                                    {{-- Multi-select toggle — same tap/click, no
+                                                         modifier key, as every other tile on this
+                                                         screen. --}}
+                                                    <button type="button" @click.stop="photoUploader({{ $sectionJs }}).toggleSelected(photo.id)"
+                                                            class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                                            :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:rgba(0,0,0,0.5); color:#fff;'"
+                                                            title="Select">&check;</button>
+                                                    {{-- Item → room — a SINGLE destination (this
+                                                         item's own room), plain button (Johan).
+                                                         Only offered when this item actually
+                                                         belongs to a real room (never shown in the
+                                                         roomless "General" meters/legacy group —
+                                                         there is no room to step back to). --}}
                                                     <button type="button" x-show="group.room" @click.stop="photoUploader({{ $sectionJs }}).tagPhoto(photo.id, { property_room_id: group.room?.id })"
                                                             class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                                             style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to room">&uarr;</button>
+                                                    {{-- Item → untagged — also a SINGLE destination
+                                                         (the tray), so this is a second plain
+                                                         button rather than folded into the same
+                                                         control as "back to room" — distinct icon
+                                                         (double arrow = "all the way back", vs the
+                                                         single arrow above = "one level back"). --}}
+                                                    <button type="button" @click.stop="photoUploader({{ $sectionJs }}).untagPhoto(photo.id)"
+                                                            class="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                                            style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to untagged">&#8657;</button>
                                                 </div>
                                             </template>
                                         </div>
@@ -459,6 +548,23 @@
                                     </label>
                                 </div>
                             </div>
+                            {{-- Bulk case: item → room and item → untagged are both
+                                 single-destination even in bulk, so this is two plain
+                                 buttons, no chooser — same shape as the room bulk bar
+                                 below the room grid above, minus the dropdown since
+                                 there's nothing here that needs one. Sits below the
+                                 flex row entirely, so it never touches cc2's
+                                 height-sensitive strip layout above. --}}
+                            <template x-if="selectedItemPhotoIds({{ $sectionJs }}, item).length">
+                                <div class="flex items-center gap-2 pl-3">
+                                    <span class="text-xs" style="color:var(--text-secondary);" x-text="selectedItemPhotoIds({{ $sectionJs }}, item).length + ' selected'"></span>
+                                    <button type="button" x-show="group.room" @click="backToRoomSelectedItemPhotos({{ $sectionJs }}, item, group.room)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Back to room</button>
+                                    <button type="button" @click="untagSelectedItemPhotos({{ $sectionJs }}, item)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Untag selected</button>
+                                    <button type="button" @click="photoUploader({{ $sectionJs }}).clearSelection()" class="text-xs font-semibold underline" style="color:var(--text-secondary);">Clear</button>
+                                </div>
+                            </template>
                         </div>
                     </template>
 

@@ -170,11 +170,41 @@
                 this.photos = this.photos.filter(p => p.id !== photoId);
             },
             async tagSelectedToRoom(roomId) {
-                const ids = Array.from(this.selected);
-                if (!ids.length) return;
+                return this.tagIdsToRoom(Array.from(this.selected), roomId);
+            },
+            // Explicit-ids version of the above — used wherever the caller
+            // already scoped its own selection (an item's own selected
+            // photos, say) and must not sweep in whatever else happens to
+            // be selected elsewhere on the page.
+            async tagIdsToRoom(ids, roomId) {
+                if (!ids || !ids.length) return;
                 const res = await this._cpu_post(this._cpu_tagBulkUrl, { photo_ids: ids, property_room_id: roomId });
                 (res.photos || []).forEach(p => this._cpu_replacePhoto(p));
-                this.clearSelection();
+                this._cpu_dropFromSelection(ids);
+            },
+            // Room/item → item, several photos at once — reuses the
+            // single-photo tag() call (already supersede-based) per id
+            // rather than a new bulk-by-item backend endpoint; there is no
+            // batch win to be had server-side here (each photo still needs
+            // its own row update), so a second endpoint would only
+            // duplicate tagPhoto()'s own validation for no benefit. An
+            // agent with 14 room photos to file against one item selects
+            // them all and does this once.
+            async tagSelectedToItem(ids, roomId, observationId) {
+                if (!ids || !ids.length) return;
+                await Promise.all(ids.map(id => this.tagPhoto(id, { property_room_id: roomId, rental_inspection_observation_id: observationId })));
+                this._cpu_dropFromSelection(ids);
+            },
+            // Explicit-ids bulk untag — the reverse of tagIdsToRoom/
+            // tagSelectedToItem, same "several at once" shape.
+            async untagSelected(ids) {
+                if (!ids || !ids.length) return;
+                await Promise.all(ids.map(id => this.untagPhoto(id)));
+                this._cpu_dropFromSelection(ids);
+            },
+            _cpu_dropFromSelection(ids) {
+                ids.forEach(id => this.selected.delete(id));
+                this.selected = new Set(this.selected);
             },
             _cpu_replacePhoto(updated) {
                 const i = this.photos.findIndex(p => p.id === updated.id);
@@ -231,6 +261,17 @@
             },
             isSelected(id) { return this.selected.has(id); },
             clearSelection() { this.selected = new Set(); this._cpu_lastClickedId = null; },
+            // A dedicated toggle control (as opposed to selectClick above,
+            // which is bound to a photo's own click and so has to carry
+            // shift/ctrl range-select semantics) — always just adds/removes
+            // this one id, never touches the rest of the selection. Same
+            // tap works identically with mouse or touch, no modifier key
+            // required, so it's the one multi-select entry point phone
+            // width can actually use.
+            toggleSelected(id) {
+                if (this.selected.has(id)) this.selected.delete(id); else this.selected.add(id);
+                this.selected = new Set(this.selected);
+            },
 
             // Marquee (rubber-band) select — mousedown on the tray's empty
             // background starts it; mousemove draws the rect; mouseup
