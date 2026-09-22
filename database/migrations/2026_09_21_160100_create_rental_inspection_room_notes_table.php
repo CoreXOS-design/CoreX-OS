@@ -20,6 +20,14 @@ use Illuminate\Support\Facades\Schema;
  * same convention as rental_inspection_observations, §3.3) — a correction
  * is a NEW row; "the room's current note" is simply the latest one, same
  * pattern as an item's currentObservation().
+ *
+ * `property_room_id` carries the COLUMN here but not the FK constraint —
+ * `property_rooms` is created by a LATER-dated migration
+ * (2026_09_30_100400), so a fresh migrate:fresh (filename order) would
+ * fail here with "Failed to open the referenced table" before that table
+ * exists. The constraint itself (same auto-generated name, same cascade
+ * rule) is added once that table exists — see
+ * 2026_09_30_100600_add_deferred_foreign_keys_for_later_created_tables.php.
  */
 return new class extends Migration
 {
@@ -29,7 +37,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('agency_id')->constrained()->cascadeOnDelete();
             $table->foreignId('rental_inspection_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('property_room_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('property_room_id');
             $table->text('note');
             $table->foreignId('created_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('created_at')->nullable();
