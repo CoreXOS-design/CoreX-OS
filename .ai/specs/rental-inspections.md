@@ -2845,11 +2845,17 @@ item has zero photos or twelve — matching the task's own requirement in those 
 
 ---
 
-## 23. Compare view — the in/out (or ad-hoc) comparison panel — SPECCED, NOT YET BUILT (2026-09-22)
+## 23. Compare view — the in/out (or ad-hoc) comparison panel — SUPERSEDED, NOW BUILT (see §20.15)
 
-**Status: this entire section describes a decided design. No code exists for it yet — do not read
-anything below as a description of what is currently on screen.** Recorded now, before it is built, so
-the decisions survive a lane reset intact rather than needing to be re-litigated.
+**Status update, 2026-09-22, same day: this section was the pre-build design record — it is now BUILT
+and deployed.** Johan asked directly whether this section was still accurate ("is that actually built and
+written to, or is §23 still accurate that this is specced-not-built?") while re-testing the compare view;
+this stale header would have answered that question wrongly, so it is corrected here rather than left to
+mislead the next reader. **§20.15 is the current, authoritative record of what actually shipped** —
+`rental_inspection_photo_matches` is a real table, written to by `RentalInspectionPhotoMatch::matchPhotos()`
+via `POST /corex/properties/{property}/rental-inspection-photo-matches`, exactly as designed below. The
+rest of this section is kept as the original design reasoning (still accurate — nothing here was built
+differently from what was decided), not as a "not yet built" disclaimer.
 
 ### 23.1 The shape
 
