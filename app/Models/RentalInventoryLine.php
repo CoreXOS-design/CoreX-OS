@@ -5,13 +5,17 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * .ai/specs/rental-inventory.md §3.1 — one real item: "2x White wooden
+ * .ai/specs/rental-inventory.md §3.1/§0b — one real item: "2x White wooden
  * headboards", "4x Remotes - 2x Fans - 2x Aircon". Quantity + free-text
  * description deliberately, not a rigid schema — location, brand, colour
- * and state annotations ("missing") all live in `description`.
+ * and state annotations ("missing") all live in `description`. Attaches to
+ * the property's own PropertyRoom (§0b, 2026-09-22) — the agent picks the
+ * room CoreX already knows about, never retypes one. `room_label` stays for
+ * back-compat display on any line captured before this change.
  */
 class RentalInventoryLine extends Model
 {
@@ -20,6 +24,7 @@ class RentalInventoryLine extends Model
     protected $fillable = [
         'agency_id',
         'rental_inventory_id',
+        'property_room_id',
         'room_label',
         'quantity',
         'description',
@@ -42,6 +47,17 @@ class RentalInventoryLine extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    public function room(): BelongsTo
+    {
+        return $this->belongsTo(PropertyRoom::class, 'property_room_id');
+    }
+
+    /** §0b — Johan's own example: the TV's serial number, tagged to the photo it's visible in. Optional, never required. */
+    public function photos(): BelongsToMany
+    {
+        return $this->belongsToMany(RentalInventoryPhoto::class, 'rental_inventory_line_photos');
     }
 
     /** §8 — every move-out finding ever recorded against this line, oldest first. Never edited, never deleted. */

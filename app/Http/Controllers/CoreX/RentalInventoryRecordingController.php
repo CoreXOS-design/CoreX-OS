@@ -18,15 +18,26 @@ use Illuminate\Http\Request;
  */
 class RentalInventoryRecordingController extends Controller
 {
-    /** POST /corex/rental-inventories/{inventory}/lines */
+    /**
+     * POST /corex/rental-inventories/{inventory}/lines — §0b: the capture
+     * surface sends property_room_id (the property's own PropertyRoom, the
+     * agent never retypes a room name); room_label is derived from it for
+     * back-compat display. room_label alone still validates on its own for
+     * any caller that hasn't moved to room-based capture yet.
+     */
     public function storeLine(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
         $validated = $request->validate([
-            'room_label' => ['required', 'string', 'max:100'],
+            'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
+            'room_label' => ['nullable', 'required_without:property_room_id', 'string', 'max:100'],
             'quantity' => ['required', 'integer', 'min:0'],
             'description' => ['required', 'string'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
+
+        if (! empty($validated['property_room_id']) && empty($validated['room_label'])) {
+            $validated['room_label'] = \App\Models\PropertyRoom::find($validated['property_room_id'])?->label;
+        }
 
         $line = RentalInventoryLine::create(array_merge($validated, [
             'agency_id' => $rentalInventory->agency_id,
@@ -42,10 +53,15 @@ class RentalInventoryRecordingController extends Controller
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
 
         $validated = $request->validate([
-            'room_label' => ['required', 'string', 'max:100'],
+            'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
+            'room_label' => ['nullable', 'required_without:property_room_id', 'string', 'max:100'],
             'quantity' => ['required', 'integer', 'min:0'],
             'description' => ['required', 'string'],
         ]);
+
+        if (! empty($validated['property_room_id']) && empty($validated['room_label'])) {
+            $validated['room_label'] = \App\Models\PropertyRoom::find($validated['property_room_id'])?->label;
+        }
 
         $line->update($validated);
 

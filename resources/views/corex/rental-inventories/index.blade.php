@@ -25,7 +25,7 @@
 @section('content')
 <div class="p-6 space-y-4">
     <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Rental Inventories</h1>
+        <h1 class="text-lg font-semibold">Inventories</h1>
         <div class="flex items-center gap-2">
             <a href="{{ route('corex.rental-inventories.index', array_merge(request()->except('page'), ['archived' => $archived ? null : 1])) }}"
                class="corex-btn-outline text-xs {{ $archived ? 'corex-tab-active' : '' }}">
@@ -37,6 +37,27 @@
         </div>
     </div>
 
+    @if(!$hasAnyInventories && !$archived && !request()->hasAny(['q', 'status', 'date_from', 'date_to']))
+        {{--
+            .ai/specs/rental-inventory.md §7.1 — the day-one empty state. A
+            sentence bolted above a blank table does not teach an agency
+            anything; this is the ONLY place a new agent learns what an
+            inventory is for before ever seeing one. Screen-space
+            discipline: every line here is either the explanation or the
+            control, nothing decorative.
+        --}}
+        <div class="rounded-md p-8 text-center space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+            <h2 class="text-sm font-semibold" style="color: var(--text-primary);">No inventories yet</h2>
+            <p class="text-xs max-w-md mx-auto" style="color: var(--text-muted);">
+                An inventory is a counted list of a furnished property's contents, room by room —
+                what's there, how many, and what condition. Recorded once at move-in, it's what a
+                move-out comparison is checked against.
+            </p>
+            @permission('rental_inventories.create')
+            <a href="{{ route('corex.rental-inventories.create') }}" class="corex-btn-primary text-xs inline-block">Start Inventory</a>
+            @endpermission
+        </div>
+    @else
     <form method="GET" action="{{ route('corex.rental-inventories.index') }}" class="flex flex-wrap items-end gap-3">
         @if($archived)
             <input type="hidden" name="archived" value="1">
@@ -123,5 +144,6 @@
     </div>
 
     {{ $inventories->links() }}
+    @endif
 </div>
 @endsection

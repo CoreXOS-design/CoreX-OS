@@ -12,7 +12,7 @@
 
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div>
-            <h1 class="text-xl font-bold text-white leading-tight">Rental Inventory Settings</h1>
+            <h1 class="text-xl font-bold text-white leading-tight">Inventory Settings</h1>
             <p class="text-sm text-white/60">The options an agent picks from when recording what was found at move-out.</p>
         </div>
     </div>

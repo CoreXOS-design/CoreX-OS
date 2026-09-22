@@ -214,5 +214,9 @@
         @endforeach
     </div>
     @endif
+
+    {{-- .ai/specs/rental-inventory.md §4 — reachable from where the work
+         happens, not only the sidebar list (Johan, 2026-09-22). --}}
+    @include('corex.rental-inventories.partials._related-inventories', ['property' => $inspection->property])
 </div>
 @endsection
