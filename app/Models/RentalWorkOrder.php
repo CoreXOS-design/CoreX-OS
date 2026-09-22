@@ -204,6 +204,7 @@ class RentalWorkOrder extends Model
                     'quote_selected' => 'Quote selected',
                     'quote_archived' => 'Quote archived',
                     'quote_restored' => 'Quote restored',
+                    'approval_rederived' => 'Approval requirement re-derived',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
                 },
                 'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,
@@ -350,8 +351,22 @@ class RentalWorkOrder extends Model
      * §3.4c — archive/restore, soft delete only (non-negotiable #1). Archiving
      * the currently-selected quote clears is_selected — leaving a hidden
      * quote marked "selected" is exactly the invisible-state bug
-     * BUILD_STANDARD's prevent-or-absorb rule exists to catch; it does NOT
-     * touch owner_approval_status, which stays whatever it last resolved to.
+     * BUILD_STANDARD's prevent-or-absorb rule exists to catch.
+     *
+     * 2026-09-22, Johan — owner_approval_status IS re-derived when the
+     * archived quote was selected, but only when the current value is
+     * DERIVED (not_required/pending — the only two values selectQuote()
+     * itself can ever write). approved/declined are a RECORD OF WHAT A
+     * HUMAN DID (recordApproval(), or inherited from an already-approved
+     * fault report) — no amount of quote housekeeping rewrites that; those
+     * two values are structurally impossible to reach any other way, so
+     * checking the current value is sufficient to tell derived state from a
+     * recorded decision, no separate column needed. Re-derivation looks at
+     * whichever quote (if any) is selected after this archive, against the
+     * property's threshold — same rule selectQuote() itself uses. No quote
+     * selected falls back to not_required, the same baseline a fresh work
+     * order starts at. Logged to History only when the value actually
+     * changes, with the actor and the reason.
      */
     public function archiveQuote(RentalWorkOrderQuote $quote, User $by): void
     {
@@ -367,6 +382,31 @@ class RentalWorkOrder extends Model
             'agency_id' => $this->agency_id, 'update_type' => 'quote_archived',
             'note' => ($wasSelected ? 'Was selected — ' : '') . $this->describeQuote($quote), 'created_by_user_id' => $by->id,
         ]);
+
+        if ($wasSelected && in_array($this->owner_approval_status, [self::APPROVAL_NOT_REQUIRED, self::APPROVAL_PENDING], true)) {
+            $oldStatus = $this->owner_approval_status;
+
+            $nowSelected = $this->quotes()->where('id', '!=', $quote->id)->where('is_selected', true)->first();
+            if ($nowSelected) {
+                $threshold = RentalWorkOrderSetting::thresholdFor($this->property);
+                $newStatus = (float) $nowSelected->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING;
+                $reason    = 'now derived from ' . $this->describeQuote($nowSelected);
+            } else {
+                $newStatus = self::APPROVAL_NOT_REQUIRED;
+                $reason    = 'no quote now selected — same baseline a work order starts at';
+            }
+
+            if ($newStatus !== $oldStatus) {
+                $this->forceFill(['owner_approval_status' => $newStatus])->save();
+
+                $this->updates()->create([
+                    'agency_id' => $this->agency_id, 'update_type' => 'approval_rederived',
+                    'from_status' => $oldStatus, 'to_status' => $newStatus,
+                    'note' => 'Selected quote archived — ' . $reason,
+                    'created_by_user_id' => $by->id,
+                ]);
+            }
+        }
     }
 
     public function restoreQuote(RentalWorkOrderQuote $quote, User $by): void
