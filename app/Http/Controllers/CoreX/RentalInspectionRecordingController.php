@@ -1032,6 +1032,8 @@ class RentalInspectionRecordingController extends Controller
     {
         try {
             $rentalInspection->startAwaitingSignature();
+        } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 409);
         }
@@ -1044,6 +1046,8 @@ class RentalInspectionRecordingController extends Controller
     {
         try {
             $rentalInspection->markCompleted();
+        } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
         } catch (\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 409);
         }

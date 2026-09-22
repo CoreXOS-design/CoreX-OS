@@ -383,4 +383,176 @@ final class RentalInspectionWorkflowTest extends TestCase
             'a fault reported under a PREVIOUS tenancy must still be visible on the new one (§0.2)',
         );
     }
+
+    // ── §"Notes (required)" — property 5792, empty required notes reached
+    //    awaiting_signature; the requires_notes vocabulary existed but
+    //    nothing ever enforced it ──────────────────────────────────────
+
+    /** Default agency setting is block — starting the signing window refuses. */
+    public function test_starting_the_signing_window_is_blocked_by_a_missing_required_note_by_default(): void
+    {
+        $item = $this->makeItem('Walls');
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+            'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
+            'condition' => RentalInspectionObservation::CONDITION_MISSING, 'notes' => null,
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ]);
+
+        $this->expectException(\App\Exceptions\RentalInspectionRequiredNotesMissingException::class);
+        $inspection->startAwaitingSignature();
+    }
+
+    /** Same shape, at markCompleted() — the other progression point named in the task. */
+    public function test_completing_is_blocked_by_a_missing_required_note_by_default(): void
+    {
+        $item = $this->makeItem('Walls');
+        $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+            'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
+            'condition' => RentalInspectionObservation::CONDITION_DAMAGED, 'notes' => '   ', // whitespace-only counts as empty
+            'source' => RentalInspectionObservation::SOURCE_OUT_INSPECTION,
+        ]);
+
+        $this->expectException(\App\Exceptions\RentalInspectionRequiredNotesMissingException::class);
+        $inspection->markCompleted();
+    }
+
+    /** The exception names the exact room and item — "not a silent block." */
+    public function test_the_block_names_the_exact_room_and_item(): void
+    {
+        $room = \App\Models\PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => 'Kitchen', 'label' => 'Kitchen', 'source' => 'manual', 'created_by_user_id' => $this->agent->id,
+        ]);
+        $item = RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id, 'property_room_id' => $room->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Walls', 'created_by_user_id' => $this->agent->id,
+        ]);
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+            'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
+            'condition' => RentalInspectionObservation::CONDITION_MISSING, 'notes' => null,
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ]);
+
+        try {
+            $inspection->startAwaitingSignature();
+            $this->fail('Expected RentalInspectionRequiredNotesMissingException');
+        } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
+            $this->assertStringContainsString('Kitchen: Walls', $e->getMessage());
+            $this->assertSame('Kitchen', $e->missingNotes[0]['room_label']);
+            $this->assertSame('Walls', $e->missingNotes[0]['item_label']);
+        }
+    }
+
+    /** A note that IS present — even one word — is never blocked. */
+    public function test_a_present_note_is_not_blocked(): void
+    {
+        $item = $this->makeItem('Walls');
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+            'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
+            'condition' => RentalInspectionObservation::CONDITION_MISSING, 'notes' => 'Cracked, agent photographed.',
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ]);
+
+        $inspection->startAwaitingSignature();
+
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->status);
+    }
+
+    /** Good/Fair/N/A never require a note — the shipped default, unchanged by this build except Fair. */
+    public function test_good_fair_and_na_never_require_a_note(): void
+    {
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        foreach ([RentalInspectionObservation::CONDITION_GOOD, RentalInspectionObservation::CONDITION_FAIR, RentalInspectionObservation::CONDITION_NA] as $i => $condition) {
+            $item = $this->makeItem('Item ' . $i);
+            RentalInspectionObservation::record([
+                'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+                'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
+                'condition' => $condition, 'notes' => null,
+                'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+            ]);
+        }
+
+        $inspection->startAwaitingSignature();
+
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->status);
+    }
+
+    /** The agency setting: require_notes_blocks_progression=false — same missing note, no exception. */
+    public function test_an_agency_set_to_warn_only_is_never_blocked(): void
+    {
+        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'require_notes_blocks_progression' => false]);
+        $item = $this->makeItem('Walls');
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+            'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
+            'condition' => RentalInspectionObservation::CONDITION_MISSING, 'notes' => null,
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ]);
+
+        $inspection->startAwaitingSignature();
+
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->status);
+        // Warn-only still means the caller can surface the same list — the setting only
+        // decides whether it BLOCKS, never whether the information exists.
+        $this->assertCount(1, $inspection->itemsWithMissingRequiredNotes());
+    }
+
+    /** An agency that has removed a condition from its own requires-note list is honoured. */
+    public function test_an_agency_that_removed_a_condition_from_the_requires_note_list_is_honoured(): void
+    {
+        RentalInspectionSetting::create([
+            'agency_id' => $this->agency->id,
+            'condition_states' => [
+                ['key' => 'good', 'label' => 'Good', 'requires_notes' => false],
+                // This agency decided Damaged does not need a note — its own configured list, not the default.
+                ['key' => 'damaged', 'label' => 'Damaged', 'requires_notes' => false],
+                ['key' => 'missing', 'label' => 'Missing', 'requires_notes' => true],
+            ],
+        ]);
+        $item = $this->makeItem('Walls');
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+            'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
+            'condition' => RentalInspectionObservation::CONDITION_DAMAGED, 'notes' => null,
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ]);
+
+        $inspection->startAwaitingSignature();
+
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->status);
+    }
+
+    /** Only the LATEST observation per item on THIS inspection counts — a corrected note clears the block. */
+    public function test_only_the_latest_observation_per_item_on_this_inspection_counts(): void
+    {
+        $item = $this->makeItem('Walls');
+        $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+            'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
+            'condition' => RentalInspectionObservation::CONDITION_MISSING, 'notes' => null,
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ]);
+        // Same walkthrough, agent corrects it — a NEW row (observations are append-only), not an edit.
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
+            'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
+            'condition' => RentalInspectionObservation::CONDITION_MISSING, 'notes' => 'Confirmed missing, tenant admits removal.',
+            'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+        ]);
+
+        $inspection->startAwaitingSignature();
+
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->status);
+    }
 }

@@ -6449,13 +6449,24 @@
                     finally { this.discBusy[discrepancy.id] = false; }
                 },
 
+                // §"Notes (required)" gate — opens every room named in the
+                // server's missing_required_notes list so the agent lands on
+                // them directly rather than hunting through the whole form.
+                // Reuses roomOpenOverride exactly as toggleRoomOpen() does —
+                // no new state, no new DOM anchors.
+                jumpToMissingRequiredNotes(section, e) {
+                    (e?.data?.missing_required_notes || []).forEach(m => {
+                        if (m.room_id) this.roomOpenOverride[section + '_' + m.room_id] = true;
+                    });
+                },
+
                 async completeInspection(section) {
                     const insp = this.currentInspection(section);
                     this.lifecycleError = '';
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/complete`, {});
                         Object.assign(insp, updated);
-                    } catch (e) { this.lifecycleError = e.message; }
+                    } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section, e); }
                 },
 
                 async startAwaitingSignature(section) {
@@ -6467,7 +6478,7 @@
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/start-awaiting-signature`, {});
                         Object.assign(insp, updated);
-                    } catch (e) { this.lifecycleError = e.message; }
+                    } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section || 'out', e); }
                 },
 
                 // §17 — the header block. x-model binds straight to
@@ -6735,8 +6746,15 @@
                     const res = await fetch(url, opts);
                     if (!res.ok) {
                         let msg = 'Request failed (HTTP ' + res.status + ').';
-                        try { const j = await res.json(); if (j && j.message) msg = j.message; } catch (_) {}
-                        throw new Error(msg);
+                        let body = null;
+                        try { body = await res.json(); if (body && body.message) msg = body.message; } catch (_) {}
+                        // .data is additive only — every existing catch (e) { e.message }
+                        // caller is unaffected; this just lets a NEW caller read structured
+                        // fields the server sent alongside the message (e.g. §"Notes
+                        // (required)", missing_required_notes) without a second fetch path.
+                        const err = new Error(msg);
+                        err.data = body;
+                        throw err;
                     }
                     return res.json();
                 },
