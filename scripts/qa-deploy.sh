@@ -41,8 +41,14 @@ if [ "$OLDHEAD" = "$NEWHEAD" ]; then
 fi
 
 echo "-- 2. frontend build ONLY if assets changed (qa1 serves built assets) --"
+# Any .blade.php counts as a frontend change too, not just resources/js|css —
+# Tailwind's classes come from scanning Blade templates for class-name
+# strings, not from resources/css source, so a Blade-only change introducing
+# a class nobody has used before is invisible to this trigger otherwise: the
+# class silently never enters the compiled bundle (found 2026-09-22, cc2's
+# rental-inspections compare-view sm:block fix).
 if [ "$OLDHEAD" != "$NEWHEAD" ] && git diff --name-only "$OLDHEAD" "$NEWHEAD" \
-     | grep -qE '^(resources/js/|resources/css/|vite\.config|package(-lock)?\.json|tailwind\.config)'; then
+     | grep -qE '^(resources/js/|resources/css/|vite\.config|package(-lock)?\.json|tailwind\.config)|\.blade\.php$'; then
     echo "   frontend changed → npm ci && npm run build"
     npm ci  2>&1 | tail -3
     npm run build 2>&1 | tail -5
