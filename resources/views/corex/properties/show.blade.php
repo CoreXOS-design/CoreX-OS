@@ -19,6 +19,14 @@
            contacts page, AT-393). */
         .corex-props-v2 .prop-identity-strip .prop-action-btn { width: auto; white-space: nowrap; }
         .corex-props-v2 .prop-tab-panel { overflow-y: auto; overflow-x: clip; }
+        /* FIX, 2026-09-22 — x-bind:style overwrites the whole style attribute
+           rather than merging, so a static style="..." on the same element as
+           a :style="..." binding gets wiped the moment the bound expression
+           is falsy. The six visibility-toggle knobs below share this exact
+           static declaration, so it moves into one class instead of being
+           re-fought six times. */
+        .toggle-knob { background:#fff; margin-top:2px; }
+        .gallery-upload-dropzone { border-color:var(--border-hover); color:var(--text-secondary); }
         .corex-props-v2 .prop-cov-dot-btn {
             display: flex; align-items: center; justify-content: center; flex-shrink: 0;
             width: 2rem; border-radius: 6px; cursor: pointer;
@@ -1336,8 +1344,7 @@
                     @if($tab['key'] === 'rental') x-show="isRentalListing" x-cloak @endif
                     :class="'border-b-2'"
                     :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon); border-color:var(--brand-icon); background:color-mix(in srgb, var(--brand-icon) 6%, transparent);' : 'color:var(--text-secondary); border-color:transparent; background:transparent;'"
-                    class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none"
-                    style="background:transparent;">
+                    class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none">
                 {{ $tab['label'] }}
                 @if(!$isNew && $tab['key'] === 'contacts' && $property->contacts->count())
                 <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon) 20%, transparent);color:var(--brand-icon);">{{ $property->contacts->count() }}</span>
@@ -2306,8 +2313,7 @@
                                                 <span draggable="true"
                                                       @dragstart="aiDragStart(i)" @dragend="aiDragEnd()"
                                                       class="inline-flex items-center gap-1.5 pl-2 pr-1 py-1 rounded-full text-xs cursor-grab active:cursor-grabbing"
-                                                      :style="aiDragIdx === i ? 'opacity:.45;' : ''"
-                                                      style="background:var(--surface); border:1px dashed color-mix(in srgb, var(--brand-icon) 45%, var(--border)); color:var(--text-primary);">
+                                                      :style="'background:var(--surface); border:1px dashed color-mix(in srgb, var(--brand-icon) 45%, var(--border)); color:var(--text-primary);' + (aiDragIdx === i ? ' opacity:.45;' : '')">
                                                     <svg class="w-3 h-3" style="color:var(--text-muted);" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" d="M9 6h.01M9 12h.01M9 18h.01M15 6h.01M15 12h.01M15 18h.01"/></svg>
                                                     <span x-text="f.label"></span>
                                                     <span class="text-[0.625rem]" style="color:var(--text-muted);" x-text="Math.round(f.confidence*100) + '%'"></span>
@@ -2335,10 +2341,9 @@
                                                      @dragleave="aiDropTarget === si && (aiDropTarget = null)"
                                                      @drop.prevent="aiDropOnSpace(si)"
                                                      class="flex items-center gap-1.5 px-3 py-2 transition-colors"
-                                                     style="flex:1 0 auto;"
-                                                     :style="aiDropTarget === si
+                                                     :style="'flex:1 0 auto;' + (aiDropTarget === si
                                                         ? 'background:color-mix(in srgb, var(--brand-icon) 12%, transparent); box-shadow:inset 0 0 0 1px var(--brand-icon);'
-                                                        : 'background:var(--surface);'">
+                                                        : 'background:var(--surface);')">
                                                     <span class="w-4 h-4 flex items-center justify-center"
                                                           :style="aiDropTarget === si ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
                                                           x-html="getSpaceIconSvg(sp.type)"></span>
@@ -2397,10 +2402,9 @@
                                     <button type="button"
                                             @click="openSpace(idx)"
                                             class="flex flex-col items-center justify-center gap-2 px-4 py-4 transition-all cursor-pointer"
-                                            style="flex:1 0 110px; border-right:1px solid var(--border);"
-                                            :style="(idx === modalSpaceIdx && modalOpen)
+                                            :style="'flex:1 0 110px; border-right:1px solid var(--border);' + ((idx === modalSpaceIdx && modalOpen)
                                                 ? 'background:color-mix(in srgb, var(--brand-icon) 6%, transparent); border-bottom:2px solid var(--brand-icon);'
-                                                : 'background:var(--surface); border-bottom:2px solid transparent;'">
+                                                : 'background:var(--surface); border-bottom:2px solid transparent;')"
                                         <div class="flex items-center gap-2">
                                             <span class="w-7 h-7 flex items-center justify-center flex-shrink-0"
                                                   :style="(idx === modalSpaceIdx && modalOpen) ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
@@ -2466,10 +2470,9 @@
                                     <button type="button"
                                             @click="featureCategoryTab = catKey"
                                             class="relative flex flex-col items-center gap-1 px-4 py-3 transition-all cursor-pointer"
-                                            style="flex:1; border-right:1px solid var(--border);"
-                                            :style="featureCategoryTab === catKey
+                                            :style="'flex:1; border-right:1px solid var(--border);' + (featureCategoryTab === catKey
                                                 ? 'background:color-mix(in srgb, var(--brand-icon) 5%, transparent); border-bottom:2px solid var(--brand-icon);'
-                                                : 'background:var(--surface); border-bottom:2px solid transparent;'">
+                                                : 'background:var(--surface); border-bottom:2px solid transparent;')"
                                         <span class="w-7 h-7 flex items-center justify-center" x-html="getFeatureCatIconSvg(catKey)"></span>
                                         <span class="text-xs font-medium"
                                               :style="featureCategoryTab === catKey ? 'color:var(--brand-icon);' : 'color:var(--text-secondary);'"
@@ -3058,8 +3061,7 @@
                                     <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                            :style="masterHideAll ? 'background:var(--ds-crimson)' : 'background:var(--surface-3)'">
                                         <input type="checkbox" :checked="masterHideAll" @change="toggleMasterHideAll()" class="sr-only">
-                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                              style="background:#fff; margin-top:2px;"
+                                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                               :style="masterHideAll ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                     </label>
                                 </div>
@@ -3080,8 +3082,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!hideStreetNumber ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="pp_hide_street_number" value="1" :checked="hideStreetNumber" @change="hideStreetNumber = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!hideStreetNumber ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3093,8 +3094,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!hideStreetName ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="pp_hide_street_name" value="1" :checked="hideStreetName" @change="hideStreetName = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!hideStreetName ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3106,8 +3106,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!hideComplexName ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="pp_hide_complex_name" value="1" :checked="hideComplexName" @change="hideComplexName = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!hideComplexName ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3119,8 +3118,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!hideUnitNumber ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="pp_hide_unit_number" value="1" :checked="hideUnitNumber" @change="hideUnitNumber = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!hideUnitNumber ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3144,8 +3142,7 @@
                                         <label class="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200"
                                                :style="!p24HideAddress ? 'background:var(--ds-green)' : 'background:var(--surface-3)'">
                                             <input type="checkbox" name="p24_hide_address" value="1" :checked="p24HideAddress" @change="p24HideAddress = $el.checked" class="sr-only">
-                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                                  style="background:#fff; margin-top:2px;"
+                                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200 toggle-knob"
                                                   :style="!p24HideAddress ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
                                         </label>
                                     </div>
@@ -3545,9 +3542,8 @@
             <div @unless($canEdit ?? true) data-edit-only @endunless x-data="galleryUploader('{{ route('corex.properties.upload-images', $property) }}', '{{ csrf_token() }}')">
                 <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Upload Images</h3>
 
-                <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm"
+                <label class="flex items-center gap-3 px-4 py-3 rounded-md border border-dashed cursor-pointer transition-colors text-sm gallery-upload-dropzone"
                        :style="uploading ? 'opacity:0.6; pointer-events:none;' : ''"
-                       style="border-color:var(--border-hover); color:var(--text-secondary);"
                        onmouseover="this.style.borderColor='var(--brand-icon)'" onmouseout="this.style.borderColor='var(--border-hover)'">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" /></svg>
                     <span x-text="labelText">Select images to upload (multiple allowed)</span>

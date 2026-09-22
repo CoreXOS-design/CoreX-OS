@@ -14,6 +14,39 @@
     draft, in_progress, awaiting_signature — the lifecycle controls below
     don't need a "completed" branch.
 --}}
+{{-- FIX, 2026-09-22 (Johan, live measurement, AFTER 8fccccb5a "landed" and
+     was STILL broken) — the real cause was never the sizing math, it was
+     `x-bind:style` (`:style="..."`) OVERWRITING the whole `style` attribute
+     on ANY element that also has a static `style="..."`, not merging with
+     it. Alpine sets the element's `style.cssText` wholesale from the bound
+     expression on every reactive render; when that expression evaluates to
+     '' (the common, nothing-selected/nothing-happening case), it wipes
+     every static declaration too — this is why `style=""` showed up EMPTY
+     on the deployed page rather than missing or wrong. The img tag right
+     next to the broken tile had no `:style` binding at all, which is
+     exactly why IT rendered correctly and the tile did not — same commit,
+     one element affected, one not, by nothing but the presence of a
+     `:style` attribute.
+
+     Swept this file for every element carrying BOTH a static `style="..."`
+     and a bound `:style="..."` (5 found, all fixed the same way — the 5th,
+     the untagged-tray tile, was a PRIOR "FACT A" fix that never actually
+     took effect on the deployed page for this exact reason, which is what
+     was producing the 1054x791 tray photos / 1606px tray container): the
+     photo-tile and toggle-style ones below move their static declarations
+     into a real CSS class so `:style` only ever has the ONE thing it's
+     actually meant to control left to overwrite. Real CSS shipped as part
+     of this page's own HTML (matching the compare-view's own `<style>`
+     block precedent in show.blade.php, same reasoning) — the qa-deploy
+     build trigger is confirmed working now, but this avoids the class of
+     risk entirely rather than trading on that. --}}
+<style>
+    .rir-item-photo-tile { display:inline-block; vertical-align:top; width:165px; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem; }
+    .rir-room-photo-tile { aspect-ratio:1/1; background:var(--surface-3); }
+    .rir-camera-slot { display:flex; flex:none; align-items:center; justify-content:center; height:100%; width:2.5rem; font-size:1rem; }
+    .rir-marquee-rect { position:absolute; border:1px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); pointer-events:none; }
+    .rir-tray-tile { position:relative; width:3rem; height:3rem; }
+</style>
 @php($sectionJs = "'{$section}'")
 
 <template x-if="!currentInspection({{ $sectionJs }})">
@@ -230,7 +263,7 @@
                             <div :data-photo-id="photo.id" draggable="true"
                                  @dragstart="photoUploader({{ $sectionJs }}).dragStartSelection($event, photo.id)"
                                  @click="photoUploader({{ $sectionJs }}).selectClick(photo.id, photoUploader({{ $sectionJs }}).untaggedPhotos().map(p => p.id), $event)"
-                                 class="rounded-md cursor-pointer" style="position:relative; width:3rem; height:3rem;"
+                                 class="rounded-md cursor-pointer rir-tray-tile"
                                  :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
                                 <img :src="photo.storage_path" class="rounded-md object-cover" style="display:block; width:100%; height:100%;" alt="">
                                 {{-- Standards — a removed photo is archived
@@ -245,7 +278,7 @@
                             </div>
                         </template>
                         <template x-if="photoUploader({{ $sectionJs }}).marquee">
-                            <div style="position:absolute; border:1px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); pointer-events:none;"
+                            <div class="rir-marquee-rect"
                                  :style="'left:' + photoUploader({{ $sectionJs }}).marquee.x + 'px; top:' + photoUploader({{ $sectionJs }}).marquee.y + 'px; width:' + photoUploader({{ $sectionJs }}).marquee.w + 'px; height:' + photoUploader({{ $sectionJs }}).marquee.h + 'px;'"></div>
                         </template>
                     </div>
@@ -391,7 +424,7 @@
                     <div class="pl-5 space-y-1">
                         <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
                             <template x-for="photo in (roomPhotosExpanded[group.room.id] ? roomPhotosFor({{ $sectionJs }}, group.room) : roomPhotosFor({{ $sectionJs }}, group.room).slice(0, 3))" :key="photo.id">
-                                <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);"
+                                <div class="relative rounded-md overflow-hidden rir-room-photo-tile"
                                      :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
                                     {{-- Clicking the photo opens it (unchanged) — any
                                          control on the tile is its own small hit target,
@@ -573,7 +606,7 @@
                                     <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
                                         <div style="position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
                                             <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
-                                                <div class="relative rounded-md" style="display:inline-block; vertical-align:top; width:165px; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;"
+                                                <div class="relative rounded-md rir-item-photo-tile"
                                                      :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
                                                     {{-- Clicking the photo opens it — the
                                                          controls below are their own small hit
@@ -610,8 +643,7 @@
                                             </template>
                                         </div>
                                     </div>
-                                    <label class="rounded-md cursor-pointer"
-                                           style="display:flex; flex:none; align-items:center; justify-content:center; height:100%; width:2.5rem; font-size:1rem;"
+                                    <label class="rounded-md cursor-pointer rir-camera-slot"
                                            :style="(obsField({{ $sectionJs }}, item.id).photos || []).length
                                                 ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
                                                 : 'background:var(--surface-2); color:var(--text-secondary);'"
