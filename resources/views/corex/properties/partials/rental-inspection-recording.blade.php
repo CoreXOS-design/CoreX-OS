@@ -174,6 +174,80 @@
             </div>
         </div>
 
+        {{-- Item 3, 2026-09-22 — bulk upload straight to the whole
+             inspection, then tag. Untagged photos land here; the tray's
+             own count IS the progress indicator (no separate badge).
+             Multi-select: click, shift-click a run, ctrl/cmd-click, or
+             drag a marquee over the thumbnails; drop the selection onto a
+             room heading above, or use "Tag to room" below — the
+             touch/mobile equivalent of the same action, since native
+             HTML5 drag-and-drop is unreliable on phones (item 7). --}}
+        <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2);" x-show="activeItems().length">
+            <div class="flex items-center justify-between gap-2">
+                <label class="text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer inline-flex items-center gap-1" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
+                    <span>&#128247;</span>
+                    <span>Upload photos to this inspection</span>
+                    <input type="file" accept="image/*" multiple class="hidden"
+                           @change="photoUploader({{ $sectionJs }}).uploadFiles($event.target.files, {}); $event.target.value = null;">
+                </label>
+                <span x-show="photoUploader({{ $sectionJs }}).untaggedPhotos().length" class="text-xs font-semibold" style="color:var(--text-muted);"
+                      x-text="photoUploader({{ $sectionJs }}).untaggedPhotos().length + ' untagged'"></span>
+            </div>
+
+            <template x-for="(batch, idx) in photoUploader({{ $sectionJs }}).uploadBatches.filter(b => b.status !== 'done')" :key="idx">
+                <div class="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md"
+                     :style="batch.status === 'failed' ? 'background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);' : 'background:var(--surface);'">
+                    <span :style="batch.status === 'failed' ? 'color:var(--ds-crimson);' : 'color:var(--text-secondary);'"
+                          x-text="batch.status === 'failed' ? (batch.files.length + ' photo(s) failed — ' + batch.error) : ('Uploading ' + batch.files.length + ' photo(s)… ' + (batch.percent || 0) + '%')"></span>
+                    <button type="button" x-show="batch.status === 'failed'" @click="photoUploader({{ $sectionJs }}).retryBatch(batch)"
+                            class="text-xs font-semibold underline" style="color:var(--text-secondary);">Retry</button>
+                </div>
+            </template>
+
+            <template x-if="photoUploader({{ $sectionJs }}).untaggedPhotos().length">
+                <div class="space-y-2">
+                    <div class="flex items-center gap-2 flex-wrap p-2 rounded-md relative" style="background:var(--surface); min-height:3.5rem;"
+                         @mousedown="photoUploader({{ $sectionJs }}).marqueeStart($event, $el)"
+                         @mousemove.window="photoUploader({{ $sectionJs }}).marqueeMove($event)"
+                         @mouseup.window="photoUploader({{ $sectionJs }}).marqueeEnd()">
+                        <template x-for="photo in photoUploader({{ $sectionJs }}).untaggedPhotos()" :key="photo.id">
+                            <div :data-photo-id="photo.id" draggable="true"
+                                 @dragstart="photoUploader({{ $sectionJs }}).dragStartSelection($event, photo.id)"
+                                 @click="photoUploader({{ $sectionJs }}).selectClick(photo.id, photoUploader({{ $sectionJs }}).untaggedPhotos().map(p => p.id), $event)"
+                                 class="rounded-md cursor-pointer" style="position:relative;"
+                                 :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
+                                <img :src="photo.storage_path" class="rounded-md object-cover" style="width:3rem; height:3rem;" alt="">
+                                {{-- Standards — a removed photo is archived,
+                                     never hard-deleted. Screened out of the
+                                     tray BEFORE filing, the most common real
+                                     case (a duplicate or blurry shot). --}}
+                                <button type="button" @click.stop="if (confirm('Archive this photo?')) photoUploader({{ $sectionJs }}).archivePhoto(photo.id)"
+                                        class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                        style="background:var(--ds-crimson); color:#fff; line-height:1;" title="Archive">&times;</button>
+                            </div>
+                        </template>
+                        <template x-if="photoUploader({{ $sectionJs }}).marquee">
+                            <div style="position:absolute; border:1px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); pointer-events:none;"
+                                 :style="'left:' + photoUploader({{ $sectionJs }}).marquee.x + 'px; top:' + photoUploader({{ $sectionJs }}).marquee.y + 'px; width:' + photoUploader({{ $sectionJs }}).marquee.w + 'px; height:' + photoUploader({{ $sectionJs }}).marquee.h + 'px;'"></div>
+                        </template>
+                    </div>
+
+                    <div class="flex items-center gap-2 flex-wrap" x-show="photoUploader({{ $sectionJs }}).selected.size">
+                        <span class="text-xs" style="color:var(--text-secondary);" x-text="photoUploader({{ $sectionJs }}).selected.size + ' selected'"></span>
+                        <select class="prop-input text-xs" style="max-width:10rem;" x-model.number="trayTagRoomChoice">
+                            <option value="">Tag to room…</option>
+                            <template x-for="group in roomGroups().filter(g => g.room)" :key="group.room.id">
+                                <option :value="group.room.id" x-text="group.room.label"></option>
+                            </template>
+                        </select>
+                        <button type="button" :disabled="!trayTagRoomChoice" @click="photoUploader({{ $sectionJs }}).tagSelectedToRoom(trayTagRoomChoice); trayTagRoomChoice = ''"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Tag selected</button>
+                        <button type="button" @click="photoUploader({{ $sectionJs }}).clearSelection()" class="text-xs font-semibold underline" style="color:var(--text-secondary);">Clear</button>
+                    </div>
+                </div>
+            </template>
+        </div>
+
         {{-- 2026-09-21, Johan on property 5792 — same room-heading grouping
              as the Inspection Items panel above, applied here so a walkthrough
              actually walks room by room instead of a flat list scattered by
@@ -185,9 +259,12 @@
         <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
             <div class="space-y-1 pt-2">
                 <div class="flex items-center justify-between gap-2 rounded-md px-1 -mx-1"
-                     :style="'cursor:pointer; transition:background .1s;'"
-                     @mouseenter="$el.style.background = 'var(--surface-2)'" @mouseleave="$el.style.background = 'transparent'"
-                     @click="toggleRoomOpen({{ $sectionJs }}, group)">
+                     :style="(dragOverRoom === (group.room?.id ?? null) ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); outline:2px dashed var(--brand-icon,#0ea5e9);' : '') + 'cursor:pointer; transition:background .1s;'"
+                     @mouseenter="$el.style.background = 'var(--surface-2)'" @mouseleave="$el.style.background = 'transparent'; dragOverRoom = null"
+                     @click="toggleRoomOpen({{ $sectionJs }}, group)"
+                     @dragover.prevent="group.room && (dragOverRoom = group.room.id)"
+                     @dragleave="dragOverRoom = null"
+                     @drop.prevent="group.room && photoUploader({{ $sectionJs }}).dropOnRoom($event, group.room.id); dragOverRoom = null">
                     <button type="button" class="flex items-center gap-1.5 text-left py-1" tabindex="0">
                         <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"
                              :style="'color:var(--text-muted); transition:transform .15s; transform:rotate(' + (isRoomOpen({{ $sectionJs }}, group) ? 90 : 0) + 'deg);'">
@@ -197,26 +274,54 @@
                             x-text="(group.room ? group.room.label : 'General') + ' — ' + roomProgress({{ $sectionJs }}, group).recorded + '/' + roomProgress({{ $sectionJs }}, group).total
                                     + (roomProgress({{ $sectionJs }}, group).photos ? ' · ' + roomProgress({{ $sectionJs }}, group).photos + ' photo' + (roomProgress({{ $sectionJs }}, group).photos === 1 ? '' : 's') : '')"></h4>
                     </button>
-                    {{-- Item 5/7 fix, 2026-09-22 — these have zero effect once
-                         the room has nothing left to fill; showing a "working"
-                         button that does nothing on click is worse than not
-                         showing it. @click.stop keeps a tap on either button
-                         from also toggling the row underneath it. --}}
-                    <div class="flex items-center gap-1" x-show="group.room && roomProgress({{ $sectionJs }}, group).recorded < roomProgress({{ $sectionJs }}, group).total" @click.stop>
-                        <button type="button" :disabled="markGoodBusy[group.room?.id]"
-                                @click="markRoomGood({{ $sectionJs }}, group.room)"
-                                class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
-                                x-text="markGoodBusy[group.room?.id] ? 'Marking…' : 'All Good'"></button>
-                        {{-- §17, Johan on Retha's real paper form: "she
-                             strikes ENTIRE ROOMS out with one big N/A." Only
-                             offered when N/A is actually one of the agency's
-                             configured condition states. --}}
-                        <button type="button" x-show="hasNaConditionState()" :disabled="markNaBusy[group.room?.id]"
-                                @click="markRoomNa({{ $sectionJs }}, group.room)"
-                                class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
-                                x-text="markNaBusy[group.room?.id] ? 'Marking…' : 'Mark room N/A'"></button>
+                    <div class="flex items-center gap-1" @click.stop>
+                        {{-- Item 2, 2026-09-22 — the room's own general
+                             photo(s), independent of any item; always
+                             available (not gated on recording progress).
+                             The heading row itself is also a drop target
+                             for the tray's multi-select-and-drop (item 3). --}}
+                        <template x-if="group.room">
+                            <label class="text-xs font-semibold px-1.5 py-1 rounded-md cursor-pointer inline-flex items-center" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);" title="Add room photo(s)">
+                                <span>&#128247;</span>
+                                <input type="file" accept="image/*" multiple class="hidden"
+                                       @change="onRoomPhotosSelected({{ $sectionJs }}, group.room, $event.target.files); $event.target.value = null;">
+                            </label>
+                        </template>
+                        {{-- Item 5/7 fix, 2026-09-22 — these have zero effect
+                             once the room has nothing left to fill; showing
+                             a "working" button that does nothing on click
+                             is worse than not showing it. --}}
+                        <template x-if="group.room && roomProgress({{ $sectionJs }}, group).recorded < roomProgress({{ $sectionJs }}, group).total">
+                            <div class="flex items-center gap-1">
+                                <button type="button" :disabled="markGoodBusy[group.room?.id]"
+                                        @click="markRoomGood({{ $sectionJs }}, group.room)"
+                                        class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
+                                        x-text="markGoodBusy[group.room?.id] ? 'Marking…' : 'All Good'"></button>
+                                {{-- §17, Johan on Retha's real paper form: "she
+                                     strikes ENTIRE ROOMS out with one big N/A."
+                                     Only offered when N/A is actually one of
+                                     the agency's configured condition states. --}}
+                                <button type="button" x-show="hasNaConditionState()" :disabled="markNaBusy[group.room?.id]"
+                                        @click="markRoomNa({{ $sectionJs }}, group.room)"
+                                        class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
+                                        x-text="markNaBusy[group.room?.id] ? 'Marking…' : 'Mark room N/A'"></button>
+                            </div>
+                        </template>
                     </div>
                 </div>
+
+                {{-- Item 2 — the room's own general shots, shown as a
+                     compact thumbnail strip only when at least one exists
+                     (screen space: nothing rendered otherwise). --}}
+                <template x-if="group.room && roomPhotosFor({{ $sectionJs }}, group.room).length">
+                    <div class="flex items-center gap-1 pl-5 flex-wrap">
+                        <template x-for="photo in roomPhotosFor({{ $sectionJs }}, group.room)" :key="photo.id">
+                            <button type="button" @click="viewer = { open: true, images: roomPhotosFor({{ $sectionJs }}, group.room).map(p => p.storage_path), index: roomPhotosFor({{ $sectionJs }}, group.room).indexOf(photo) }">
+                                <img :src="photo.storage_path" class="rounded-md object-cover" style="width:2rem; height:2rem;" alt="">
+                            </button>
+                        </template>
+                    </div>
+                </template>
 
                 <div x-show="isRoomOpen({{ $sectionJs }}, group)" class="space-y-1">
                     <template x-for="item in group.items" :key="item.id">
@@ -249,19 +354,21 @@
                                        placeholder="Notes (required)"
                                        class="prop-input flex-1" style="min-width:10rem;">
 
-                                {{-- Item 6, 2026-09-22 — camera control only
-                                     when the item has no photo yet; a
-                                     thumbnail + count (clickable) once it
-                                     does, with a compact "+" to add more. --}}
+                                {{-- Item 1/6, 2026-09-22 — camera control
+                                     only when the item has no photo yet
+                                     (multi-file: several attach in one go);
+                                     a thumbnail + count (clickable) once it
+                                     does, with a compact "+" (also
+                                     multi-file) to add more. --}}
                                 <template x-if="!itemPhotosFor({{ $sectionJs }}, item).length">
                                     <label class="text-xs font-semibold px-2.5 py-1.5 rounded-md cursor-pointer inline-flex items-center"
-                                           :style="obsField({{ $sectionJs }}, item.id).photo
+                                           :style="(obsField({{ $sectionJs }}, item.id).photos || []).length
                                                 ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
                                                 : 'background:var(--surface-2); color:var(--text-secondary);'"
-                                           :title="obsField({{ $sectionJs }}, item.id).photo ? 'Photo attached — saves once this item is recorded' : 'Add photo'">
+                                           :title="(obsField({{ $sectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
                                         <span>&#128247;</span>
-                                        <input type="file" accept="image/*" class="hidden"
-                                               @change="onPhotoSelected({{ $sectionJs }}, item, $event.target.files[0] || null); $event.target.value = null;">
+                                        <input type="file" accept="image/*" multiple class="hidden"
+                                               @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
                                     </label>
                                 </template>
                                 <template x-if="itemPhotosFor({{ $sectionJs }}, item).length">
@@ -270,10 +377,10 @@
                                             <img :src="itemPhotosFor({{ $sectionJs }}, item).slice(-1)[0].storage_path" class="rounded-md object-cover" style="width:2rem; height:2rem;" alt="">
                                         </button>
                                         <span class="text-xs" style="color:var(--text-muted);" x-text="itemPhotosFor({{ $sectionJs }}, item).length"></span>
-                                        <label class="text-xs font-semibold px-1.5 py-1 rounded-md cursor-pointer" style="background:var(--surface-2); color:var(--text-secondary);" title="Add another photo">
+                                        <label class="text-xs font-semibold px-1.5 py-1 rounded-md cursor-pointer" style="background:var(--surface-2); color:var(--text-secondary);" title="Add more photos">
                                             <span>&#43;</span>
-                                            <input type="file" accept="image/*" class="hidden"
-                                                   @change="onPhotoSelected({{ $sectionJs }}, item, $event.target.files[0] || null); $event.target.value = null;">
+                                            <input type="file" accept="image/*" multiple class="hidden"
+                                                   @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
                                         </label>
                                     </div>
                                 </template>

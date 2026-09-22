@@ -581,6 +581,207 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertSame(1, RentalInspectionPhoto::where('client_idempotency_key', $key)->count());
     }
 
+    // ── Batch upload / room+item tagging / tray (§20.13, 2026-09-22) ─
+
+    /** Item 1/3 — several files in one request, none tagged (lands in the tray). */
+    public function test_batch_upload_accepts_several_files_and_leaves_them_untagged(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $inspection = $this->makeInspection();
+
+        $response = $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'photos' => [
+                UploadedFile::fake()->image('a.jpg'),
+                UploadedFile::fake()->image('b.jpg'),
+                UploadedFile::fake()->image('c.jpg'),
+            ],
+        ])->assertStatus(201);
+
+        $this->assertSame(3, RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
+        $this->assertSame(3, RentalInspectionPhoto::whereNull('property_room_id')->whereNull('rental_inspection_observation_id')->count());
+        $response->assertJsonCount(3, 'photos');
+    }
+
+    /** More than 10 files in one request is rejected — client-side batching is what keeps requests under this. */
+    public function test_batch_upload_rejects_more_than_ten_files_in_one_request(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $inspection = $this->makeInspection();
+
+        $files = [];
+        for ($i = 0; $i < 11; $i++) {
+            $files[] = UploadedFile::fake()->image("p{$i}.jpg");
+        }
+
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), ['photos' => $files])
+            ->assertStatus(422);
+    }
+
+    /** Item 2 — room_id only, no observation: a general room shot. */
+    public function test_batch_upload_tagged_to_a_room_only_is_a_general_room_shot(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $room = $this->makeRoomWithItems(1);
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'property_room_id' => $room->id,
+            'photos' => [UploadedFile::fake()->image('lounge.jpg')],
+        ])->assertStatus(201);
+
+        $photo = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->first();
+        $this->assertSame($room->id, $photo->property_room_id);
+        $this->assertNull($photo->rental_inspection_observation_id);
+        $this->assertNotNull($photo->tagged_at);
+    }
+
+    /** Item 1 — tagging to an item resolves that item's own room, never trusting a client-supplied room_id that disagrees. */
+    public function test_batch_upload_tagged_to_an_item_resolves_the_items_own_room(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $room = $this->makeRoomWithItems(1);
+        $item = RentalInspectionItem::where('property_room_id', $room->id)->first();
+        $inspection = $this->makeInspection();
+        $observation = RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $this->agent->id, 'condition' => 'good', 'source' => 'in_inspection',
+        ]);
+        $otherRoom = $this->makeRoomWithItems(1);
+
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'property_room_id' => $otherRoom->id, // deliberately wrong — must be ignored
+            'rental_inspection_observation_id' => $observation->id,
+            'photos' => [UploadedFile::fake()->image('ceiling.jpg')],
+        ])->assertStatus(201);
+
+        $photo = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->first();
+        $this->assertSame($room->id, $photo->property_room_id);
+        $this->assertSame($observation->id, $photo->rental_inspection_observation_id);
+    }
+
+    public function test_batch_upload_refuses_an_observation_from_a_different_inspection(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
+        $otherInspection = $this->makeInspection();
+        $observation = RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $otherInspection->id, 'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $this->agent->id, 'condition' => 'good', 'source' => 'in_inspection',
+        ]);
+
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'rental_inspection_observation_id' => $observation->id,
+            'photos' => [UploadedFile::fake()->image('x.jpg')],
+        ])->assertStatus(404);
+    }
+
+    /** Item 3 — tagging supersedes: filing an untagged photo to a room, then re-filing to a different one, replaces it, never adds a row. */
+    public function test_tagging_a_photo_supersedes_its_previous_tag_never_adds_a_row(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $roomA = $this->makeRoomWithItems(1);
+        $roomB = $this->makeRoomWithItems(1);
+        $inspection = $this->makeInspection();
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'photos' => [UploadedFile::fake()->image('x.jpg')],
+        ])->assertStatus(201);
+        $photo = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->first();
+
+        $this->postJson(route('corex.rental-inspections.photos.tag', [$inspection, $photo]), ['property_room_id' => $roomA->id])->assertOk();
+        $this->postJson(route('corex.rental-inspections.photos.tag', [$inspection, $photo]), ['property_room_id' => $roomB->id])->assertOk();
+
+        $this->assertSame(1, RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
+        $this->assertSame($roomB->id, $photo->fresh()->property_room_id);
+    }
+
+    /** Item 3 — untagging is tagging's exact reverse: back to the tray. */
+    public function test_untagging_a_photo_returns_it_to_the_tray(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $room = $this->makeRoomWithItems(1);
+        $inspection = $this->makeInspection();
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'property_room_id' => $room->id,
+            'photos' => [UploadedFile::fake()->image('x.jpg')],
+        ])->assertStatus(201);
+        $photo = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->first();
+
+        $this->postJson(route('corex.rental-inspections.photos.untag', [$inspection, $photo]))->assertOk();
+
+        $photo->refresh();
+        $this->assertNull($photo->property_room_id);
+        $this->assertNull($photo->rental_inspection_observation_id);
+    }
+
+    /** Item 3 — the tray's own bulk action: several ids, one room, in one call. */
+    public function test_bulk_tag_files_several_untagged_photos_to_one_room(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $room = $this->makeRoomWithItems(1);
+        $inspection = $this->makeInspection();
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'photos' => [UploadedFile::fake()->image('a.jpg'), UploadedFile::fake()->image('b.jpg')],
+        ])->assertStatus(201);
+        $ids = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->pluck('id')->all();
+
+        $this->postJson(route('corex.rental-inspections.photos.tag-bulk', $inspection), [
+            'photo_ids' => $ids, 'property_room_id' => $room->id,
+        ])->assertOk()->assertJsonCount(2, 'photos');
+
+        $this->assertSame(0, RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->whereNull('property_room_id')->count());
+    }
+
+    /** Standards — a removed photo is archived (soft-deleted), never hard-deleted. */
+    public function test_archiving_a_photo_soft_deletes_it_never_hard_deletes(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $inspection = $this->makeInspection();
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'photos' => [UploadedFile::fake()->image('x.jpg')],
+        ])->assertStatus(201);
+        $photo = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->first();
+
+        $this->deleteJson(route('corex.rental-inspections.photos.archive', [$inspection, $photo]))->assertOk();
+
+        $this->assertSoftDeleted('rental_inspection_photos', ['id' => $photo->id]);
+        $this->assertDatabaseHas('rental_inspection_photos', ['id' => $photo->id]);
+        $this->assertNotNull($photo->fresh()->archived_by_user_id);
+    }
+
+    /** OWN/BRANCH/AGENCY — a photo from another agency's inspection 404s, not just goes unlinked. */
+    public function test_tagging_a_photo_from_a_different_agency_inspection_is_not_reachable(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $inspection = $this->makeInspection();
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'photos' => [UploadedFile::fake()->image('x.jpg')],
+        ])->assertStatus(201);
+        $photo = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->first();
+
+        $otherAgency = Agency::create(['name' => 'Other Agency', 'slug' => 'other-' . uniqid()]);
+        $otherBranch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $otherAgency->id]);
+        $otherAgent = User::factory()->create(['agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'role' => 'agent']);
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $otherAgency->id, 'agent_id' => $otherAgent->id, 'branch_id' => $otherBranch->id,
+            'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $otherLease = Lease::create([
+            'agency_id' => $otherAgency->id, 'branch_id' => $otherBranch->id, 'property_id' => $otherProperty->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 1000, 'start_date' => now(), 'created_by_user_id' => $otherAgent->id,
+        ]);
+        $otherInspection = RentalInspection::create([
+            'agency_id' => $otherAgency->id, 'lease_id' => $otherLease->id, 'type' => RentalInspection::TYPE_IN,
+            'created_by_user_id' => $otherAgent->id,
+        ]);
+
+        // The SAME photo id, addressed through a DIFFERENT (and, being a
+        // different agency, globally-scoped-invisible) inspection — must
+        // 404, not silently tag across agencies.
+        $this->postJson(route('corex.rental-inspections.photos.tag', [$otherInspection->id, $photo->id]), [])
+            ->assertStatus(404);
+    }
+
     // ── Discrepancy resolution ──────────────────────────────────────
 
     public function test_resolving_a_discrepancy_requires_the_accepted_observation_to_be_a_participant(): void

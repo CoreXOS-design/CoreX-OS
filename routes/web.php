@@ -3173,6 +3173,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.observations.store');
         Route::post('/{rentalInspection}/observations/{observation}/photos', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhoto'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.observations.photos.store');
+        // §20.13, 2026-09-22 — item/room/bulk-tray upload, tagging, and
+        // archive. One upload endpoint for all three surfaces; tag-bulk is
+        // the tray's own multi-select-drop-on-a-room action.
+        Route::post('/{rentalInspection}/photos', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhotos'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.store');
+        Route::post('/{rentalInspection}/photos/tag-bulk', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tagPhotosBulk'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.tag-bulk');
+        Route::post('/{rentalInspection}/photos/{photo}/tag', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tagPhoto'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.tag');
+        Route::post('/{rentalInspection}/photos/{photo}/untag', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'untagPhoto'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.untag');
+        Route::delete('/{rentalInspection}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'archivePhoto'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.archive');
         Route::post('/{rentalInspection}/discrepancies/{discrepancy}/resolve', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'resolveDiscrepancy'])
             ->middleware('permission:rental_inspections.resolve_discrepancy')->name('corex.rental-inspections.discrepancies.resolve');
         // sign_on_behalf is checked INSIDE the controller (§6 — it only applies to

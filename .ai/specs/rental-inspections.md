@@ -2226,3 +2226,184 @@ bug — one fixed, one reported, not fixed:**
   with no inspection started, have anything of its own worth asserting on, or should the fixture start an
   inspection first to reach real condition-recording markup), which is a real decision, not a
   find-and-replace like the redirect fix above, and is not part of today's discrepancy-banner scope.
+
+---
+
+## 20.13 Photos rebuilt — multi-file, room-level, whole-inspection bulk upload + tag (2026-09-22)
+
+Johan, after the collapse/discrepancy fixes landed: "wheres the bulk photo upload per inspection, wheres
+the upload photos per space? wheres the multi select per ceiling in a room or whatever?" Three things,
+built together since they share one upload/tag mechanism, never three separate ones.
+
+### 20.13.1 Data model — `rental_inspection_photos` gains room/tray support
+
+Migration `2026_09_22_140000_add_room_and_tray_support_to_rental_inspection_photos_table`:
+
+```
+rental_inspection_photos   (existing table, extended)
+  rental_inspection_id           -- NEW, nullable FK — denormalized the same way property_id is
+                                  --   denormalized on rental_inspections itself: every photo on
+                                  --   this inspection, tagged or not, without a join through
+                                  --   observations. Backfilled from the existing observation link
+                                  --   for every pre-existing row.
+  property_room_id               -- NEW, nullable FK — set when tagged to a room (with or without
+                                  --   a specific item; item-tagged rows carry the item's own room
+                                  --   here too, denormalized, so "every photo in this room" never
+                                  --   needs a join through observations->items either).
+  rental_inspection_observation_id  -- EXISTING column, made NULLABLE (was required) — a raw
+                                  --   `ALTER ... MODIFY`, not Blueprint::change(): doctrine/dbal
+                                  --   is not installed on this box.
+  tagged_at, tagged_by_user_id   -- NEW, nullable — when/who filed it. Both null = untagged (tray).
+  archived_by_user_id            -- NEW, nullable — who archived it (deleted_at already says when).
+  deleted_at                     -- NEW (SoftDeletes)
+```
+
+**Both null = tray. Room set, item null = a general room shot. Both set = filed against one item.**
+An item id is always validated to belong to this inspection's own property before it's trusted, and
+tagging to an item always resolves that item's OWN room server-side — a client-supplied room_id that
+disagrees with the item's real room is silently overridden, never trusted.
+
+**Tagging supersedes, never appends** (`RentalInspectionPhoto::tagTo()`/`untag()`) — a plain column
+update, not a new row. Re-filing a photo from one room to another simply changes where it currently
+sits; untagging is calling `tagTo(null, null, ...)` — the exact same operation in reverse, so undo needs
+no separate mechanism. This is a **deliberately different discipline from `rental_inspection_observations`**
+(immutable, evidentiary, never touched after creation, §3.1) — a photo's FILING is not itself evidence,
+only the photo is.
+
+**Amendment to the original "no deleted_at at all" design call** (§3.3, reasoned for observations
+specifically): a photo an agent uploaded by mistake (duplicate, wrong property, blurry) must be
+removable — `RentalInspectionPhoto::archive()` is a real soft-delete, never a hard one (non-negotiable
+#1). Wired into the tray's own thumbnails today (the highest-value case — screening out mistakes before
+filing); not yet wired into the item/room photo views — see §20.13.6.
+
+`RentalInspection::photos()` (new `hasMany`) is the single source of truth for the tray/room views —
+every photo on the inspection regardless of tag state. `RentalInspectionObservation::photos()` (existing,
+unchanged) still serves item-level display and is unaffected — a nullable FK simply matches fewer rows
+now, nothing about that relation's own behaviour changed.
+
+### 20.13.2 One upload endpoint, three surfaces
+
+`POST /corex/rental-inspections/{inspection}/photos` (`storePhotos()`) — `photos[]` (1-10 files),
+optional `property_room_id`, optional `rental_inspection_observation_id`, `client_idempotency_keys[]`
+(one per file, same retry-safety pattern as the existing single-photo endpoint). Neither tag field sent
+= lands untagged in the tray (item 3); room only = a general room shot (item 2); an observation id =
+filed against that item, its room resolved server-side (item 1). **One endpoint, not three** — the item
+camera control, the room heading's own upload control, and the whole-inspection bulk dropzone all call
+the exact same route with different fields, matching the settled pattern (§20.13.4) rather than growing
+a second uploader per surface.
+
+The existing single-file `POST .../observations/{observation}/photos` (`storePhoto()`) is **unchanged
+and still callable** — kept for backward compatibility (a future mobile client, or anything else already
+using it) — but now also populates the new tagging columns for consistency, and the web UI no longer
+calls it; the item camera control (item 1) calls the new batch endpoint instead, tagged to that item.
+
+Four more endpoints complete the tagging lifecycle:
+- `POST .../photos/{photo}/tag` — file one photo (from the tray, or re-filing an already-tagged one).
+- `POST .../photos/tag-bulk` — the tray's own multi-select-then-drop action: many ids, one room, in one
+  call. Skips any id that doesn't belong to this inspection rather than failing the whole batch — a stale
+  tray selection (another tab already tagged one of them) never blocks filing the rest.
+- `POST .../photos/{photo}/untag` — back to the tray. The exact reverse of tag/tag-bulk.
+- `DELETE .../photos/{photo}` — archive (§20.13.1).
+
+All five gated by the existing `rental_inspections.create` permission, all route-model-bound through
+`{rentalInspection}` (agency-scoped globally) and cross-checked against `rental_inspection_id` inside the
+method — a photo id from a different inspection (or a different agency's, invisible to the global scope
+in the first place) 404s, never silently reachable.
+
+### 20.13.3 Multi-file everywhere (item 1)
+
+The item camera control's `<input type="file">` gained `multiple` — several photos attach to one item in
+one pick. An item with no observation yet has nothing to tag a photo TO (the endpoint requires a real
+observation id); those files are staged on the same `obsField()` a single photo already staged (now
+`photos: []`, plural) and uploaded together, tagged to the new observation, the moment
+`_commitObservation()` creates it — no behaviour change to when an item "counts as recorded" (§20.3),
+only to how many photos can ride along.
+
+### 20.13.4 The reusable piece — `public/js/corex-photo-batch-uploader.js`
+
+**This is the component cc6 can consume for rental-inventory's own capture surface** — a plain static
+file (`window.corexPhotoBatchUploader(config)`), included via a normal `<script src>` tag, deliberately
+NOT a Vite entry point: `public/build` is gitignored, so a new Vite entry would need `npm run build` added
+to every deploy of this feature, a real risk this codebase's existing deploy checklist doesn't currently
+carry. Matches the already-proven pattern of `corex-connection-guard.js`/`corex-ad-render.js` — plain,
+committed, no build step.
+
+**Config-driven, backend-agnostic**: `{ csrf, uploadUrl, tagUrl(id), tagBulkUrl, untagUrl(id),
+archiveUrl(id), photos }`. It owns:
+- **Client batching** — reuses the SAME `window.planUploadBatches` global already defined for the
+  property gallery uploader (10 files/request AND a byte ceiling, whichever binds first — PHP's
+  `max_file_uploads=20` on this box makes a single 90-file request impossible regardless of connection;
+  a byte-only or count-only limit alone was already proven insufficient by the property gallery's own
+  history, §"Split a file selection into POST batches" comment in `show.blade.php`).
+- **Raw XHR per batch** (real upload-progress events, `Accept: application/json` always) — matching the
+  existing inspection-photo and property-gallery upload precedent, never `fetch`.
+- **Per-file idempotency keys** — a retried batch never double-uploads a file that already landed.
+- **Per-batch, independently retryable failure** — a bad file fails only its own batch; every other
+  batch's success is untouched, and `retryBatch()` re-sends only the failed one.
+- **Multi-select**: click (select one), shift-click (range, against the caller's own current render
+  order — "everything between", not a numeric id range), ctrl/cmd-click (toggle one in/out), and a
+  drag-marquee (mousedown on empty tray background, drag a rubber-band rect, release to select every
+  thumbnail it intersects).
+- **Drag the selection onto a room** (native HTML5 drag/drop) — `dragStartSelection()`/`dropOnRoom()`.
+  A `select` + "Tag selected" button is the touch/mobile equivalent (item 7) — HTML5 drag-and-drop is
+  unreliable on phones, so dropping a room isn't the ONLY way to file a selection.
+
+**The one real divergence from cc6's own, already-shipped rental-inventory photo backend**, found while
+building this (not invented to justify a mismatch — cc6's `RentalInventoryPhoto`/`storePhotos()`
+already exists, built independently, same session): inventory tags a photo to a LINE ITEM via a
+many-to-many pivot (`rental_inventory_line_photos` — one photo can illustrate several line items at
+once, e.g. "the TV and the stand in one lounge photo"), while THIS spec's photos supersede a single
+room/item tag (§20.13.1) — Johan's own explicit instruction for inspections, and the right shape for a
+different question ("what does this photo evidence for THIS item's condition" vs. "what does this photo
+show"). The JS component itself doesn't care which shape its `tagUrl`/`tagBulkUrl` implement — it just
+calls them with `{photo_id(s), room_id}`-shaped bodies — so cc6's existing endpoints could be wired
+straight into this same file's `uploadFiles`/multi-select/marquee/drag layer without a backend change,
+even though the two features' tagging semantics differ. Reported to the conductor for cc6 to actually
+wire up; not done here — out of this build's own scope.
+
+### 20.13.5 Room-level photos (item 2)
+
+Each room heading gained its own upload control (always available, not gated on recording progress —
+unlike "All Good"/"Mark room N/A") and a compact thumbnail strip shown only when at least one general
+room photo exists (§9 screen-space discipline — nothing renders for an empty case). The room heading row
+is also a drop target for the tray's drag-a-selection action, highlighted while a drag is over it. The
+room's photo count now correctly includes both its own general shots and its items' rolled-up photos
+(`roomProgress()`), not just the latter.
+
+### 20.13.6 The tray (item 3)
+
+A dedicated upload control ("Upload photos to this inspection") posts with no tag fields, landing
+everything in the tray; the tray's own count IS the progress indicator (no separate badge — "N
+untagged"). Per-batch upload status/failure/retry renders inline. Selected photos get a room via drag or
+via the mobile-friendly `select` + button. **Found, not fixed**: per-photo archive is wired into the tray
+only today (the highest-value real case — screening duplicates/blurry shots before filing); the
+already-tagged room/item photo views have no archive affordance yet — the endpoint exists and works
+(§20.13.2), only the UI hook is missing there. Flagged rather than silently left looking finished.
+
+### 20.13.7 Mobile-callable
+
+Every new endpoint sits under the same `/corex/rental-inspections/...` web-route group every other
+inspection action already uses (§14.2's established mobile-API pattern — session or Sanctum token, same
+routes, no separate versioned surface) — nothing new to build for a future mobile client to call these.
+
+### 20.13.8 Scoping and standards
+
+OWN/BRANCH/AGENCY enforced at the query layer exactly like every other action on this surface: every new
+route is bound through `{rentalInspection}` (globally agency-scoped) and every photo id is cross-checked
+against `rental_inspection_id` inside the controller — a photo from a different inspection, or a
+different agency's (invisible to the global scope before the controller is even reached), 404s. Archive
+is a real soft delete (non-negotiable #1) — see §20.13.1's amendment note for why this table now carries
+one, narrower than the original "no delete path at all" reasoning for observations.
+
+### 20.13.9 Verified in an isolated worktree, not against the deployed site
+
+Per explicit instruction after an earlier incident this same day (verifying against `/corex-qa1` directly
+showed a fix that then vanished when the branch was reset) — this entire build happened in a dedicated
+git worktree (`/mnt/HC_Volume_103099143/corex-worktrees/cc2-inspection-photos-2026-09-22`) with its own
+independent `composer install` (never a shared/symlinked `vendor/`, per the box-wide isolation rule) and
+its own isolated MySQL databases (`corex_qa1_wt_cc2photos` for manual/local-server checks,
+`hfc_dash_test_92` for PHPUnit — neither is QA1's real `corex_qa1` schema). `/corex-qa1` itself was not
+touched during this build. Real click-through verification (multi-file select, drag-and-drop onto a
+room, marquee-select, tag-then-reload persistence) happened against a local `php artisan serve` instance
+bound to this worktree and its own database, not the deployed URL — the deployed site is verified by the
+conductor after cc1 lands this branch, per instruction.
