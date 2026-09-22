@@ -135,6 +135,62 @@
         @endforelse
     </div>
 
+    {{-- .ai/specs/rental-inspection-form.md §13 — the OMR scan reader, part 2
+         of cc5's printable-form job. Upload the wet-ink-marked printed form
+         back in; nothing is applied to the inspection until a human confirms
+         on the review screen. --}}
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Scanned forms</h2>
+        @permission('rental_inspections.create')
+            <form method="POST" action="{{ route('corex.rental-inspections.scans.store', $inspection) }}" enctype="multipart/form-data" class="flex items-center gap-2">
+                @csrf
+                <input type="file" name="scan" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif" required class="text-xs">
+                <button type="submit" class="corex-btn-outline text-xs">Upload scan</button>
+            </form>
+        @endpermission
+        @forelse($inspection->scans as $scan)
+            @php
+                $scanStatusLabel = match ($scan->status) {
+                    'needs_review' => 'Needs review',
+                    'applied' => 'Applied',
+                    'version_mismatch' => 'Form version mismatch',
+                    'failed' => 'Could not be read',
+                    default => 'Processing',
+                };
+                $scanStatusBadge = match ($scan->status) {
+                    'applied' => 'ds-badge-success',
+                    'needs_review' => 'ds-badge-info',
+                    'version_mismatch', 'failed' => 'ds-badge-danger',
+                    default => 'ds-badge-muted',
+                };
+            @endphp
+            <div class="text-sm flex items-center justify-between" style="border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                <span>{{ $scan->original_filename }}
+                    <span class="ds-badge {{ $scanStatusBadge }}">{{ $scanStatusLabel }}</span>
+                </span>
+                <span class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
+                    {{ $scan->uploadedBy?->name }} · {{ $scan->created_at?->format('Y-m-d H:i') }}
+                    @if(in_array($scan->status, ['needs_review', 'applied'], true))
+                        <a href="{{ route('corex.rental-inspections.scans.review', [$inspection, $scan]) }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">Review</a>
+                    @endif
+                    <a href="{{ route('corex.rental-inspections.scans.download', [$inspection, $scan]) }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">Download original</a>
+                    @permission('rental_inspections.create')
+                        <form method="POST" action="{{ route('corex.rental-inspections.scans.destroy', [$inspection, $scan]) }}" onsubmit="return confirm('Archive this scan?');">
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit" class="underline" style="color: var(--ds-crimson); background: none; border: 0;">Archive</button>
+                        </form>
+                    @endpermission
+                </span>
+            </div>
+            @if($scan->failure_reason)
+                <p class="text-xs" style="color: var(--ds-crimson);">{{ $scan->failure_reason }}</p>
+            @endif
+        @empty
+            <p class="text-xs" style="color: var(--text-muted);">No scans uploaded yet.</p>
+        @endforelse
+    </div>
+
     @if($inspection->signatures->isNotEmpty())
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Signatures</h2>

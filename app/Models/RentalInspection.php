@@ -155,6 +155,12 @@ class RentalInspection extends Model
         return $this->hasMany(RentalInspectionPhoto::class);
     }
 
+    /** §13 — every active scanned/photographed wet-ink form uploaded against this inspection. An archived scan is never hard-deleted (non-negotiable #1) — it simply drops off this default list, same as every other soft-deletable list on this screen. */
+    public function scans(): HasMany
+    {
+        return $this->hasMany(RentalInspectionScan::class);
+    }
+
     public function scopeOfType(Builder $q, ?string $type): Builder
     {
         return $type ? $q->where('type', $type) : $q;

@@ -847,3 +847,189 @@ plus the download route and its cross-agency 404.
 - `routes/web.php` (one new route, `corex.rental-inspections.form`)
 - `resources/views/corex/rental-inspections/show.blade.php` (one new link)
 - `tests/Feature/RentalInspections/RentalInspectionFormPdfServiceTest.php`
+
+## 13. The OMR scan reader — part 2 of the two-part job (built 2026-09-22)
+
+Built against §12's manifest exactly as specified — no geometry re-derived from
+`RentalInspectionFormPdfService`'s layout code. Johan, restated: **"we read the form back by OMR —
+COLUMN MARKING ONLY. We do NOT read handwriting, ever."** This service never runs OCR and never samples
+outside a rectangle the manifest names — it is structurally incapable of reading the notes columns,
+because it only ever looks at `boxes[]` and `page_identifiers[].bits[]` positions.
+
+### 13.1 One additive change to cc5's own file
+
+`RentalInspectionFormPdfService::pageIdentifierGridLayout()` was added — a public static method
+returning the page-identifier grid's fixed design layout (`x, y, cols, rows, bit_size, bit_gap,
+bits_inspection, bits_page, bits_version`), refactored out of the existing `pageIdentifierFor()` so
+there is still exactly one computation of that geometry, now called from both places. This exists because
+the identifier grid's position is a published, universal constant (§12.5: "a reader can locate and decode
+it WITHOUT consulting any manifest first") — the reader needs that geometry BEFORE it knows which
+inspection's manifest to load, so it cannot get it from a manifest row. Consuming a method that returns
+cc5's own already-computed geometry is what "never re-derive geometry from the layout code" means in
+practice when even the fixed part needs a shared reference; re-implementing the same numbers by hand in
+the reader would have been the actual violation. No other change was made to that file. Re-ran cc5's own
+`RentalInspectionFormPdfServiceTest` after this change — all 8 tests still pass unchanged.
+
+### 13.2 Pipeline
+
+1. Rasterize the upload. A PDF is rendered via PHP's `Imagick` (Ghostscript-backed) at a fixed internal
+   DPI; an image upload (a phone photo) is loaded as-is, one page. Both `gs` and `pdftoppm`/`pdftocairo`
+   (Poppler) were already installed on the box, and the `imagick`/`gd` PHP extensions were already
+   enabled — nothing new was installed.
+2. **Calibrate** each page: locate the four fiducials, resolve which pixel blob is which manifest corner
+   (the bottom-right one is always the filled circle — unambiguous by shape regardless of rotation), then
+   fit ONE affine transform (least squares over the four correspondences) mapping manifest pt-space onto
+   that page's actual pixels. A 180-degree rotation and a small camera-angle skew are both just different
+   affine matrices to this step — there is no separate rotation-handling code path.
+3. **Decode the page identifier** through that transform, using `pageIdentifierGridLayout()` (§13.1) — this
+   is possible before any manifest is loaded, exactly as designed.
+4. **Match against the inspection's CURRENT form version.** If the decoded version doesn't match, the scan
+   is marked `version_mismatch` and NOTHING is sampled further — an agency reprinting after adding an item
+   must never have an old scan silently write onto the new layout (Johan's explicit instruction).
+5. **Sample every box** on the matched manifest for that page, through the same transform, and decide
+   marked/unmarked via `RentalInspectionSetting::omrMarkThresholdFor()` (agency-configurable, default 0.35
+   — see §13.6).
+
+### 13.3 Data model — two new tables, additive, one column added to an existing settings table
+
+```
+rental_inspection_scans
+  id, agency_id, branch_id, rental_inspection_id
+  rental_inspection_form_id      -- nullable; unknown until the identifier decodes (§13.2 step 3-4)
+  original_filename, storage_path, mime_type   -- PRIVATE disk (Storage::disk('local')), gated download —
+                                  --   same pattern as PropertyFileController::download(), never the
+                                  --   public-disk pattern (this is a legal document, not a photo)
+  status                          -- processing -> needs_review -> applied
+                                  --            -> version_mismatch | failed
+  failure_reason                 -- human-readable, shown on the review screen
+  decoded_inspection_id, decoded_form_version   -- plain diagnostic columns, not FKs — what the bits
+                                  --   actually said, even when it doesn't match anything real
+  page_count
+  uploaded_by_user_id, applied_by_user_id, applied_at, archived_by_user_id
+  deleted_at                     -- soft-deletable (archived, never hard-deleted, non-negotiable #1) —
+                                  --   "the scan on file is what backs up anything we could not read,"
+                                  --   Johan's own words, applies even to a scan that failed to decode
+                                  --   at all: the original is retained regardless.
+
+rental_inspection_scan_marks
+  id, agency_id, rental_inspection_scan_id, rental_inspection_item_id, page_number
+  detected_condition_key, detected_confidence, ambiguous   -- what the reader found; null/true when
+                                  --   nothing could be confidently decided (§13.4)
+  confirmed_condition_key, confirmed_by_user_id, confirmed_at   -- what a human confirmed on the review
+                                  --   screen — always independent of what was detected, a correction is
+                                  --   not an edit of the detected value
+  applied_observation_id         -- FK to rental_inspection_observations — THE audit trail (§13.5)
+  deleted_at                     -- soft-deletable, matching every other table in this build
+
+rental_inspection_settings.omr_mark_threshold   -- nullable decimal(3,2); RentalInspectionSetting::
+                                  --   omrMarkThresholdFor() resolves it, defaulting to 0.35 when unset —
+                                  --   same read-time-default pattern as every other column on that table
+```
+
+### 13.4 Ambiguity is flagged, never guessed
+
+Per item per page: if exactly one of that item's condition boxes reads above the threshold, that's the
+detected condition. **Two marks on one row, or none at all, are BOTH flagged ambiguous** — a blank row is
+not treated as "nothing to report," because a real inspection form expects every row marked; a genuinely
+missed row needs a human to notice it, not a reader that silently moves on. An ambiguous or unmarked row's
+`detected_condition_key` is always null; the review screen never pre-selects a guess for it.
+
+### 13.5 Applying — an ordinary observation, never a parallel storage path
+
+`RentalInspectionScanReaderService::applyMark()` calls `RentalInspectionObservation::record()` — the
+EXACT SAME entry point a screen tap (`onConditionTap()`, rental-inspections.md §14.1) uses. The
+observation table gained no new column for this feature. The audit trail Johan asked for ("every applied
+mark records that it came from a scan, which scan, which page, and who confirmed it") lives entirely on
+`rental_inspection_scan_marks`: `applied_observation_id` points forward to the real observation it
+produced, and the mark's own `rental_inspection_scan_id`/`page_number`/`confirmed_by_user_id`/
+`confirmed_at` are the "which scan, which page, who, when" — reachable by following that one foreign key
+backward from any observation a deposit dispute needs to trace.
+
+### 13.6 Agency-configurable, per standing rule
+
+`RentalInspectionSetting::omrMarkThresholdFor($agencyId)` — the fraction of a box's interior that must
+read as dark ink to count as marked. Default 0.35, chosen to tolerate a slightly light photocopy or an
+unevenly lit phone photo while staying well clear of paper-texture noise; an agency scanning on worse
+equipment can raise or lower it without a code change. **Deliberately NOT added to the Agency Onboarding
+Setup Wizard** (non-negotiable #10a) — this is an expert/rarely-touched calibration knob an agency would
+tune only after a real accuracy problem, not something meaningful to present during onboarding before any
+agency has ever scanned a form; recorded here as a deliberate omission, not an oversight. Every other
+number in this build (box size, fiducial size, grid layout) is a print/layout constant inherited unchanged
+from cc5's own §12.7 reasoning — not a setting, for the same reason a button's pixel padding isn't one.
+
+### 13.7 Scoping, storage, permission
+
+`rental_inspection_scans`/`rental_inspection_scan_marks` both use `BelongsToAgency`. Every controller
+action cross-checks `$scan->rental_inspection_id === $rentalInspection->id` before touching a scan (the
+same pattern already used throughout this module for a photo/tag/observation from a different inspection),
+on top of the global `AgencyScope` a cross-agency id would already fail before the controller runs. Upload/
+apply/archive sit behind `permission:rental_inspections.create` (mutating); review/download behind the
+route group's own `.view` gate — matching cancel/destroy vs form/show's existing split in
+`RentalInspectionController`.
+
+### 13.8 Scope decisions, named rather than silently assumed
+
+- **One PDF or one image per upload, never several images combined into one multi-page upload.** A form
+  photographed page-by-page (rather than scanned as one PDF) is uploaded as several separate scans, one
+  per photo — each one decodes its own page identifier independently and contributes marks only for
+  whichever items live on that page. This is sufficient for "accept PDF and common image formats" without
+  building a client-side multi-file-to-multi-page assembly step nobody asked for.
+- **Processing is synchronous**, not queued. QA1 (and QA2) run web-only, no queue worker (BUILD_STANDARD
+  §8's promotion-flow note) — a queued job would be genuinely untestable on the first environment Johan
+  actually looks at. A few pages' rasterize-and-sample pass is a few seconds' work, well within a normal
+  request.
+- **Partial apply is allowed.** An agent can confirm some rows on the review screen and leave the rest for
+  a later visit; the scan's own status only flips to `applied` once every mark on it has an
+  `applied_observation_id`.
+- **No multi-match/multi-page reconciliation UI beyond the plain per-scan review screen** — if an agent
+  uploads the same physical form twice (a genuine duplicate), both scans are reviewed independently; there
+  is no "these two scans agree/disagree" comparison built here. Not asked for, not built.
+
+### 13.9 Verified
+
+`tests/Feature/RentalInspections/RentalInspectionScanReaderServiceTest.php` — a REAL form generated by
+cc5's own service (never a hand-built fixture manifest), rasterized, programmatically inked with a
+different condition per item so a systematic offset bug couldn't accidentally pass, fed back through the
+reader, and asserted to read back exactly what was inked:
+- a straight page,
+- the SAME page rotated 180 degrees,
+- the SAME page skewed 6 degrees (not a 90-degree multiple — proves the general affine fit, not just the
+  shape-based rotation-disambiguation path),
+- two marks inked on one row → flagged ambiguous, not guessed,
+- zero marks inked on one row → also flagged ambiguous, never silently treated as a valid "unmarked" reading,
+- a scan of an old form version (the item list changed after it was printed, producing v2) → flagged
+  `version_mismatch`, zero marks recorded, nothing applied,
+- applying a confirmed mark → an ordinary `RentalInspectionObservation` with the audit trail intact
+  (mark → scan/page/confirmed-by, mark → applied observation),
+- the threshold setting's default and its agency-override.
+
+Rasterized at 220 DPI in the test — deliberately different from the reader's own internal 200 DPI constant
+used when it rasterizes a PDF itself — because the coordinate contract is explicitly DPI-independent and an
+uploaded image is never re-rasterized by the reader at all; this is the realistic path for a phone photo or
+a scanner set to whatever DPI it happens to use, not a coincidental match to an internal constant.
+
+No browser harness, no dev server (Standard −1s) — a file-level PHPUnit test throughout.
+
+### 13.10 Found, not built here
+
+- OCR/handwriting reading of the free-text notes column — explicitly and permanently out of scope, per
+  Johan's own instruction, not a deferred item.
+- A UI to reconcile two independent scans of the same physical page (§13.8).
+- Queued/background processing, should QA ever gain a queue worker.
+
+### 13.11 Files created
+
+- `database/migrations/2026_10_02_160000_add_omr_mark_threshold_to_rental_inspection_settings_table.php`
+- `database/migrations/2026_10_02_160100_create_rental_inspection_scans_table.php`
+- `database/migrations/2026_10_02_160200_create_rental_inspection_scan_marks_table.php`
+- `app/Models/RentalInspectionScan.php`
+- `app/Models/RentalInspectionScanMark.php`
+- `app/Services/Rentals/RentalInspectionScanReaderService.php`
+- `app/Http/Controllers/CoreX/RentalInspectionScanController.php`
+- `resources/views/corex/rental-inspections/scan-review.blade.php`
+- `routes/web.php` (five new routes, `corex.rental-inspections.scans.*`)
+- `resources/views/corex/rental-inspections/show.blade.php` (upload form + scan list added)
+- `app/Models/RentalInspection.php` (`scans()` relation added)
+- `app/Models/RentalInspectionSetting.php` (`omr_mark_threshold` column support added)
+- `app/Services/Rentals/RentalInspectionFormPdfService.php` (`pageIdentifierGridLayout()` added — §13.1)
+- `tests/Feature/RentalInspections/RentalInspectionScanReaderServiceTest.php`

@@ -184,6 +184,16 @@ class RentalInspectionSetting extends Model
      */
     public const DEFAULT_BASELINE_CONDITION_KEY = 'good';
 
+    /**
+     * .ai/specs/rental-inspection-form.md §13 (OMR scan reader) — the
+     * fraction of a tick-box's interior that must read as dark ink for the
+     * reader to count it marked. 0.35 is deliberately forgiving of a
+     * slightly light photocopy or a phone photo's uneven lighting while
+     * still well clear of paper-texture/scan noise; an agency scanning on
+     * worse equipment can raise or lower it without a code change.
+     */
+    public const DEFAULT_OMR_MARK_THRESHOLD = 0.35;
+
     protected $fillable = [
         'agency_id',
         'fault_report_window_days',
@@ -194,6 +204,7 @@ class RentalInspectionSetting extends Model
         'room_type_walking_order',
         'condition_states',
         'baseline_condition_key',
+        'omr_mark_threshold',
     ];
 
     protected $casts = [
@@ -204,6 +215,7 @@ class RentalInspectionSetting extends Model
         'room_type_item_defaults' => 'array',
         'room_type_walking_order' => 'array',
         'condition_states' => 'array',
+        'omr_mark_threshold' => 'float',
     ];
 
     public static function faultReportWindowDaysFor(?int $agencyId): int
@@ -505,5 +517,16 @@ class RentalInspectionSetting extends Model
         $noReasonNeeded = collect($states)->first(fn ($s) => empty($s['requires_notes']));
 
         return $noReasonNeeded['key'] ?? ($states[0]['key'] ?? self::DEFAULT_BASELINE_CONDITION_KEY);
+    }
+
+    /** .ai/specs/rental-inspection-form.md §13 — read-time default, same pattern as every other column here. */
+    public static function omrMarkThresholdFor(?int $agencyId): float
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_OMR_MARK_THRESHOLD;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('omr_mark_threshold');
+
+        return $value !== null ? (float) $value : self::DEFAULT_OMR_MARK_THRESHOLD;
     }
 }

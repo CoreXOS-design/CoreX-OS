@@ -386,6 +386,31 @@ class RentalInspectionFormPdfService
      * repeats these same bit coordinates so nothing here is ever a second,
      * undocumented source of truth.
      */
+    /**
+     * The page-identifier grid's FIXED design layout — same on every page,
+     * every inspection, every form version. Exposed publicly so the OMR
+     * reader lane can locate this grid WITHOUT re-deriving/guessing its
+     * geometry and without needing any inspection's manifest first (the
+     * whole point of a fixed-position identifier — see class docblock and
+     * .ai/specs/rental-inspection-form.md §12.5): it calls this method, the
+     * one place this geometry is computed, exactly the same way
+     * pageIdentifierFor() below does internally.
+     */
+    public static function pageIdentifierGridLayout(): array
+    {
+        $totalBits = self::ID_BITS_INSPECTION + self::ID_BITS_PAGE + self::ID_BITS_VERSION;
+        $gridWidth = self::ID_GRID_COLS * self::ID_BIT_SIZE + (self::ID_GRID_COLS - 1) * self::ID_BIT_GAP;
+        $gridX = self::PAGE_WIDTH - self::MARGIN - $gridWidth;
+        $gridY = self::MARGIN + 12.0;
+
+        return [
+            'x' => $gridX, 'y' => $gridY,
+            'cols' => self::ID_GRID_COLS, 'rows' => (int) ceil($totalBits / self::ID_GRID_COLS),
+            'bit_size' => self::ID_BIT_SIZE, 'bit_gap' => self::ID_BIT_GAP,
+            'bits_inspection' => self::ID_BITS_INSPECTION, 'bits_page' => self::ID_BITS_PAGE, 'bits_version' => self::ID_BITS_VERSION,
+        ];
+    }
+
     private function pageIdentifierFor(int $inspectionId, int $page, int $pageCount, int $version): array
     {
         $bitsInspection = $this->toBits($inspectionId, self::ID_BITS_INSPECTION);
@@ -393,9 +418,9 @@ class RentalInspectionFormPdfService
         $bitsVersion = $this->toBits($version, self::ID_BITS_VERSION);
         $allBits = array_merge($bitsInspection, $bitsPage, $bitsVersion);
 
-        $gridWidth = self::ID_GRID_COLS * self::ID_BIT_SIZE + (self::ID_GRID_COLS - 1) * self::ID_BIT_GAP;
-        $gridX = self::PAGE_WIDTH - self::MARGIN - $gridWidth;
-        $gridY = self::MARGIN + 12.0;
+        $grid = self::pageIdentifierGridLayout();
+        $gridX = $grid['x'];
+        $gridY = $grid['y'];
 
         $bits = [];
         foreach ($allBits as $index => $value) {
@@ -415,7 +440,7 @@ class RentalInspectionFormPdfService
             'text' => "INSP #{$inspectionId} \u{00B7} Page {$page}/{$pageCount} \u{00B7} v{$version}",
             'text_x' => $gridX,
             'text_y' => self::MARGIN,
-            'grid_x' => $gridX, 'grid_y' => $gridY, 'grid_cols' => self::ID_GRID_COLS, 'grid_rows' => (int) ceil(count($allBits) / self::ID_GRID_COLS),
+            'grid_x' => $gridX, 'grid_y' => $gridY, 'grid_cols' => self::ID_GRID_COLS, 'grid_rows' => $grid['rows'],
             'fields' => [
                 ['name' => 'rental_inspection_id', 'bit_length' => self::ID_BITS_INSPECTION, 'value' => $inspectionId],
                 ['name' => 'page_number', 'bit_length' => self::ID_BITS_PAGE, 'value' => $page],

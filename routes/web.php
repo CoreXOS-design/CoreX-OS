@@ -3159,6 +3159,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Printable tick-box form — same .view gate as show() itself, same
         // scoping precedent as RentalWorkOrderController::pdf().
         Route::get('/{rentalInspection}/form', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'form'])->name('corex.rental-inspections.form');
+        // §13 — the OMR scan reader, part 2 of cc5's two-part job. Upload/
+        // apply/archive are mutating (.create gate, matching cancel/destroy
+        // above); review/download are read (the group's own .view gate).
+        Route::post('/{rentalInspection}/scans', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'store'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.store');
+        Route::get('/{rentalInspection}/scans/{scan}/review', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'review'])->name('corex.rental-inspections.scans.review');
+        Route::post('/{rentalInspection}/scans/{scan}/apply', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'apply'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.apply');
+        Route::get('/{rentalInspection}/scans/{scan}/download', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'download'])->name('corex.rental-inspections.scans.download');
+        Route::delete('/{rentalInspection}/scans/{scan}', [\App\Http\Controllers\CoreX\RentalInspectionScanController::class, 'destroy'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.scans.destroy');
         Route::post('/{rentalInspection}/cancel', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'cancel'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.cancel');
         Route::delete('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'destroy'])
