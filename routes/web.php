@@ -3202,6 +3202,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // bulk room action, per-room notes, and one overall-notes summary.
         Route::post('/{rentalInspection}/rooms/{room}/mark-na', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'markRoomNa'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.mark-na');
+        // Inspections-tab rebuild, item 5, 2026-09-22 — "All Good" bulk-fill,
+        // per-room and whole-inspection.
+        Route::post('/{rentalInspection}/rooms/{room}/mark-good', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'markRoomGood'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.mark-good');
+        Route::post('/{rentalInspection}/mark-all-good', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'markAllGood'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.mark-all-good');
         Route::post('/{rentalInspection}/rooms/{room}/notes', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeRoomNote'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.rooms.notes.store');
         Route::post('/{rentalInspection}/overall-notes', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateOverallNotes'])

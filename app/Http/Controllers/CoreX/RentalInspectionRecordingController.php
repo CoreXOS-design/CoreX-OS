@@ -427,6 +427,86 @@ class RentalInspectionRecordingController extends Controller
     }
 
     /**
+     * POST /corex/rental-inspections/{inspection}/rooms/{room}/mark-good —
+     * Inspections-tab rebuild, item 5, 2026-09-22: "every single item has
+     * its own Save button... 90 clicks." One tap fills every item in this
+     * room that has NO observation yet on THIS inspection to the agency's
+     * configured baseline state (RentalInspectionSetting::
+     * baselineConditionKeyFor() — never hardcoded to 'Good'); an item
+     * already recorded this inspection is left untouched, never overwritten.
+     * Same atomic record() path as a single-item observation and as
+     * markRoomNa() above — a bulk convenience over the one real recording
+     * path, never a second one.
+     */
+    public function markRoomGood(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
+    {
+        abort_if($room->property_id !== $rentalInspection->property_id, 404);
+
+        $baselineKey = RentalInspectionSetting::baselineConditionKeyFor($rentalInspection->agency_id);
+
+        $source = match ($rentalInspection->type) {
+            RentalInspection::TYPE_IN => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+            RentalInspection::TYPE_OUT => RentalInspectionObservation::SOURCE_OUT_INSPECTION,
+            default => RentalInspectionObservation::SOURCE_AD_HOC,
+        };
+
+        $alreadyRecordedItemIds = RentalInspectionObservation::where('rental_inspection_id', $rentalInspection->id)
+            ->pluck('rental_inspection_item_id');
+
+        $items = RentalInspectionItem::where('property_room_id', $room->id)
+            ->notRetired()
+            ->whereNotIn('id', $alreadyRecordedItemIds)
+            ->get();
+
+        $observations = $items->map(fn (RentalInspectionItem $item) => RentalInspectionObservation::record([
+            'agency_id' => $rentalInspection->agency_id,
+            'rental_inspection_id' => $rentalInspection->id,
+            'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $request->user()->id,
+            'condition' => $baselineKey,
+            'source' => $source,
+        ])->load('item'));
+
+        return response()->json(['observations' => $observations->values()]);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/mark-all-good — the same
+     * bulk-fill as markRoomGood() above, scoped to every unrecorded item on
+     * the WHOLE inspection (every room and every meter), not just one room —
+     * Johan's own "one for the whole inspection" requirement, item 5.
+     */
+    public function markAllGood(Request $request, RentalInspection $rentalInspection): JsonResponse
+    {
+        $baselineKey = RentalInspectionSetting::baselineConditionKeyFor($rentalInspection->agency_id);
+
+        $source = match ($rentalInspection->type) {
+            RentalInspection::TYPE_IN => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+            RentalInspection::TYPE_OUT => RentalInspectionObservation::SOURCE_OUT_INSPECTION,
+            default => RentalInspectionObservation::SOURCE_AD_HOC,
+        };
+
+        $alreadyRecordedItemIds = RentalInspectionObservation::where('rental_inspection_id', $rentalInspection->id)
+            ->pluck('rental_inspection_item_id');
+
+        $items = RentalInspectionItem::where('property_id', $rentalInspection->property_id)
+            ->notRetired()
+            ->whereNotIn('id', $alreadyRecordedItemIds)
+            ->get();
+
+        $observations = $items->map(fn (RentalInspectionItem $item) => RentalInspectionObservation::record([
+            'agency_id' => $rentalInspection->agency_id,
+            'rental_inspection_id' => $rentalInspection->id,
+            'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $request->user()->id,
+            'condition' => $baselineKey,
+            'source' => $source,
+        ])->load('item'));
+
+        return response()->json(['observations' => $observations->values()]);
+    }
+
+    /**
      * POST /corex/rental-inspections/{inspection}/rooms/{room}/notes —
      * Johan, 2026-09-21, from Retha's real paper form: every room table
      * has its own notes box, holding evidence that belongs to the whole

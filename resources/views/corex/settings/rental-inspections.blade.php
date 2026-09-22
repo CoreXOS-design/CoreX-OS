@@ -302,6 +302,7 @@
     <form method="POST" action="{{ route('corex.settings.rental-inspections.condition-states') }}" class="space-y-3"
           x-data="{
               states: {{ Js::from($conditionStates) }},
+              baseline: {{ Js::from($baselineConditionKey) }},
               addState() { this.states.push({ key: 'custom_' + Date.now(), label: '', requires_notes: true }); },
           }">
         @csrf
@@ -334,6 +335,21 @@
                     </div>
                 </template>
                 <button type="button" @click="addState()" class="corex-btn-outline text-xs">+ Add a condition state</button>
+
+                {{-- Item 5, 2026-09-22 — the Inspections tab's one-tap "All
+                     Good" bulk-fill needs to know which of the states above
+                     counts as this agency's baseline, never hardcoded to the
+                     word "Good". --}}
+                <div class="pt-2" style="border-top:1px solid var(--border);">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
+                        "All Good" bulk-fill uses this state
+                    </label>
+                    <select name="baseline_condition_key" x-model="baseline" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <template x-for="state in states" :key="state.key">
+                            <option :value="state.key" x-text="state.label"></option>
+                        </template>
+                    </select>
+                </div>
             </div>
         </div>
 

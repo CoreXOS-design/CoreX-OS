@@ -66,6 +66,9 @@ class RentalInspectionSettingsController extends Controller
             // (Good/Fair/Damaged/Not working/Missing/Other/N/A) — the SET
             // itself is agency-configurable, never forced either way.
             'conditionStates' => RentalInspectionSetting::conditionStatesFor($agencyId),
+            // Item 5, 2026-09-22 — which configured state "All Good" bulk-
+            // fills unrecorded items to.
+            'baselineConditionKey' => RentalInspectionSetting::baselineConditionKeyFor($agencyId),
         ]);
     }
 
@@ -263,10 +266,19 @@ class RentalInspectionSettingsController extends Controller
                 ->withErrors(['condition_states' => 'At least one condition state is required.']);
         }
 
-        RentalInspectionSetting::updateOrCreate(
-            ['agency_id' => $agencyId],
-            ['condition_states' => $states],
-        );
+        $attributes = ['condition_states' => $states];
+
+        // Item 5, 2026-09-22 — "All Good" bulk-fill's target state, chosen
+        // from THIS submission's own keys only (never a stale key from
+        // before this save); leaving it out here lets
+        // baselineConditionKeyFor()'s own fallback resolve it instead of
+        // saving something that no longer names a real state.
+        $baselineKey = trim((string) $request->input('baseline_condition_key', ''));
+        if ($baselineKey !== '' && in_array($baselineKey, $seenKeys, true)) {
+            $attributes['baseline_condition_key'] = $baselineKey;
+        }
+
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Condition states saved.');
     }
