@@ -4577,6 +4577,18 @@
                 },
                 data: {{ Js::from($property->rentalImagesStructure()) }},
                 inspectionUrls: {
+                    // FIX, 2026-09-22, Johan: starting an inspection only ever
+                    // hand-patched a few fields on the response (observations/
+                    // discrepancies/signatures) — everything else the screen
+                    // depends on (compareLeft/compareRight/photoMatches most
+                    // visibly, since starting an out-inspection is exactly
+                    // when the Compare section should first appear) stayed
+                    // stale until a manual reload. tabData is the SAME
+                    // canonical payload tabPayloadFor() already produces —
+                    // refetching it after a successful start replaces every
+                    // dependent field at once instead of hand-patching a
+                    // fragile, incomplete subset again.
+                    tabData: '{{ route('corex.properties.rental-inspection-tab.data', $property) }}',
                     itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
                     itemsReorder: '{{ route('corex.properties.rental-inspection-items.reorder', $property) }}',
                     seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
@@ -4892,8 +4904,16 @@
                     <button type="button" class="prop-section-toggle" @click="toggle('in_inspection')">
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text">In Inspection</span>
+                            {{-- FIX, 2026-09-22, Johan: the previous `?.status.replace(...) +
+                                 '...'` short-circuited to the JS VALUE undefined when no
+                                 inspection exists, and string concatenation coerced that
+                                 into the literal text "undefined" — genuinely in the DOM
+                                 (accessibility tree, screen readers) regardless of the
+                                 x-show hiding it visually. A ternary that returns a real
+                                 empty string when there's nothing to show is the fix, not
+                                 relying on x-show alone. --}}
                             <span x-show="currentInspection('in')" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="currentInspection('in')?.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress('in').recorded + '/' + inspectionProgress('in').total : '')"></span>
+                                  x-text="currentInspection('in') ? (currentInspection('in').status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress('in').recorded + '/' + inspectionProgress('in').total : '')) : ''"></span>
                         </h3>
                         <svg class="prop-section-chevron" :class="open['in_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
@@ -4907,8 +4927,11 @@
                     <button type="button" class="prop-section-toggle" @click="toggle('out_inspection')">
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text">Out Inspection</span>
+                            {{-- FIX, 2026-09-22 — same class of bug as In Inspection's
+                                 header above, same fix: a ternary that renders a real
+                                 empty string, never the coerced literal "undefined". --}}
                             <span x-show="currentInspection('out')" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="currentInspection('out')?.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress('out').recorded + '/' + inspectionProgress('out').total : '')"></span>
+                                  x-text="currentInspection('out') ? (currentInspection('out').status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress('out').recorded + '/' + inspectionProgress('out').total : '')) : ''"></span>
                         </h3>
                         <svg class="prop-section-chevron" :class="open['out_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
@@ -5794,17 +5817,38 @@
                 startBusy: {},
                 startError: {},
 
+                // FIX, 2026-09-22, Johan: "the screen does not refresh after
+                // starting an out inspection" — starting the SECOND
+                // inspection on a property is exactly the moment the Compare
+                // section should first appear, and hand-patching a handful of
+                // fields on the POST response never touched compareLeft/
+                // compareRight/photoMatches (or anything else added to the
+                // payload later). Refetch the canonical tab payload instead
+                // of trying to keep two response shapes in sync by hand.
                 async startInspection(section) {
                     this.startBusy[section] = true;
                     this.startError[section] = '';
                     try {
-                        const inspection = await this._post(this.inspectionUrls.startInspection, { type: section });
-                        inspection.observations = [];
-                        inspection.discrepancies = [];
-                        inspection.signatures = [];
-                        if (section === 'in') this.inInspection = inspection; else this.outInspection = inspection;
+                        await this._post(this.inspectionUrls.startInspection, { type: section });
+                        await this.refreshInspectionData();
                     } catch (e) { this.startError[section] = e.message; }
                     finally { this.startBusy[section] = false; }
+                },
+                async refreshInspectionData() {
+                    const data = await fetch(this.inspectionUrls.tabData, {
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                    }).then(r => r.json());
+                    this.items = data.items;
+                    this.inInspection = data.in_inspection;
+                    this.outInspection = data.out_inspection;
+                    this.outInspectionFaultHistory = data.out_inspection_fault_history;
+                    this.landlordContact = data.landlord_contact;
+                    this.refusalReasonPresets = data.refusal_reason_presets;
+                    this.outInspectionRecorded = data.out_inspection_recorded;
+                    this.conditionStates = data.condition_states;
+                    this.compareLeft = data.compare_left_inspection;
+                    this.compareRight = data.compare_right_inspection;
+                    this.photoMatches = data.photo_matches;
                 },
 
                 // Latest observation recorded for this item WITHIN this inspection —
