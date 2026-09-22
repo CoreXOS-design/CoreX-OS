@@ -81,21 +81,50 @@ class RentalInspectionRecordingController extends Controller
      * reachable). `kind=meter` is unaffected — a meter has no room concept
      * (RentalInspectionItem's own docblock).
      *
+     * `kind=item`, 2026-09-22 — Johan, property 4862: "how do I add to a
+     * room, not a new room." The Space/Meter picker only ever created a
+     * NEW room; there was no path at all to add one facet to a room that
+     * already exists. This is a THIRD, additive request-level `kind` —
+     * `RentalInspectionItem::KIND_SPACE`/`KIND_METER` (the two stored
+     * values) are UNCHANGED; an `item` add still stores `kind='space'`
+     * (it behaves exactly like any other facet under that room, §3.1) — it
+     * targets an EXISTING `property_room_id` instead of creating a new
+     * PropertyRoom, and creates exactly the one row asked for, no
+     * checklist reseed. The `space`/`meter` branches below are byte-for-
+     * byte unchanged from before this addition.
+     *
      * Response shape is always {items: [...]} — a space add returns the
-     * checklist rows created under the new room; a meter add returns its
-     * one bare item — so the frontend has one push path for both.
+     * checklist rows created under the new room, a meter add returns its
+     * one bare item, an item add returns the one new facet — one push path
+     * for all three.
      */
     public function storeItem(Request $request, Property $property): JsonResponse
     {
         $validated = $request->validate([
-            'kind' => ['required', 'in:' . RentalInspectionItem::KIND_SPACE . ',' . RentalInspectionItem::KIND_METER],
+            'kind' => ['required', 'in:' . RentalInspectionItem::KIND_SPACE . ',' . RentalInspectionItem::KIND_METER . ',item'],
             'label' => ['required', 'string', 'max:191'],
             'space_type' => [
                 Rule::requiredIf($request->input('kind') === RentalInspectionItem::KIND_SPACE),
                 'nullable', 'string', 'max:60',
                 Rule::in(config('property-spaces.all_space_types', [])),
             ],
+            'property_room_id' => [
+                Rule::requiredIf($request->input('kind') === 'item'),
+                'nullable', 'integer',
+            ],
         ]);
+
+        if ($validated['kind'] === 'item') {
+            $room = PropertyRoom::where('id', $validated['property_room_id'])
+                ->where('property_id', $property->id)
+                ->first();
+            abort_if(!$room, 404, 'That room could not be found on this property.');
+            abort_if($room->is_retired, 422, 'This room has been retired.');
+
+            $item = RentalInspectionItem::addToRoom($room, $validated['label'], $request->user())->load('room');
+
+            return response()->json(['items' => [$item]]);
+        }
 
         if ($validated['kind'] === RentalInspectionItem::KIND_METER) {
             $item = RentalInspectionItem::create([
@@ -184,7 +213,7 @@ class RentalInspectionRecordingController extends Controller
         $facetLabels = RentalInspectionSetting::roomTypeItemsFor($property->agency_id, $type);
 
         $created = [];
-        foreach ($facetLabels as $facetLabel) {
+        foreach ($facetLabels as $index => $facetLabel) {
             $created[] = RentalInspectionItem::create([
                 'agency_id' => $property->agency_id,
                 'property_id' => $property->id,
@@ -193,6 +222,7 @@ class RentalInspectionRecordingController extends Controller
                 'label' => $facetLabel,
                 'space_type' => $type,
                 'source' => 'manual',
+                'sort_order' => $index,
                 'created_by_user_id' => $byUserId,
             ])->load('room');
         }
@@ -208,6 +238,60 @@ class RentalInspectionRecordingController extends Controller
         $item->update(['is_retired' => true]);
 
         return response()->json(['message' => 'Item retired.']);
+    }
+
+    /** POST /corex/properties/{property}/rental-inspection-items/{item}/restore — the reverse of retire(), never a hard delete. */
+    public function restoreItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
+    {
+        abort_if($item->property_id !== $property->id, 404);
+
+        $item->restoreItem();
+
+        return response()->json($item->load('room'));
+    }
+
+    /** POST /corex/properties/{property}/rental-inspection-items/{item}/rename — label only, never touches observation history. */
+    public function renameItem(Request $request, Property $property, RentalInspectionItem $item): JsonResponse
+    {
+        abort_if($item->property_id !== $property->id, 404);
+
+        $validated = $request->validate(['label' => ['required', 'string', 'max:191']]);
+
+        $item->rename($validated['label']);
+
+        return response()->json($item->load('room'));
+    }
+
+    /**
+     * POST /corex/properties/{property}/rental-inspection-items/reorder —
+     * mirrors reorderRooms() below exactly, one level down: the agent's own
+     * full ordering of one room's items, rewritten to sort_order to match.
+     * Scoped to property_room_id so one room's reorder can never touch
+     * another room's items, even within the same property.
+     */
+    public function reorderItems(Request $request, Property $property): JsonResponse
+    {
+        $validated = $request->validate([
+            'property_room_id' => ['required', 'integer'],
+            'item_ids' => ['required', 'array', 'min:1'],
+            'item_ids.*' => ['integer', 'distinct'],
+        ]);
+
+        $room = PropertyRoom::where('id', $validated['property_room_id'])->where('property_id', $property->id)->first();
+        abort_if(!$room, 404, 'That room could not be found on this property.');
+
+        $items = RentalInspectionItem::where('property_room_id', $room->id)
+            ->whereIn('id', $validated['item_ids'])
+            ->get()->keyBy('id');
+        abort_if($items->count() !== count($validated['item_ids']), 422, 'One or more items do not belong to this room.');
+
+        foreach (array_values($validated['item_ids']) as $index => $itemId) {
+            $items[$itemId]->update(['sort_order' => $index]);
+        }
+
+        return response()->json([
+            'items' => RentalInspectionItem::where('property_room_id', $room->id)->orderBy('sort_order')->orderBy('id')->get(),
+        ]);
     }
 
     /**
