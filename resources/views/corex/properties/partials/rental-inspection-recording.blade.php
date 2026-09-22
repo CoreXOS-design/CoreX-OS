@@ -210,17 +210,35 @@
                          @mousedown="photoUploader({{ $sectionJs }}).marqueeStart($event, $el)"
                          @mousemove.window="photoUploader({{ $sectionJs }}).marqueeMove($event)"
                          @mouseup.window="photoUploader({{ $sectionJs }}).marqueeEnd()">
+                        {{-- FACT A, 2026-09-22 (Johan, live measurement) — every
+                             Archive × rendered at the SAME coordinate, far
+                             right of the tray, several stacked at 0x0. The
+                             × is `position:absolute`, correctly anchored to
+                             ITS OWN tile (`position:relative` was already on
+                             the tile) — but the tile DIV itself carried no
+                             explicit size at all; only the IMG inside it did
+                             (`width:3rem;height:3rem`). Relying on an inline
+                             img to establish its block parent's box is
+                             exactly the "size derived from an elastic
+                             container" pattern this whole bug class comes
+                             from — fixed by giving the tile the SAME
+                             explicit 3rem square directly, so every tile is
+                             an unambiguous, independent 48x48 box regardless
+                             of image content, and the × has a real anchor on
+                             every one of them, not just the first. --}}
                         <template x-for="photo in photoUploader({{ $sectionJs }}).untaggedPhotos()" :key="photo.id">
                             <div :data-photo-id="photo.id" draggable="true"
                                  @dragstart="photoUploader({{ $sectionJs }}).dragStartSelection($event, photo.id)"
                                  @click="photoUploader({{ $sectionJs }}).selectClick(photo.id, photoUploader({{ $sectionJs }}).untaggedPhotos().map(p => p.id), $event)"
-                                 class="rounded-md cursor-pointer" style="position:relative;"
+                                 class="rounded-md cursor-pointer" style="position:relative; width:3rem; height:3rem;"
                                  :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
-                                <img :src="photo.storage_path" class="rounded-md object-cover" style="width:3rem; height:3rem;" alt="">
-                                {{-- Standards — a removed photo is archived,
-                                     never hard-deleted. Screened out of the
-                                     tray BEFORE filing, the most common real
-                                     case (a duplicate or blurry shot). --}}
+                                <img :src="photo.storage_path" class="rounded-md object-cover" style="display:block; width:100%; height:100%;" alt="">
+                                {{-- Standards — a removed photo is archived
+                                     (RentalInspectionPhoto::archive(), a real
+                                     deleted_at, §20.13.1) never hard-deleted.
+                                     Screened out of the tray BEFORE filing,
+                                     the most common real case (a duplicate or
+                                     blurry shot). --}}
                                 <button type="button" @click.stop="if (confirm('Archive this photo?')) photoUploader({{ $sectionJs }}).archivePhoto(photo.id)"
                                         class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                         style="background:var(--ds-crimson); color:#fff; line-height:1;" title="Archive">&times;</button>
@@ -263,7 +281,24 @@
              the room's free-text label. Item 7, 2026-09-22 — heading shows
              recorded/total + photo count and collapses once the room is
              fully recorded — always a default, never a lock: click the
-             heading row to expand/collapse any time, whatever its state. --}}
+             heading row to expand/collapse any time, whatever its state.
+
+             FACT B, 2026-09-22 (Johan, live: "KITCHEN — 2/7 · 7 PHOTOS" over
+             a gallery whose own "Show all 4" says 4) — roomProgress().photos
+             (below) is deliberately the COMBINED count (this room's own
+             general shots PLUS every one of its items' rolled-up photos,
+             confirmed in roomProgress() itself), while the gallery a few
+             lines down (R1) renders ONLY this room's own general shots — two
+             genuinely different, both-correct counts with nothing on screen
+             explaining the difference, which reads as the screen simply
+             being wrong. Chose to LABEL rather than reconcile: forcing them
+             to agree would mean either hiding the room's real total photo
+             count (losing "how much evidence exists here" at a glance) or
+             rendering item photos a second time in the room gallery
+             (duplicating them on screen) — both worse than one word. The
+             heading now reads "... · N photos total"; "Show all N" directly
+             underneath the room's own gallery already means "N room
+             photos" by its position, unchanged. --}}
         <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
             <div class="space-y-1 pt-2">
                 <div class="flex items-center justify-between gap-2 rounded-md px-1 -mx-1"
@@ -280,7 +315,7 @@
                         </svg>
                         <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
                             x-text="(group.room ? group.room.label : 'General') + ' — ' + roomProgress({{ $sectionJs }}, group).recorded + '/' + roomProgress({{ $sectionJs }}, group).total
-                                    + (roomProgress({{ $sectionJs }}, group).photos ? ' · ' + roomProgress({{ $sectionJs }}, group).photos + ' photo' + (roomProgress({{ $sectionJs }}, group).photos === 1 ? '' : 's') : '')"></h4>
+                                    + (roomProgress({{ $sectionJs }}, group).photos ? ' · ' + roomProgress({{ $sectionJs }}, group).photos + ' photo' + (roomProgress({{ $sectionJs }}, group).photos === 1 ? '' : 's') + ' total' : '')"></h4>
                     </button>
                     <div class="flex items-center gap-1" @click.stop>
                         {{-- Item 2, 2026-09-22 — the room's own general
@@ -494,18 +529,57 @@
                                      strip's own sizing/positioning is untouched by
                                      that work, merge conflict resolved 2026-09-22
                                      by keeping this structure and bringing the
-                                     tagging controls over onto it. --}}
+                                     tagging controls over onto it.
+
+                                     FIX, 2026-09-22, SECOND PASS (Johan, live DOM
+                                     chain measured with getBoundingClientRect — the
+                                     flex+aspect-ratio version above shipped in this
+                                     branch's first commit was never landed and would
+                                     not have fixed this): the WRAPPER (885x124),
+                                     STRIP CONTAINER (860x124) and SCROLLER (860x124,
+                                     `white-space:nowrap; font-size:0`) all measure
+                                     correctly on their own — the scroller's own
+                                     `height:100%` DOES resolve, because its parent
+                                     strip container has a real, flex-stretch-derived
+                                     height. The bug is one level deeper than the
+                                     first pass diagnosed: the TILE div had NO
+                                     explicit size at all (not even the
+                                     `display:inline-block; height:100%` the first
+                                     pass assumed was already there), so as a plain
+                                     block it took the scroller's full 860px width,
+                                     its height stayed auto, and the img's own
+                                     `height:100%` then had no definite parent height
+                                     to resolve against and fell back to its natural
+                                     860x645 — confirmed by direct measurement, not
+                                     assumed. Reverted the scroller to its original
+                                     inline-block/white-space mechanism (flex was the
+                                     wrong direction to fix this in) and instead give
+                                     the TILE an explicit, FIXED width — `height:100%`
+                                     on the tile now resolves correctly because the
+                                     SCROLLER (its immediate containing block) has a
+                                     real, already-working explicit height; only
+                                     WIDTH needed to stop being implicit. 165px chosen
+                                     to read roughly 4:3 against a 124px row (the
+                                     common condition-list-length case) — an agency
+                                     with a taller/shorter row (more/fewer condition
+                                     states) gets the same 165px width at whatever
+                                     that agency's own row height is, never a fixed
+                                     px height on the tile itself, so the row height
+                                     stays the scroller's alone to set. No Tailwind
+                                     class added — every property here is an inline
+                                     style, same discipline as the rest of this
+                                     block. --}}
                                 <div style="display:flex; align-items:stretch; flex:1; min-width:0; gap:0.375rem;">
                                     <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
                                         <div style="position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
                                             <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
-                                                <div class="relative rounded-md" style="display:inline-block; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;"
+                                                <div class="relative rounded-md" style="display:inline-block; vertical-align:top; width:165px; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;"
                                                      :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
                                                     {{-- Clicking the photo opens it — the
                                                          controls below are their own small hit
                                                          targets, @click.stop, so none of them
                                                          also open the photo. --}}
-                                                    <img :src="photo.storage_path" style="display:inline-block; height:100%; width:auto; object-fit:cover; cursor:pointer;"
+                                                    <img :src="photo.storage_path" style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
                                                          @click="openInspectionPhoto({{ $sectionJs }}, itemPhotosFor({{ $sectionJs }}, item), photo, group.room)" alt="">
                                                     {{-- Multi-select toggle — same tap/click, no
                                                          modifier key, as every other tile on this

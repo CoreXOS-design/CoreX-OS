@@ -2829,6 +2829,89 @@ off to the right and became unreachable the moment an item had any photos at all
 it receives the same row-driven stretch height directly and stays visible at a fixed position whether the
 item has zero photos or twelve — matching the task's own requirement in those exact terms.
 
+### 22.3a A FIFTH attempt, same bug class, one level deeper — fixed 2026-09-22, live measurements this time
+
+The four attempts above fixed the ROW/STRIP/SCROLLER's own sizing. They never touched the TILE and IMG
+one level deeper — which still used `display:inline-block; height:100%` (tile) and `height:100%;
+width:auto` (img), no explicit width anywhere. Johan caught this live with `getBoundingClientRect()` on
+the deployed page (property 5792, Kitchen): the item photo `<img>` measured 847x635/860x645 — its own
+natural resolution — and the strip's own (correctly ~1fr) width then clipped that oversized image down to
+a ~22px visible sliver. **Not an empty strip — an oversized photo behind a small overflow:hidden window
+onto it.** One concrete consequence: at 22px visible width, the item→untagged button had no clickable
+room at all — one of the six photo moves was dead on the deployed page purely from this sizing bug, not a
+logic bug.
+
+**First attempted fix, NOT the one that landed — recorded so the false start isn't repeated**: switching
+the scroller to `display:flex; align-items:stretch;` and each tile to `flex:none; align-self:stretch;
+aspect-ratio:1/1;`, reasoning that flex-stretch is a more reliable mechanism than a percentage-height
+chain. This never reached `origin/QA1` — a full second live DOM trace (`getBoundingClientRect()` on the
+WRAPPER, STRIP CONTAINER, and SCROLLER, all three measuring correctly at their existing, already-shipped
+sizes) showed the percentage-height chain was NEVER actually the problem at the outer levels — the
+scroller's own `white-space:nowrap; font-size:0;` mechanism (§22.3) already works and did not need
+replacing. The bug was narrower and lower than either diagnosis first assumed: the TILE had NO explicit
+size AT ALL (not even the `height:100%` the very first pass assumed was already there) — as a plain block
+it took the scroller's full ~860px width, height stayed auto, and the img's `height:100%` then had no
+definite parent to resolve against and fell back to its natural 860x645.
+
+**The fix that actually landed**: the scroller stays exactly as `white-space:nowrap; font-size:0;`
+(unchanged, confirmed already correct). Each tile becomes `display:inline-block; vertical-align:top;
+width:165px; height:100%; overflow:hidden;` — `height:100%` now resolves correctly because the tile's
+immediate containing block (the scroller) has a real, already-working explicit height; only WIDTH needed
+to stop being implicit. **165px is a literal, fixed pixel value, chosen to read roughly 4:3 against a
+124px row (the common condition-list-length case)** — never a percentage, never derived from the image,
+and never a height in px on the tile itself, so an agency with a taller or shorter row (more or fewer
+condition states) still gets a 165px-wide tile at whatever THAT row's own height is; the scroller alone
+sets the row height, exactly as before. The img is `display:block; width:100%; height:100%;
+object-fit:cover`. No Tailwind class in either version of this fix — every property is an inline style, so
+neither carries build-step risk. Predicted computed size at desktop width, confirmed against Johan's own
+live measurement of the working levels above: scroller 860x124 (unchanged), tile 165x124, img 165x124.
+
+Not verified in a browser (Standard −1s) — verified by confirming the exact same pre-existing test
+failures (room-checklist-seeding content, unrelated to this change) fail identically against unmodified
+`origin/QA1` (`git stash`, re-run, byte-identical failures) and that `php artisan view:cache` compiles the
+changed templates clean. Branch rebased directly onto the `origin/QA1` tip immediately before push, and
+`git merge-base --is-ancestor origin/QA1 HEAD` checked true, so neither `f510880a8` (cc2's compare-frame
+fix) nor `666be218a` (cc4's inventory-uploader adoption of this exact photo machinery) is at risk of being
+reverted by this landing.
+
+**Four more bugs found live on the same screen, fixed alongside:**
+
+1. **The viewer's "Move to…" chooser only listed items that already had a recorded observation** —
+   built from `rental_inspection_observation_id`, so an item nobody had rated yet had no id to offer. Johan:
+   "the photo is usually what prompts the rating" — backwards, an agent photographing a cracked floor
+   couldn't attach that photo to Floors until they'd first rated it. Fixed with a new, viewer-only
+   `itemMoveChoicesFor()` (keyed by item id, not observation id, listing every item in the room regardless
+   of rating state) — `itemChoicesFor()`/`allItemChoices()` themselves are UNCHANGED and still
+   rated-items-only, since they back the tray's bulk "Tag to…" action, which tags several photos in one
+   request and has no single moment to create a missing observation against. `moveViewerPhotoTo()` now
+   creates the item's observation on the fly when none exists — the exact same POST
+   `_commitObservation()` makes for a tapped chip, no second code path, seeded with the agency's own
+   baseline condition key (`RentalInspectionSetting::baselineConditionKeyFor()`, the same starting-value
+   mechanism "All Good" bulk-fill already uses) rather than inventing a null/placeholder condition. The
+   agent's own next real chip tap on that item is a new, current observation (§3.1, append-only) — the
+   starting value is never locked in as the actual finding.
+2. **The "Move to…" control itself rendered at the viewport's bottom-left corner, on top of the app
+   sidebar** — it was `absolute bottom-4 left-4` inside the viewer's own `fixed inset-0` (full-viewport)
+   wrapper, so it positioned against the WHOLE VIEWPORT, not against anything resembling the modal's own
+   photo. Fixed by folding it into the SAME wrapper as the Download button, reusing Download's own already-
+   correct `bottom-4 right-4` anchor rather than introducing a second, unproven one.
+3. **The untagged tray's Archive × rendered at the identical coordinate for every photo, several
+   stacked at 0x0** — the × is correctly `position:absolute`, correctly anchored to ITS OWN tile
+   (`position:relative` was already there), but the tile div itself carried no explicit size at all; only
+   the `<img>` inside it did (`width:3rem; height:3rem`). Relying on an inline img to establish its block
+   parent's box is the exact same "elastic container" pattern as the item strip bug above, one screen
+   section over. Fixed by giving the tile the same explicit `width:3rem; height:3rem` directly, so every
+   tile is an independent 48x48 box and the × lands on its own photo, not the right edge of the tray.
+   `archivePhoto()` confirmed a real soft-delete (`deleted_at`, never hard) while investigating this.
+4. **A room heading's photo count and the gallery underneath it disagreed** — "KITCHEN — 2/7 · 7 PHOTOS"
+   over a gallery whose own "Show all N" said 4. Both numbers are correct: the heading's count
+   (`roomProgress().photos`) is deliberately the room's own shots PLUS every item's rolled-up photos
+   (§20.13.5), the gallery beneath it shows only the room's own general shots. Nothing on screen explained
+   the difference, so it read as the screen being wrong. Chose to LABEL rather than reconcile the two
+   counts: forcing them to agree would mean either hiding the room's real total photo count or rendering
+   item photos a second time in the room gallery (duplicating them on screen) — both worse than one word.
+   The heading now reads "... · N photos total".
+
 ### 22.4 Standing rules this section is built to, restated plainly
 
 - **Agency-configurable, sensible default.** The condition-button grid holds any length list an agency
