@@ -1,7 +1,9 @@
 {{--
     Rental inspection recording — shared by In Inspection and Out Inspection.
     Rendered inside the `rentalImages()` Alpine component.
-    Spec: .ai/specs/rental-inspections.md §4/§14
+    Spec: .ai/specs/rental-inspections.md §4/§14, §18 (Inspections-tab
+    rebuild, 2026-09-22 — autosave, one-tap condition, All Good bulk-fill,
+    progress/collapse, read-only property type).
 
     Required include var:
       $section — 'in' or 'out' (literal PHP string, used to build the JS
@@ -31,10 +33,13 @@
             tenants and the recording agent are DISPLAY ONLY here (read from
             the same lease/property/user relations §15's signing block
             already resolves — never a second name field to type into).
-            Meter readings, furnished state, property type, keys/remotes and
-            (out-inspection only) the move-in date are editable, defaulted
-            from the property/lease at inspection start (RentalInspection::
-            start()) — confirm-or-correct, not retype.
+            Meter readings, furnished state, keys/remotes and (out-inspection
+            only) the move-in date are editable, defaulted from the
+            property/lease at inspection start (RentalInspection::start()) —
+            confirm-or-correct, not retype. Item 2/8 (2026-09-22): every
+            field autosaves on change — no Save button — and property type
+            is read-only, derived from the Property record (item 8: "the
+            property already knows it").
         --}}
         <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2);">
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs" style="color:var(--text-secondary);">
@@ -43,67 +48,60 @@
                     <div><span style="color:var(--text-muted);" x-text="'Tenant ' + (idx + 1) + ':'"></span> <span x-text="tenantName(tenant)"></span></div>
                 </template>
                 <div><span style="color:var(--text-muted);">Inspection done by:</span> <span x-text="currentInspection({{ $sectionJs }}).created_by?.name || '—'"></span></div>
+                <div><span style="color:var(--text-muted);">Property type:</span> <span x-text="propertyType || '—'"></span></div>
             </div>
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1" style="border-top:1px solid var(--border);">
                 <div>
                     <label class="text-xs font-semibold" style="color:var(--text-secondary);">Electricity meter</label>
-                    <input type="text" x-model="currentInspection({{ $sectionJs }}).electricity_meter_reading" placeholder="Reading, or e.g. BODY CORP" class="prop-input w-full">
+                    <input type="text" x-model="currentInspection({{ $sectionJs }}).electricity_meter_reading"
+                           @input="autosaveDetails({{ $sectionJs }})" placeholder="Reading, or e.g. BODY CORP" class="prop-input w-full">
                 </div>
                 <div>
                     <label class="text-xs font-semibold" style="color:var(--text-secondary);">Water meter</label>
-                    <input type="text" x-model="currentInspection({{ $sectionJs }}).water_meter_reading" placeholder="Reading, or e.g. BODY CORP" class="prop-input w-full">
+                    <input type="text" x-model="currentInspection({{ $sectionJs }}).water_meter_reading"
+                           @input="autosaveDetails({{ $sectionJs }})" placeholder="Reading, or e.g. BODY CORP" class="prop-input w-full">
                 </div>
                 <div>
                     <label class="text-xs font-semibold" style="color:var(--text-secondary);">Furnished</label>
-                    <select x-model="currentInspection({{ $sectionJs }}).furnished_status" class="prop-input w-full">
+                    <select x-model="currentInspection({{ $sectionJs }}).furnished_status" @change="autosaveDetails({{ $sectionJs }})" class="prop-input w-full">
                         <option value="">— Select —</option>
                         @foreach($settingItems['furnishedStatuses'] ?? [] as $fs)
                             <option value="{{ $fs->name }}">{{ $fs->name }}</option>
                         @endforeach
                     </select>
                 </div>
-                <div>
-                    <label class="text-xs font-semibold" style="color:var(--text-secondary);">Property type</label>
-                    <select x-model="currentInspection({{ $sectionJs }}).property_type" class="prop-input w-full">
-                        <option value="">— Select —</option>
-                        @foreach($settingItems['types'] ?? [] as $pt)
-                            <option value="{{ $pt->name }}">{{ $pt->name }}</option>
-                        @endforeach
-                    </select>
-                </div>
                 <div class="flex gap-1">
                     <div style="width:4.5rem;">
                         <label class="text-xs font-semibold" style="color:var(--text-secondary);">Keys</label>
-                        <input type="number" min="0" x-model.number="currentInspection({{ $sectionJs }}).keys_count" class="prop-input w-full">
+                        <input type="number" min="0" x-model.number="currentInspection({{ $sectionJs }}).keys_count"
+                               @input="autosaveDetails({{ $sectionJs }})" class="prop-input w-full">
                     </div>
                     <div class="flex-1">
                         <label class="text-xs font-semibold" style="color:var(--text-secondary);">&nbsp;</label>
-                        <input type="text" x-model="currentInspection({{ $sectionJs }}).keys_description" placeholder="e.g. set keys" class="prop-input w-full">
+                        <input type="text" x-model="currentInspection({{ $sectionJs }}).keys_description"
+                               @input="autosaveDetails({{ $sectionJs }})" placeholder="e.g. set keys" class="prop-input w-full">
                     </div>
                 </div>
                 <div class="flex gap-1">
                     <div style="width:4.5rem;">
                         <label class="text-xs font-semibold" style="color:var(--text-secondary);">Remotes</label>
-                        <input type="number" min="0" x-model.number="currentInspection({{ $sectionJs }}).remotes_count" class="prop-input w-full">
+                        <input type="number" min="0" x-model.number="currentInspection({{ $sectionJs }}).remotes_count"
+                               @input="autosaveDetails({{ $sectionJs }})" class="prop-input w-full">
                     </div>
                     <div class="flex-1">
                         <label class="text-xs font-semibold" style="color:var(--text-secondary);">&nbsp;</label>
-                        <input type="text" x-model="currentInspection({{ $sectionJs }}).remotes_description" placeholder="e.g. gate remotes" class="prop-input w-full">
+                        <input type="text" x-model="currentInspection({{ $sectionJs }}).remotes_description"
+                               @input="autosaveDetails({{ $sectionJs }})" placeholder="e.g. gate remotes" class="prop-input w-full">
                     </div>
                 </div>
                 @if($section === 'out')
                 <div>
                     <label class="text-xs font-semibold" style="color:var(--text-secondary);">Move-in date</label>
-                    <input type="date" x-model="currentInspection({{ $sectionJs }}).move_in_date_recorded" class="prop-input w-full">
+                    <input type="date" x-model="currentInspection({{ $sectionJs }}).move_in_date_recorded"
+                           @change="autosaveDetails({{ $sectionJs }})" class="prop-input w-full">
                 </div>
                 @endif
             </div>
-            <div class="flex justify-end">
-                <button type="button" :disabled="detailsBusy[{{ $sectionJs }}]" @click="saveDetailsFor({{ $sectionJs }})"
-                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
-                        x-text="detailsBusy[{{ $sectionJs }}] ? 'Saving…' : 'Save details'"></button>
-            </div>
-            <div x-show="detailsError[{{ $sectionJs }}]" x-cloak class="text-xs" style="color:#ef4444;" x-text="detailsError[{{ $sectionJs }}]"></div>
         </div>
 
         {{-- One banner per conflicting group — §0.4, must be resolved before completion. --}}
@@ -126,102 +124,153 @@
             </div>
         </template>
 
-        {{-- Real empty state (BUILD_STANDARD §1a) — 2026-09-21, Johan: a started
-             inspection with zero items just showed "Ready to sign" with nothing
-             above it, which read as the button doing nothing. Point back at
-             where items are actually added rather than rendering silently. --}}
+        {{-- Real empty state (BUILD_STANDARD §1a) — 2026-09-21, Johan: a
+             started inspection with zero items just showed "Ready to sign"
+             with nothing above it, which read as the button doing nothing.
+             Point back at where items are actually added rather than
+             rendering silently. --}}
         <p x-show="!activeItems().length" class="text-xs" style="color:var(--text-muted);">
             This property has no inspection items yet. Add rooms and meters under
             Inspection Items above, then come back here to record them.
         </p>
 
+        {{-- Item 5/7, 2026-09-22 — overall progress + the whole-inspection
+             "All Good" bulk-fill, sitting above the room list so it's the
+             first thing seen once there's something to record. --}}
+        <div x-show="activeItems().length" class="flex items-center justify-between gap-2">
+            <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
+                  x-text="inspectionProgress({{ $sectionJs }}).recorded + '/' + inspectionProgress({{ $sectionJs }}).total + ' recorded'"></span>
+            <button type="button" :disabled="markAllGoodBusy" @click="markAllGood({{ $sectionJs }})"
+                    class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
+                    x-text="markAllGoodBusy ? 'Marking…' : 'All Good — whole inspection'"></button>
+        </div>
+
         {{-- 2026-09-21, Johan on property 5792 — same room-heading grouping
              as the Inspection Items panel above, applied here so a walkthrough
              actually walks room by room instead of a flat list scattered by
              creation order. Keyed on group.room.id (roomGroups()), never on
-             the room's free-text label. --}}
+             the room's free-text label. Item 7, 2026-09-22 — heading shows
+             recorded/total + photo count and collapses once the room is
+             fully recorded (click the heading to expand/collapse any time). --}}
         <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
             <div class="space-y-1 pt-2">
                 <div class="flex items-center justify-between gap-2">
-                    <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
-                        x-text="group.room ? group.room.label : 'General'"></h4>
-                    {{-- §17, Johan on Retha's real paper form: "she strikes
-                         ENTIRE ROOMS out with one big N/A." Only offered when
-                         N/A is actually one of the agency's configured
-                         condition states. --}}
-                    <button type="button" x-show="group.room && hasNaConditionState()" :disabled="markNaBusy[group.room?.id]"
-                            @click="markRoomNa({{ $sectionJs }}, group.room)"
-                            class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
-                            x-text="markNaBusy[group.room?.id] ? 'Marking…' : 'Mark room N/A'"></button>
+                    <button type="button" class="flex items-center gap-1.5 text-left" @click="toggleRoomOpen({{ $sectionJs }}, group)">
+                        <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"
+                             :style="'color:var(--text-muted); transition:transform .15s; transform:rotate(' + (isRoomOpen({{ $sectionJs }}, group) ? 90 : 0) + 'deg);'">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                        </svg>
+                        <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
+                            x-text="(group.room ? group.room.label : 'General') + ' — ' + roomProgress({{ $sectionJs }}, group).recorded + '/' + roomProgress({{ $sectionJs }}, group).total
+                                    + (roomProgress({{ $sectionJs }}, group).photos ? ' · ' + roomProgress({{ $sectionJs }}, group).photos + ' photo' + (roomProgress({{ $sectionJs }}, group).photos === 1 ? '' : 's') : '')"></h4>
+                    </button>
+                    <div class="flex items-center gap-1">
+                        <button type="button" x-show="group.room" :disabled="markGoodBusy[group.room?.id]"
+                                @click="markRoomGood({{ $sectionJs }}, group.room)"
+                                class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
+                                x-text="markGoodBusy[group.room?.id] ? 'Marking…' : 'All Good'"></button>
+                        {{-- §17, Johan on Retha's real paper form: "she
+                             strikes ENTIRE ROOMS out with one big N/A." Only
+                             offered when N/A is actually one of the agency's
+                             configured condition states. --}}
+                        <button type="button" x-show="group.room && hasNaConditionState()" :disabled="markNaBusy[group.room?.id]"
+                                @click="markRoomNa({{ $sectionJs }}, group.room)"
+                                class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
+                                x-text="markNaBusy[group.room?.id] ? 'Marking…' : 'Mark room N/A'"></button>
+                    </div>
                 </div>
-                <template x-for="item in group.items" :key="item.id">
-                    <div class="py-2 pl-3 space-y-1.5" style="border-bottom:1px solid var(--border);">
-                        <div class="flex items-center justify-between gap-3">
+
+                <div x-show="isRoomOpen({{ $sectionJs }}, group)" x-collapse class="space-y-1">
+                    <template x-for="item in group.items" :key="item.id">
+                        <div class="py-2 pl-3 space-y-1.5" style="border-bottom:1px solid var(--border);">
                             <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
-                            <span x-show="conditionFor({{ $sectionJs }}, item.id)" class="text-xs uppercase tracking-wide"
-                                  style="color:var(--text-muted);" x-text="conditionLabel(conditionFor({{ $sectionJs }}, item.id)?.condition)"></span>
-                        </div>
-                        <div x-show="obsError[_obsKey({{ $sectionJs }}, item.id)]" x-cloak class="text-xs" style="color:#ef4444;"
-                             x-text="obsError[_obsKey({{ $sectionJs }}, item.id)]"></div>
-                        <div class="flex flex-wrap items-center gap-2">
-                            {{-- §17, Johan 2026-09-21 — the agency's own
-                                 condition vocabulary, not a hardcoded set of
-                                 options; N/A ("was never here") sits
-                                 alongside Missing ("should be here and
-                                 isn't") as a distinct, equally real state. --}}
-                            <select x-model="obsField({{ $sectionJs }}, item.id).condition" class="prop-input" style="max-width:9rem;">
-                                <option value="">Record…</option>
+                            <div class="flex flex-wrap items-center gap-2">
+                                {{-- Item 3, 2026-09-22 — one tap, agency's
+                                     own condition vocabulary
+                                     (RentalInspectionSetting::
+                                     conditionStatesFor()), rendered
+                                     left-to-right in the agency's configured
+                                     order. Item 4 — no separate condition
+                                     text anywhere else; the selected button
+                                     itself is the only place the current
+                                     condition is shown. --}}
                                 <template x-for="state in conditionStates" :key="state.key">
-                                    <option :value="state.key" x-text="state.label"></option>
+                                    <button type="button"
+                                            :disabled="obsBusy[_obsKey({{ $sectionJs }}, item.id)]"
+                                            @click="onConditionTap({{ $sectionJs }}, item, state.key)"
+                                            class="text-xs font-semibold px-2.5 py-1.5 rounded-md"
+                                            :style="selectedConditionFor({{ $sectionJs }}, item) === state.key
+                                                ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
+                                                : 'background:var(--surface-2); color:var(--text-secondary);'"
+                                            x-text="state.label"></button>
                                 </template>
-                            </select>
-                            <input type="text" x-show="obsField({{ $sectionJs }}, item.id).condition && conditionRequiresNotes(obsField({{ $sectionJs }}, item.id).condition)"
-                                   x-model="obsField({{ $sectionJs }}, item.id).notes" placeholder="Notes (required)"
-                                   class="prop-input flex-1" style="min-width:10rem;">
-                            <label class="text-xs font-semibold px-3 py-2 rounded-md cursor-pointer" style="background:var(--surface-2); color:var(--text-secondary);">
-                                <span x-text="obsField({{ $sectionJs }}, item.id).photo ? obsField({{ $sectionJs }}, item.id).photo.name : 'Photo'"></span>
-                                <input type="file" accept="image/*" class="hidden"
-                                       @change="obsField({{ $sectionJs }}, item.id).photo = $event.target.files[0] || null">
-                            </label>
-                            <button type="button" :disabled="obsBusy[_obsKey({{ $sectionJs }}, item.id)] || !obsField({{ $sectionJs }}, item.id).condition"
-                                    @click="recordObservation({{ $sectionJs }}, item)"
-                                    class="px-3 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
-                                    x-text="obsBusy[_obsKey({{ $sectionJs }}, item.id)] ? 'Saving…' : 'Save'"></button>
+                                <input type="text"
+                                       x-show="selectedConditionFor({{ $sectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $sectionJs }}, item))"
+                                       x-model="obsField({{ $sectionJs }}, item.id).notes"
+                                       @input="onNotesInput({{ $sectionJs }}, item)"
+                                       placeholder="Notes (required)"
+                                       class="prop-input flex-1" style="min-width:10rem;">
+
+                                {{-- Item 6, 2026-09-22 — camera control only
+                                     when the item has no photo yet; a
+                                     thumbnail + count (clickable) once it
+                                     does, with a compact "+" to add more. --}}
+                                <template x-if="!itemPhotosFor({{ $sectionJs }}, item).length">
+                                    <label class="text-xs font-semibold px-2.5 py-1.5 rounded-md cursor-pointer inline-flex items-center"
+                                           :style="obsField({{ $sectionJs }}, item.id).photo
+                                                ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
+                                                : 'background:var(--surface-2); color:var(--text-secondary);'"
+                                           :title="obsField({{ $sectionJs }}, item.id).photo ? 'Photo attached — saves once this item is recorded' : 'Add photo'">
+                                        <span>&#128247;</span>
+                                        <input type="file" accept="image/*" class="hidden"
+                                               @change="onPhotoSelected({{ $sectionJs }}, item, $event.target.files[0] || null); $event.target.value = null;">
+                                    </label>
+                                </template>
+                                <template x-if="itemPhotosFor({{ $sectionJs }}, item).length">
+                                    <div class="flex items-center gap-1">
+                                        <button type="button" @click="openItemPhotos({{ $sectionJs }}, item)" title="View photos">
+                                            <img :src="itemPhotosFor({{ $sectionJs }}, item).slice(-1)[0].storage_path" class="rounded-md object-cover" style="width:2rem; height:2rem;" alt="">
+                                        </button>
+                                        <span class="text-xs" style="color:var(--text-muted);" x-text="itemPhotosFor({{ $sectionJs }}, item).length"></span>
+                                        <label class="text-xs font-semibold px-1.5 py-1 rounded-md cursor-pointer" style="background:var(--surface-2); color:var(--text-secondary);" title="Add another photo">
+                                            <span>&#43;</span>
+                                            <input type="file" accept="image/*" class="hidden"
+                                                   @change="onPhotoSelected({{ $sectionJs }}, item, $event.target.files[0] || null); $event.target.value = null;">
+                                        </label>
+                                    </div>
+                                </template>
+                            </div>
                         </div>
-                    </div>
-                </template>
-                {{-- §17, Johan 2026-09-21, from Retha's real paper form: one
-                     free-text notes box per room, holding evidence that
-                     belongs to the whole room, not any single item —
-                     "3x nails in wall", "damp under windows in corner". In
-                     addition to per-item notes above, not instead. --}}
-                <template x-if="group.room">
-                    <div class="pl-3 pt-1 flex items-start gap-2" x-init="roomNoteField({{ $sectionJs }}, group.room.id)">
-                        <textarea x-model="roomNoteDraft[{{ $sectionJs }} + '_' + group.room.id]"
-                                  placeholder="Room notes (e.g. 3x nails in wall, damp under windows in corner)"
-                                  rows="2" class="prop-input flex-1 text-xs" style="min-width:10rem;"></textarea>
-                        <button type="button" :disabled="roomNoteBusy[{{ $sectionJs }} + '_' + group.room.id]"
-                                @click="saveRoomNote({{ $sectionJs }}, group.room)"
-                                class="text-xs font-semibold px-3 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
-                                x-text="roomNoteBusy[{{ $sectionJs }} + '_' + group.room.id] ? 'Saving…' : 'Save note'"></button>
-                    </div>
-                </template>
+                    </template>
+
+                    {{-- §17, Johan 2026-09-21, from Retha's real paper form:
+                         one free-text notes box per room, holding evidence
+                         that belongs to the whole room, not any single item —
+                         "3x nails in wall", "damp under windows in corner".
+                         In addition to per-item notes above, not instead.
+                         Item 2, 2026-09-22 — autosaves; no Save button. --}}
+                    <template x-if="group.room">
+                        <div class="pl-3 pt-1" x-init="roomNoteField({{ $sectionJs }}, group.room.id)">
+                            <textarea x-model="roomNoteDraft[{{ $sectionJs }} + '_' + group.room.id]"
+                                      @input="autosaveRoomNote({{ $sectionJs }}, group.room)"
+                                      placeholder="Room notes (e.g. 3x nails in wall, damp under windows in corner)"
+                                      rows="2" class="prop-input w-full text-xs"></textarea>
+                        </div>
+                    </template>
+                </div>
             </div>
         </template>
 
         {{-- §17, Johan 2026-09-21, from Retha's real paper form: a single
              free-text summary for the whole inspection, at the foot — hers
-             reads "OVERALL - APARTMENT CLEAN - FAIR - PARTIALLY FURNISHED". --}}
+             reads "OVERALL - APARTMENT CLEAN - FAIR - PARTIALLY FURNISHED".
+             Item 2, 2026-09-22 — autosaves; no Save button. --}}
         <div class="pt-2 space-y-1" style="border-top:1px solid var(--border);">
             <label class="block text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);">Overall notes</label>
-            <div class="flex items-start gap-2">
-                <textarea x-model="currentInspection({{ $sectionJs }}).overall_notes" rows="2"
-                          placeholder="e.g. Apartment clean, fair condition, partially furnished"
-                          class="prop-input flex-1 text-xs"></textarea>
-                <button type="button" :disabled="overallNotesBusy[{{ $sectionJs }}]" @click="saveOverallNotes({{ $sectionJs }})"
-                        class="text-xs font-semibold px-3 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
-                        x-text="overallNotesBusy[{{ $sectionJs }}] ? 'Saving…' : 'Save'"></button>
-            </div>
+            <textarea x-model="currentInspection({{ $sectionJs }}).overall_notes" rows="2"
+                      @input="autosaveOverallNotes({{ $sectionJs }})"
+                      placeholder="e.g. Apartment clean, fair condition, partially furnished"
+                      class="prop-input w-full text-xs"></textarea>
         </div>
 
         <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>

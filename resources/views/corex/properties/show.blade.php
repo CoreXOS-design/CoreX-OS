@@ -1302,7 +1302,7 @@
                 ['key'=>'info',      'label'=>'Info'],
                 ['key'=>'gallery',   'label'=>'Gallery'],
                 ['key'=>'rental',    'label'=>'Rental'],
-                ['key'=>'rental-images', 'label'=>'Rental Images'],
+                ['key'=>'inspections', 'label'=>'Inspections'],
                 ['key'=>'contacts',  'label'=>'Contacts'],
                 ['key'=>'notes',     'label'=>'Notes'],
                 ['key'=>'history',   'label'=>'History'],
@@ -1313,7 +1313,7 @@
             @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
                 @continue
             @endif
-            @if($tab['key'] === 'rental-images' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
+            @if($tab['key'] === 'inspections' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
                 @continue
             @endif
             {{-- AT-402 — a SETTLED (not new, not type-change-pending) sale
@@ -4515,7 +4515,7 @@
 
         {{-- ── RENTAL IMAGES TAB ─────────────────────────────────────────────── --}}
         @if(!$isNew && strtolower($property->listing_type ?? '') === 'rental')
-        <div x-show="activeTab === 'rental-images'" x-cloak class="p-6 space-y-4"
+        <div x-show="activeTab === 'inspections'" x-cloak class="p-6 space-y-4"
              x-data="rentalImages({
                 csrf: '{{ csrf_token() }}',
                 urls: {
@@ -4555,10 +4555,38 @@
                     // quote — use single quotes or plain words instead.
                     inspectionsBase: '{{ url('/corex/rental-inspections') }}'
                 },
-                inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }}
+                inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }},
+                {{-- Item 8, 2026-09-22 — "the property already knows it."
+                     Read-only display value, sourced from the live Property
+                     record, never the per-inspection snapshot column. --}}
+                propertyType: {{ Js::from($property->property_type) }},
+                {{-- Item 5, 2026-09-22 — "All Good" bulk-fill's target
+                     state, resolved server-side so the client never
+                     hardcodes which key means "the baseline". --}}
+                baselineConditionKey: {{ Js::from(\App\Models\RentalInspectionSetting::baselineConditionKeyFor($property->agency_id)) }}
              })">
 
             <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
+
+            {{-- Item 2, 2026-09-22 — ONE quiet save indicator for the whole
+                 screen, never per row: every autosave (condition, notes,
+                 room note, overall notes, header block) routes through
+                 saveState. A failed save stays visible with a working
+                 Retry — never silently lost. --}}
+            <div x-show="saveState.status !== 'idle'" x-cloak
+                 class="fixed z-[9998] top-20 right-6 flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold shadow-lg"
+                 :style="saveState.status === 'failed'
+                    ? 'background:var(--ds-crimson); color:#fff; border:1px solid var(--ds-crimson);'
+                    : (saveState.status === 'saving'
+                        ? 'background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);'
+                        : 'background:var(--surface); color:#16a34a; border:1px solid #16a34a;')">
+                <span x-show="saveState.status === 'saving'">Saving…</span>
+                <span x-show="saveState.status === 'saved'">&#10003; Saved</span>
+                <span x-show="saveState.status === 'failed'" class="flex items-center gap-2">
+                    <span x-text="saveState.message || 'Save failed'"></span>
+                    <button type="button" @click="retrySave()" class="underline font-bold">Retry</button>
+                </span>
+            </div>
 
             {{-- Delete ALL rental images — destructive; behind a type-to-confirm modal.
                  AT-267 — same assistant gate as the per-image delete in
@@ -4738,7 +4766,7 @@
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text">In Inspection</span>
                             <span x-show="currentInspection('in')" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="currentInspection('in')?.status.replace('_',' ')"></span>
+                                  x-text="currentInspection('in')?.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress('in').recorded + '/' + inspectionProgress('in').total : '')"></span>
                         </h3>
                         <svg class="prop-section-chevron" :class="open['in_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
@@ -4753,7 +4781,7 @@
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text">Out Inspection</span>
                             <span x-show="currentInspection('out')" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="currentInspection('out')?.status.replace('_',' ')"></span>
+                                  x-text="currentInspection('out')?.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress('out').recorded + '/' + inspectionProgress('out').total : '')"></span>
                         </h3>
                         <svg class="prop-section-chevron" :class="open['out_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
@@ -4941,6 +4969,44 @@
                 // recording UI's condition picker instead of a hardcoded
                 // set of <option> tags.
                 conditionStates: config.inspectionData.condition_states,
+                // Item 8, 2026-09-22 — read-only, sourced from the live
+                // Property record.
+                propertyType: config.propertyType,
+                // Item 5, 2026-09-22 — "All Good" bulk-fill's target state.
+                baselineConditionKey: config.baselineConditionKey,
+
+                // ── Inspections-tab rebuild, 2026-09-22 — ONE quiet save
+                // indicator for the whole screen (never per-row): every
+                // autosave (condition, notes, room note, overall notes,
+                // header block) routes through _autosave() below, which
+                // owns this single piece of state. A failed save stays
+                // visible with a working Retry, never silently lost. ──────
+                saveState: { status: 'idle', message: '', retry: null },
+                _saveSeq: 0,
+                _debounceTimers: {},
+                _debounce(key, fn, ms) {
+                    clearTimeout(this._debounceTimers[key]);
+                    this._debounceTimers[key] = setTimeout(fn, ms || 700);
+                },
+                async _autosave(fn) {
+                    const seq = ++this._saveSeq;
+                    this.saveState = { status: 'saving', message: '', retry: null };
+                    try {
+                        await fn();
+                        if (seq === this._saveSeq) {
+                            this.saveState = { status: 'saved', message: 'Saved', retry: null };
+                            setTimeout(() => {
+                                if (seq === this._saveSeq && this.saveState.status === 'saved') {
+                                    this.saveState = { status: 'idle', message: '', retry: null };
+                                }
+                            }, 2000);
+                        }
+                    } catch (e) {
+                        this.saveState = { status: 'failed', message: e.message || 'Save failed.', retry: () => this._autosave(fn) };
+                    }
+                },
+                retrySave() { if (this.saveState.retry) this.saveState.retry(); },
+
                 itemError: '',
                 itemBusy: false,
                 newItem: { kind: 'space', label: '', space_type: '' },
@@ -5145,11 +5211,20 @@
 
                 obsForm: {},
                 obsBusy: {},
-                obsError: {},
                 _obsKey(section, itemId) { return section + '_' + itemId; },
                 obsField(section, itemId) {
                     const key = this._obsKey(section, itemId);
                     return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '', photo: null });
+                },
+                // Item 3, 2026-09-22 — what the condition-button row shows as
+                // selected: a not-yet-committed tap (still waiting on a
+                // required note) takes priority over the last SAVED
+                // condition, so the agent's own tap is never visually
+                // overridden by stale server state while they're mid-entry.
+                selectedConditionFor(section, item) {
+                    const pending = this.obsForm[this._obsKey(section, item.id)];
+                    if (pending && pending.condition) return pending.condition;
+                    return this.conditionFor(section, item.id)?.condition || null;
                 },
 
                 // §17, Johan 2026-09-21 — client-side mirror of
@@ -5168,34 +5243,135 @@
                     return (this.conditionStates || []).some(s => s.key === 'n_a');
                 },
 
-                async recordObservation(section, item) {
+                // Item 2/3, 2026-09-22 — one tap. A condition that needs no
+                // reason (§0.3) commits immediately; one that does waits for
+                // onNotesInput() below to see a non-empty note before it
+                // counts as recorded (item 3: "States with requires_notes
+                // force the note field before the item counts as recorded").
+                onConditionTap(section, item, key) {
+                    const form = this.obsField(section, item.id);
+                    form.condition = key;
+                    if (!this.conditionRequiresNotes(key) || form.notes.trim()) {
+                        this._commitObservation(section, item);
+                    }
+                },
+                // Debounced so a commit fires once typing settles, not on
+                // every keystroke — same 800ms pause used for room/overall
+                // notes below.
+                onNotesInput(section, item) {
+                    const obsKey = this._obsKey(section, item.id);
+                    this._debounce('notes_' + obsKey, () => {
+                        const form = this.obsField(section, item.id);
+                        if (form.condition && this.conditionRequiresNotes(form.condition) && form.notes.trim()) {
+                            this._commitObservation(section, item);
+                        }
+                    }, 800);
+                },
+                // Item 6 — a photo picked before any condition is recorded
+                // for this item is staged and uploaded once an observation
+                // exists (below); a photo picked against an ALREADY-recorded
+                // item uploads immediately against its latest observation —
+                // no condition re-tap needed to attach another photo.
+                async onPhotoSelected(section, item, file) {
+                    if (!file) return;
+                    const existing = this.conditionFor(section, item.id);
+                    if (existing) {
+                        const insp = this.currentInspection(section);
+                        await this._autosave(async () => {
+                            const photo = await this._uploadObservationPhoto(insp.id, existing.id, file);
+                            existing.photos = existing.photos || [];
+                            existing.photos.push(photo);
+                        });
+                    } else {
+                        this.obsField(section, item.id).photo = file;
+                    }
+                },
+
+                // The ONE path an observation is actually recorded through —
+                // called by onConditionTap() (immediate) and onNotesInput()
+                // (debounced), never by a button click. The observation POST
+                // and any staged photo upload are two separate _autosave()
+                // calls, deliberately: if the photo step fails, Retry only
+                // re-uploads the photo — the observation itself already
+                // saved and must never be re-posted (§3.1, append-only).
+                async _commitObservation(section, item) {
                     const key = this._obsKey(section, item.id);
                     const form = this.obsField(section, item.id);
-                    if (!form.condition) return;
-                    if (this.conditionRequiresNotes(form.condition) && !form.notes.trim()) {
-                        this.obsError[key] = 'Notes are required for this condition.';
-                        return;
-                    }
+                    if (!form.condition || this.obsBusy[key]) return;
+                    if (this.conditionRequiresNotes(form.condition) && !form.notes.trim()) return;
+                    clearTimeout(this._debounceTimers['notes_' + key]);
                     const insp = this.currentInspection(section);
+                    const photoFile = form.photo;
                     this.obsBusy[key] = true;
-                    this.obsError[key] = '';
-                    try {
-                        const observation = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/observations`, {
+                    let observation = null;
+                    await this._autosave(async () => {
+                        observation = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/observations`, {
                             rental_inspection_item_id: item.id,
                             condition: form.condition,
                             notes: form.notes || null,
                             source: section === 'in' ? 'in_inspection' : 'out_inspection',
                         });
-                        const photoFile = form.photo;
-                        this.obsForm[key] = { condition: '', notes: '', photo: null };
-                        if (photoFile) {
-                            observation.photos = [await this._uploadObservationPhoto(insp.id, observation.id, photoFile)];
-                        } else {
-                            observation.photos = [];
-                        }
+                        observation.photos = [];
                         insp.observations.push(observation);
-                    } catch (e) { this.obsError[key] = e.message; }
-                    finally { this.obsBusy[key] = false; }
+                    });
+                    this.obsBusy[key] = false;
+                    if (!observation) return; // POST failed — _autosave already surfaced it with Retry.
+                    this.obsForm[key] = { condition: '', notes: '', photo: null };
+                    this._collapseRoomIfComplete(section, item);
+                    if (photoFile) {
+                        await this._autosave(async () => {
+                            const photo = await this._uploadObservationPhoto(insp.id, observation.id, photoFile);
+                            observation.photos.push(photo);
+                        });
+                    }
+                },
+
+                // Item 6 — every photo ever attached to any observation this
+                // item has this inspection (not just the latest one), so a
+                // corrected condition never hides an earlier photo.
+                itemPhotosFor(section, item) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return [];
+                    return insp.observations.filter(o => o.rental_inspection_item_id === item.id).flatMap(o => o.photos || []);
+                },
+                openItemPhotos(section, item) {
+                    const urls = this.itemPhotosFor(section, item).map(p => p.storage_path);
+                    if (!urls.length) return;
+                    this.viewer = { open: true, images: urls, index: urls.length - 1 };
+                },
+
+                // Item 7 — recorded/total + photo count, per room and for
+                // the whole inspection.
+                roomProgress(section, group) {
+                    const total = group.items.length;
+                    const recorded = group.items.filter(i => this.conditionFor(section, i.id)).length;
+                    const photos = group.items.reduce((sum, i) => sum + this.itemPhotosFor(section, i).length, 0);
+                    return { recorded, total, photos };
+                },
+                inspectionProgress(section) {
+                    const items = this.activeItems();
+                    return { recorded: items.filter(i => this.conditionFor(section, i.id)).length, total: items.length };
+                },
+                // A room defaults OPEN while incomplete and COLLAPSED once
+                // every item in it is recorded (item 7) — but a manual
+                // toggle (click the heading) always wins over that computed
+                // default for the rest of the page's life, so an agent can
+                // still reopen a finished room to review or correct it.
+                roomOpenOverride: {},
+                isRoomOpen(section, group) {
+                    if (!group.room) return true; // General (meters/legacy) — never auto-collapsed.
+                    const key = section + '_' + group.room.id;
+                    if (this.roomOpenOverride[key] !== undefined) return this.roomOpenOverride[key];
+                    const p = this.roomProgress(section, group);
+                    return !(p.total > 0 && p.recorded === p.total);
+                },
+                toggleRoomOpen(section, group) {
+                    if (!group.room) return;
+                    this.roomOpenOverride[section + '_' + group.room.id] = !this.isRoomOpen(section, group);
+                },
+                _collapseRoomIfComplete(section, item) {
+                    const roomId = item.room ? item.room.id : item.property_room_id;
+                    if (roomId) this._collapseRoomIfCompleteById(section, roomId);
                 },
 
                 _uploadObservationPhoto(inspectionId, observationId, file) {
@@ -5233,12 +5409,50 @@
                     if (!window.confirm(`Mark every item in "${room.label}" as N/A for this inspection?`)) return;
                     const insp = this.currentInspection(section);
                     this.markNaBusy[room.id] = true;
-                    this.lifecycleError = '';
-                    try {
+                    await this._autosave(async () => {
                         const result = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/rooms/${room.id}/mark-na`, {});
                         insp.observations.push(...result.observations);
-                    } catch (e) { this.lifecycleError = e.message; }
-                    finally { this.markNaBusy[room.id] = false; }
+                        this.roomOpenOverride[section + '_' + room.id] = false;
+                    });
+                    this.markNaBusy[room.id] = false;
+                },
+
+                // Item 5, 2026-09-22 — "All Good" bulk-fill, per-room and
+                // whole-inspection. Only fills items with no observation yet
+                // THIS inspection (server-enforced too — never overwrites an
+                // agent's own entry) and is reversible the same way any
+                // observation is: recording a different condition on that
+                // item afterward simply becomes the new current fact.
+                markGoodBusy: {},
+                async markRoomGood(section, room) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return;
+                    this.markGoodBusy[room.id] = true;
+                    await this._autosave(async () => {
+                        const result = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/rooms/${room.id}/mark-good`, {});
+                        insp.observations.push(...result.observations);
+                        this.roomOpenOverride[section + '_' + room.id] = false;
+                    });
+                    this.markGoodBusy[room.id] = false;
+                },
+                markAllGoodBusy: false,
+                async markAllGood(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return;
+                    if (!window.confirm('Mark every unrecorded item in this inspection as ' + this.conditionLabel(this.baselineConditionKey) + '? Items already recorded are left exactly as they are.')) return;
+                    this.markAllGoodBusy = true;
+                    await this._autosave(async () => {
+                        const result = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/mark-all-good`, {});
+                        insp.observations.push(...result.observations);
+                        this.roomGroups().filter(g => g.room).forEach(g => this._collapseRoomIfCompleteById(section, g.room.id));
+                    });
+                    this.markAllGoodBusy = false;
+                },
+                _collapseRoomIfCompleteById(section, roomId) {
+                    const group = this.roomGroups().find(g => g.room && g.room.id === roomId);
+                    if (!group) return;
+                    const p = this.roomProgress(section, group);
+                    if (p.total > 0 && p.recorded === p.total) this.roomOpenOverride[section + '_' + roomId] = false;
                 },
 
                 // §17, Johan 2026-09-21, from Retha's real paper form: one
@@ -5254,7 +5468,6 @@
                     return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
                 },
                 roomNoteDraft: {},
-                roomNoteBusy: {},
                 roomNoteField(section, roomId) {
                     const key = section + '_' + roomId;
                     if (this.roomNoteDraft[key] === undefined) {
@@ -5262,35 +5475,43 @@
                     }
                     return this.roomNoteDraft[key];
                 },
-                async saveRoomNote(section, room) {
+                // Item 2, 2026-09-22 — autosaves 800ms after typing settles;
+                // no Save button. Each settle appends a NEW note row
+                // (§3.2 — room notes are immutable, "current" = latest),
+                // same as the old explicit-Save flow already did.
+                autosaveRoomNote(section, room) {
+                    const key = section + '_' + room.id;
+                    this._debounce('roomnote_' + key, () => this._commitRoomNote(section, room), 800);
+                },
+                async _commitRoomNote(section, room) {
                     const key = section + '_' + room.id;
                     const text = (this.roomNoteDraft[key] || '').trim();
-                    if (!text) return;
                     const insp = this.currentInspection(section);
-                    this.roomNoteBusy[key] = true;
-                    this.lifecycleError = '';
-                    try {
+                    if (!text || !insp) return;
+                    await this._autosave(async () => {
                         const note = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/rooms/${room.id}/notes`, { note: text });
                         insp.roomNotes = insp.roomNotes || [];
                         insp.roomNotes.push(note);
-                    } catch (e) { this.lifecycleError = e.message; }
-                    finally { this.roomNoteBusy[key] = false; }
+                    });
                 },
 
                 // §17, Johan 2026-09-21, from Retha's real paper form: one
                 // free-text summary for the whole inspection, at the foot.
-                overallNotesBusy: {},
-                async saveOverallNotes(section) {
+                // Item 2, 2026-09-22 — autosaves 800ms after typing settles;
+                // no Save button. Plain mutable field (not append-only), so
+                // repeated debounced saves simply overwrite in place.
+                autosaveOverallNotes(section) {
+                    this._debounce('overallnotes_' + section, () => this._commitOverallNotes(section), 800);
+                },
+                async _commitOverallNotes(section) {
                     const insp = this.currentInspection(section);
-                    this.overallNotesBusy[section] = true;
-                    this.lifecycleError = '';
-                    try {
+                    if (!insp) return;
+                    await this._autosave(async () => {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/overall-notes`, {
                             overall_notes: insp.overall_notes || null,
                         });
                         Object.assign(insp, updated);
-                    } catch (e) { this.lifecycleError = e.message; }
-                    finally { this.overallNotesBusy[section] = false; }
+                    });
                 },
 
                 // ── Discrepancies, signatures, lifecycle (§0.4/§0.7/§11) ────────
@@ -5344,18 +5565,21 @@
                 // currently holds — no separate form-state object to keep in
                 // sync, matching how the item/observation inputs on this same
                 // component already read/write directly off live data.
-                detailsBusy: {},
-                detailsError: {},
-                async saveDetailsFor(section) {
+                // Item 2/8, 2026-09-22 — autosaves 700ms after a field
+                // changes; no Save button. property_type is no longer sent
+                // — item 8 made it read-only, derived from the Property
+                // record, never client-edited.
+                autosaveDetails(section) {
+                    this._debounce('details_' + section, () => this._commitDetails(section), 700);
+                },
+                async _commitDetails(section) {
                     const insp = this.currentInspection(section);
-                    this.detailsError[section] = '';
-                    this.detailsBusy[section] = true;
-                    try {
+                    if (!insp) return;
+                    await this._autosave(async () => {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/details`, {
                             electricity_meter_reading: insp.electricity_meter_reading || null,
                             water_meter_reading: insp.water_meter_reading || null,
                             furnished_status: insp.furnished_status || null,
-                            property_type: insp.property_type || null,
                             keys_count: insp.keys_count ?? null,
                             keys_description: insp.keys_description || null,
                             remotes_count: insp.remotes_count ?? null,
@@ -5363,8 +5587,7 @@
                             move_in_date_recorded: insp.move_in_date_recorded || null,
                         });
                         Object.assign(insp, updated);
-                    } catch (e) { this.detailsError[section] = e.message; }
-                    finally { this.detailsBusy[section] = false; }
+                    });
                 },
 
                 // ── In/out signing, shared (§15, Stages 2-3 — the old

@@ -425,6 +425,14 @@ fields are plain integers so the main risk is a blank-posted-as-zero footgun —
 
 ## 4. UI placement & navigation — expanding the Rental Images tab
 
+**Amendment, 2026-09-22 (§20):** the tab itself is renamed **"Inspections"** — label and internal tab
+key only (`'rental-images'` → `'inspections'` in `show.blade.php`'s tab list, guard, and `x-show`, plus
+the one external redirect target in `RentalInspectionController::store()`). No database table, column,
+route, or model name changed — every route under `corex.properties.rental-images.*` and every
+`rental_inspection_*` table keeps its existing name exactly as it is. Wherever "Rental Images tab" is
+read below, read it as the same tab, now labelled Inspections. See §20 for the full rebuild this
+amendment shipped alongside.
+
 The existing **Rental Images** tab (`resources/views/corex/properties/show.blade.php`, guarded on
 `listing_type === 'rental'`) is rebuilt in place, not replaced with a new tab:
 
@@ -1986,3 +1994,120 @@ Johan was explicit: these three are directly evidenced on his real paper documen
 ruling — build them now. Everything else visible on Retha's documents (whether the recording screen gets
 a broader rebuild to match her form's full shape) is Johan's decision, still pending, and is cc5's
 `.ai/specs/rental-inspection-form.md` to own — not touched or anticipated here.
+
+---
+
+## 20. Inspections-tab rebuild (2026-09-22, cc2) — kill the 90-click walk, one-tap condition, autosave
+
+**Why:** Johan, ahead of a client demo: "looks shit, cannot see anyone wanting to use it. it will become
+a dead feature." Root cause named directly: every item had its own Save button — a 15-room property
+meant roughly 90 clicks to record a walkthrough. This section rebuilds the recording surface (§4/§14/§17/
+§18) to remove that friction, without changing the underlying data model (§3) or the API contract
+(§14.2) at all — every endpoint listed below already existed before this rebuild; only the client that
+calls them changed.
+
+### 20.1 Tab renamed
+
+"Rental Images" → **"Inspections"**, label and tab-key only (§4's amendment note). No table, column,
+route, or model renamed.
+
+### 20.2 Autosave — no per-field Save button
+
+Condition, item notes, room notes, overall notes, and the header block (meter readings, furnished
+status, keys/remotes, move-in date) all persist on change with a debounce (700ms for the header block,
+800ms for free-text notes) — no button. One condition is skipped: **signature capture buttons stay
+explicit clicks** — signing is a deliberate once-per-party action, not a per-field save, and was never
+part of Johan's "90 clicks" complaint.
+
+The contract did not need to change to make this possible: `POST .../details`, `.../observations`,
+`.../rooms/{room}/notes`, and `.../overall-notes` already accepted a full or partial payload and
+already returned the updated record — autosave just calls them on a timer instead of on a click.
+
+One consequence worth recording plainly: because observations and room notes are append-only/immutable
+(§3.1/§17.2 — never edited, only superseded by a new row), a user who keeps editing an already-recorded
+item's notes after the fact creates a NEW observation row each time a debounce settles, not an edit to
+the first one. This was already true under the old explicit-Save-button flow (clicking Save again did
+the same); autosave does not introduce a new class of behaviour, it just removes the click that used to
+gate it.
+
+**One quiet indicator for the whole screen** (`saveState`, top-right of the tab) shows Saving…/Saved/
+failed — never a per-row indicator. A failed save stays visible with a working Retry that re-runs
+exactly the save that failed (never the whole form), so nothing is silently lost.
+
+### 20.3 One-tap condition
+
+The per-item `<select>` is replaced with inline buttons, one per
+`RentalInspectionSetting::conditionStatesFor()` state, rendered left-to-right in the agency's configured
+order — never a hardcoded list. A state with `requires_notes` shows/keeps the notes field required
+before the tap counts as recorded (autosave fires once notes are non-empty); a state without
+`requires_notes` commits immediately on tap.
+
+### 20.4 Duplicate condition text removed
+
+The old right-aligned grey condition label (duplicating the same fact the select already showed) is
+deleted — the selected condition button is now the only place the current condition is shown.
+
+### 20.5 "All Good" bulk-fill — new agency setting, two new endpoints
+
+New column `rental_inspection_settings.baseline_condition_key` (migration
+`2026_09_22_090000_...`), resolved via `RentalInspectionSetting::baselineConditionKeyFor()`: honours a
+saved key only if it still names one of the agency's own configured condition states, otherwise prefers
+a state with `requires_notes = false` (defaulting to `'good'`) so a one-tap bulk action can never stall
+waiting on typed notes. Editable on the existing `/corex/settings/rental-inspections` condition-states
+form (same page, same saver, `updateConditionStates()`) — **not yet wired into the Setup Wizard**; see
+§20.9's FOUND-NOT-FIXED entry.
+
+Two new endpoints, both reusing `RentalInspectionObservation::record()` — the same atomic
+observation-plus-discrepancy-detection path every other observation goes through, never a second one:
+- `POST /corex/rental-inspections/{inspection}/rooms/{room}/mark-good` — every item in the room with no
+  observation yet on this inspection.
+- `POST /corex/rental-inspections/{inspection}/mark-all-good` — every item on the whole inspection with
+  no observation yet on this inspection.
+
+Both skip any item already recorded this inspection (server-enforced, not just client-side) — an
+agent's own entry is never overwritten. Reversible the same way any observation is: recording a
+different condition on that item afterward simply becomes the new current fact (§3.1).
+
+### 20.6 Photos visible
+
+Each item shows its photo count and the most recent thumbnail once it has any (from
+`observation.photos`, already eager-loaded by `tabPayloadFor()` — no new table); clicking opens the
+existing image viewer already used elsewhere on this tab. An item with zero photos shows only the
+camera control. A photo picked before an item has a committed observation is staged client-side and
+uploaded automatically once one exists; a photo picked against an already-recorded item uploads
+immediately against its latest observation, via the same existing photo endpoint either way.
+
+### 20.7 Progress and collapse
+
+Each room heading shows `recorded/total` plus a photo count; the whole inspection shows one overall
+`recorded/total` on the In/Out Inspection section heading itself. A room where `recorded === total`
+collapses to its heading line automatically; clicking the heading always toggles it open again
+regardless of that computed default, so a finished room stays reviewable/correctable.
+
+### 20.8 Property type — read-only, derived from Property
+
+Per Johan's ruling ("the property already knows it"), the property-type `<select>` in the header block
+is removed. The header block now displays `Property::property_type` read-only. The per-inspection
+`rental_inspections.property_type` column (set once at `RentalInspection::start()`, per §18) is
+unchanged and still exists as a historical snapshot — it is simply no longer client-editable or
+displayed; `updateDetails()` still accepts it in its validation array for backward compatibility, but
+nothing sends it any more.
+
+### 20.9 FOUND, NOT FIXED (scope-locked, reported not changed)
+
+- **`RentalInspectionSetting`'s existing settings — `condition_states`, `room_type_item_defaults`,
+  `room_type_walking_order`, `refusal_reason_presets`, `inspection_feature_labels`, and now the new
+  `baseline_condition_key` — are still not wired into the Setup Wizard** (`config/agency-onboarding-copy.php`),
+  contradicting CLAUDE.md non-negotiable §10a ("a setting that exists only on the settings page is not
+  done"). This gap predates this build (already flagged once, §3.5, for the two window fields — the rest
+  of the model's fields were never wizard-wired either). Adding one more field to an already-flagged gap
+  is consistent with existing precedent, not a new violation, but the underlying gap is real and is
+  Johan's call on priority, not silently fixed here under today's demo deadline.
+- **`rental_inspection_item_findings`** — an orphaned table flagged by cc1 during independent
+  verification of an earlier, unrelated change on this same tab. Not part of this rebuild; not touched.
+
+### 20.10 Explicitly not built today (per instruction)
+
+Printable tick-box form, scan mark-reading (OMR), the mobile/API layer beyond what §14.2 already
+specifies, ad-hoc inspection types, and the in-vs-out side-by-side comparison view — none of these were
+started, scaffolded, or prepared for in this rebuild.

@@ -174,6 +174,16 @@ class RentalInspectionSetting extends Model
         ['key' => 'n_a', 'label' => 'N/A', 'requires_notes' => false],
     ];
 
+    /**
+     * Johan, 2026-09-22 (Inspections-tab rebuild, item 5) — "All Good" bulk-
+     * fill must use the agency's own baseline/quick-fill condition, never a
+     * hardcoded 'good' string. Defaults to the 'good' key when present in
+     * the agency's own vocabulary (DEFAULT_CONDITION_STATES' own baseline);
+     * an agency that renamed or removed 'good' entirely still gets a sane
+     * fallback via baselineConditionKeyFor()'s own resolution below.
+     */
+    public const DEFAULT_BASELINE_CONDITION_KEY = 'good';
+
     protected $fillable = [
         'agency_id',
         'fault_report_window_days',
@@ -183,6 +193,7 @@ class RentalInspectionSetting extends Model
         'room_type_item_defaults',
         'room_type_walking_order',
         'condition_states',
+        'baseline_condition_key',
     ];
 
     protected $casts = [
@@ -463,5 +474,36 @@ class RentalInspectionSetting extends Model
         $state = collect(self::conditionStatesFor($agencyId))->firstWhere('key', $conditionKey);
 
         return $state === null ? true : (bool) ($state['requires_notes'] ?? true);
+    }
+
+    /**
+     * Item 5 (2026-09-22) — which of this agency's OWN configured condition
+     * states "All Good" bulk-fills unrecorded items to. Never hardcoded to
+     * the word "Good": a saved key is honoured only if it still names one of
+     * the agency's current condition states; otherwise this prefers a
+     * configured state that needs no reason (so a one-tap bulk action can
+     * never be blocked waiting on typed notes for every item it touches),
+     * falling back to the agency's first configured state if every one of
+     * its states requires a reason.
+     */
+    public static function baselineConditionKeyFor(?int $agencyId): string
+    {
+        $states = self::conditionStatesFor($agencyId);
+
+        $saved = null;
+        if ($agencyId) {
+            $saved = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('baseline_condition_key');
+        }
+        if (is_string($saved) && $saved !== '' && collect($states)->contains('key', $saved)) {
+            return $saved;
+        }
+
+        if (collect($states)->contains('key', self::DEFAULT_BASELINE_CONDITION_KEY)) {
+            return self::DEFAULT_BASELINE_CONDITION_KEY;
+        }
+
+        $noReasonNeeded = collect($states)->first(fn ($s) => empty($s['requires_notes']));
+
+        return $noReasonNeeded['key'] ?? ($states[0]['key'] ?? self::DEFAULT_BASELINE_CONDITION_KEY);
     }
 }

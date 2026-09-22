@@ -57,11 +57,12 @@ class RentalInspectionController extends Controller
         }
 
         // Recording (observations/photos/signatures) only happens on the
-        // property's Rental Images tab (§1/§4) — this screen's own show()
-        // page is read-only, so land the agent where they can actually
-        // start working, not on a dead end they'd have to navigate away
-        // from immediately.
-        return redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'rental-images'])
+        // property's Inspections tab (§1/§4, renamed 2026-09-22 — label-
+        // level only, same tab, same routes underneath) — this screen's own
+        // show() page is read-only, so land the agent where they can
+        // actually start working, not on a dead end they'd have to navigate
+        // away from immediately.
+        return redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections'])
             ->with('success', ucfirst($validated['type']) . '-inspection started.');
     }
 
