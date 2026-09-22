@@ -359,22 +359,26 @@
                                  neat and tidy on top of each other and use 2 columns
                                  for all the buttons... sizing should work out that
                                  its essentially the same height as the photos running
-                                 next to the buttons towards the right and we allow
-                                 the scroll if more than the screen allows".
-                                 FIX, 2026-09-22 (deployed-site regression, second pass):
-                                 the first fix (min-height:0 via flex stretch) was
-                                 confirmed present in the deployed markup but a real
-                                 2560px photo STILL rendered at natural size — some
-                                 other link in the stretch/percentage chain wasn't
-                                 closed. Rather than keep chasing the cascade under
-                                 time pressure, this abandons percentage/stretch
-                                 sizing for the strip ENTIRELY: every dimension below
-                                 is a literal, explicit pixel value on the elements
-                                 themselves (belt and braces, deliberately redundant
-                                 with the classes alongside them) — a photo's own
-                                 resolution has no path left to influence this row's
-                                 height, whatever the ancestor chain is doing. --}}
-                            <div class="flex items-stretch gap-3" style="display:flex; align-items:flex-start; min-height:0;">
+                                 next to the buttons towards the right".
+                                 FIX, 2026-09-22 (third pass, Johan): "surely theres a
+                                 specific size the buttons take up and that same size
+                                 can be applied to photos" — right, and the fixed 80px
+                                 from the previous pass was wrong for any agency but
+                                 the one it was measured against. Standard mechanism
+                                 for exactly this: the row is flex+stretch; the button
+                                 grid is flex:none so IT alone sets the row's height
+                                 (3 rows for 6 states, 4 for 7, whatever the agency has
+                                 configured); the strip is flex:1 with min-width:0,
+                                 min-height:0 and position:relative, and contains
+                                 NOTHING that can contribute height itself — inside it,
+                                 an ABSOLUTELY POSITIONED scroller (inset:0) does the
+                                 actual horizontal scrolling. Because the scroller is
+                                 out of flow, nothing inside it — however large a
+                                 photo's native resolution — can ever feed back into
+                                 the row's height; the row is sized purely by the
+                                 buttons and the strip stretches to match, for any
+                                 agency's condition-state count. --}}
+                            <div class="flex items-stretch gap-3" style="display:flex; align-items:stretch; min-height:0;">
                                 <div class="flex-none space-y-1.5" style="flex:none;">
                                     {{-- Item 3, 2026-09-22 — one tap, agency's own
                                          condition vocabulary
@@ -404,46 +408,46 @@
                                            class="prop-input w-full">
                                 </div>
 
-                                {{-- R2 — item photos at a useful size (not the old
-                                     2rem thumbnail); explicit 80px strip, horizontal
-                                     scroll for anything that doesn't fit (the row
-                                     itself never grows). One always-present add tile
-                                     at the end covers both the "no photo yet" and
-                                     "add more" cases from before — same multi-file
-                                     input, same staged-until-recorded behaviour
-                                     (Item 1/6). Old-style inline-block/white-space:
-                                     nowrap strip, deliberately NOT a nested flex
-                                     container — nothing here for a flex min-height
-                                     cascade to catch. --}}
-                                <div class="flex-1 min-w-0 overflow-x-auto"
-                                     style="flex:1; min-width:0; min-height:0; height:80px; max-height:80px; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
-                                    <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
-                                        <div class="relative rounded-md" style="display:inline-block; vertical-align:top; height:80px; max-height:80px; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;">
-                                            <img :src="photo.storage_path" style="display:inline-block; height:80px; max-height:80px; width:auto; max-width:none; object-fit:cover; cursor:pointer;"
-                                                 @click="viewer = { open: true, images: itemPhotosFor({{ $sectionJs }}, item).map(p => p.storage_path), index: itemPhotosFor({{ $sectionJs }}, item).indexOf(photo) }" alt="">
-                                            {{-- Bug 2 — untag steps back the same way:
-                                                 the exact reverse of the room→item tag
-                                                 above, one click, back to a general
-                                                 room shot. Only offered when this item
-                                                 actually belongs to a real room (never
-                                                 shown in the roomless "General"
-                                                 meters/legacy group — there is no room
-                                                 to step back to). --}}
-                                            <button type="button" x-show="group.room" @click.stop="photoUploader({{ $sectionJs }}).tagPhoto(photo.id, { property_room_id: group.room?.id })"
-                                                    class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
-                                                    style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to room">&uarr;</button>
-                                        </div>
-                                    </template>
-                                    <label class="rounded-md cursor-pointer"
-                                           style="display:inline-flex; align-items:center; justify-content:center; vertical-align:top; height:80px; max-height:80px; width:80px;"
-                                           :style="(obsField({{ $sectionJs }}, item.id).photos || []).length
-                                                ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
-                                                : 'background:var(--surface-2); color:var(--text-secondary);'"
-                                           :title="(obsField({{ $sectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
-                                        <span style="font-size:1rem;">&#128247;</span>
-                                        <input type="file" accept="image/*" multiple class="hidden"
-                                               @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
-                                    </label>
+                                {{-- R2 — item photos, height derived from the button
+                                     grid above via the row's own stretch, never a
+                                     hardcoded pixel value. The strip itself (flex:1)
+                                     contributes NO height of its own — the absolutely
+                                     positioned scroller inside it holds every photo
+                                     and the add tile, out of flow, so nothing in there
+                                     can ever grow the row. One always-present add tile
+                                     covers both the "no photo yet" and "add more"
+                                     cases from before — same multi-file input, same
+                                     staged-until-recorded behaviour (Item 1/6). --}}
+                                <div style="flex:1; min-width:0; min-height:0; position:relative;">
+                                    <div style="position:absolute; inset:0; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
+                                        <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
+                                            <div class="relative rounded-md" style="display:inline-block; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;">
+                                                <img :src="photo.storage_path" style="display:inline-block; height:100%; width:auto; object-fit:cover; cursor:pointer;"
+                                                     @click="viewer = { open: true, images: itemPhotosFor({{ $sectionJs }}, item).map(p => p.storage_path), index: itemPhotosFor({{ $sectionJs }}, item).indexOf(photo) }" alt="">
+                                                {{-- Bug 2 — untag steps back the same way:
+                                                     the exact reverse of the room→item tag
+                                                     above, one click, back to a general
+                                                     room shot. Only offered when this item
+                                                     actually belongs to a real room (never
+                                                     shown in the roomless "General"
+                                                     meters/legacy group — there is no room
+                                                     to step back to). --}}
+                                                <button type="button" x-show="group.room" @click.stop="photoUploader({{ $sectionJs }}).tagPhoto(photo.id, { property_room_id: group.room?.id })"
+                                                        class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                                        style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to room">&uarr;</button>
+                                            </div>
+                                        </template>
+                                        <label class="rounded-md cursor-pointer"
+                                               style="display:inline-flex; align-items:center; justify-content:center; vertical-align:top; height:100%; width:2.5rem; font-size:1rem;"
+                                               :style="(obsField({{ $sectionJs }}, item.id).photos || []).length
+                                                    ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
+                                                    : 'background:var(--surface-2); color:var(--text-secondary);'"
+                                               :title="(obsField({{ $sectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
+                                            <span>&#128247;</span>
+                                            <input type="file" accept="image/*" multiple class="hidden"
+                                                   @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
