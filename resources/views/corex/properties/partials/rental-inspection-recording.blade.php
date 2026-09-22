@@ -407,10 +407,21 @@
                                      yet" and "add more" cases from before — same
                                      multi-file input, same staged-until-recorded
                                      behaviour (Item 1/6). --}}
-                                <div class="flex-1 min-w-0 flex items-stretch gap-1.5 overflow-x-auto">
+                                {{-- FIX, 2026-09-22 (deployed-site regression, Johan): a real
+                                     high-resolution photo has no min-height:0 anywhere in this
+                                     flex chain to stop its OWN natural size from becoming the
+                                     row's "auto" content floor — the tiny 1x1 test fixture used
+                                     to verify R2 masked this completely (nothing to overflow),
+                                     so it measured correctly locally and broke on a real photo.
+                                     Fixed with inline styles only (min-height:0 plus a hard
+                                     max-height/overflow on the strip, explicit height/width/
+                                     object-fit on the img) — nothing here depends on a Tailwind
+                                     class generated at build time, matching the reasoning that
+                                     already keeps corex-photo-batch-uploader.js outside Vite. --}}
+                                <div class="flex-1 min-w-0 flex items-stretch gap-1.5 overflow-x-auto" style="min-height:0; overflow-y:hidden;">
                                     <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
-                                        <div class="relative flex-none rounded-md overflow-hidden" style="aspect-ratio:1/1; height:100%; background:var(--surface-3);">
-                                            <img :src="photo.storage_path" class="h-full w-full object-cover cursor-pointer"
+                                        <div class="relative rounded-md" style="flex:none; min-height:0; aspect-ratio:1/1; height:100%; max-height:100%; overflow:hidden; background:var(--surface-3);">
+                                            <img :src="photo.storage_path" style="display:block; height:100%; width:auto; max-height:100%; max-width:none; object-fit:cover; cursor:pointer;"
                                                  @click="viewer = { open: true, images: itemPhotosFor({{ $sectionJs }}, item).map(p => p.storage_path), index: itemPhotosFor({{ $sectionJs }}, item).indexOf(photo) }" alt="">
                                             {{-- Bug 2 — untag steps back the same way:
                                                  the exact reverse of the room→item tag
@@ -425,8 +436,8 @@
                                                     style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to room">&uarr;</button>
                                         </div>
                                     </template>
-                                    <label class="flex-none rounded-md cursor-pointer flex items-center justify-center"
-                                           style="aspect-ratio:1/1; height:100%;"
+                                    <label class="rounded-md cursor-pointer flex items-center justify-center"
+                                           style="flex:none; min-height:0; aspect-ratio:1/1; height:100%; max-height:100%;"
                                            :style="(obsField({{ $sectionJs }}, item.id).photos || []).length
                                                 ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
                                                 : 'background:var(--surface-2); color:var(--text-secondary);'"
