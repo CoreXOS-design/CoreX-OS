@@ -990,6 +990,13 @@
     </div>
 </div>
 
+@php
+    // Blade's @json() compiler splits its raw argument text on every
+    // top-level comma, so an inline multi-key array literal corrupts the
+    // compiled statement. Building the value here first (zero commas at
+    // the @json() call site) is always safe regardless of key count.
+    $propertiesUpdatePriceUrlForJs = $deal->exists ? route('deals-dr2.properties.updatePrice', ['deal' => $deal->id, 'property' => '__ID__']) : null;
+@endphp
 <script>
 (function () {
     const csrf = document.querySelector('input[name="_token"]')?.value
@@ -1001,7 +1008,7 @@
         contactInline: @json(route('deals-dr2.contact.inline')),
         attorneySearch: @json(route('deals-dr2.attorney.search')),
         attorneyInline: @json(route('deals-dr2.attorney.inline')),
-        propertiesUpdatePrice: @json($deal->exists ? route('deals-dr2.properties.updatePrice', ['deal' => $deal->id, 'property' => '__ID__']) : null),
+        propertiesUpdatePrice: @json($propertiesUpdatePriceUrlForJs),
         eligibleProperties: @json(route('deals-dr2.search.eligible-properties')),
     };
     const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };

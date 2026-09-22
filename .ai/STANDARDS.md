@@ -1018,6 +1018,29 @@ This is the architectural mechanism by which CoreX builds a comprehensive proper
 - Use corex layout files: `corex-app.blade.php` + `corex-sidebar.blade.php`
 - No inline styles — use Tailwind classes
 - Component-level CSS in the component, not in global stylesheets unless truly global
+- **Never pass an inline multi-key array literal (or a `->map(fn($x) => [...])`
+  callback returning one) directly into `@json()`.** Laravel's `@json()` compiler
+  (`Illuminate\View\Compilers\Concerns\CompilesJson::compileJson()`) does a naive
+  `explode(',', $expression)` on the raw argument text with NO awareness of
+  brackets/parens — it assumes the call is always `@json($value, $options, $depth)`.
+  Any inline `[...]` with 2+ keys puts extra top-level commas into that same
+  string, which get silently swallowed into `$options`/`$depth` (dropping the
+  safe default `JSON_HEX_*` escaping flags — a real HTML/script-breakout risk
+  when the JSON lands inside an attribute or `<script>` block) or, once there
+  are 3+ total commas, truncate the compiled statement outright into invalid
+  PHP. Whether a given call site breaks visibly depends on the exact comma
+  count that day — it can sit "working" for months and then 500 the moment
+  someone adds one more key. **The correct pattern:** build the value as its
+  own PHP variable in a `@php ... @endphp` block first, then call
+  `@json($theVariable)` — a bare variable reference has zero top-level commas
+  in the `@json()` call, so this is always safe regardless of how many keys
+  the array has. Found and fixed 2026-09-22 in
+  `corex/rental-inventories/show.blade.php` and 7 other call sites
+  codebase-wide (`docuperfect/esign/wizard.blade.php`,
+  `onboarding/portal/review.blade.php`, `dr2/create.blade.php`,
+  `presentations/review.blade.php` ×2, `deals-v2/create-form.blade.php`,
+  `commercial-evaluations/edit.blade.php`) — none had yet crossed into the
+  3-comma truncation case, but all were relying on the same coincidence.
 
 ### Naming
 - Models: PascalCase singular (`Property`, `Contact`, `Deal`)
