@@ -137,12 +137,35 @@
         {{-- Item 5/7, 2026-09-22 — overall progress + the whole-inspection
              "All Good" bulk-fill, sitting above the room list so it's the
              first thing seen once there's something to record. --}}
+        {{-- 2026-09-22, Johan (property 5792, regression report): a fully-
+             recorded room auto-collapsed with no way to reopen it, and
+             "All Good"/"Mark room N/A" sat there doing nothing once every
+             item was already recorded — from the screen, both read as
+             "nothing here is clickable." Fixed at the class level:
+             - the toggle chevron+heading is one clickable row with an
+               explicit hover state so it visibly IS a control;
+             - "All Good"/"Mark room N/A" disappear once a room has nothing
+               left to fill (they had zero effect at that point anyway —
+               a control that visibly does nothing is worse than no control);
+             - "Expand all" / "Collapse all" gives a reviewing agent one
+               action for the whole inspection instead of clicking every
+               room; x-collapse is dropped for a plain x-show (the Collapse
+               plugin isn't installed in this app — confirmed in
+               node_modules/alpinejs/dist/cdn.js, it silently no-ops
+               rather than blocking x-show, but it bought nothing here and
+               reads as if it should be doing something). --}}
         <div x-show="activeItems().length" class="flex items-center justify-between gap-2">
             <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
                   x-text="inspectionProgress({{ $sectionJs }}).recorded + '/' + inspectionProgress({{ $sectionJs }}).total + ' recorded'"></span>
-            <button type="button" :disabled="markAllGoodBusy" @click="markAllGood({{ $sectionJs }})"
-                    class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
-                    x-text="markAllGoodBusy ? 'Marking…' : 'All Good — whole inspection'"></button>
+            <div class="flex items-center gap-2">
+                <button type="button" @click="toggleAllRooms({{ $sectionJs }})"
+                        class="text-xs font-semibold underline" style="color:var(--text-secondary);"
+                        x-text="allRoomsOpen({{ $sectionJs }}) ? 'Collapse all' : 'Expand all'"></button>
+                <button type="button" x-show="inspectionProgress({{ $sectionJs }}).recorded < inspectionProgress({{ $sectionJs }}).total"
+                        :disabled="markAllGoodBusy" @click="markAllGood({{ $sectionJs }})"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
+                        x-text="markAllGoodBusy ? 'Marking…' : 'All Good — whole inspection'"></button>
+            </div>
         </div>
 
         {{-- 2026-09-21, Johan on property 5792 — same room-heading grouping
@@ -151,11 +174,15 @@
              creation order. Keyed on group.room.id (roomGroups()), never on
              the room's free-text label. Item 7, 2026-09-22 — heading shows
              recorded/total + photo count and collapses once the room is
-             fully recorded (click the heading to expand/collapse any time). --}}
+             fully recorded — always a default, never a lock: click the
+             heading row to expand/collapse any time, whatever its state. --}}
         <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
             <div class="space-y-1 pt-2">
-                <div class="flex items-center justify-between gap-2">
-                    <button type="button" class="flex items-center gap-1.5 text-left" @click="toggleRoomOpen({{ $sectionJs }}, group)">
+                <div class="flex items-center justify-between gap-2 rounded-md px-1 -mx-1"
+                     :style="'cursor:pointer; transition:background .1s;'"
+                     @mouseenter="$el.style.background = 'var(--surface-2)'" @mouseleave="$el.style.background = 'transparent'"
+                     @click="toggleRoomOpen({{ $sectionJs }}, group)">
+                    <button type="button" class="flex items-center gap-1.5 text-left py-1" tabindex="0">
                         <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"
                              :style="'color:var(--text-muted); transition:transform .15s; transform:rotate(' + (isRoomOpen({{ $sectionJs }}, group) ? 90 : 0) + 'deg);'">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
@@ -164,23 +191,28 @@
                             x-text="(group.room ? group.room.label : 'General') + ' — ' + roomProgress({{ $sectionJs }}, group).recorded + '/' + roomProgress({{ $sectionJs }}, group).total
                                     + (roomProgress({{ $sectionJs }}, group).photos ? ' · ' + roomProgress({{ $sectionJs }}, group).photos + ' photo' + (roomProgress({{ $sectionJs }}, group).photos === 1 ? '' : 's') : '')"></h4>
                     </button>
-                    <div class="flex items-center gap-1">
-                        <button type="button" x-show="group.room" :disabled="markGoodBusy[group.room?.id]"
+                    {{-- Item 5/7 fix, 2026-09-22 — these have zero effect once
+                         the room has nothing left to fill; showing a "working"
+                         button that does nothing on click is worse than not
+                         showing it. @click.stop keeps a tap on either button
+                         from also toggling the row underneath it. --}}
+                    <div class="flex items-center gap-1" x-show="group.room && roomProgress({{ $sectionJs }}, group).recorded < roomProgress({{ $sectionJs }}, group).total" @click.stop>
+                        <button type="button" :disabled="markGoodBusy[group.room?.id]"
                                 @click="markRoomGood({{ $sectionJs }}, group.room)"
-                                class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
+                                class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
                                 x-text="markGoodBusy[group.room?.id] ? 'Marking…' : 'All Good'"></button>
                         {{-- §17, Johan on Retha's real paper form: "she
                              strikes ENTIRE ROOMS out with one big N/A." Only
                              offered when N/A is actually one of the agency's
                              configured condition states. --}}
-                        <button type="button" x-show="group.room && hasNaConditionState()" :disabled="markNaBusy[group.room?.id]"
+                        <button type="button" x-show="hasNaConditionState()" :disabled="markNaBusy[group.room?.id]"
                                 @click="markRoomNa({{ $sectionJs }}, group.room)"
-                                class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
+                                class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
                                 x-text="markNaBusy[group.room?.id] ? 'Marking…' : 'Mark room N/A'"></button>
                     </div>
                 </div>
 
-                <div x-show="isRoomOpen({{ $sectionJs }}, group)" x-collapse class="space-y-1">
+                <div x-show="isRoomOpen({{ $sectionJs }}, group)" class="space-y-1">
                     <template x-for="item in group.items" :key="item.id">
                         <div class="py-2 pl-3 space-y-1.5" style="border-bottom:1px solid var(--border);">
                             <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
@@ -196,7 +228,7 @@
                                      condition is shown. --}}
                                 <template x-for="state in conditionStates" :key="state.key">
                                     <button type="button"
-                                            :disabled="obsBusy[_obsKey({{ $sectionJs }}, item.id)]"
+                                            :disabled="isObsBusy({{ $sectionJs }}, item.id)"
                                             @click="onConditionTap({{ $sectionJs }}, item, state.key)"
                                             class="text-xs font-semibold px-2.5 py-1.5 rounded-md"
                                             :style="selectedConditionFor({{ $sectionJs }}, item) === state.key
