@@ -418,8 +418,8 @@
                                      covers both the "no photo yet" and "add more"
                                      cases from before — same multi-file input, same
                                      staged-until-recorded behaviour (Item 1/6). --}}
-                                <div style="flex:1; min-width:0; min-height:0; position:relative;">
-                                    <div style="position:absolute; inset:0; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
+                                <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
+                                    <div style="position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
                                         <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
                                             <div class="relative rounded-md" style="display:inline-block; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;">
                                                 <img :src="photo.storage_path" style="display:inline-block; height:100%; width:auto; object-fit:cover; cursor:pointer;"
