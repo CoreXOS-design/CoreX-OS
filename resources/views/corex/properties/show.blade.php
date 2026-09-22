@@ -5477,6 +5477,28 @@
                     if (!fileList || !fileList.length) return;
                     await this.photoUploader(section).uploadFiles(fileList, { property_room_id: room.id });
                 },
+                // Bug 2, 2026-09-22 (cc photo-tagging pass) — room→item
+                // multi-select: which of this section's currently-selected
+                // photo ids actually belong to THIS room, keyed off the
+                // uploader's own shared `selected` Set so a mixed selection
+                // (some tray, some this room, some another room) only ever
+                // acts on the ones that make sense for the room being asked.
+                selectedRoomPhotoIds(section, room) {
+                    const roomIds = new Set(this.roomPhotosFor(section, room).map(p => p.id));
+                    return Array.from(this.photoUploader(section).selected).filter(id => roomIds.has(id));
+                },
+                // Per-room "which item" choice for the multi-select tag bar
+                // below the room photo grid, keyed by room id so several
+                // rooms can be mid-pick at once without clobbering each
+                // other (matches roomPhotosExpanded/roomOpenOverride).
+                roomPhotoTagItemChoice: {},
+                async tagSelectedRoomPhotosToItem(section, room, observationId) {
+                    if (!observationId) return;
+                    const ids = this.selectedRoomPhotoIds(section, room);
+                    if (!ids.length) return;
+                    await this.photoUploader(section).tagSelectedToItem(ids, room.id, observationId);
+                    this.roomPhotoTagItemChoice[room.id] = '';
+                },
                 inspectionProgress(section) {
                     const items = this.activeItems();
                     return { recorded: items.filter(i => this.conditionFor(section, i.id)).length, total: items.length };

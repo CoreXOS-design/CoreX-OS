@@ -318,15 +318,50 @@
                      (a 15-room property must not push items ten screens
                      down), expanding to every row on click. Only rendered
                      when at least one general room photo exists (screen
-                     space: nothing rendered otherwise). --}}
+                     space: nothing rendered otherwise).
+
+                     FIX, 2026-09-22 (photo-tagging pass) — Johan on the
+                     deployed screen: "there are arrows to move photos from
+                     ceiling back to the room, but theres no way to move
+                     photos from the room back to the ceiling." The
+                     room→item <select> below was already wired (Bug 2) and
+                     never removed — the actual defect was this row's own
+                     `max-height:6.5rem; overflow-hidden` clip: at gallery
+                     tile sizing a grid column is easily 150–300px wide, so
+                     an aspect-ratio:1/1 tile is that tall too, and 6.5rem
+                     (104px) clipped every tile short, cutting the
+                     bottom-anchored <select> out of the visible/clickable
+                     area on any real screen width — reachable in the DOM,
+                     unreachable on screen. Height-based clipping is
+                     replaced with COUNT-based slicing (first 3, "Show all"
+                     for the rest): every rendered tile is always whole, at
+                     any column width, so nothing sits inside it can ever be
+                     clipped again. --}}
                 <template x-if="group.room && roomPhotosFor({{ $sectionJs }}, group.room).length">
                     <div class="pl-5 space-y-1">
-                        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2 overflow-hidden"
-                             :style="roomPhotosExpanded[group.room.id] ? '' : 'max-height:6.5rem;'">
-                            <template x-for="photo in roomPhotosFor({{ $sectionJs }}, group.room)" :key="photo.id">
-                                <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
+                        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                            <template x-for="photo in (roomPhotosExpanded[group.room.id] ? roomPhotosFor({{ $sectionJs }}, group.room) : roomPhotosFor({{ $sectionJs }}, group.room).slice(0, 3))" :key="photo.id">
+                                <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);"
+                                     :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
                                     <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer"
                                          @click="viewer = { open: true, images: roomPhotosFor({{ $sectionJs }}, group.room).map(p => p.storage_path), index: roomPhotosFor({{ $sectionJs }}, group.room).indexOf(photo) }" alt="">
+                                    {{-- Multi-select toggle — one tap/click, no modifier
+                                         key, so it works identically at phone width. Feeds
+                                         the same `selected` Set the tray's own multi-select
+                                         already uses; the "N selected · Tag to…" bar below
+                                         lets a whole run of room photos be filed to one item
+                                         at once instead of one <select> change at a time. --}}
+                                    <button type="button" @click.stop="photoUploader({{ $sectionJs }}).toggleSelected(photo.id)"
+                                            class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                            :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:rgba(0,0,0,0.5); color:#fff;'"
+                                            title="Select">&check;</button>
+                                    {{-- Space → tray — back to the untagged tray, the
+                                         reverse of tagging into this room (same ↑ = "up a
+                                         level" convention as the item tile's own back-to-
+                                         room arrow below). --}}
+                                    <button type="button" @click.stop="photoUploader({{ $sectionJs }}).untagPhoto(photo.id)"
+                                            class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                            style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to tray">&uarr;</button>
                                     {{-- Bug 2, 2026-09-22, Johan: "cant tag room and
                                          then ceiling as example" — room first, then
                                          an item within that room. Supersedes the
@@ -344,10 +379,27 @@
                                 </div>
                             </template>
                         </div>
-                        <button type="button" x-show="roomPhotosFor({{ $sectionJs }}, group.room).length > 3"
-                                @click="roomPhotosExpanded[group.room.id] = !roomPhotosExpanded[group.room.id]"
-                                class="text-xs font-semibold underline" style="color:var(--text-secondary);"
-                                x-text="roomPhotosExpanded[group.room.id] ? 'Show less' : ('Show all ' + roomPhotosFor({{ $sectionJs }}, group.room).length)"></button>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <button type="button" x-show="roomPhotosFor({{ $sectionJs }}, group.room).length > 3"
+                                    @click="roomPhotosExpanded[group.room.id] = !roomPhotosExpanded[group.room.id]"
+                                    class="text-xs font-semibold underline" style="color:var(--text-secondary);"
+                                    x-text="roomPhotosExpanded[group.room.id] ? 'Show less' : ('Show all ' + roomPhotosFor({{ $sectionJs }}, group.room).length)"></button>
+                            <template x-if="selectedRoomPhotoIds({{ $sectionJs }}, group.room).length">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs" style="color:var(--text-secondary);" x-text="selectedRoomPhotoIds({{ $sectionJs }}, group.room).length + ' selected'"></span>
+                                    <select class="prop-input text-xs" style="max-width:10rem;" x-model.number="roomPhotoTagItemChoice[group.room.id]">
+                                        <option value="">Tag to…</option>
+                                        <template x-for="i in group.items" :key="i.id">
+                                            <option :value="i.id" x-text="i.label"></option>
+                                        </template>
+                                    </select>
+                                    <button type="button" :disabled="!roomPhotoTagItemChoice[group.room.id]"
+                                            @click="tagSelectedRoomPhotosToItem({{ $sectionJs }}, group.room, roomPhotoTagItemChoice[group.room.id])"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Tag selected</button>
+                                    <button type="button" @click="photoUploader({{ $sectionJs }}).clearSelection()" class="text-xs font-semibold underline" style="color:var(--text-secondary);">Clear</button>
+                                </div>
+                            </template>
+                        </div>
                     </div>
                 </template>
 
