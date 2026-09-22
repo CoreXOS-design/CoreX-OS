@@ -39,11 +39,26 @@ class RentalApproval extends Model
         'decided_at',
         'recorded_by_user_id',
         'created_at',
+        // 2026-09-22, Johan — an unanchored "approved" says nothing about
+        // what it was for. quote_id_at_decision is identity-only (never
+        // joined for display — RentalWorkOrder::selectQuote()'s supersession
+        // check is the only reader). quote_amount_at_decision and
+        // quote_supplier_name_at_decision are the actual record: a SNAPSHOT
+        // taken once, here, never re-derived from the live quote/supplier
+        // row, so a later edit or archive of either can never rewrite what
+        // was actually decided. All three nullable — an approval recorded
+        // with no quote selected (or any row from before this column
+        // existed) has none of them, and the screen/PDF must say nothing
+        // rather than imply a snapshot that was never taken.
+        'quote_id_at_decision',
+        'quote_amount_at_decision',
+        'quote_supplier_name_at_decision',
     ];
 
     protected $casts = [
         'decided_at' => 'datetime',
         'created_at' => 'datetime',
+        'quote_amount_at_decision' => 'decimal:2',
     ];
 
     protected static function boot(): void

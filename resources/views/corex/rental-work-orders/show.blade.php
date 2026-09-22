@@ -253,9 +253,25 @@
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Owner approval</h2>
         @if($workOrder->approvals->isNotEmpty())
+            {{-- 2026-09-22, Johan — an approval is otherwise an unanchored fact
+                 ("approved", nothing saying for what). quote_amount_at_decision
+                 shows what it was actually recorded against WHEN a snapshot
+                 exists; older rows (recorded before this column existed) have
+                 none, and correctly show nothing extra rather than implying a
+                 zero or an unknown amount. The "superseded" flag compares by
+                 id (quote_id_at_decision), never by amount/supplier text —
+                 two different quotes could coincidentally match on those. One
+                 line per approval, no separate section, per screen-space rule. --}}
+            @php($currentQuoteId = optional($workOrder->quotes->firstWhere('is_selected', true))->id)
             <ul class="space-y-1 text-sm">
                 @foreach($workOrder->approvals as $approval)
-                    <li>{{ ucfirst($approval->decision) }} <span style="color: var(--text-muted);">({{ ucfirst(str_replace('_', ' ', $approval->evidence_type)) }}, {{ $approval->decided_at?->format('Y-m-d') }})</span></li>
+                    <li>
+                        {{ ucfirst($approval->decision) }}@if($approval->quote_amount_at_decision !== null) — R{{ number_format((float) $approval->quote_amount_at_decision, 2) }} ({{ $approval->quote_supplier_name_at_decision ?? 'Unknown supplier' }})@endif
+                        <span style="color: var(--text-muted);">({{ ucfirst(str_replace('_', ' ', $approval->evidence_type)) }}, {{ $approval->decided_at?->format('Y-m-d') }})</span>
+                        @if($approval->quote_id_at_decision !== null && $approval->quote_id_at_decision !== $currentQuoteId)
+                            <span style="color: var(--ds-crimson);">— superseded, a different quote is now selected</span>
+                        @endif
+                    </li>
                 @endforeach
             </ul>
         @endif

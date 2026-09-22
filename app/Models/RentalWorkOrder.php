@@ -205,6 +205,7 @@ class RentalWorkOrder extends Model
                     'quote_archived' => 'Quote archived',
                     'quote_restored' => 'Quote restored',
                     'approval_rederived' => 'Approval requirement re-derived',
+                    'approval_superseded' => 'Recorded decision superseded',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
                 },
                 'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,
@@ -263,6 +264,15 @@ class RentalWorkOrder extends Model
      * RentalFaultReport::recordApproval(), there is no "route" — a work
      * order's mere existence already means the agency-appoints path was
      * chosen (§3a.1) — so approval_route is always null at this level.
+     *
+     * 2026-09-22, Johan — snapshots whichever quote is currently selected
+     * (if any) onto the approval row: amount and supplier name as immutable
+     * text, never re-derived from the live quote later. "The landlord
+     * approved this quote, for this amount, from this supplier" is
+     * otherwise unanswerable once the quote is edited or a different one
+     * gets selected. No quote selected at decision time (e.g. approval
+     * recorded before any quote exists) leaves all three columns null —
+     * correctly, there is nothing to snapshot.
      */
     public function recordApproval(User $recordedBy, array $attributes): RentalApproval
     {
@@ -271,6 +281,7 @@ class RentalWorkOrder extends Model
         }
 
         $decision = $attributes['decision'];
+        $selectedQuote = $this->quotes()->where('is_selected', true)->first();
 
         $approval = $this->approvals()->create([
             'agency_id' => $this->agency_id,
@@ -281,6 +292,9 @@ class RentalWorkOrder extends Model
             'evidence_file_path' => $attributes['evidence_file_path'] ?? null,
             'decided_at' => $attributes['decided_at'] ?? now(),
             'recorded_by_user_id' => $recordedBy->id,
+            'quote_id_at_decision' => $selectedQuote?->id,
+            'quote_amount_at_decision' => $selectedQuote?->amount,
+            'quote_supplier_name_at_decision' => $selectedQuote?->supplier?->name,
         ]);
 
         $this->forceFill([
@@ -333,6 +347,19 @@ class RentalWorkOrder extends Model
             throw new \LogicException('This quote does not belong to this work order.');
         }
 
+        // 2026-09-22, Johan — a real recorded decision (approved/declined) is
+        // about to be overwritten below, unconditionally, same as it always
+        // has been (selectQuote() never preserves approved/declined for any
+        // quote, including re-selecting the one that was actually approved —
+        // that unconditional-overwrite behaviour is untouched here). What's
+        // new is telling the agency it happened: log what the prior decision
+        // had been recorded against, using its own snapshot if one exists —
+        // an approval from before quote_id_at_decision existed has none, and
+        // says so plainly rather than guessing.
+        $wasRecordedDecision = in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true);
+        $priorApproval       = $wasRecordedDecision ? $this->approvals()->first() : null;
+        $oldStatus            = $this->owner_approval_status;
+
         $this->quotes()->where('id', '!=', $quote->id)->update(['is_selected' => false]);
         $quote->forceFill(['is_selected' => true])->save();
 
@@ -345,6 +372,19 @@ class RentalWorkOrder extends Model
             'agency_id' => $this->agency_id, 'update_type' => 'quote_selected',
             'note' => $this->describeQuote($quote), 'created_by_user_id' => $by->id,
         ]);
+
+        if ($wasRecordedDecision) {
+            $priorFor = $priorApproval?->quote_amount_at_decision !== null
+                ? 'R' . number_format((float) $priorApproval->quote_amount_at_decision, 2) . ' — ' . ($priorApproval->quote_supplier_name_at_decision ?? 'Unknown supplier')
+                : 'an earlier quote (recorded before amounts were tracked)';
+
+            $this->updates()->create([
+                'agency_id' => $this->agency_id, 'update_type' => 'approval_superseded',
+                'from_status' => $oldStatus, 'to_status' => $this->owner_approval_status,
+                'note' => ucfirst($oldStatus) . " decision (for {$priorFor}) no longer applies — {$this->owner_approval_status} against " . $this->describeQuote($quote),
+                'created_by_user_id' => $by->id,
+            ]);
+        }
     }
 
     /**
