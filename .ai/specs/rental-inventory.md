@@ -384,6 +384,50 @@ Confirmed directly against Johan's real lines (§1.1). `RentalInventoryLine::roo
 
 ---
 
+## 4a. Photo uploader/layout adoption — INTENT ONLY, NOT YET BUILT (2026-09-22)
+
+**§0c referenced this section by name before it existed — that dangling reference is fixed by writing
+it now, spec-only, no code changed in this pass.** Johan, reviewing the deployed §0b/§0c capture screen:
+*"in what world will this screen use different configs to upload photos than what the inspections
+uses?"* He is right, and the intent is unambiguous: **Inventory's own photo capture is not a separate
+design — it adopts the SAME uploader and the SAME layout `rental-inspections.md` §20.13/§22 already
+built and refined**, not a second implementation that happens to look similar.
+
+**What "adopt" means concretely, once built:**
+
+- **The shared uploader** — `public/js/corex-photo-batch-uploader.js` (§20.13.4). This file was already
+  written config-driven and backend-agnostic specifically so a second feature could consume it without a
+  rewrite: `{ csrf, uploadUrl, tagUrl(id), tagBulkUrl, untagUrl(id), archiveUrl(id), photos }`. It owns
+  client batching, raw-XHR upload progress, per-file idempotency keys, per-batch retry, and multi-select
+  (click/shift-click/ctrl-click/drag-marquee) — none of that needs reinventing for Inventory; it needs
+  wiring to Inventory's own endpoints.
+- **The one real semantic divergence, already named on the inspections side and repeated here so it
+  isn't rediscovered at build time** (§20.13.4's own note): Inventory tags a photo to a LINE ITEM via a
+  many-to-many pivot (`rental_inventory_line_photos`, §3.2 — one photo may illustrate several line items
+  at once, e.g. "the TV and the stand in one lounge photo"), while inspections supersede a single
+  room/item tag per photo. The uploader component itself doesn't care which shape its `tagUrl`/
+  `tagBulkUrl` implement — it just calls them with `{photo_id(s), room_id}`-shaped bodies — so this is a
+  backend-endpoint difference, not a reason to fork the JS component.
+- **The layout** — the item-photo-strip sizing mechanism `rental-inspections.md` §20.14.4/§22.3 finally
+  landed on (flex `stretch` row, `flex:none` button/content block, `flex:1` photo strip holding an
+  absolutely-positioned scroller so a photo's native resolution can never grow the row) is the SAME
+  mechanism Inventory's own room/line photo strips should use once built — not a second layout arrived at
+  independently. **Read §22.3 (`rental-inspections.md`) before building this** — it records four real,
+  shipped-then-fixed attempts at this exact sizing problem, including the specific testing trap (a 1×1
+  pixel test fixture hides the bug entirely) that cost three of those four attempts. Reusing the finished
+  mechanism, not re-deriving it, is the entire point of this section existing.
+- **Room-level gallery-sized photos, clipped by count not height, "Show all N"** — the same R1 fix
+  (`rental-inspections.md` §20.14.3, corrected) applies to Inventory's own per-room photo strip once its
+  photo count can realistically exceed one row.
+
+**Why this is spec-only right now**: §0c explicitly scoped photos out of that pass — Inventory's current
+`capture.blade.php` uploads photos through its OWN pre-existing mechanism (§0b.1), not yet through the
+shared uploader. This section records the INTENT and the exact two files to read before building it, so
+the eventual swap is "adopt the finished thing," never "design a second one that happens to converge."
+**Not built. No migration, no controller change, no view change proposed or made by this pass.**
+
+---
+
 ## 5. Signing — reused from §15, minus what wasn't asked for here
 
 Built: three party roles, refusal as a first-class disposition with a mandatory reason, the agent signing
