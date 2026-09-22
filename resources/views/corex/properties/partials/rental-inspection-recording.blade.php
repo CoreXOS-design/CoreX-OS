@@ -360,16 +360,22 @@
                                  for all the buttons... sizing should work out that
                                  its essentially the same height as the photos running
                                  next to the buttons towards the right and we allow
-                                 the scroll if more than the screen allows" — a flex
-                                 row with the default stretch alignment gives the
-                                 right-hand photo strip the LEFT block's own height
-                                 for free, no hardcoded pixel value (any condition
-                                 list length — 3, 5, 9 states — still holds, since
-                                 the row's height is just whatever the button grid
-                                 + notes naturally need). More photos never grow the
-                                 row; the strip scrolls horizontally instead. --}}
-                            <div class="flex items-stretch gap-3">
-                                <div class="flex-none space-y-1.5">
+                                 the scroll if more than the screen allows".
+                                 FIX, 2026-09-22 (deployed-site regression, second pass):
+                                 the first fix (min-height:0 via flex stretch) was
+                                 confirmed present in the deployed markup but a real
+                                 2560px photo STILL rendered at natural size — some
+                                 other link in the stretch/percentage chain wasn't
+                                 closed. Rather than keep chasing the cascade under
+                                 time pressure, this abandons percentage/stretch
+                                 sizing for the strip ENTIRELY: every dimension below
+                                 is a literal, explicit pixel value on the elements
+                                 themselves (belt and braces, deliberately redundant
+                                 with the classes alongside them) — a photo's own
+                                 resolution has no path left to influence this row's
+                                 height, whatever the ancestor chain is doing. --}}
+                            <div class="flex items-stretch gap-3" style="display:flex; align-items:flex-start; min-height:0;">
+                                <div class="flex-none space-y-1.5" style="flex:none;">
                                     {{-- Item 3, 2026-09-22 — one tap, agency's own
                                          condition vocabulary
                                          (RentalInspectionSetting::conditionStatesFor()),
@@ -399,29 +405,21 @@
                                 </div>
 
                                 {{-- R2 — item photos at a useful size (not the old
-                                     2rem thumbnail), height matched to the button
-                                     block via the row's own stretch alignment above,
-                                     horizontal scroll for anything that doesn't fit
-                                     (the row itself never grows). One always-present
-                                     add tile at the end covers both the "no photo
-                                     yet" and "add more" cases from before — same
-                                     multi-file input, same staged-until-recorded
-                                     behaviour (Item 1/6). --}}
-                                {{-- FIX, 2026-09-22 (deployed-site regression, Johan): a real
-                                     high-resolution photo has no min-height:0 anywhere in this
-                                     flex chain to stop its OWN natural size from becoming the
-                                     row's "auto" content floor — the tiny 1x1 test fixture used
-                                     to verify R2 masked this completely (nothing to overflow),
-                                     so it measured correctly locally and broke on a real photo.
-                                     Fixed with inline styles only (min-height:0 plus a hard
-                                     max-height/overflow on the strip, explicit height/width/
-                                     object-fit on the img) — nothing here depends on a Tailwind
-                                     class generated at build time, matching the reasoning that
-                                     already keeps corex-photo-batch-uploader.js outside Vite. --}}
-                                <div class="flex-1 min-w-0 flex items-stretch gap-1.5 overflow-x-auto" style="min-height:0; overflow-y:hidden;">
+                                     2rem thumbnail); explicit 80px strip, horizontal
+                                     scroll for anything that doesn't fit (the row
+                                     itself never grows). One always-present add tile
+                                     at the end covers both the "no photo yet" and
+                                     "add more" cases from before — same multi-file
+                                     input, same staged-until-recorded behaviour
+                                     (Item 1/6). Old-style inline-block/white-space:
+                                     nowrap strip, deliberately NOT a nested flex
+                                     container — nothing here for a flex min-height
+                                     cascade to catch. --}}
+                                <div class="flex-1 min-w-0 overflow-x-auto"
+                                     style="flex:1; min-width:0; min-height:0; height:80px; max-height:80px; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
                                     <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
-                                        <div class="relative rounded-md" style="flex:none; min-height:0; aspect-ratio:1/1; height:100%; max-height:100%; overflow:hidden; background:var(--surface-3);">
-                                            <img :src="photo.storage_path" style="display:block; height:100%; width:auto; max-height:100%; max-width:none; object-fit:cover; cursor:pointer;"
+                                        <div class="relative rounded-md" style="display:inline-block; vertical-align:top; height:80px; max-height:80px; overflow:hidden; background:var(--surface-3); margin-right:0.375rem;">
+                                            <img :src="photo.storage_path" style="display:inline-block; height:80px; max-height:80px; width:auto; max-width:none; object-fit:cover; cursor:pointer;"
                                                  @click="viewer = { open: true, images: itemPhotosFor({{ $sectionJs }}, item).map(p => p.storage_path), index: itemPhotosFor({{ $sectionJs }}, item).indexOf(photo) }" alt="">
                                             {{-- Bug 2 — untag steps back the same way:
                                                  the exact reverse of the room→item tag
@@ -436,13 +434,13 @@
                                                     style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to room">&uarr;</button>
                                         </div>
                                     </template>
-                                    <label class="rounded-md cursor-pointer flex items-center justify-center"
-                                           style="flex:none; min-height:0; aspect-ratio:1/1; height:100%; max-height:100%;"
+                                    <label class="rounded-md cursor-pointer"
+                                           style="display:inline-flex; align-items:center; justify-content:center; vertical-align:top; height:80px; max-height:80px; width:80px;"
                                            :style="(obsField({{ $sectionJs }}, item.id).photos || []).length
                                                 ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
                                                 : 'background:var(--surface-2); color:var(--text-secondary);'"
                                            :title="(obsField({{ $sectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
-                                        <span>&#128247;</span>
+                                        <span style="font-size:1rem;">&#128247;</span>
                                         <input type="file" accept="image/*" multiple class="hidden"
                                                @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
                                     </label>
