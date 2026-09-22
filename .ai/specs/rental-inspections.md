@@ -2082,7 +2082,10 @@ immediately against its latest observation, via the same existing photo endpoint
 Each room heading shows `recorded/total` plus a photo count; the whole inspection shows one overall
 `recorded/total` on the In/Out Inspection section heading itself. A room where `recorded === total`
 collapses to its heading line automatically; clicking the heading always toggles it open again
-regardless of that computed default, so a finished room stays reviewable/correctable.
+regardless of that computed default, so a finished room stays reviewable/correctable. **Amended
+2026-09-22 — see §20.11**: the first landing shipped the toggle without a visible affordance and left
+the per-room bulk buttons showing on a room with nothing left to fill; both are fixed there, alongside
+the actual blocking bug this report also surfaced.
 
 ### 20.8 Property type — read-only, derived from Property
 
@@ -2111,3 +2114,115 @@ nothing sends it any more.
 Printable tick-box form, scan mark-reading (OMR), the mobile/API layer beyond what §14.2 already
 specifies, ad-hoc inspection types, and the in-vs-out side-by-side comparison view — none of these were
 started, scaffolded, or prepared for in this rebuild.
+
+### 20.11 Regression fix, same day (2026-09-22) — "none of the conditions can be clicked"
+
+Johan opened the landed §20 build and every condition button appeared dead. Two real, distinct bugs,
+both confirmed in code before fixing, not guessed:
+
+1. **The actual blocking bug**: `:disabled="obsBusy[_obsKey(section, item.id)]"` — an inline
+   bracket-lookup on a dynamically computed key, bound directly in the template — rendered every single
+   condition button on the page permanently disabled (105/105 on the test property, confirmed via a
+   real headless-browser count, both before and after any interaction), even though `obsBusy` itself was
+   genuinely empty. Every OTHER per-item lookup on this same surface (`selectedConditionFor()`,
+   `itemPhotosFor()`, etc.) already went through a plain method call rather than an inline bracket
+   expression and was never affected. Fix: added `isObsBusy(section, itemId)` — a method wrapping the
+   identical lookup — and pointed the one affected `:disabled` binding at it
+   (`resources/views/corex/properties/show.blade.php`,
+   `resources/views/corex/properties/partials/rental-inspection-recording.blade.php`). Verified
+   directly: disabled-button count on the same test property went from 105/105 to 0/105 after the fix,
+   with no other change.
+2. **The collapse trap Johan also named**: a fully-recorded room auto-collapsed (§20.7) with no visible
+   way back in — the toggle itself (a bare 12px chevron + text, no hover state) had no affordance, and
+   the still-visible "All Good"/"Mark room N/A" buttons on a fully-recorded room did nothing when
+   clicked (nothing left to fill), which read as "nothing here is clickable" on its own. Fixed at the
+   class level: the whole heading row is now one visibly-interactive click target (hover background,
+   `cursor:pointer`); "All Good"/"Mark room N/A" are hidden once a room has nothing left to fill, rather
+   than shown doing nothing; a new "Expand all" / "Collapse all" control opens or closes every room in
+   a section in one action. Applies identically to In and Out Inspection — both render through the same
+   partial, parameterized only by `section`.
+
+**Collapse plugin, confirmed, not assumed**: no `@alpinejs/collapse` package in `package.json`, no
+`Alpine.plugin(...)` registration anywhere in `resources/js/`. `x-collapse` resolves to Alpine core's
+own inert stub (`node_modules/alpinejs/dist/cdn.js:3445,3450` —
+`directive('collapse', el => warn(...))`) — confirmed by reading Alpine's source directly: it only
+`console.warn`s and returns; it does not block, delay, or otherwise interfere with any other directive
+(including `x-show`) on the same element. It was NOT the cause of either bug above (`x-show` toggling
+worked correctly in every direct test), but it is genuinely dead weight — dropped from this rebuild's
+own room-body toggle in favour of a plain `x-show`, per explicit instruction not to install a plugin as
+part of this fix. **Found, not fixed**: the same inert `x-collapse` is used in 9 other places across
+`show.blade.php` alone (readiness/marketed-elsewhere panels, the Info sub-sections, the outer
+Inspection Items/In/Out Inspection/custom-section accordion toggles, and one property-history panel) and
+in 10 files app-wide — none block their own `x-show`, matching this investigation's finding, but every
+one of them is carrying a directive that does nothing and reads as if it should. Not touched here —
+outside this fix's scope.
+
+### 20.12 Regression fix, same day (2026-09-22) — discrepancy banner grew on every recorded condition
+
+Johan, live during his demo, on a fresh property whose rooms he was recording normally: a pink banner
+appeared between the header block and the room list reading `undefined: good vs n_a vs good vs n_a`,
+with a radio per value and a "Resolve" button — growing by one option every time he tapped a condition.
+Investigated and confirmed in code before any change, per instruction:
+
+1. **The real bug — `app/Models/RentalInspectionDiscrepancy.php:94-124` (`detectFor()`)**. Two or more
+   observations on the same item, in the same inspection, with different conditions were treated as a
+   conflict needing human resolution, with **zero regard for who recorded them**. §20.2's autosave made
+   re-tapping a different button on the same item trivially easy — every self-correction (a normal act,
+   the model's own §3.1 "current condition is a query, never a column" principle already implies
+   latest-wins) was indistinguishable from two different people genuinely disagreeing (§0.4, the
+   mechanism's actual, original purpose). Confirmed via `git log`: this file is untouched since
+   `cc0b72d19`, "Stage 1 — data model," 2026-09-15 — pre-existing, not introduced by either of my two
+   branches; my rebuild just made the trigger constant instead of rare.
+   **Fix**: `detectFor()` now excludes an earlier observation from "conflicting" if it shares the same
+   author (`observed_by_user_id` or `observed_by_contact_id`) as the new one — `sameAuthor()`,
+   `RentalInspectionDiscrepancy.php:150-163`. Two DIFFERENT agents (or an agent and a self-reporting
+   tenant) disagreeing still raises a real discrepancy exactly as designed — unaffected.
+2. **The "undefined" label — `app/Models/RentalInspection.php:499-506` (`tabPayloadFor()`)**. The banner
+   read `discrepancy.observations[0]?.item?.label`, but `discrepancies.observations` was eager-loaded
+   without a nested `.item` — a separate relation path from the top-level `observations.item`, which
+   never inherited it. Always undefined on this data path since the discrepancy-resolution UI was built;
+   also pre-existing, also untouched by either of my branches.
+   **Fix**: the banner now reads `discrepancy.item?.label` directly — the discrepancy's own `item()`
+   relation, matching the pattern the agency-level list screen's detail view already uses
+   (`$discrepancy->item?->label ?? 'Unknown item'`,
+   `resources/views/corex/rental-inspections/show.blade.php:98`) — more robust than depending on an
+   array's first element, and `discrepancies.item` is now eager-loaded alongside it.
+3. **Out Inspection confirmed, not assumed**: both fixes sit in the shared model layer
+   (`RentalInspectionDiscrepancy`, `RentalInspection::tabPayloadFor()`) and the one partial both sections
+   render through — there is no separate code path for Out Inspection to have missed. The existing
+   `test_matching_observations_across_different_inspections_do_not_conflict` test already proves
+   `detectFor()` scopes strictly by `rental_inspection_id`, so this fix cannot leak between an
+   inspection's in and out events either.
+
+**Test fixture debt found and fixed alongside**: eleven existing tests across three files
+(`RentalInspectionRecordingControllerTest` ×5, `RentalInspectionDataModelTest` ×5,
+`RentalInspectionWorkflowTest` ×1) set up their "two conflicting observations" fixtures using the SAME
+acting agent for both — which the fix now correctly treats as a non-conflict, so they'd have failed (a
+route-generation error for two of them, since the discrepancy they expected to route to was never
+created; a plain assertion failure for the rest). Updated to use a genuinely different second agent for
+the conflicting observation, matching what those tests were actually meant to prove (§0.4's real,
+multi-agent scenario). Two new tests added (`RentalInspectionRecordingControllerTest`,
+`RentalInspectionDataModelTest`) asserting the opposite: the SAME agent recording a different condition
+on the same item does NOT create a discrepancy.
+
+**QA1 data cleanup**: one real discrepancy existed on property 5792 / inspection 14 (item 249) at the
+time of this fix, mixing one original test-fixture observation (user 144) with several of my own testing
+taps (user 22) — resolved directly (accepting the latest recorded condition), not deleted, with a note
+recording why. Not a blanket cleanup script — checked first, found to be the only unresolved discrepancy
+on QA1, resolved by hand.
+
+**Two more stale tests found running the wider net this fix required, both unrelated to today's actual
+bug — one fixed, one reported, not fixed:**
+- `RentalInspectionListScreenTest::test_the_list_screen_can_start_a_new_inspection` asserted a redirect
+  to `?tab=rental-images` — stale from §20.1's tab rename (`rental-images` → `inspections`), an earlier,
+  already-landed change. Fixed (one-line, matches already-shipped behaviour, zero risk).
+- `RentalImagesTabRendersTest::test_rental_images_tab_renders_with_items_and_an_active_lease` asserts
+  `assertSee('Record…')` against a fixture that creates an item but never starts an inspection.
+  `Record…` was the old per-item condition control's placeholder text from before the recording UI was
+  restructured to gate all condition controls behind an active in/out inspection
+  (`<template x-if="currentInspection(section)">`) — this fixture's setup predates that architecture and
+  the assertion no longer matches anything the current UI would ever render for it. **Not fixed** —
+  requires deciding what this test should actually assert now (does the "Inspection Items" panel alone,
+  with no inspection started, have anything of its own worth asserting on, or should the fixture start an
+  inspection first to reach real condition-recording markup), which is a real decision, not a
+  find-and-replace like the redirect fix above, and is not part of today's discrepancy-banner scope.

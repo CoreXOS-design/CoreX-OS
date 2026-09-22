@@ -119,9 +119,16 @@ final class RentalInspectionListScreenTest extends TestCase
         $this->assertSame([$inProgress->id], $response->viewData('inspections')->pluck('id')->all());
     }
 
+    /**
+     * §0.4 — the two conflicting observations need genuinely different
+     * authors; both used $admin until 2026-09-22 (see
+     * RentalInspectionDiscrepancy::sameAuthor() — a same-author correction
+     * is no longer treated as a conflict).
+     */
     public function test_has_unresolved_discrepancy_filter(): void
     {
         $admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'admin']);
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branchA->id, 'role' => 'agent']);
         $property = $this->property($this->branchA, 'Discrepancy property', $admin);
         $withDiscrepancy = $this->inspection($property, $admin);
         $item = RentalInspectionItem::create([
@@ -136,7 +143,7 @@ final class RentalInspectionListScreenTest extends TestCase
         // discrepancy-detection happen atomically.
         RentalInspectionObservation::record([
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $withDiscrepancy->id, 'rental_inspection_item_id' => $item->id,
-            'observed_by_user_id' => $admin->id, 'condition' => 'damaged', 'notes' => 'x', 'source' => 'in_inspection',
+            'observed_by_user_id' => $secondAgent->id, 'condition' => 'damaged', 'notes' => 'x', 'source' => 'in_inspection',
         ]);
         $this->inspection($this->property($this->branchA, 'Clean property', $admin), $admin);
 
@@ -347,7 +354,10 @@ final class RentalInspectionListScreenTest extends TestCase
             'property_id' => $property->id, 'type' => RentalInspection::TYPE_IN,
         ]);
 
-        $response->assertRedirect(route('corex.properties.show', ['property' => $property->id, 'tab' => 'rental-images']));
+        // 2026-09-22 — tab renamed 'Rental Images' -> 'Inspections' (label
+        // and key), .ai/specs/rental-inspections.md §20.1; the redirect
+        // target changed with it, unrelated to today's discrepancy fix.
+        $response->assertRedirect(route('corex.properties.show', ['property' => $property->id, 'tab' => 'inspections']));
         $this->assertDatabaseHas('rental_inspections', [
             'property_id' => $property->id, 'type' => RentalInspection::TYPE_IN, 'status' => RentalInspection::STATUS_DRAFT,
         ]);

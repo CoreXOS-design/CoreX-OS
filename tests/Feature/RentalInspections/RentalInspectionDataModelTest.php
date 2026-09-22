@@ -101,7 +101,7 @@ final class RentalInspectionDataModelTest extends TestCase
         ]);
     }
 
-    private function makeObservation(RentalInspection $inspection, RentalInspectionItem $item, string $condition): RentalInspectionObservation
+    private function makeObservation(RentalInspection $inspection, RentalInspectionItem $item, string $condition, ?User $observedBy = null): RentalInspectionObservation
     {
         // record() is the one real entry point (§14.1 fix 2) — create and
         // discrepancy-detection happen atomically, not as two calls a test
@@ -110,7 +110,7 @@ final class RentalInspectionDataModelTest extends TestCase
             'agency_id' => $this->agency->id,
             'rental_inspection_id' => $inspection->id,
             'rental_inspection_item_id' => $item->id,
-            'observed_by_user_id' => $this->agent->id,
+            'observed_by_user_id' => ($observedBy ?? $this->agent)->id,
             'condition' => $condition,
             'notes' => $condition !== RentalInspectionObservation::CONDITION_GOOD ? 'Test note' : null,
             'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
@@ -124,13 +124,20 @@ final class RentalInspectionDataModelTest extends TestCase
         $this->assertSame($this->property->id, $inspection->property_id);
     }
 
+    /**
+     * §0.4 — genuinely two different agents. Both calls used the same
+     * $this->agent until 2026-09-22 (see RentalInspectionDiscrepancy::
+     * sameAuthor(), added after Johan found his own sequential correction
+     * of one item, on one device, being treated as a conflict).
+     */
     public function test_two_conflicting_observations_produce_exactly_one_discrepancy_referencing_both(): void
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
 
         $obs1 = $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_GOOD);
-        $obs2 = $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED);
+        $obs2 = $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED, $secondAgent);
 
         $this->assertSame(1, RentalInspectionDiscrepancy::count());
         $discrepancy = RentalInspectionDiscrepancy::first();
@@ -145,13 +152,35 @@ final class RentalInspectionDataModelTest extends TestCase
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+        $thirdAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+
+        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_GOOD);
+        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED, $secondAgent);
+        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_FAIR, $thirdAgent);
+
+        $this->assertSame(1, RentalInspectionDiscrepancy::count(), 'one row per conflicting GROUP, not per pair');
+        $this->assertSame(3, RentalInspectionDiscrepancy::first()->observations()->count());
+    }
+
+    /**
+     * 2026-09-22, Johan (property 5792, live during his demo) — companion
+     * to the two tests above: the SAME agent recording a different
+     * condition on the SAME item, sequentially, is a correction, not a
+     * conflict, and must never create a discrepancy. See
+     * RentalInspectionRecordingControllerTest for the controller-level
+     * equivalent (this one exercises the model directly).
+     */
+    public function test_the_same_agent_recording_a_different_condition_does_not_create_a_discrepancy(): void
+    {
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
 
         $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_GOOD);
         $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED);
         $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_FAIR);
 
-        $this->assertSame(1, RentalInspectionDiscrepancy::count(), 'one row per conflicting GROUP, not per pair');
-        $this->assertSame(3, RentalInspectionDiscrepancy::first()->observations()->count());
+        $this->assertSame(0, RentalInspectionDiscrepancy::count());
     }
 
     public function test_matching_observations_across_different_inspections_do_not_conflict(): void
@@ -166,12 +195,14 @@ final class RentalInspectionDataModelTest extends TestCase
         $this->assertSame(0, RentalInspectionDiscrepancy::count(), 'ordinary wear between check-in and check-out is not a discrepancy');
     }
 
+    /** §0.4 — genuinely two different agents; see RentalInspectionDiscrepancy::sameAuthor(). */
     public function test_inspection_cannot_be_treated_as_completable_while_discrepancy_unresolved(): void
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
         $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_GOOD);
-        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED);
+        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED, $secondAgent);
 
         $this->assertTrue($inspection->hasUnresolvedDiscrepancy());
 
@@ -183,12 +214,14 @@ final class RentalInspectionDataModelTest extends TestCase
         $this->assertFalse($inspection->fresh()->hasUnresolvedDiscrepancy());
     }
 
+    /** §0.4 — genuinely two different agents; see RentalInspectionDiscrepancy::sameAuthor(). */
     public function test_resolving_a_discrepancy_never_touches_the_losing_observation(): void
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
         $loser = $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_GOOD);
-        $winner = $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED);
+        $winner = $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED, $secondAgent);
 
         $discrepancy = RentalInspectionDiscrepancy::first();
         $discrepancy->resolve($winner, $this->agent, 'Agreed.');
@@ -197,12 +230,14 @@ final class RentalInspectionDataModelTest extends TestCase
         $this->assertSame(2, $discrepancy->observations()->count(), 'losing observation stays on the pivot, never removed');
     }
 
+    /** §0.4 — genuinely two different agents; see RentalInspectionDiscrepancy::sameAuthor(). */
     public function test_current_observation_excludes_unresolved_discrepancy_participants(): void
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
         $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_GOOD);
-        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED);
+        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED, $secondAgent);
 
         $this->assertNull($item->fresh()->currentObservation(), 'both sit inside an unresolved discrepancy — no current condition yet');
 

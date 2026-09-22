@@ -496,8 +496,18 @@ class RentalInspection extends Model
         // room note without a second round-trip (the frontend resolves
         // "current" as the latest row per room, same pattern as
         // conditionFor() already does for item observations).
+        // 2026-09-22 fix — 'discrepancies.item' added: the discrepancy's own
+        // direct item() relation, matching the pattern the agency-level list
+        // screen's show() already uses ($discrepancy->item?->label — see
+        // RentalInspectionController.php). The banner here previously read
+        // discrepancy.observations[0]?.item?.label, a separate relation path
+        // from 'observations.item' above that never inherited that
+        // eager-load, so it was always undefined and rendered the literal
+        // string "undefined" (Johan, property 5792). Reading the direct
+        // relation is also more robust than depending on an array's first
+        // element, and matches the other screen's own approach.
         $withDetail = fn (string $type) => self::currentFor($property, $type)
-            ?->load(['observations.item', 'observations.photos', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
+            ?->load(['observations.item', 'observations.photos', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
 
         $outInspection = $withDetail(self::TYPE_OUT);
         // 2026-09-20 fix — deliberately NOT $outInspection above. That value

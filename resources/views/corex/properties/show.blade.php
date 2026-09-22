@@ -5223,6 +5223,21 @@
                 obsForm: {},
                 obsBusy: {},
                 _obsKey(section, itemId) { return section + '_' + itemId; },
+                // 2026-09-22, Johan regression report ("none of the conditions
+                // can be clicked") — every condition button was rendering
+                // permanently disabled. Root cause: `:disabled="obsBusy[_obsKey(
+                // section, item.id)]"` bound an inline bracket-lookup on a
+                // DYNAMICALLY computed key directly in the template; Alpine's
+                // dependency tracking for that pattern does not reliably
+                // re-run when the object backing it is mutated elsewhere,
+                // and reused x-for nodes were left holding a stale `true`
+                // that no later write to the (different) real key ever
+                // cleared. Every OTHER per-item lookup on this same page
+                // (selectedConditionFor(), itemPhotosFor(), etc.) already
+                // goes through a plain method call instead of an inline
+                // bracket expression and was never affected — this wraps
+                // obsBusy the same way, the fix, not a workaround.
+                isObsBusy(section, itemId) { return !!this.obsBusy[this._obsKey(section, itemId)]; },
                 obsField(section, itemId) {
                     const key = this._obsKey(section, itemId);
                     return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '', photo: null });
@@ -5379,6 +5394,24 @@
                 toggleRoomOpen(section, group) {
                     if (!group.room) return;
                     this.roomOpenOverride[section + '_' + group.room.id] = !this.isRoomOpen(section, group);
+                },
+                // 2026-09-22, Johan (property 5792 regression) — "the whole
+                // inspection needs the same: a way to open everything, for
+                // an agent who wants to review the lot." One action, every
+                // room in this section; re-clicking closes everything back
+                // to the computed per-room default rather than force-closing
+                // every room outright, so a room an agent explicitly reopened
+                // earlier this session isn't silently re-collapsed by using
+                // this as a blunt "close all" hammer.
+                allRoomsOpen(section) {
+                    const groups = this.roomGroups().filter(g => g.room);
+                    return groups.length > 0 && groups.every(g => this.isRoomOpen(section, g));
+                },
+                toggleAllRooms(section) {
+                    const openingAll = !this.allRoomsOpen(section);
+                    this.roomGroups().filter(g => g.room).forEach(g => {
+                        this.roomOpenOverride[section + '_' + g.room.id] = openingAll;
+                    });
                 },
                 _collapseRoomIfComplete(section, item) {
                     const roomId = item.room ? item.room.id : item.property_room_id;
