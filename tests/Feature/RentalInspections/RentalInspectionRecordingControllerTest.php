@@ -479,7 +479,46 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertDatabaseMissing('rental_inspection_observations', ['rental_inspection_item_id' => $item->id]);
     }
 
-    public function test_two_conflicting_observations_through_the_controller_produce_one_discrepancy(): void
+    /**
+     * §0.4 — the ORIGINAL scenario this whole mechanism exists for: two
+     * DIFFERENT agents recording conflicting conditions for the same item.
+     * Was written using ONE acting user for both POSTs (a same-author
+     * self-correction, not a real conflict) until 2026-09-22 — see the
+     * new test directly below, which now covers that case explicitly and
+     * asserts the opposite outcome, per Johan's ruling on property 5792.
+     */
+    public function test_two_different_agents_recording_conflicting_conditions_produce_one_discrepancy(): void
+    {
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent',
+        ]);
+
+        $this->actingAs($this->agent);
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'condition' => 'good', 'source' => 'in_inspection',
+        ])->assertOk();
+
+        $this->actingAs($secondAgent);
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'condition' => 'damaged', 'notes' => 'Cracked tile.', 'source' => 'in_inspection',
+        ])->assertOk();
+
+        $this->assertSame(1, RentalInspectionDiscrepancy::count());
+    }
+
+    /**
+     * 2026-09-22, Johan (property 5792, live during his demo) — a single
+     * agent correcting their own earlier tap on the SAME item was being
+     * treated as a conflict needing resolution, growing by one option on
+     * every recorded condition. His ruling, verbatim in substance: "a
+     * genuine concurrent-edit conflict (two people editing the same item
+     * at once) may well deserve a prompt, but an item's own history never
+     * does. Latest-wins is the rule this surface already uses everywhere
+     * else." RentalInspectionDiscrepancy::sameAuthor() is the fix.
+     */
+    public function test_the_same_agent_correcting_their_own_earlier_condition_does_not_create_a_discrepancy(): void
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
@@ -488,10 +527,14 @@ final class RentalInspectionRecordingControllerTest extends TestCase
             'rental_inspection_item_id' => $item->id, 'condition' => 'good', 'source' => 'in_inspection',
         ])->assertOk();
         $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
-            'rental_inspection_item_id' => $item->id, 'condition' => 'damaged', 'notes' => 'Cracked tile.', 'source' => 'in_inspection',
+            'rental_inspection_item_id' => $item->id, 'condition' => 'n_a', 'source' => 'in_inspection',
+        ])->assertOk();
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'condition' => 'good', 'source' => 'in_inspection',
         ])->assertOk();
 
-        $this->assertSame(1, RentalInspectionDiscrepancy::count());
+        $this->assertSame(0, RentalInspectionDiscrepancy::count());
+        $this->assertSame(3, RentalInspectionObservation::where('rental_inspection_item_id', $item->id)->count());
     }
 
     // ── Photos ──────────────────────────────────────────────────────
@@ -544,13 +587,14 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
         RentalInspectionObservation::record([
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
             'observed_by_user_id' => $this->agent->id, 'condition' => 'good', 'source' => 'in_inspection',
         ]);
         RentalInspectionObservation::record([
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
-            'observed_by_user_id' => $this->agent->id, 'condition' => 'damaged', 'notes' => 'x', 'source' => 'in_inspection',
+            'observed_by_user_id' => $secondAgent->id, 'condition' => 'damaged', 'notes' => 'x', 'source' => 'in_inspection',
         ]);
         $discrepancy = RentalInspectionDiscrepancy::first();
 
@@ -568,13 +612,14 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
         RentalInspectionObservation::record([
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
             'observed_by_user_id' => $this->agent->id, 'condition' => 'good', 'source' => 'in_inspection',
         ]);
         $winner = RentalInspectionObservation::record([
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
-            'observed_by_user_id' => $this->agent->id, 'condition' => 'damaged', 'notes' => 'x', 'source' => 'in_inspection',
+            'observed_by_user_id' => $secondAgent->id, 'condition' => 'damaged', 'notes' => 'x', 'source' => 'in_inspection',
         ]);
         $discrepancy = RentalInspectionDiscrepancy::first();
 
@@ -816,13 +861,14 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
         RentalInspectionObservation::record([
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
             'observed_by_user_id' => $this->agent->id, 'condition' => 'good', 'source' => 'in_inspection',
         ]);
         RentalInspectionObservation::record([
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
-            'observed_by_user_id' => $this->agent->id, 'condition' => 'damaged', 'notes' => 'x', 'source' => 'in_inspection',
+            'observed_by_user_id' => $secondAgent->id, 'condition' => 'damaged', 'notes' => 'x', 'source' => 'in_inspection',
         ]);
 
         $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertStatus(409);
@@ -970,15 +1016,24 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->postJson(route('corex.rental-inspections.rooms.mark-na', [$otherInspection, $room]))->assertNotFound();
     }
 
-    /** Johan: "a genuine conflict with an EARLIER observation ... still raises a real discrepancy." */
+    /**
+     * Johan: "a genuine conflict with an EARLIER observation ... still
+     * raises a real discrepancy." Genuine means a DIFFERENT agent's
+     * earlier entry — the earlier observation here used $this->agent (the
+     * SAME agent the mark-na POST below is authenticated as) until
+     * 2026-09-22, which the sameAuthor() fix correctly stopped flagging as
+     * a conflict (self-correction, not disagreement). Using a second
+     * agent for the earlier entry keeps this test's own stated intent.
+     */
     public function test_mark_room_na_after_an_earlier_different_observation_raises_a_discrepancy(): void
     {
         $room = $this->makeRoomWithItems(1);
         $item = RentalInspectionItem::where('property_room_id', $room->id)->first();
         $inspection = $this->makeInspection();
+        $earlierAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
         RentalInspectionObservation::record([
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
-            'observed_by_user_id' => $this->agent->id, 'condition' => 'fair', 'notes' => 'x', 'source' => 'in_inspection',
+            'observed_by_user_id' => $earlierAgent->id, 'condition' => 'fair', 'notes' => 'x', 'source' => 'in_inspection',
         ]);
 
         $this->postJson(route('corex.rental-inspections.rooms.mark-na', [$inspection, $room]))->assertOk();

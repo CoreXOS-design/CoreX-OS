@@ -2156,3 +2156,73 @@ Inspection Items/In/Out Inspection/custom-section accordion toggles, and one pro
 in 10 files app-wide — none block their own `x-show`, matching this investigation's finding, but every
 one of them is carrying a directive that does nothing and reads as if it should. Not touched here —
 outside this fix's scope.
+
+### 20.12 Regression fix, same day (2026-09-22) — discrepancy banner grew on every recorded condition
+
+Johan, live during his demo, on a fresh property whose rooms he was recording normally: a pink banner
+appeared between the header block and the room list reading `undefined: good vs n_a vs good vs n_a`,
+with a radio per value and a "Resolve" button — growing by one option every time he tapped a condition.
+Investigated and confirmed in code before any change, per instruction:
+
+1. **The real bug — `app/Models/RentalInspectionDiscrepancy.php:94-124` (`detectFor()`)**. Two or more
+   observations on the same item, in the same inspection, with different conditions were treated as a
+   conflict needing human resolution, with **zero regard for who recorded them**. §20.2's autosave made
+   re-tapping a different button on the same item trivially easy — every self-correction (a normal act,
+   the model's own §3.1 "current condition is a query, never a column" principle already implies
+   latest-wins) was indistinguishable from two different people genuinely disagreeing (§0.4, the
+   mechanism's actual, original purpose). Confirmed via `git log`: this file is untouched since
+   `cc0b72d19`, "Stage 1 — data model," 2026-09-15 — pre-existing, not introduced by either of my two
+   branches; my rebuild just made the trigger constant instead of rare.
+   **Fix**: `detectFor()` now excludes an earlier observation from "conflicting" if it shares the same
+   author (`observed_by_user_id` or `observed_by_contact_id`) as the new one — `sameAuthor()`,
+   `RentalInspectionDiscrepancy.php:150-163`. Two DIFFERENT agents (or an agent and a self-reporting
+   tenant) disagreeing still raises a real discrepancy exactly as designed — unaffected.
+2. **The "undefined" label — `app/Models/RentalInspection.php:499-506` (`tabPayloadFor()`)**. The banner
+   read `discrepancy.observations[0]?.item?.label`, but `discrepancies.observations` was eager-loaded
+   without a nested `.item` — a separate relation path from the top-level `observations.item`, which
+   never inherited it. Always undefined on this data path since the discrepancy-resolution UI was built;
+   also pre-existing, also untouched by either of my branches.
+   **Fix**: the banner now reads `discrepancy.item?.label` directly — the discrepancy's own `item()`
+   relation, matching the pattern the agency-level list screen's detail view already uses
+   (`$discrepancy->item?->label ?? 'Unknown item'`,
+   `resources/views/corex/rental-inspections/show.blade.php:98`) — more robust than depending on an
+   array's first element, and `discrepancies.item` is now eager-loaded alongside it.
+3. **Out Inspection confirmed, not assumed**: both fixes sit in the shared model layer
+   (`RentalInspectionDiscrepancy`, `RentalInspection::tabPayloadFor()`) and the one partial both sections
+   render through — there is no separate code path for Out Inspection to have missed. The existing
+   `test_matching_observations_across_different_inspections_do_not_conflict` test already proves
+   `detectFor()` scopes strictly by `rental_inspection_id`, so this fix cannot leak between an
+   inspection's in and out events either.
+
+**Test fixture debt found and fixed alongside**: eleven existing tests across three files
+(`RentalInspectionRecordingControllerTest` ×5, `RentalInspectionDataModelTest` ×5,
+`RentalInspectionWorkflowTest` ×1) set up their "two conflicting observations" fixtures using the SAME
+acting agent for both — which the fix now correctly treats as a non-conflict, so they'd have failed (a
+route-generation error for two of them, since the discrepancy they expected to route to was never
+created; a plain assertion failure for the rest). Updated to use a genuinely different second agent for
+the conflicting observation, matching what those tests were actually meant to prove (§0.4's real,
+multi-agent scenario). Two new tests added (`RentalInspectionRecordingControllerTest`,
+`RentalInspectionDataModelTest`) asserting the opposite: the SAME agent recording a different condition
+on the same item does NOT create a discrepancy.
+
+**QA1 data cleanup**: one real discrepancy existed on property 5792 / inspection 14 (item 249) at the
+time of this fix, mixing one original test-fixture observation (user 144) with several of my own testing
+taps (user 22) — resolved directly (accepting the latest recorded condition), not deleted, with a note
+recording why. Not a blanket cleanup script — checked first, found to be the only unresolved discrepancy
+on QA1, resolved by hand.
+
+**Two more stale tests found running the wider net this fix required, both unrelated to today's actual
+bug — one fixed, one reported, not fixed:**
+- `RentalInspectionListScreenTest::test_the_list_screen_can_start_a_new_inspection` asserted a redirect
+  to `?tab=rental-images` — stale from §20.1's tab rename (`rental-images` → `inspections`), an earlier,
+  already-landed change. Fixed (one-line, matches already-shipped behaviour, zero risk).
+- `RentalImagesTabRendersTest::test_rental_images_tab_renders_with_items_and_an_active_lease` asserts
+  `assertSee('Record…')` against a fixture that creates an item but never starts an inspection.
+  `Record…` was the old per-item condition control's placeholder text from before the recording UI was
+  restructured to gate all condition controls behind an active in/out inspection
+  (`<template x-if="currentInspection(section)">`) — this fixture's setup predates that architecture and
+  the assertion no longer matches anything the current UI would ever render for it. **Not fixed** —
+  requires deciding what this test should actually assert now (does the "Inspection Items" panel alone,
+  with no inspection started, have anything of its own worth asserting on, or should the fixture start an
+  inspection first to reach real condition-recording markup), which is a real decision, not a
+  find-and-replace like the redirect fix above, and is not part of today's discrepancy-banner scope.

@@ -107,8 +107,14 @@
         {{-- One banner per conflicting group — §0.4, must be resolved before completion. --}}
         <template x-for="discrepancy in (currentInspection({{ $sectionJs }}).discrepancies || []).filter(d => !d.resolved_at)" :key="discrepancy.id">
             <div class="rounded-md px-4 py-3 text-sm space-y-2" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">
+                {{-- 2026-09-22 fix — reads discrepancy.item directly (the
+                     discrepancy's own item() relation) rather than
+                     discrepancy.observations[0]?.item, which depended on a
+                     nested eager-load path that was never actually loaded
+                     and rendered the literal string "undefined" as the
+                     label (Johan, property 5792). --}}
                 <div class="font-semibold" style="color:var(--text-primary);"
-                     x-text="discrepancy.observations[0]?.item?.label + ': ' + discrepancy.observations.map(o => o.condition).join(' vs ')"></div>
+                     x-text="(discrepancy.item?.label || 'Unknown item') + ': ' + discrepancy.observations.map(o => o.condition).join(' vs ')"></div>
                 <div class="flex flex-wrap items-center gap-3">
                     <template x-for="obs in discrepancy.observations" :key="obs.id">
                         <label class="flex items-center gap-1.5 text-xs" style="color:var(--text-secondary);">

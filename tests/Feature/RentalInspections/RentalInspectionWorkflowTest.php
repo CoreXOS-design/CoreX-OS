@@ -143,12 +143,18 @@ final class RentalInspectionWorkflowTest extends TestCase
         );
     }
 
+    /**
+     * §0.4 — genuinely two different agents; both observations used
+     * $this->agent until 2026-09-22 (RentalInspectionDiscrepancy::
+     * sameAuthor() — a same-author correction is no longer a conflict).
+     */
     public function test_cannot_complete_an_inspection_with_an_unresolved_discrepancy(): void
     {
         $item = $this->makeItem();
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $secondAgent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
         $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_GOOD);
-        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED);
+        $this->makeObservation($inspection, $item, RentalInspectionObservation::CONDITION_DAMAGED, ['observed_by_user_id' => $secondAgent->id]);
 
         $this->expectException(\LogicException::class);
         $inspection->markCompleted();

@@ -69,11 +69,20 @@ final class RentalImagesTabRendersTest extends TestCase
             ->assertSee('Record…');
     }
 
+    /**
+     * §0.4 — the discrepancy fixture below needs a genuinely SECOND agent;
+     * both observations used the same $agent until 2026-09-22 (see
+     * RentalInspectionDiscrepancy::sameAuthor() — a same-author correction
+     * is no longer treated as a conflict, so the fixture must represent a
+     * real second person to still exercise the "Resolve" markup this test
+     * asserts on).
+     */
     public function test_rental_images_tab_renders_lifecycle_and_discrepancy_markup_for_an_inspection_under_way(): void
     {
         $agency = Agency::create(['name' => 'RI Tab Render Agency', 'slug' => 'ri-tab-render-' . uniqid()]);
         $branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $agency->id]);
         $agent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
+        $secondAgent = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
         $property = Property::forceCreate([
             'agency_id' => $agency->id, 'agent_id' => $agent->id, 'branch_id' => $branch->id,
             'title' => 'Tab Render Property', 'status' => 'active', 'listing_type' => 'rental',
@@ -96,7 +105,7 @@ final class RentalImagesTabRendersTest extends TestCase
         ]);
         RentalInspectionObservation::record([
             'agency_id' => $agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
-            'observed_by_user_id' => $agent->id, 'condition' => 'damaged', 'notes' => 'Cracked window.', 'source' => 'in_inspection',
+            'observed_by_user_id' => $secondAgent->id, 'condition' => 'damaged', 'notes' => 'Cracked window.', 'source' => 'in_inspection',
         ]);
 
         $this->actingAs($agent)
