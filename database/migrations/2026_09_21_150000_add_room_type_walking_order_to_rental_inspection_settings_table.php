@@ -13,13 +13,20 @@ use Illuminate\Support\Facades\Schema;
  * permutation of the type list; null resolves to
  * RentalInspectionSetting::DEFAULT_ROOM_TYPE_WALKING_ORDER — same
  * read-time-default pattern as this table's other columns.
+ *
+ * No ->after('room_type_item_defaults') — that column is added by a
+ * LATER-dated migration (2026_09_30_100300), so a fresh migrate:fresh
+ * (every migration file in filename order) would fail here with "Unknown
+ * column 'room_type_item_defaults'" before that column exists. Column
+ * order in MySQL is purely cosmetic — dropping the position hint costs
+ * nothing functionally and removes the false ordering dependency entirely.
  */
 return new class extends Migration
 {
     public function up(): void
     {
         Schema::table('rental_inspection_settings', function (Blueprint $table) {
-            $table->json('room_type_walking_order')->nullable()->after('room_type_item_defaults');
+            $table->json('room_type_walking_order')->nullable();
         });
     }
 
