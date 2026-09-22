@@ -171,6 +171,8 @@ class LeaseController extends Controller
             'lease' => $lease,
             // .ai/specs/rental-property-tab.md §5, Part 4 — same list as create().
             'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
+            // Johan, 2026-09-22 — agency-configurable, hidden by default.
+            'showLeaseType' => \App\Models\LeaseSetting::showLeaseTypeFieldFor($lease->agency_id),
         ]);
     }
 

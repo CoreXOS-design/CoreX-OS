@@ -1089,6 +1089,77 @@ ticked/edited before saving; the inline preview, the live-preview page,
 and the actual P24 submission all produce byte-identical block text for
 the same property at the same moment.
 
+**Part 7 — Lease Type hidden by default; rent shown read-only on the lease
+edit screen (Johan, 2026-09-22).** Not in the original §8 sequence — a
+same-day correction after Johan saw Lease Type rendered on QA1 twice more
+and named it directly: *"The freaking lease type is showing here again. do
+not know why the hell we have this. dont remove it, but hide it."*
+Agency-configurable, sensible default **hidden**, per his standing rule
+that anything like this is a setting rather than a hardcoded show/hide —
+new `LeaseSetting::showLeaseTypeFieldFor()` / `show_lease_type_field`
+column, control on Settings → Leases. Wraps the SAME two Lease Type
+`<select>` blocks Part 4 built (`properties/show.blade.php`'s new/draft and
+settled Rental Details panels, `leases/show.blade.php`'s edit form and its
+own display line) in `@if($showLeaseType ?? false)` — nothing about the
+column, the model, the agency-editable list, or `Property24ListingMapper::
+mapLeaseType()` changes; hiding a value the form never submits leaves the
+stored value untouched (`$validated['lease_type'] ?? $lease->lease_type`
+already falls back correctly). `leases/create.blade.php`'s own Lease Type
+select is deliberately **not** touched — Johan named the lease screen
+(`/leases/{id}`, the show/edit screen) and the property Rental tab only;
+whether the create screen should hide it too is unasked, flagged under §9.
+
+Same commit: the lease **edit** form now shows Monthly rental read-only
+(no `name` attribute, so it can never be submitted), positioned as the
+first grid cell, immediately before Deposit — Johan: *"the rental amount
+shows on the lease screen, but not on the edit screen... displaying the
+rent amount makes it easy to type again [the deposit]."* Display only;
+rent stays non-editable here, unchanged from the existing rule that it
+only moves via a recorded escalation.
+
+Verify: 15 new/updated tests
+(`tests/Feature/Leases/LeaseTypeVisibilityTest.php` — 8 new; two
+pre-existing `LeaseTypeSettingTest.php` cases updated to opt an agency in,
+since their own point is the option-list source, not the new default),
+covering default-hidden on both screens, shown once the agency setting is
+on, hiding never touches the stored value, the settings checkbox
+defaults unchecked and both directions of toggling actually persist, and
+the read-only rent renders with no submittable `rental_amount` input on
+the edit form. Regression: `LeaseEditTest`/`LeaseCoreTest`/
+`LeaseSettingsTest` — unaffected, still passing. 39/39 total. Also
+verified live via a real authenticated HTTP fetch (`scripts/
+fetch-authenticated-page.php` + `scripts/verify-alpine-render.mjs`)
+against an isolated local database seeded for this check — **local, not
+the deployed QA1 URL** — confirming the rendered HTML matches exactly:
+Lease Type absent by default on both screens, present once the setting is
+turned on, rent displayed read-only next to Deposit.
+
+**Part 7 also (same commit): approved-application property picker
+populates rent/deposit from the property (Johan, 2026-09-22).** Johan:
+*"tenant is approved. open and select property. the monthly rental,
+deposit should populate from the property screen."* The tenant-link
+search picker on `view-readonly.blade.php` (the approved-application
+"link this tenant to a property" form,
+`RentalApplicationController::linkTenantProperty()`'s own screen) fetches
+`corex.rental-applications.search-properties`; that endpoint's JSON now
+carries each result's own `rental_amount`/`deposit_amount`
+(`Property::toSearchResult()`'s `$extra` override, scoped to this one call
+site only — the shared method and its other caller, the PDF splitter
+picker, are untouched). The Alpine `select(p)` handler sets the terms
+fields' bound values (`x-model`, replacing the old static Blade
+`value="..."`) from the picked property — still a plain editable starting
+value, never locked, and a property with no value for one of them resolves
+to an empty field, never a written zero (`p.rental_amount ?? ''` — `??`
+only catches null/undefined, so a genuinely-stored 0 survives as 0).
+Verify: 2 new tests
+(`tests/Feature/RentalApplications/RentalApplicationSearchPropertiesRentalDetailsTest.php`),
+the search endpoint carries both fields for a property that has them and
+resolves both to `null` for one that doesn't; confirmed live via the same
+authenticated-fetch + isolated-DB method above — hitting the endpoint
+directly returned `{"rental_amount":9500,"deposit_amount":9500,...}` for a
+seeded property, and the rendered page's `select()`/`x-model` wiring
+matched.
+
 Each part gets its own "verified live on QA1" record before the next
 starts, matching the discipline the existing Rental tab build already
 established — nothing here proposes skipping that. Each branch handed
@@ -1125,6 +1196,26 @@ type single- vs. multi-select (single, §3 — ruled), `price_per_sqm`
    Gross); a build-time judgment call on exact labels, immediately
    editable by any agency regardless since it's a real agency list from
    day one, not a wording Johan needs to bless before Part 4 starts.
+4. **`leases/create.blade.php`'s own Lease Type select was NOT hidden by
+   Part 7** — Johan named the lease screen (`/leases/{id}`, the existing-
+   lease show/edit screen he was actually looking at) and the property
+   Rental tab, both now hidden by default. The lease CREATE screen's
+   select is a third, separate rendering of the same control that Part 7
+   left untouched, strictly per scope. Whether it should hide too (for
+   consistency — an agent would otherwise see Lease Type disappear on
+   edit but still see it when first creating a lease) is a real, open
+   follow-up, not decided here.
+5. **`show_lease_type_field` was deliberately NOT added to the Agency
+   Onboarding Setup Wizard** (CLAUDE.md non-negotiable #10a normally
+   requires every new setting to reach the wizard in the same prompt).
+   This one call: it is an expert/rarely-touched cosmetic toggle
+   (hide/show one dropdown control), not a business decision an agency
+   needs walking through during onboarding — closer to a preference than
+   a configuration a new agency must be told exists. Flagged here per
+   §10a's own "ask, then record it" instruction rather than decided
+   silently; if Johan wants it in the wizard regardless, it is a small,
+   isolated addition to `config/agency-onboarding-copy.php`'s Leases
+   step, not a rebuild.
 
 ---
 

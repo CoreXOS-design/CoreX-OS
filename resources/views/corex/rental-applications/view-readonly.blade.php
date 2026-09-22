@@ -207,6 +207,14 @@
                      just picked from search. --}}
                 propertyLabel: {{ Js::from($rentalApplication->property?->buildDisplayAddress()) }},
                 unlinkConfirming: false,
+                {{-- Johan, 2026-09-22 — "the monthly rental, deposit should
+                     populate from the property screen" once a property is
+                     picked here. Starting values the agent can still change,
+                     never locked. Initial state matches the fields' own
+                     existing pre-fill (approved_rental_amount / empty)
+                     until the agent actually picks a property below. --}}
+                rentalAmount: {{ Js::from(old('rental_amount', $rentalApplication->approved_rental_amount)) }},
+                depositAmount: {{ Js::from(old('deposit_amount')) }},
                 async search() {
                     if (this.query.length < 2) { this.results = []; return; }
                     const res = await fetch({{ Js::from(route('corex.rental-applications.search-properties')) }} + '?q=' + encodeURIComponent(this.query));
@@ -215,6 +223,13 @@
                 select(p) {
                     this.propertyId = p.id;
                     this.propertyLabel = p.label;
+                    // Populate from the selected property's own rental
+                    // details — a starting value only, still editable. No
+                    // value on the property (null) means an empty field,
+                    // never a written zero; ?? only catches null/undefined,
+                    // so a genuinely-stored 0 is preserved as 0.
+                    this.rentalAmount = p.rental_amount ?? '';
+                    this.depositAmount = p.deposit_amount ?? '';
                     this.searching = false;
                     this.query = '';
                     this.results = [];
@@ -323,13 +338,17 @@
                     <div class="w-full flex flex-wrap items-end gap-2 mt-1 pt-2" style="border-top: 1px dashed var(--border);">
                         <div>
                             <label class="text-[11px]" style="color: var(--text-muted);">Monthly rental (R)</label><br>
+                            {{-- Johan, 2026-09-22 — populates from the selected
+                                 property's own rental details (select() above);
+                                 still a plain editable starting value, not locked. --}}
                             <input type="number" name="rental_amount" step="0.01" min="0" required
-                                   value="{{ old('rental_amount', $rentalApplication->approved_rental_amount) }}"
+                                   x-model="rentalAmount"
                                    class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;">
                         </div>
                         <div>
                             <label class="text-[11px]" style="color: var(--text-muted);">Deposit (R)</label><br>
-                            <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount') }}"
+                            <input type="number" name="deposit_amount" step="0.01" min="0"
+                                   x-model="depositAmount"
                                    class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;">
                         </div>
                         <div>

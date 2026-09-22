@@ -23,6 +23,7 @@ class LeaseSettingsController extends Controller
         return view('corex.settings.leases', [
             'expiryNoticeWindowDays' => LeaseSetting::expiryNoticeWindowDaysFor($agencyId),
             'defaultDays' => LeaseSetting::DEFAULT_EXPIRY_NOTICE_WINDOW_DAYS,
+            'showLeaseTypeField' => LeaseSetting::showLeaseTypeFieldFor($agencyId),
         ]);
     }
 
@@ -36,7 +37,13 @@ class LeaseSettingsController extends Controller
 
         LeaseSetting::updateOrCreate(
             ['agency_id' => $agencyId],
-            ['expiry_notice_window_days' => $validated['expiry_notice_window_days']],
+            [
+                'expiry_notice_window_days' => $validated['expiry_notice_window_days'],
+                // This form always renders the checkbox (never a subset-posting
+                // wizard step), so an absent checkbox is a genuine, deliberate
+                // "off" — not a field this step never showed the user.
+                'show_lease_type_field' => $request->boolean('show_lease_type_field'),
+            ],
         );
 
         return redirect()->route('corex.settings.leases.edit')->with('success', 'Lease settings saved.');

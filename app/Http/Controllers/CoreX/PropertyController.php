@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\ContactMatch;
 use App\Models\ContactNote;
+use App\Models\LeaseSetting;
 use App\Models\Property;
 use App\Models\PropertyNote;
 use App\Models\PropertyAdTemplate;
@@ -602,6 +603,9 @@ class PropertyController extends Controller
             // .ai/specs/rental-property-tab.md §5, Part 4 — Rental tab's Lease Type select.
             'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
         ];
+        // Johan, 2026-09-22 — "hide it, dont remove it." Agency-configurable,
+        // default hidden. See LeaseSetting::showLeaseTypeFieldFor().
+        $showLeaseType = LeaseSetting::showLeaseTypeFieldFor((int) ($property->agency_id ?? auth()->user()?->effectiveAgencyId() ?? 0));
 
         $branches = Branch::orderBy('name')->get();
         $agents   = $this->agentList();
@@ -815,7 +819,7 @@ class PropertyController extends Controller
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId', 'rentalDetailsCustomFields'
+            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId', 'rentalDetailsCustomFields', 'showLeaseType'
         ));
     }
 
@@ -897,6 +901,9 @@ class PropertyController extends Controller
             // .ai/specs/rental-property-tab.md §5, Part 4 — Rental tab's Lease Type select.
             'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
         ];
+        // Johan, 2026-09-22 — "hide it, dont remove it." Agency-configurable,
+        // default hidden. See LeaseSetting::showLeaseTypeFieldFor().
+        $showLeaseType = LeaseSetting::showLeaseTypeFieldFor((int) ($property->agency_id ?? 0));
         $branches  = Branch::orderBy('name')->get();
         $agents    = $this->agentList($property);
         $activeTab = 'info';
@@ -907,7 +914,7 @@ class PropertyController extends Controller
         // Declared rather than omitted so the shared view never hits an undefined var.
         $thirdPartySale = null;
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale', 'showLeaseType'));
     }
 
     /**

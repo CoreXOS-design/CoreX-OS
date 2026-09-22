@@ -4209,6 +4209,9 @@
                         <label class="prop-label">Lease Period</label>
                         <input type="text" name="lease_period" form="prop-update-form" value="{{ old('lease_period', $property->lease_period) }}" placeholder="e.g. 12 Months" class="prop-input">
                     </div>
+                    {{-- Johan, 2026-09-22 — "hide it, dont remove it." Agency-
+                         configurable, default hidden (Settings → Leases). --}}
+                    @if($showLeaseType ?? false)
                     <div>
                         <label class="prop-label">Lease Type</label>
                         <select name="lease_type" form="prop-update-form" class="prop-select prop-field-enum">
@@ -4221,6 +4224,7 @@
                             @endforeach
                         </select>
                     </div>
+                    @endif
                     <div class="flex items-center gap-2">
                         <input type="checkbox" id="rental_has_deposit_new" name="has_deposit" form="prop-update-form" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                         <label for="rental_has_deposit_new" class="prop-label !mb-0">Has Deposit</label>
@@ -4413,6 +4417,10 @@
                             <label class="prop-label">Lease Period</label>
                             <input type="text" name="lease_period" value="{{ old('lease_period', $property->lease_period) }}" placeholder="e.g. 12 Months" class="prop-input">
                         </div>
+                        {{-- Johan, 2026-09-22 — "hide it, dont remove it."
+                             Agency-configurable, default hidden (Settings →
+                             Leases). --}}
+                        @if($showLeaseType ?? false)
                         <div>
                             <label class="prop-label">Lease Type</label>
                             <select name="lease_type" class="prop-select prop-field-enum">
@@ -4425,6 +4433,7 @@
                                 @endforeach
                             </select>
                         </div>
+                        @endif
                         <div class="flex items-center gap-2">
                             <input type="checkbox" id="rental_has_deposit_settled" name="has_deposit" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                             <label for="rental_has_deposit_settled" class="prop-label !mb-0">Has Deposit</label>

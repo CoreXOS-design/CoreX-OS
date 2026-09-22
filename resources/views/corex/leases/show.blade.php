@@ -35,7 +35,13 @@
             <div><span style="color: var(--text-muted);">Deposit:</span> {{ $lease->deposit_amount !== null ? 'R' . number_format((float) $lease->deposit_amount, 2) : '—' }}</div>
             <div><span style="color: var(--text-muted);">Start date:</span> {{ $lease->start_date?->format('Y-m-d') }}</div>
             <div><span style="color: var(--text-muted);">End date:</span> {{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</div>
+            {{-- Johan, 2026-09-22 — "the freaking lease type is showing here
+                 again... hide it, dont remove it." Agency-configurable,
+                 default hidden (LeaseSetting::showLeaseTypeFieldFor()).
+                 Settings → Leases turns it back on. --}}
+            @if($showLeaseType ?? false)
             <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
+            @endif
             <div><span style="color: var(--text-muted);">Source:</span> {{ str_replace('_', ' ', ucfirst($lease->source)) }}</div>
             {{-- .ai/specs/rental-work-orders.md §3.4b, Johan's ruling — only
                  shown when set; a blank field for every lease would be a
@@ -62,6 +68,16 @@
             @method('PUT')
             <div class="grid grid-cols-2 gap-3">
                 <div>
+                    {{-- Johan, 2026-09-22 — "the rental amount shows on the
+                         lease screen, but not on the edit screen... displaying
+                         the rent amount makes it easy to type again [the
+                         deposit]." Read-only display only — rent is never
+                         editable here, it only ever changes via a recorded
+                         escalation (see the form's own comment above). --}}
+                    <label class="text-xs font-medium">Monthly rental (R)</label>
+                    <input type="text" value="R{{ number_format((float) $lease->rental_amount, 2) }}" disabled class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border); background: var(--surface-2, #f3f4f6); color: var(--text-muted);">
+                </div>
+                <div>
                     <label class="text-xs font-medium">Deposit (R)</label>
                     <input type="number" name="deposit_amount" step="0.01" min="0" value="{{ old('deposit_amount', $lease->deposit_amount) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
@@ -69,6 +85,9 @@
                     <label class="text-xs font-medium">End date</label>
                     <input type="date" name="end_date" min="{{ $lease->start_date?->format('Y-m-d') }}" value="{{ old('end_date', $lease->end_date?->format('Y-m-d')) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
+                {{-- Johan, 2026-09-22 — hidden by default, agency-configurable
+                     (Settings → Leases). See the display-mode comment above. --}}
+                @if($showLeaseType ?? false)
                 <div class="col-span-2">
                     <label class="text-xs font-medium">Lease type</label>
                     <select name="lease_type" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
@@ -80,6 +99,7 @@
                         @endforeach
                     </select>
                 </div>
+                @endif
                 <label class="flex items-center gap-2 text-sm col-span-2">
                     <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month', $lease->is_month_to_month))>
                     Month-to-month (no fixed end date)

@@ -108,6 +108,12 @@ final class LeaseTypeSettingTest extends TestCase
 
     public function test_the_property_screens_dropdown_renders_the_agencys_own_list_not_a_hardcoded_one(): void
     {
+        // 2026-09-22, Johan — Lease Type is now hidden by default on this
+        // screen (LeaseSetting::showLeaseTypeFieldFor()); this test is about
+        // the OPTION LIST source, not the visibility toggle, so opt this
+        // agency back in explicitly. The default-hidden behaviour itself is
+        // covered by LeaseTypeVisibilityTest.
+        \App\Models\LeaseSetting::updateOrCreate(['agency_id' => $this->agency->id], ['show_lease_type_field' => true]);
         PropertySettingItem::group('lease_type')->where('agency_id', $this->agency->id)->delete();
         PropertySettingItem::create(['agency_id' => $this->agency->id, 'group' => 'lease_type', 'name' => 'Our Custom Term', 'sort_order' => 0]);
         $property = $this->rentalProperty();
@@ -144,6 +150,9 @@ final class LeaseTypeSettingTest extends TestCase
 
     public function test_the_lease_show_screens_edit_form_renders_the_agencys_own_list(): void
     {
+        // 2026-09-22, Johan — same opt-in as the property-screen test above;
+        // this test is about the list source, not the new visibility default.
+        \App\Models\LeaseSetting::updateOrCreate(['agency_id' => $this->agency->id], ['show_lease_type_field' => true]);
         $property = $this->rentalProperty();
         PropertySettingItem::create(['agency_id' => $this->agency->id, 'group' => 'lease_type', 'name' => 'Our Custom Term', 'sort_order' => 0]);
         $lease = Lease::create([
