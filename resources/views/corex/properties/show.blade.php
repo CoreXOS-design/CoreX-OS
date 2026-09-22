@@ -2038,14 +2038,22 @@
                                     </button>
                                 </div>
                                 @if($property->isRental())
-                                <span class="text-[0.6875rem] mt-0.5 block font-medium" style="color:var(--text-muted);">Not in use while let — see Monthly Rental</span>
+                                <span class="text-[0.6875rem] mt-0.5 block font-medium" style="color:var(--text-muted);">Not in use while let — see Rental Price</span>
                                 @elseif($property->price_on_application)
                                 <span class="text-[0.6875rem] mt-0.5 block font-medium" style="color:var(--brand-icon);">Price on Application</span>
                                 @endif
                             </div>
                             @if($property->isRental())
                             <div>
-                                <label class="prop-label">Monthly Rental (ZAR)</label>
+                                {{-- .ai/specs/rental-property-tab.md §3, Part 3
+                                     — no longer hardcoded "Monthly": the price
+                                     TYPE (Rental Details tab) is what this
+                                     number means, and it isn't always monthly
+                                     any more. Same rental_amount column the
+                                     Rental Details tab edits — one value, a
+                                     second place to edit it, no sync (unchanged
+                                     from cc6's original design). --}}
+                                <label class="prop-label">Rental Price (ZAR)</label>
                                 <input type="number" name="rental_amount" form="prop-update-form" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
                             </div>
                             @endif
@@ -4173,7 +4181,11 @@
                 <p class="text-xs" style="color:var(--text-muted);">Saved together with the rest of the property below.</p>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
-                        <label class="prop-label">Monthly Rental (R)</label>
+                        {{-- .ai/specs/rental-property-tab.md §3, Part 3 (Johan,
+                             2026-09-21) — ONE price type, ONE price. No longer
+                             hardcoded "Monthly" -- the type selector below is
+                             what the number means. --}}
+                        <label class="prop-label">Rental Price (R)</label>
                         <input type="number" name="rental_amount" form="prop-update-form" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
                     </div>
                     <div>
@@ -4181,11 +4193,16 @@
                         <input type="number" name="deposit_amount" form="prop-update-form" value="{{ old('deposit_amount', $property->deposit_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
                     </div>
                     <div>
+                        {{-- Agency-editable list (Settings → Properties &
+                             Listings), not a hardcoded array — matches what
+                             P24/PP actually accept; see the model's own
+                             DEFAULT_ROWS comment for why "Per Year" isn't in
+                             the seeded default. --}}
                         <label class="prop-label">Rental Price Type</label>
                         <select name="rental_price_type" form="prop-update-form" class="prop-select prop-field-enum">
                             <option value="">— Not Set —</option>
-                            @foreach(['per month' => 'Per Month', 'per sqm' => 'Per Sqm', 'per day' => 'Per Day', 'per week' => 'Per Week', 'per year' => 'Per Year'] as $val => $lbl)
-                                <option value="{{ $val }}" {{ old('rental_price_type', $property->rental_price_type) === $val ? 'selected' : '' }}>{{ $lbl }}</option>
+                            @foreach($settingItems['rentalPriceTypes'] ?? [] as $rpt)
+                                <option value="{{ $rpt->name }}" {{ old('rental_price_type', $property->rental_price_type) === $rpt->name ? 'selected' : '' }}>{{ $rpt->name }}</option>
                             @endforeach
                         </select>
                     </div>
@@ -4203,27 +4220,22 @@
                         <label class="prop-label">Lease Period</label>
                         <input type="text" name="lease_period" form="prop-update-form" value="{{ old('lease_period', $property->lease_period) }}" placeholder="e.g. 12 Months" class="prop-input">
                     </div>
+                    {{-- Johan, 2026-09-22 — "hide it, dont remove it." Agency-
+                         configurable, default hidden (Settings → Leases). --}}
+                    @if($showLeaseType ?? false)
                     <div>
                         <label class="prop-label">Lease Type</label>
                         <select name="lease_type" form="prop-update-form" class="prop-select prop-field-enum">
                             <option value="">— Select —</option>
-                            @foreach(['N Triple Net', 'Gross', 'Modified Gross', 'Percentage'] as $lt)
-                                <option value="{{ $lt }}" {{ old('lease_type', $property->lease_type) === $lt ? 'selected' : '' }}>{{ $lt }}</option>
+                            {{-- .ai/specs/rental-property-tab.md §5, Part 4 — agency-editable
+                                 list, was a hardcoded array (including "N Triple Net", never
+                                 matched anywhere else). Same list feeds the lease screens. --}}
+                            @foreach($settingItems['leaseTypes'] ?? [] as $lt)
+                                <option value="{{ $lt->name }}" {{ old('lease_type', $property->lease_type) === $lt->name ? 'selected' : '' }}>{{ $lt->name }}</option>
                             @endforeach
                         </select>
                     </div>
-                    <div>
-                        <label class="prop-label">Price per Day (R)</label>
-                        <input type="number" name="price_per_day" form="prop-update-form" value="{{ old('price_per_day', $property->price_per_day) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                    </div>
-                    <div>
-                        <label class="prop-label">Price per Week (R)</label>
-                        <input type="number" name="price_per_week" form="prop-update-form" value="{{ old('price_per_week', $property->price_per_week) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                    </div>
-                    <div>
-                        <label class="prop-label">Price per Year (R)</label>
-                        <input type="number" name="price_per_year" form="prop-update-form" value="{{ old('price_per_year', $property->price_per_year) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                    </div>
+                    @endif
                     <div class="flex items-center gap-2">
                         <input type="checkbox" id="rental_has_deposit_new" name="has_deposit" form="prop-update-form" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                         <label for="rental_has_deposit_new" class="prop-label !mb-0">Has Deposit</label>
@@ -4377,7 +4389,11 @@
                     @method('PUT')
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div>
-                            <label class="prop-label">Monthly Rental (R)</label>
+                            {{-- .ai/specs/rental-property-tab.md §3, Part 3
+                                 (Johan, 2026-09-21) — ONE price type, ONE
+                                 price. No longer hardcoded "Monthly" — the
+                                 type selector below is what the number means. --}}
+                            <label class="prop-label">Rental Price (R)</label>
                             <input type="number" name="rental_amount" value="{{ old('rental_amount', $property->rental_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
                         </div>
                         <div>
@@ -4385,11 +4401,16 @@
                             <input type="number" name="deposit_amount" value="{{ old('deposit_amount', $property->deposit_amount) }}" placeholder="0.00" min="0" step="0.01" class="prop-input prop-field-money">
                         </div>
                         <div>
+                            {{-- Agency-editable list (Settings → Properties &
+                                 Listings), not a hardcoded array — matches
+                                 what P24/PP actually accept; see the model's
+                                 own DEFAULT_ROWS comment for why "Per Year"
+                                 isn't in the seeded default. --}}
                             <label class="prop-label">Rental Price Type</label>
                             <select name="rental_price_type" class="prop-select prop-field-enum">
                                 <option value="">— Not Set —</option>
-                                @foreach(['per month' => 'Per Month', 'per sqm' => 'Per Sqm', 'per day' => 'Per Day', 'per week' => 'Per Week', 'per year' => 'Per Year'] as $val => $lbl)
-                                    <option value="{{ $val }}" {{ old('rental_price_type', $property->rental_price_type) === $val ? 'selected' : '' }}>{{ $lbl }}</option>
+                                @foreach($settingItems['rentalPriceTypes'] ?? [] as $rpt)
+                                    <option value="{{ $rpt->name }}" {{ old('rental_price_type', $property->rental_price_type) === $rpt->name ? 'selected' : '' }}>{{ $rpt->name }}</option>
                                 @endforeach
                             </select>
                         </div>
@@ -4407,27 +4428,23 @@
                             <label class="prop-label">Lease Period</label>
                             <input type="text" name="lease_period" value="{{ old('lease_period', $property->lease_period) }}" placeholder="e.g. 12 Months" class="prop-input">
                         </div>
+                        {{-- Johan, 2026-09-22 — "hide it, dont remove it."
+                             Agency-configurable, default hidden (Settings →
+                             Leases). --}}
+                        @if($showLeaseType ?? false)
                         <div>
                             <label class="prop-label">Lease Type</label>
                             <select name="lease_type" class="prop-select prop-field-enum">
                                 <option value="">— Select —</option>
-                                @foreach(['N Triple Net', 'Gross', 'Modified Gross', 'Percentage'] as $lt)
-                                    <option value="{{ $lt }}" {{ old('lease_type', $property->lease_type) === $lt ? 'selected' : '' }}>{{ $lt }}</option>
+                                {{-- .ai/specs/rental-property-tab.md §5, Part 4 — agency-editable
+                                     list, was a hardcoded array (including "N Triple Net", never
+                                     matched anywhere else). Same list feeds the lease screens. --}}
+                                @foreach($settingItems['leaseTypes'] ?? [] as $lt)
+                                    <option value="{{ $lt->name }}" {{ old('lease_type', $property->lease_type) === $lt->name ? 'selected' : '' }}>{{ $lt->name }}</option>
                                 @endforeach
                             </select>
                         </div>
-                        <div>
-                            <label class="prop-label">Price per Day (R)</label>
-                            <input type="number" name="price_per_day" value="{{ old('price_per_day', $property->price_per_day) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                        </div>
-                        <div>
-                            <label class="prop-label">Price per Week (R)</label>
-                            <input type="number" name="price_per_week" value="{{ old('price_per_week', $property->price_per_week) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                        </div>
-                        <div>
-                            <label class="prop-label">Price per Year (R)</label>
-                            <input type="number" name="price_per_year" value="{{ old('price_per_year', $property->price_per_year) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
-                        </div>
+                        @endif
                         <div class="flex items-center gap-2">
                             <input type="checkbox" id="rental_has_deposit_settled" name="has_deposit" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                             <label for="rental_has_deposit_settled" class="prop-label !mb-0">Has Deposit</label>

@@ -593,6 +593,13 @@ class RentalApplicationController extends Controller
 
         return response()->json($properties->map(fn (Property $p) => $p->toSearchResult([
             'ref' => $p->property_number,
+            // Johan, 2026-09-22 — "monthly rental, deposit should populate
+            // from the property screen" once the agent picks a property on
+            // an approved application's tenant-link form. Null stays null —
+            // the picker leaves the field empty rather than writing a zero
+            // when the property has no value set.
+            'rental_amount' => $p->rental_amount,
+            'deposit_amount' => $p->deposit_amount,
         ])));
     }
 

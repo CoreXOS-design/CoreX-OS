@@ -7,6 +7,7 @@ use App\Models\Lease;
 use App\Models\LeaseEscalation;
 use App\Models\LeaseTenant;
 use App\Models\Property;
+use App\Models\PropertySettingItem;
 use App\Models\RentalApplication;
 use App\Services\Rentals\LeaseActivationService;
 use Illuminate\Http\RedirectResponse;
@@ -105,6 +106,10 @@ class LeaseController extends Controller
         return view('corex.leases.create', [
             'property' => $property,
             'rentalApplication' => $rentalApplication,
+            // .ai/specs/rental-property-tab.md §5, Part 4 — same agency-editable
+            // list as the property screen's Lease Type select; one source of
+            // truth for both, replacing this form's own hardcoded array.
+            'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
         ]);
     }
 
@@ -162,7 +167,13 @@ class LeaseController extends Controller
     {
         $lease->load(['property', 'tenants.contact', 'escalations.createdByUser', 'previousLease', 'renewedLease']);
 
-        return view('corex.leases.show', ['lease' => $lease]);
+        return view('corex.leases.show', [
+            'lease' => $lease,
+            // .ai/specs/rental-property-tab.md §5, Part 4 — same list as create().
+            'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
+            // Johan, 2026-09-22 — agency-configurable, hidden by default.
+            'showLeaseType' => \App\Models\LeaseSetting::showLeaseTypeFieldFor($lease->agency_id),
+        ]);
     }
 
     /**

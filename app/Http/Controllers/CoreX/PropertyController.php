@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Branch;
 use App\Models\ContactMatch;
 use App\Models\ContactNote;
+use App\Models\LeaseSetting;
 use App\Models\Property;
 use App\Models\PropertyNote;
 use App\Models\PropertyAdTemplate;
@@ -597,7 +598,14 @@ class PropertyController extends Controller
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
             // AT-402 — Rental tab's Furnished Status select.
             'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type select.
+            'rentalPriceTypes' => PropertySettingItem::group('rental_price_type')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §5, Part 4 — Rental tab's Lease Type select.
+            'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
         ];
+        // Johan, 2026-09-22 — "hide it, dont remove it." Agency-configurable,
+        // default hidden. See LeaseSetting::showLeaseTypeFieldFor().
+        $showLeaseType = LeaseSetting::showLeaseTypeFieldFor((int) ($property->agency_id ?? auth()->user()?->effectiveAgencyId() ?? 0));
 
         $branches = Branch::orderBy('name')->get();
         $agents   = $this->agentList();
@@ -811,7 +819,7 @@ class PropertyController extends Controller
         return view('corex.properties.show', compact(
             'property', 'settingItems', 'branches', 'agents', 'activeTab', 'coreMatches', 'ppMissingFields', 'p24MissingFields', 'hfcMissingFields',
             'allDriveDocs', 'documentTypes', 'driveFolders', 'activityTimeline', 'fullAuditLog', 'includeSystem', 'readinessReport', 'complianceChecklist', 'propertyComplianceComplaints',
-            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId', 'rentalDetailsCustomFields'
+            'aiImageSuggestions', 'propertyComms', 'canEdit', 'thirdPartySale', 'micClaimDecision', 'micClaimListingId', 'rentalDetailsCustomFields', 'showLeaseType'
         ));
     }
 
@@ -888,7 +896,14 @@ class PropertyController extends Controller
             'conditionLevels' => PropertySettingItem::group('condition_level')->where('active', true)->get(),
             // AT-402 — Rental tab's Furnished Status select.
             'furnishedStatuses' => PropertySettingItem::group('furnished_status')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type select.
+            'rentalPriceTypes' => PropertySettingItem::group('rental_price_type')->where('active', true)->get(),
+            // .ai/specs/rental-property-tab.md §5, Part 4 — Rental tab's Lease Type select.
+            'leaseTypes' => PropertySettingItem::group('lease_type')->where('active', true)->get(),
         ];
+        // Johan, 2026-09-22 — "hide it, dont remove it." Agency-configurable,
+        // default hidden. See LeaseSetting::showLeaseTypeFieldFor().
+        $showLeaseType = LeaseSetting::showLeaseTypeFieldFor((int) ($property->agency_id ?? 0));
         $branches  = Branch::orderBy('name')->get();
         $agents    = $this->agentList($property);
         $activeTab = 'info';
@@ -899,7 +914,7 @@ class PropertyController extends Controller
         // Declared rather than omitted so the shared view never hits an undefined var.
         $thirdPartySale = null;
 
-        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale'));
+        return view('corex.properties.show', compact('property', 'settingItems', 'branches', 'agents', 'activeTab', 'preLinkedContact', 'existingPropertyMatch', 'heldCapturedMatch', 'canEdit', 'thirdPartySale', 'showLeaseType'));
     }
 
     /**
@@ -942,9 +957,6 @@ class PropertyController extends Controller
             'electricity_included' => 'nullable|boolean',
             'levies_included'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
-            'price_per_day'    => 'nullable|numeric|min:0',
-            'price_per_week'   => 'nullable|numeric|min:0',
-            'price_per_year'   => 'nullable|numeric|min:0',
             'lease_type'       => 'nullable|string|max:100',
             'gross_price'      => 'nullable|numeric|min:0',
             'net_price'        => 'nullable|numeric|min:0',
@@ -1344,9 +1356,6 @@ class PropertyController extends Controller
             'electricity_included' => 'nullable|boolean',
             'levies_included'      => 'nullable|boolean',
             'lease_period'     => 'nullable|string|max:100',
-            'price_per_day'    => 'nullable|numeric|min:0',
-            'price_per_week'   => 'nullable|numeric|min:0',
-            'price_per_year'   => 'nullable|numeric|min:0',
             'lease_type'       => 'nullable|string|max:100',
             'gross_price'      => 'nullable|numeric|min:0',
             'net_price'        => 'nullable|numeric|min:0',
@@ -2507,9 +2516,6 @@ class PropertyController extends Controller
             // showed these to every property, sale included.
             'lease_period'      => 'nullable|string|max:100',
             'lease_type'        => 'nullable|string|max:100',
-            'price_per_day'     => 'nullable|numeric|min:0',
-            'price_per_week'    => 'nullable|numeric|min:0',
-            'price_per_year'    => 'nullable|numeric|min:0',
             // AT-402 Part 3 — first-ever desktop inputs for these three; the
             // mobile app has always been able to set them. Same bound on
             // commission_percent (0-100) as the mobile app and the general

@@ -301,47 +301,78 @@ property-setting-item CRUD on Settings → Properties & Listings
 existing `provisionDefaultsFor()` pattern so every current and future
 agency gets a sensible default list with zero new observer code.
 
-**Recommendation: add `GROUP_RENTAL_PRICE_TYPE` as a new
-`PropertySettingItem` group**, seeded with the current five values
-(`Per Month`, `Per Sqm`, `Per Day`, `Per Week`, `Per Year`) as every
-agency's starting default, editable/reorderable/archivable per-agency
-from that point on exactly like Furnished Status already is. This is
+**As built: `GROUP_RENTAL_PRICE_TYPE` added as a new
+`PropertySettingItem` group**, seeded with four values only — `Per
+Month`, `Per Week`, `Per Day`, `Per Sqm` — as every agency's starting
+default, editable/reorderable/archivable per-agency from that point on
+exactly like Furnished Status already is. `Per Year` is deliberately
+**not** in the default list even though Property24 supports it: Private
+Property's enum has no yearly rate at all and its mapper silently falls
+back to `PerMonth` for anything unrecognised, so seeding a default that
+silently mismaps on one of the two portals would recreate the exact
+"doesn't match what the portals accept" problem this feature exists to
+fix (§3.4). An agency that only syndicates to P24 is free to add "Per
+Year" itself — this is the default, not a ceiling. This mechanism is
 **not** the `RentalApplicationCustomField`-style mechanism from §2 —
 different problem (closed list of option strings vs. typed field
 definitions), same reasoning as the cc2 note above: use the tool that
 already fits, don't force one mechanism to do both jobs.
 
-### 3.3 On the property — select ONE type, enter ONE price
+### 3.3 On the property — select ONE type, enter ONE price (as actually built, Part 3)
 
-The dropdown's options come from the agency's `PropertySettingItem`
-list (§3.2) instead of the hardcoded array — the only change to the
-control itself. Selecting a type reveals exactly one value input for
-that type; changing the selection swaps which single input shows,
-clearing whatever was previously entered rather than leaving a stale
-value sitting in a now-hidden field. This fixes the confirmed bug
-(§3.1) — `price_per_day`/`price_per_week`/`price_per_year` were
-always-visible, independent optional inputs with no relationship to the
-dropdown at all — as a direct consequence of building what Johan asked
-for, not as separate work.
+**Investigation first changed the shape of the build.** Re-reading both
+mappers directly (not from memory) before writing any code showed
+neither portal has ever read `price_per_day`/`price_per_week`/
+`price_per_year` at all — both `Property24ListingMapper::mapRentalRate()`
+and `PrivatePropertyListingMapper::mapRentalPriceType()` send only
+`Property::effectivePrice()` (== `rental_amount` for a rental) as "the
+price", always, regardless of which cadence is selected. The three
+per-cadence columns were dead weight for syndication from the day they
+were added — the grid wasn't half-wired to the portals, it was entirely
+unwired. That collapses the design in §3.3's original draft: **no
+`price_per_sqm` column is needed, and no per-type input needs to be
+revealed or hidden**, because there was never more than one price
+column doing real work.
 
-**`price_per_sqm` must be added** if "Per Sqm" survives in the agency's
-default seeded list (§3.2) — a single-select model with one input per
-type needs a real column behind every selectable option, and "Per Sqm"
-is the one type with none today. "Per Month" continues to map onto the
-existing `rental_amount` core field (§1) rather than gaining a parallel
-`price_per_month` column, since monthly rental is already a guaranteed
-core field and a second column for the identical fact would be exactly
-the "captured twice" problem this whole initiative exists to eliminate.
+What was actually built: the `rental_price_type` dropdown now sources
+its options from the agency's `PropertySettingItem` list (§3.2) instead
+of a hardcoded array — unchanged from the original plan. But there is
+now only ever **one** value input on the panel, labelled "Rental Price
+(R)", which always writes `rental_amount` regardless of which type is
+selected. The three `price_per_day`/`price_per_week`/`price_per_year`
+input fields were removed from both Rental Details tab blocks (new/
+draft and settled) entirely — not hidden, not conditionally shown,
+gone — along with their validation rules in all three controller call
+sites (`store()`, `update()`, `updateRentalDetails()`). The underlying
+DB columns are left in place (untouched, no migration drops them) since
+they may hold historical data and dropping them is a separate, unasked-
+for decision; the screen and the controllers simply never write to them
+again.
 
-### 3.4 Syndication — unchanged, and now trivially true
+Because "Rental Price" no longer means "monthly" once a type selector
+exists, the field's label was corrected in two places: the Rental
+Details tab's own `rental_amount` input, and cc6's landed Pricing &
+Costs panel input (commit `330167c87`) which edits the exact same
+column from the property's info tab. Both now read "Rental Price (R)"/
+"Rental Price (ZAR)" — wording only, no behaviour change, and cc6's
+panel is otherwise untouched (still writes `rental_amount`, still
+relabels `price` to "Sale Price" on a rental, still leaves `price`
+optional).
 
-`Property24ListingMapper::mapRentalRate()` (lines 189-200) and
-`PrivatePropertyListingMapper::mapRentalPriceType()` (lines 932-949,
-citing "PP Agency Feed Service Rev 4.6 §2.3.1") keep mapping the single
-selected type exactly as they do today — with exactly one type and one
-price selected, there was never a second value to reconcile. Only the
-*source* of the option list changes (agency-definable instead of
-hardcoded); the mapping logic itself is untouched.
+### 3.4 Syndication — unchanged, confirmed by test against the real mapper code
+
+`Property24ListingMapper::mapRentalRate()` and
+`PrivatePropertyListingMapper::mapRentalPriceType()` are untouched —
+only the *source* of the dropdown's option list changed (agency-
+definable instead of hardcoded); the mapping `match()` logic itself was
+never touched. Verified directly rather than assumed:
+`tests/Feature/Properties/RentalPriceTypeSettingTest.php` reflects into
+both mappers' private methods and asserts a type drawn from the new
+agency-editable list still resolves to the correct portal enum value on
+both P24 and PP, plus a test documenting PP's silent `PerMonth`
+fallback for "Per Year" — the exact, pre-existing gap that is why "Per
+Year" is deliberately excluded from the default seeded list (§3.2)
+without blocking an agency from adding it back for its own reasons.
 
 ### 3.5 Superseded drafting — tick-multiple, kept for the reasoning trail
 
@@ -672,6 +703,88 @@ it only makes the field reachable by the system that will need it,
 which is the concrete meaning of "shape it with that in mind" without
 speculatively building the feature it will eventually serve.
 
+### 5.3 As built, Part 4 — and the one wording call flagged, not made
+
+Built exactly per §5.2: `PropertySettingItem::GROUP_LEASE_TYPE`, one
+agency-editable list, replacing BOTH `properties/show.blade.php`'s
+`['N Triple Net', 'Gross', 'Modified Gross', 'Percentage']` array and
+`leases/create.blade.php` + `leases/show.blade.php`'s own separate
+`['Net', 'Gross', 'Modified Gross', 'Percentage']` array — three call
+sites, one source from now on (`LeaseController::create()`/`show()` and
+`PropertyController`'s `$settingItems`, all reading the same
+`PropertySettingItem::group('lease_type')`).
+
+**Flagging, not deciding, per instruction:** the default seeded list is
+the union of both old lists' real wording (`Net`/`Gross`/`Modified
+Gross`/`Percentage`, unchanged) plus the three Property24 `LeaseType`
+enum values neither old list could reach (`Double Net`/`Triple Net`/
+`Fully Serviced Gross`). **"N Triple Net" is not carried forward** — the
+property screen's own value is dropped in favour of "Triple Net" (no
+leading "N"), which is both the industry-standard term and the one that
+resolves to P24's real enum. This is exactly the wording call Johan
+asked to keep as his own: if "N Triple Net" was intentional (an
+abbreviation for something specific to HFC's own leases, not a typo),
+tell me the intended label and I change the one shared list in one
+place — no re-migration needed, an agency's `PropertySettingItem` rows
+are just renamed in place.
+
+**Made real, two ways, both concrete and both verified against the real
+downstream code, not assumed:**
+1. **Property24 syndication** — `Property24ListingMapper::mapLeaseType()`
+   (new), wired into the existing `commercialInfo` block alongside
+   `grossPrice`/`netPrice`/`availabilityDate`. Closes the documented
+   P24-G4 gap (`.ai/audits/syndication-mapping-audit-2026-07-05.md:45`)
+   for the five types that map cleanly onto P24's real `LeaseType` enum
+   (confirmed directly against `storage/p24_swagger.json:4116-4126`:
+   `Percentage`/`Net`/`DoubleNet`/`TripleNet`/`FullyServicedLeaseGross`).
+   `Gross` and `Modified Gross` — both carried forward unchanged from
+   the pre-existing lease-screen wording — have no P24 equivalent and
+   resolve to `null`, so they are simply not sent, same discipline as
+   `mapRentalRate()`'s own unmatched-value fallback (§3.4). An agency
+   free to keep using "Gross"/"Modified Gross" for its own paperwork
+   loses nothing; it just doesn't get a P24 `leaseType` on that listing.
+2. **DocuPerfect merge field** — `lease_type` resolves in all three of
+   `WebTemplateDataService`'s resolver paths (`resolve()`,
+   `resolveBase()`, `resolveDealFromKey()`) with the same precedence as
+   `deposit`/`monthly_rental`: an explicit step value wins over the
+   property's stored value. Registered in `WebTemplateFieldPartyMap`
+   alongside `lease_start`/`lease_end`, and given real preview sample
+   data in `WebTemplateController`. No lease-document generation logic
+   built — same "resolvable, not consumed yet" state as
+   `electricity_deposit` already sits in, exactly per §5.2's "shape it,
+   don't build the future feature early" instruction.
+
+**Real Part 3 gap found and fixed in this same commit, not left for
+later:** the generic Settings → Properties & Listings CRUD
+(`SettingsController::storePropertySettingItem()`/
+`batchToggleDefaultItems()`) validates `group` against a hardcoded
+whitelist that Part 3 never extended for `rental_price_type` — so even
+though the Rental tab's price-type dropdown correctly read from
+`PropertySettingItem`, an agency had no working "add a new price type"
+or "batch enable/disable" control, because both endpoints would reject
+the request outright with "Invalid group." The settings page's own
+Properties section was also missing a rendered block for
+`rental_price_type` entirely (`$propGroups` never included it), so the
+control did not even appear to click. Both whitelists and the missing
+`$propGroups`/`SettingsController` entries are fixed in this commit for
+BOTH `rental_price_type` and `lease_type` together — verified by two
+new tests posting directly to both endpoints for both groups.
+
+Verify: both hardcoded arrays are gone from all three Blade files; the
+property screen and both lease screens render the same agency list;
+saving `lease_type` persists correctly from both the property Rental
+tab and the lease edit form; a real commercial rental's mappable
+`lease_type` value reaches `Property24ListingMapper`'s real
+`commercialInfo.leaseType` field via its actual private method (not
+assumed); `Gross`/`Modified Gross` are confirmed to resolve to `null`
+rather than a guessed value; the merge field resolves with the correct
+precedence in a direct `WebTemplateDataService::resolve()` call; the
+settings hub's add and batch-toggle endpoints accept both new groups.
+16 tests, `tests/Feature/Properties/LeaseTypeSettingTest.php`, all
+passing. Regression check: Part 2/Part 3's own test files (11+10
+tests) and the pre-existing `LeaseEditTest`/`LeaseCoreTest` (4+6 tests)
+all still pass unchanged — 31 tests, no regressions.
+
 ---
 
 ## 6. Bond repayment calculator on a rental listing — CLOSED (Johan, 2026-09-21)
@@ -843,28 +956,113 @@ custom fields — Part 2's scope, per Johan's own morning example
 a brand-new rental listing should also capture these fields before its
 first save is a real, open follow-up, not decided here.
 
-**Part 3 — Rental price type: agency-editable list, single-select, real
-gating.** `GROUP_RENTAL_PRICE_TYPE` `PropertySettingItem` group +
-seeding (§3.2), new `price_per_sqm` column, dropdown sourced from the
-agency's list instead of the hardcoded array, exactly one value input
-shown for the selected type (§3.3), fixing the confirmed
-always-visible-regardless-of-selection bug at the same time. No
-syndication change — portals keep receiving exactly what they receive
-today (§3.4). Verify: an agency's price-type list is independently
-editable; selecting a type shows exactly one input and clears any
-other; portal submission for a real rental property is byte-for-byte
-unchanged before/after.
+**Part 3 — BUILT, PUSHED, AWAITING LANDING (2026-09-21).** Rental price
+type: agency-editable list, single select, one price. Investigation
+before building changed the shape from the original draft above: both
+`Property24ListingMapper::mapRentalRate()` and
+`PrivatePropertyListingMapper::mapRentalPriceType()` were re-read
+directly and confirmed to send only `rental_amount` as the price,
+always — the `price_per_day`/`price_per_week`/`price_per_year` columns
+were never read by either portal, ever. That means the single-select
+model needs no new `price_per_sqm` column and no per-type input reveal/
+hide — there was never more than one price doing real work, so the
+build is simpler than §3.3's original draft: one dropdown, one input,
+always `rental_amount`. See §3.3/§3.4 (rewritten in this commit to
+match) for the full reasoning and the exact columns/labels touched.
 
-**Part 4 — `lease_type` made real.** `GROUP_LEASE_TYPE`
-`PropertySettingItem` group replacing both hardcoded dropdowns (§5.2);
-`Property24ListingMapper` starts sending it against P24's real
-`LeaseType` enum, closing the P24-G4 gap; registered as a resolvable
-DocuPerfect merge field alongside `electricity_deposit`. Does not block
-or depend on Parts 1-3/5-6. Verify: both property and lease forms
-source their dropdown from the same agency list; a real commercial
-rental's `lease_type` value reaches the actual P24 submission payload;
-the merge field resolves in a test document render with no lease
-generation logic attached.
+Built: `PropertySettingItem::GROUP_RENTAL_PRICE_TYPE` + `DEFAULT_ROWS`
+(Per Month/Week/Day/Sqm, Per Year deliberately excluded — §3.2) +
+companion backfill migration for existing agencies (new agencies get it
+automatically via `AgencyObserver`, already unconditional). Both Rental
+Details tab blocks (new/draft and settled) now source the dropdown from
+`$settingItems['rentalPriceTypes']` instead of a hardcoded array; the
+three `price_per_day`/`price_per_week`/`price_per_year` inputs and
+their controller validation rules (`store()`, `update()`,
+`updateRentalDetails()`) were removed outright — their DB columns are
+left in place, untouched, simply no longer written to by this screen.
+"Monthly Rental" relabelled to "Rental Price" on both the Rental
+Details tab and cc6's landed Pricing & Costs panel (commit `330167c87`,
+same `rental_amount` column, wording only — no behaviour change; cc6's
+sale-price/optional-price/clone-preservation work is untouched).
+
+**Real test-methodology error caught and fixed before this shipped:**
+two tests initially assumed a freshly-created test `Agency` starts with
+zero `PropertySettingItem` rows for the new group. In fact
+`AgencyObserver` (`app/Observers/AgencyObserver.php:104`) already calls
+`PropertySettingItem::provisionDefaultsFor()` with no group filter on
+every `Agency::create()` — confirmed by reading the observer, not
+assumed — so the group is auto-seeded before the test body even runs.
+Not a code bug; it proved the auto-seeding worked exactly as designed.
+Fixed by rewriting the two tests to assert the auto-seeded state
+directly (and to explicitly retire the defaults before proving
+curation-is-never-topped-up), plus adding a dedicated idempotency test.
+
+Verify: 10 isolated tests, all passing —
+`tests/Feature/Properties/RentalPriceTypeSettingTest.php` — covering
+auto-seeding, idempotent re-provisioning, curated-list protection,
+cross-agency isolation, the dropdown rendering the agency's own list,
+the old grid being gone from the rendered HTML (`dontSee` on all three
+column names and on the literal text "Monthly Rental"), a real save
+persisting both the type and the price, and two tests reflecting into
+each portal mapper's real private method to confirm a type from the new
+agency-editable list still resolves to the correct P24/PP enum value —
+plus a documentation test proving PP's silent `Per Year` → `PerMonth`
+fallback, the exact gap the default list is built around. Part 2's own
+test file re-run as a regression check: still 11/11, unaffected by
+these changes. No browser/Alpine check performed — this panel's dropdown
+and input are plain server-rendered Blade with no Alpine-driven show/
+hide logic left after removing the per-type reveal from the original
+draft, so the isolated `assertSee`/`assertDontSee` coverage above
+already exercises the real rendered markup; flagging per instruction
+that no browser tool is available in this worktree, so a live click-
+through remains cc1's to run alongside migration.
+
+**Part 4 — BUILT, PUSHED, AWAITING LANDING (2026-09-21).** `lease_type`
+made real. Full detail in §5.3 — summary here: `GROUP_LEASE_TYPE`
+`PropertySettingItem` group replacing BOTH hardcoded dropdowns (the
+property screen's `['N Triple Net', 'Gross', 'Modified Gross',
+'Percentage']` and the lease screens' own separate `['Net', 'Gross',
+'Modified Gross', 'Percentage']`) with one agency-editable list feeding
+all three forms. `Property24ListingMapper::mapLeaseType()` (new) sends
+it in `commercialInfo.leaseType` for the five types with a real P24
+enum match, closing the P24-G4 gap; the two types with no P24
+equivalent (`Gross`/`Modified Gross`, carried forward unchanged from
+the old lease-screen wording) resolve to `null` and are simply not
+sent. Registered as a resolvable DocuPerfect merge field in all three
+`WebTemplateDataService` resolver paths, alongside `electricity_deposit`
+— no lease-document generation logic attached.
+
+**"N Triple Net" flagged, not silently fixed, per instruction** — see
+§5.3 for the exact wording and why "Triple Net" (no leading "N") was
+used as the default instead: it is the term that maps to P24's real
+enum, but Johan may have meant something specific by the original
+wording and gets to say so before it's final; changing it afterward is
+a one-place rename, not a re-migration.
+
+**Real Part 3 gap found and fixed in the same commit:** the Settings →
+Properties & Listings hub's generic CRUD (`storePropertySettingItem()`/
+`batchToggleDefaultItems()`) had a hardcoded `group` whitelist that Part
+3 never extended for `rental_price_type`, and the settings page never
+rendered a section for it at all — so despite the Rental tab's
+price-type dropdown correctly reading from `PropertySettingItem`, an
+agency had no actual way to add, disable, or reorder its own price
+types. Fixed for both `rental_price_type` and `lease_type` together in
+this commit.
+
+Verify: 16 tests, `tests/Feature/Properties/LeaseTypeSettingTest.php`
+— agency-scoped seeding/idempotency/isolation (matching Part 3's own
+pattern), both property-screen and both lease-screen dropdowns render
+the agency's list, saving persists from both the property and lease
+forms, a mappable type reaches the real P24 mapper method via
+reflection, `Gross`/`Modified Gross` confirmed to resolve to `null`
+rather than a guess, the merge field resolves with the correct
+explicit-wins-over-stored precedence, and the settings hub's add/
+batch-toggle endpoints now accept both new groups. Regression: Part
+2/3's own test files plus the pre-existing `LeaseEditTest`/
+`LeaseCoreTest` — 31 tests total, all still passing, no changes needed.
+No browser tool available in this worktree — same as Part 3, a live
+click-through of the lease screens and the settings hub remains cc1's
+to run alongside migration.
 
 **Part 5 — The advert block itself, opt-in per property.** The
 property-level master tick (§4.0), the per-field `advertise` ticks on
@@ -890,6 +1088,77 @@ with the tick on. Verify: the inline preview updates as fields are
 ticked/edited before saving; the inline preview, the live-preview page,
 and the actual P24 submission all produce byte-identical block text for
 the same property at the same moment.
+
+**Part 7 — Lease Type hidden by default; rent shown read-only on the lease
+edit screen (Johan, 2026-09-22).** Not in the original §8 sequence — a
+same-day correction after Johan saw Lease Type rendered on QA1 twice more
+and named it directly: *"The freaking lease type is showing here again. do
+not know why the hell we have this. dont remove it, but hide it."*
+Agency-configurable, sensible default **hidden**, per his standing rule
+that anything like this is a setting rather than a hardcoded show/hide —
+new `LeaseSetting::showLeaseTypeFieldFor()` / `show_lease_type_field`
+column, control on Settings → Leases. Wraps the SAME two Lease Type
+`<select>` blocks Part 4 built (`properties/show.blade.php`'s new/draft and
+settled Rental Details panels, `leases/show.blade.php`'s edit form and its
+own display line) in `@if($showLeaseType ?? false)` — nothing about the
+column, the model, the agency-editable list, or `Property24ListingMapper::
+mapLeaseType()` changes; hiding a value the form never submits leaves the
+stored value untouched (`$validated['lease_type'] ?? $lease->lease_type`
+already falls back correctly). `leases/create.blade.php`'s own Lease Type
+select is deliberately **not** touched — Johan named the lease screen
+(`/leases/{id}`, the show/edit screen) and the property Rental tab only;
+whether the create screen should hide it too is unasked, flagged under §9.
+
+Same commit: the lease **edit** form now shows Monthly rental read-only
+(no `name` attribute, so it can never be submitted), positioned as the
+first grid cell, immediately before Deposit — Johan: *"the rental amount
+shows on the lease screen, but not on the edit screen... displaying the
+rent amount makes it easy to type again [the deposit]."* Display only;
+rent stays non-editable here, unchanged from the existing rule that it
+only moves via a recorded escalation.
+
+Verify: 15 new/updated tests
+(`tests/Feature/Leases/LeaseTypeVisibilityTest.php` — 8 new; two
+pre-existing `LeaseTypeSettingTest.php` cases updated to opt an agency in,
+since their own point is the option-list source, not the new default),
+covering default-hidden on both screens, shown once the agency setting is
+on, hiding never touches the stored value, the settings checkbox
+defaults unchecked and both directions of toggling actually persist, and
+the read-only rent renders with no submittable `rental_amount` input on
+the edit form. Regression: `LeaseEditTest`/`LeaseCoreTest`/
+`LeaseSettingsTest` — unaffected, still passing. 39/39 total. Also
+verified live via a real authenticated HTTP fetch (`scripts/
+fetch-authenticated-page.php` + `scripts/verify-alpine-render.mjs`)
+against an isolated local database seeded for this check — **local, not
+the deployed QA1 URL** — confirming the rendered HTML matches exactly:
+Lease Type absent by default on both screens, present once the setting is
+turned on, rent displayed read-only next to Deposit.
+
+**Part 7 also (same commit): approved-application property picker
+populates rent/deposit from the property (Johan, 2026-09-22).** Johan:
+*"tenant is approved. open and select property. the monthly rental,
+deposit should populate from the property screen."* The tenant-link
+search picker on `view-readonly.blade.php` (the approved-application
+"link this tenant to a property" form,
+`RentalApplicationController::linkTenantProperty()`'s own screen) fetches
+`corex.rental-applications.search-properties`; that endpoint's JSON now
+carries each result's own `rental_amount`/`deposit_amount`
+(`Property::toSearchResult()`'s `$extra` override, scoped to this one call
+site only — the shared method and its other caller, the PDF splitter
+picker, are untouched). The Alpine `select(p)` handler sets the terms
+fields' bound values (`x-model`, replacing the old static Blade
+`value="..."`) from the picked property — still a plain editable starting
+value, never locked, and a property with no value for one of them resolves
+to an empty field, never a written zero (`p.rental_amount ?? ''` — `??`
+only catches null/undefined, so a genuinely-stored 0 survives as 0).
+Verify: 2 new tests
+(`tests/Feature/RentalApplications/RentalApplicationSearchPropertiesRentalDetailsTest.php`),
+the search endpoint carries both fields for a property that has them and
+resolves both to `null` for one that doesn't; confirmed live via the same
+authenticated-fetch + isolated-DB method above — hitting the endpoint
+directly returned `{"rental_amount":9500,"deposit_amount":9500,...}` for a
+seeded property, and the rendered page's `select()`/`x-model` wiring
+matched.
 
 Each part gets its own "verified live on QA1" record before the next
 starts, matching the discipline the existing Rental tab build already
@@ -927,6 +1196,26 @@ type single- vs. multi-select (single, §3 — ruled), `price_per_sqm`
    Gross); a build-time judgment call on exact labels, immediately
    editable by any agency regardless since it's a real agency list from
    day one, not a wording Johan needs to bless before Part 4 starts.
+4. **`leases/create.blade.php`'s own Lease Type select was NOT hidden by
+   Part 7** — Johan named the lease screen (`/leases/{id}`, the existing-
+   lease show/edit screen he was actually looking at) and the property
+   Rental tab, both now hidden by default. The lease CREATE screen's
+   select is a third, separate rendering of the same control that Part 7
+   left untouched, strictly per scope. Whether it should hide too (for
+   consistency — an agent would otherwise see Lease Type disappear on
+   edit but still see it when first creating a lease) is a real, open
+   follow-up, not decided here.
+5. **`show_lease_type_field` was deliberately NOT added to the Agency
+   Onboarding Setup Wizard** (CLAUDE.md non-negotiable #10a normally
+   requires every new setting to reach the wizard in the same prompt).
+   This one call: it is an expert/rarely-touched cosmetic toggle
+   (hide/show one dropdown control), not a business decision an agency
+   needs walking through during onboarding — closer to a preference than
+   a configuration a new agency must be told exists. Flagged here per
+   §10a's own "ask, then record it" instruction rather than decided
+   silently; if Johan wants it in the wizard regardless, it is a small,
+   isolated addition to `config/agency-onboarding-copy.php`'s Leases
+   step, not a rebuild.
 
 ---
 

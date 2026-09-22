@@ -119,6 +119,11 @@ class SettingsController extends Controller
         $data['propConditionLevels'] = PropertySettingItem::group('condition_level')->get();
         // AT-402 — Rental tab's Furnished Status list.
         $data['propFurnishedStatuses'] = PropertySettingItem::group('furnished_status')->get();
+        // .ai/specs/rental-property-tab.md §3, Part 3 — Rental tab's price-type select.
+        $data['propRentalPriceTypes'] = PropertySettingItem::group('rental_price_type')->get();
+        // .ai/specs/rental-property-tab.md §5, Part 4 — Lease Type, shared by the
+        // property screen and the lease screens.
+        $data['propLeaseTypes'] = PropertySettingItem::group('lease_type')->get();
 
         // Feature Settings tab: Properties — marketing toggle
         $data['marketingEnabled'] = (bool) PerformanceSetting::get('marketing_enabled', 1);
@@ -358,7 +363,10 @@ class SettingsController extends Controller
     {
         $data = $request->validate([
             // AT-402 — furnished_status added; an agency-managed list, same as the others.
-            'group'          => 'required|in:category,property_type,property_status,mandate_type,condition_level,furnished_status',
+            // .ai/specs/rental-property-tab.md §3/§5, Parts 3-4 — rental_price_type
+            // and lease_type added; both were missing from this whitelist, which
+            // would have rejected every "add new item" POST for either group.
+            'group'          => 'required|in:category,property_type,property_status,mandate_type,condition_level,furnished_status,rental_price_type,lease_type',
             'name'           => 'required|string|max:100',
             'sort_order'     => 'nullable|integer|min:0',
             // title_type only meaningful on group='category'; for any other
@@ -428,8 +436,10 @@ class SettingsController extends Controller
         // AT-402 — furnished_status added; the settings view builds this
         // batch-toggle URL generically for every $propGroups entry, so a
         // group missing here would 404/error the button rather than the
-        // control never rendering.
-        $allowed = ['category', 'property_type', 'property_status', 'mandate_type', 'condition_level', 'furnished_status'];
+        // control never rendering. .ai/specs/rental-property-tab.md §3/§5,
+        // Parts 3-4 — rental_price_type and lease_type added for the same
+        // reason; both were missing here, exactly the same gap.
+        $allowed = ['category', 'property_type', 'property_status', 'mandate_type', 'condition_level', 'furnished_status', 'rental_price_type', 'lease_type'];
         if (! in_array($group, $allowed)) {
             return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('error', 'Invalid group.');
         }

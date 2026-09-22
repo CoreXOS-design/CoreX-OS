@@ -54,6 +54,23 @@
             </div>
         </div>
 
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Lease type field</h3>
+            </div>
+            <div class="p-5">
+                <label class="flex items-center gap-2 text-sm">
+                    <input type="checkbox" name="show_lease_type_field" value="1" @checked(old('show_lease_type_field', $showLeaseTypeField))>
+                    Show the Lease Type control on the lease screen and the property Rental tab
+                </label>
+                <p class="text-xs mt-2" style="color: var(--text-muted);">
+                    Off by default. The Lease Type list, its values, and the Property24
+                    commercial lease-type mapping stay in place either way — this only
+                    decides whether the control appears on screen for your agency.
+                </p>
+            </div>
+        </div>
+
         <div class="flex justify-end">
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
         </div>

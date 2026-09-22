@@ -26,13 +26,22 @@ class LeaseSetting extends Model
 
     public const DEFAULT_EXPIRY_NOTICE_WINDOW_DAYS = 60;
 
+    // Johan, 2026-09-22 — "the freaking lease type is showing here again...
+    // hide it, dont remove it." Agency-configurable, sensible default
+    // HIDDEN, drives the Lease Type control on both the lease screen and
+    // the property Rental tab. See resources/views/corex/leases/show.blade.php
+    // and resources/views/corex/properties/show.blade.php.
+    public const DEFAULT_SHOW_LEASE_TYPE_FIELD = false;
+
     protected $fillable = [
         'agency_id',
         'expiry_notice_window_days',
+        'show_lease_type_field',
     ];
 
     protected $casts = [
         'expiry_notice_window_days' => 'integer',
+        'show_lease_type_field' => 'boolean',
     ];
 
     public static function expiryNoticeWindowDaysFor(?int $agencyId): int
@@ -44,5 +53,16 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->expiry_notice_window_days ?? self::DEFAULT_EXPIRY_NOTICE_WINDOW_DAYS;
+    }
+
+    public static function showLeaseTypeFieldFor(?int $agencyId): bool
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_SHOW_LEASE_TYPE_FIELD;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->show_lease_type_field ?? self::DEFAULT_SHOW_LEASE_TYPE_FIELD;
     }
 }
