@@ -360,8 +360,8 @@ class RentalApplicationAuthorisationController extends Controller
         // thousand-separator commas, spaces, and a leading "R" prefix
         // before validation ever sees it.
         $request->merge(RentalApplication::sanitizeNumericInput(
-            $request->only(['approved_rental_amount']),
-            ['approved_rental_amount'],
+            $request->only(['approved_rental_amount', 'approved_deposit_amount']),
+            ['approved_rental_amount', 'approved_deposit_amount'],
         ));
 
         $validated = $request->validate([
@@ -369,11 +369,17 @@ class RentalApplicationAuthorisationController extends Controller
             // screen - tenant approved for x amount." Required — the whole
             // point of this outcome is that figure.
             'approved_rental_amount' => ['required', 'numeric', 'min:0', 'max:99999999.99'],
+            // Johan, 2026-09-22 (property 4283) — optional, same precedence
+            // role as approved_rental_amount: the tenant-link screen prefers
+            // this over the property's own deposit_amount when present, but
+            // most approvals will never set one, so it is never required.
+            'approved_deposit_amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'reason' => $decision['is_override'] ? ['required', 'string', 'max:2000'] : ['nullable', 'string', 'max:2000'],
         ]);
 
         $fromStatus = $rentalApplication->status;
         $oldAmount = $rentalApplication->approved_rental_amount;
+        $oldDepositAmount = $rentalApplication->approved_deposit_amount;
 
         // AT-410d, 2026-09-16 — Johan's ruling: "yes, can become approved
         // subject to fica verification." Not a block, not a second status —
@@ -386,6 +392,7 @@ class RentalApplicationAuthorisationController extends Controller
 
         $rentalApplication->status = 'approved';
         $rentalApplication->approved_rental_amount = $validated['approved_rental_amount'];
+        $rentalApplication->approved_deposit_amount = $validated['approved_deposit_amount'] ?? null;
         $rentalApplication->approved_subject_to_fica_at = $isSubjectToFica ? now() : null;
         $rentalApplication->save();
 
@@ -400,10 +407,11 @@ class RentalApplicationAuthorisationController extends Controller
             user: $request->user(),
             isOverride: $decision['is_override'],
             reason: $validated['reason'] ?? null,
-            oldValues: ['status' => $fromStatus, 'approved_rental_amount' => $oldAmount],
-            newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount'], 'approved_subject_to_fica' => $isSubjectToFica],
+            oldValues: ['status' => $fromStatus, 'approved_rental_amount' => $oldAmount, 'approved_deposit_amount' => $oldDepositAmount],
+            newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount'], 'approved_deposit_amount' => $validated['approved_deposit_amount'] ?? null, 'approved_subject_to_fica' => $isSubjectToFica],
             humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to approve' : 'Approved')
                 . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})"
+                . (($validated['approved_deposit_amount'] ?? null) !== null ? ", deposit R" . number_format((float) $validated['approved_deposit_amount'], 2) : '')
                 . ($isSubjectToFica ? ', subject to FICA verification' : ''),
         );
 

@@ -33,15 +33,26 @@ class LeaseSetting extends Model
     // and resources/views/corex/properties/show.blade.php.
     public const DEFAULT_SHOW_LEASE_TYPE_FIELD = false;
 
+    // Johan, 2026-09-22 (property 4283) — "when a property has no deposit
+    // amount, default it to a configurable multiple of the monthly rent...
+    // one month is the obvious default for South Africa." Confirmed against
+    // .ai/specs/rental-property-tab.md's own scraped listing example
+    // ("Deposit R4710 One Month's rental R1500 Once off" — deposit = 1x
+    // rent), so 1.0 matches what the codebase already assumed informally.
+    // Consumed by PropertyController::applyDepositDefault().
+    public const DEFAULT_DEPOSIT_MONTHS = 1.0;
+
     protected $fillable = [
         'agency_id',
         'expiry_notice_window_days',
         'show_lease_type_field',
+        'default_deposit_months',
     ];
 
     protected $casts = [
         'expiry_notice_window_days' => 'integer',
         'show_lease_type_field' => 'boolean',
+        'default_deposit_months' => 'decimal:2',
     ];
 
     public static function expiryNoticeWindowDaysFor(?int $agencyId): int
@@ -64,5 +75,16 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->show_lease_type_field ?? self::DEFAULT_SHOW_LEASE_TYPE_FIELD;
+    }
+
+    public static function defaultDepositMonthsFor(?int $agencyId): float
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_DEPOSIT_MONTHS;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->default_deposit_months !== null ? (float) $row->default_deposit_months : self::DEFAULT_DEPOSIT_MONTHS;
     }
 }

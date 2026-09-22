@@ -133,8 +133,15 @@
                                   class="mt-2 w-full rounded-md px-3 py-2 text-sm outline-none"
                                   style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0f172a);">{{ $val }}</textarea>
                     @elseif ($type === 'number')
+                        {{-- Johan, 2026-09-22 (property 4283) — step defaults to
+                             '1' (a plain HTML5 number input's own default), which
+                             blocks a fractional value like 1.5 from ever being
+                             typed. Optional per-control 'step' (e.g. '0.1' for
+                             default_deposit_months) without changing any
+                             existing whole-number control that never sets one. --}}
                         <input id="f_{{ $key }}" name="{{ $key }}" type="number"
                                value="{{ $val }}" min="{{ $control['min'] ?? '' }}" max="{{ $control['max'] ?? '' }}"
+                               step="{{ $control['step'] ?? '1' }}"
                                class="mt-2 w-32 rounded-md px-3 py-2 text-sm outline-none"
                                style="background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); color:var(--text-primary,#0f172a);">
                     @elseif ($type === 'select')

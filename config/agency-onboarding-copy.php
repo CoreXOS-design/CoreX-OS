@@ -356,6 +356,11 @@ return [
         // through the SAME form/save cycle (wizard.blade.php).
         'partial' => 'agency-setup.steps.rentals-field-config',
         'savers' => [
+            // Johan, 2026-09-22 (property 4283) — update() now also carries
+            // default_deposit_months (§6.1: nullable + has()-guarded, NOT
+            // required, so a request that omits it — an older wizard
+            // render, a pre-existing test fixture — still saves the rest
+            // of this step; the dedicated settings page always sends it).
             ['controller' => LeaseSettingsController::class, 'method' => 'update'],
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'update'],
             // rental-work-orders.md §3.4b/§8, Stage 3 (2026-09-26) — the spend
@@ -393,6 +398,16 @@ return [
              'label' => 'No-approval spend threshold (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
              'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific tenancy can be set higher or lower on the lease itself.'],
+            // Johan, 2026-09-22 (property 4283) — "when a property has no
+            // deposit amount, default it to a configurable multiple of the
+            // monthly rent." Saved by LeaseSettingsController::update()
+            // (registered above) — nullable + has()-guarded there (§6.1),
+            // not required, after making it required first broke
+            // pre-existing wizard tests that POST this step without it.
+            ['key' => 'default_deposit_months', 'source' => 'leases', 'type' => 'number', 'default' => 1, 'min' => 0.1, 'max' => 12, 'step' => 0.1,
+             'label' => 'Default deposit, as a multiple of monthly rent',
+             'explain' => 'When an agent ticks "Has deposit" on a property but leaves the deposit amount blank, CoreX fills in a starting figure — this many months of that property\'s own rent.',
+             'affects' => 'The deposit amount a property starts with when one is required but not yet typed in. 1 month suits most South African tenancies — the figure is always shown as a starting point an agent can change, never locked in.'],
             // Reserved for rental-work-orders.md's two remaining settings
             // (completion_requires_photo, overdue_reminder_days) — added here
             // once work orders themselves are built (Stage 4), not before.
