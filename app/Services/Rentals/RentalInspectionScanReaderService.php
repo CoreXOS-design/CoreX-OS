@@ -21,12 +21,24 @@ use ImagickPixel;
  * it samples the fixed rectangular regions the manifest names, nothing
  * else.
  *
- * Pipeline: rasterize each page -> detect the four fiducials (identifying
- * the bottom-right circle as the fill-ratio outlier among the four corner
- * blobs, per cc5's own design note — NOT by an absolute shape threshold,
- * since a rotated square's own fill ratio is not rotation-invariant, only
- * the three squares clustering together relative to the odd one out is)
- * -> solve one affine transform per page mapping manifest pt-space
+ * Pipeline: rasterize each page -> detect the four fiducials -> resolve
+ * correspondence as TWO separate questions (Johan, 2026-09-22): the
+ * fiducial rectangle's own edge-length structure answers "portrait or
+ * sideways" from position alone, at any rotation angle, no shape needed
+ * (an A4 page is never square) — narrowing to exactly two candidates
+ * differing only by "right way up or upside down", the one question the
+ * bottom-right circle actually exists to answer. That's resolved first by
+ * decoding the printed page identifier under each candidate and keeping
+ * whichever matches this scan's own known target (rectangleLabelCandidates()
+ * + isPlausibleSimilarity(), calibratePage()'s disambiguation block) — a
+ * deterministic, shape-independent signal with no rotation blind spot —
+ * falling back to relative fill-ratio comparison only if that's
+ * inconclusive. A rotated square's own fill ratio is NOT rotation-
+ * invariant (unlike a circle's), which is why classifying by an absolute
+ * shape threshold used to cap the working envelope at roughly +-5 degrees;
+ * this approach reaches +-24 degrees around upright, sideways, and
+ * upside-down alike (measured; see the reader's own test suite) -> solve
+ * one affine transform per page mapping manifest pt-space
  * onto that page's actual pixels -> decode the fixed-position page-
  * identifier grid through that transform (BEFORE consulting any
  * manifest — the grid's own position is a published constant, read via
@@ -85,7 +97,7 @@ class RentalInspectionScanReaderService
         // version this scan claims to be — the grid's position is a fixed
         // constant, read without needing any manifest yet.
         $firstPage = $pages[1];
-        $transform = $this->calibratePage($firstPage);
+        $transform = $this->calibratePage($firstPage, $scan->rental_inspection_id, 1);
         if ($transform === null) {
             $scan->forceFill(['status' => RentalInspectionScan::STATUS_FAILED, 'failure_reason' => 'Could not locate the four registration marks on page 1 — the scan may be too skewed, cropped, or low quality.'])->save();
 
@@ -138,7 +150,7 @@ class RentalInspectionScanReaderService
 
         DB::transaction(function () use ($scan, $pages, $boxesByPage, $threshold, $transform) {
             foreach ($pages as $pageNumber => $page) {
-                $pageTransform = $pageNumber === 1 ? $transform : $this->calibratePage($page);
+                $pageTransform = $pageNumber === 1 ? $transform : $this->calibratePage($page, $scan->rental_inspection_id, $pageNumber);
                 if ($pageTransform === null) {
                     continue; // this page's boxes simply can't be read; left unmarked/ambiguous below for review.
                 }
@@ -298,11 +310,17 @@ class RentalInspectionScanReaderService
     // ── Fiducial detection + calibration ────────────────────────────────
 
     /**
+     * @param int|null $expectedInspectionId this scan's own known target
+     *   (always available — set at upload time) — used to disambiguate a
+     *   180-degree orientation ambiguity via the printed page identifier
+     *   rather than blob shape (Johan, 2026-09-22).
+     * @param int|null $expectedPageNumber known once page 1 has already
+     *   been decoded; strengthens the same disambiguation for pages 2+.
      * @return array{a: float, b: float, c: float, d: float, e: float, f: float}|null
      *   pixelX = a*mx + b*my + c; pixelY = d*mx + e*my + f. Null if the four
      *   fiducials couldn't be confidently located on this page.
      */
-    private function calibratePage(Imagick $page): ?array
+    private function calibratePage(Imagick $page, ?int $expectedInspectionId = null, ?int $expectedPageNumber = null): ?array
     {
         $width = $page->getImageWidth();
         $height = $page->getImageHeight();
@@ -352,27 +370,30 @@ class RentalInspectionScanReaderService
             }
         }
 
-        // A square's OWN axis-aligned fill ratio shrinks under rotation
-        // (1/(cos(theta)+sin(theta))^2 — already down to ~0.83 at just 6
-        // degrees, and it keeps falling well past the circle's constant
-        // ~0.785 by ~8 degrees) — so no fixed fill-ratio threshold can
-        // reliably tell "circle" from "rotated square" in absolute terms.
-        // What DOES hold regardless of rotation: all three squares are
-        // part of the same rigid page and rotate together, so their fill
-        // ratios cluster near each other, while the circle's does not —
-        // classify by RELATIVE outlier, not by an absolute cutoff.
-        $byFillRatio = $corners;
-        uasort($byFillRatio, fn ($a, $b) => $a['fill_ratio'] <=> $b['fill_ratio']);
-        $bottomRightPxKey = array_key_first($byFillRatio);
-        $circleFillRatio = $byFillRatio[$bottomRightPxKey]['fill_ratio'];
-        $squareKeys = array_keys(array_diff_key($corners, [$bottomRightPxKey => true]));
-        $squareFillRatios = array_map(fn ($k) => $corners[$k]['fill_ratio'], $squareKeys);
-        // The three squares should sit close together; the circle should be
-        // a clear outlier below all of them. If it isn't, detection isn't
-        // trustworthy enough to guess from.
-        if ($circleFillRatio >= min($squareFillRatios) - 0.03) {
-            return null;
-        }
+        // Correspondence is really two separate questions, and only one of
+        // them needs the circle (Johan, 2026-09-22): an A4 page is not
+        // square, so the fiducial rectangle's own edge-length structure
+        // answers "portrait or sideways" at ANY rotation angle, purely from
+        // position — no shape/fill-ratio involved, so no rotation-angle
+        // blind spot. That narrows the four rotational possibilities down
+        // to exactly two, differing only in "right way up or upside down"
+        // — the one binary question the circle actually exists to answer.
+        //
+        // Sort the four corners by angle around their own centroid: for
+        // any convex quadrilateral this recovers the TRUE physical
+        // perimeter order (never a shuffled one), in some consistent
+        // traversal direction. Both possible directions (clockwise and
+        // counter-clockwise) are tried below rather than hand-derived from
+        // atan2's sign convention, since a wrong-chirality guess would
+        // silently mirror the page — the determinant check in
+        // isPlausibleSimilarity() rejects whichever direction is wrong,
+        // regardless of which one that turns out to be.
+        $centroidX = array_sum(array_column($corners, 'x')) / 4;
+        $centroidY = array_sum(array_column($corners, 'y')) / 4;
+        $keys = array_keys($corners);
+        usort($keys, fn ($a, $b) => atan2($corners[$a]['y'] - $centroidY, $corners[$a]['x'] - $centroidX)
+            <=> atan2($corners[$b]['y'] - $centroidY, $corners[$b]['x'] - $centroidX));
+        [$q0, $q1, $q2, $q3] = $keys;
 
         $manifestPoints = [
             'top_left' => [12.0, 12.0],
@@ -381,83 +402,131 @@ class RentalInspectionScanReaderService
             'bottom_right' => [RentalInspectionFormPdfService::PAGE_WIDTH - 12.0 - 10.0, RentalInspectionFormPdfService::PAGE_HEIGHT - 12.0 - 10.0],
         ];
         // Manifest fiducial coordinates are the TOP-LEFT of each 10x10pt
-        // mark; the blob centroid detected below is the mark's CENTER — use
+        // mark; the blob centroid detected above is the mark's CENTER — use
         // each fiducial's own center consistently on both sides.
         foreach ($manifestPoints as $key => [$mx, $my]) {
             $manifestPoints[$key] = [$mx + 5.0, $my + 5.0];
         }
 
-        // Resolve which square is which DIRECTLY from its position relative
-        // to the circle, rather than brute-forcing permutations and picking
-        // whichever affine fit scores lowest residual — with only 4 points,
-        // a wrong (e.g. cyclically-shifted) correspondence can ALSO produce
-        // a deceptively low residual (it degenerates into a valid-looking
-        // but physically wrong 90°-rotation-shaped transform), so residual
-        // alone is not a reliable tie-breaker. Instead: the square
-        // diagonally opposite the circle (bottom_right) is top_left —
-        // farthest away in pixel space, a relationship invariant under any
-        // rotation/skew. Of the remaining two, the one sharing the circle's
-        // X coordinate (same right-hand edge) is top_right; the one sharing
-        // the circle's Y coordinate (same bottom edge) is bottom_left.
-        $circlePos = $corners[$bottomRightPxKey];
-        $farthestKey = null;
-        $farthestDistSq = -1.0;
-        foreach ($squareKeys as $k) {
-            $distSq = ($corners[$k]['x'] - $circlePos['x']) ** 2 + ($corners[$k]['y'] - $circlePos['y']) ** 2;
-            if ($distSq > $farthestDistSq) {
-                $farthestDistSq = $distSq;
-                $farthestKey = $k;
+        $validCandidates = [];
+        foreach ([[$q0, $q1, $q2, $q3], [$q0, $q3, $q2, $q1]] as $qOrder) {
+            foreach ($this->rectangleLabelCandidates($corners, $qOrder) as $labels) {
+                $pixelPoints = array_combine($labels, array_map(fn ($k) => $corners[$k], $qOrder));
+                $transform = $this->solveAffine($manifestPoints, $pixelPoints);
+                if (! $this->isPlausibleSimilarity($transform)) {
+                    continue;
+                }
+                if ($this->affineResidual($transform, $manifestPoints, $pixelPoints) > 25.0) {
+                    continue;
+                }
+                $bottomRightKey = $qOrder[array_search('bottom_right', $labels, true)];
+                $validCandidates[] = ['transform' => $transform, 'bottom_right_fill_ratio' => $corners[$bottomRightKey]['fill_ratio']];
             }
         }
-        $topLeftKey = $farthestKey;
-        $remainingKeys = array_values(array_diff($squareKeys, [$topLeftKey]));
-        [$ra, $rb] = $remainingKeys;
-        $raDx = abs($corners[$ra]['x'] - $circlePos['x']);
-        $rbDx = abs($corners[$rb]['x'] - $circlePos['x']);
-        [$topRightKey, $bottomLeftKey] = $raDx < $rbDx ? [$ra, $rb] : [$rb, $ra];
 
-        $pixelPoints = [
-            'top_left' => $corners[$topLeftKey],
-            'top_right' => $corners[$topRightKey],
-            'bottom_left' => $corners[$bottomLeftKey],
-            'bottom_right' => $circlePos,
-        ];
-        $transform = $this->solveAffine($manifestPoints, $pixelPoints);
+        if ($validCandidates === []) {
+            return null;
+        }
+        if (count($validCandidates) === 1) {
+            return $validCandidates[0]['transform'];
+        }
 
-        // A genuinely correct fit is always a similarity transform (uniform
-        // scale + rotation only — a rigid printed page can never appear on
-        // a scan as a true shear or non-uniform stretch), so its linear
-        // part's two columns must be near-equal in length and near-
-        // perpendicular. Measured directly: a 90-degree-rotated page (a
-        // realistic mistake — a phone photo taken in the wrong orientation)
-        // resolves the wrong corner correspondence for THIS page's near-
-        // square-ish fiducial layout and passes the residual check anyway,
-        // producing a confidently WRONG transform (columns of very
-        // different length) rather than a rejection — exactly the failure
-        // mode that must never reach a human as a trustworthy read. Reject
-        // before the residual check ever gets a say.
+        // More than one geometrically-plausible orientation survives — the
+        // residual right-way-up-or-upside-down ambiguity. Disambiguate with
+        // the strongest available signal first: the printed page
+        // identifier, decoded under each candidate. A wrong orientation
+        // samples essentially random bit positions and will not decode to
+        // THIS scan's own known target; the correct one decodes exactly.
+        // This doesn't depend on blob shape at all, so — unlike fill ratio
+        // — it has no rotation-angle blind spot.
+        if ($expectedInspectionId !== null) {
+            $matches = [];
+            foreach ($validCandidates as $candidate) {
+                $identifier = $this->decodePageIdentifier($page, $candidate['transform']);
+                $idMatches = $identifier['rental_inspection_id'] === $expectedInspectionId;
+                $pageMatches = $expectedPageNumber === null || $identifier['page_number'] === $expectedPageNumber;
+                if ($idMatches && $pageMatches) {
+                    $matches[] = $candidate;
+                }
+            }
+            if (count($matches) === 1) {
+                return $matches[0]['transform'];
+            }
+        }
+
+        // No expected identifier to check against, or it didn't uniquely
+        // resolve it — fall back to whichever candidate's bottom-right
+        // corner is the clearer circle. Only the circle's fill ratio is
+        // rotation-invariant, so the candidate where it reads furthest
+        // below the other candidate's is the more likely circle — but
+        // still refuse to guess if the two are too close to call.
+        usort($validCandidates, fn ($a, $b) => $a['bottom_right_fill_ratio'] <=> $b['bottom_right_fill_ratio']);
+        if (($validCandidates[1]['bottom_right_fill_ratio'] - $validCandidates[0]['bottom_right_fill_ratio']) < 0.03) {
+            return null;
+        }
+
+        return $validCandidates[0]['transform'];
+    }
+
+    /**
+     * Given one specific traversal order of the four corners, the two
+     * label-assignments consistent with it: an A4 page's fiducial
+     * rectangle is never square, so whichever opposite-edge pair averages
+     * SHORTER is always the manifest's width-direction pair (top/bottom) —
+     * true at any rotation angle, purely from position. That fixes which
+     * of the four rotational label-assignments are consistent with THIS
+     * traversal down to exactly two, differing by a 180-degree relabel
+     * (shift-by-two = swap each corner for its diagonal opposite).
+     *
+     * @param array<string, array{x: float, y: float}> $corners
+     * @param array{0: string, 1: string, 2: string, 3: string} $qOrder
+     * @return array<int, array{0: string, 1: string, 2: string, 3: string}>
+     */
+    private function rectangleLabelCandidates(array $corners, array $qOrder): array
+    {
+        [$q0, $q1, $q2, $q3] = $qOrder;
+        $edgeLen = fn ($i, $j) => sqrt(($corners[$i]['x'] - $corners[$j]['x']) ** 2 + ($corners[$i]['y'] - $corners[$j]['y']) ** 2);
+        $e01 = $edgeLen($q0, $q1);
+        $e12 = $edgeLen($q1, $q2);
+        $e23 = $edgeLen($q2, $q3);
+        $e30 = $edgeLen($q3, $q0);
+        $e01IsWidth = ($e01 + $e23) < ($e12 + $e30);
+
+        $base = $e01IsWidth
+            ? ['top_left', 'top_right', 'bottom_right', 'bottom_left']
+            : ['top_right', 'bottom_right', 'bottom_left', 'top_left'];
+
+        return [$base, [$base[2], $base[3], $base[0], $base[1]]];
+    }
+
+    /**
+     * A genuinely correct fit is always a similarity transform (uniform
+     * scale + rotation only — a rigid printed page can never appear on a
+     * scan as a true shear, non-uniform stretch, OR mirror image), so its
+     * linear part's two columns must be near-equal in length, near-
+     * perpendicular, AND right-handed (positive determinant — a reflection
+     * also has equal-length orthogonal columns, so length/orthogonality
+     * alone would accept a mirrored fit a camera can never actually
+     * produce). Measured directly: a 90-degree-rotated page resolved a
+     * wrong-but-plausible-looking correspondence and was accepted rather
+     * than rejected before this existed — the failure mode that must never
+     * reach a human as a trustworthy read.
+     */
+    private function isPlausibleSimilarity(array $transform): bool
+    {
         $col1Len = sqrt($transform['a'] ** 2 + $transform['d'] ** 2);
         $col2Len = sqrt($transform['b'] ** 2 + $transform['e'] ** 2);
         if ($col1Len <= 0.0 || $col2Len <= 0.0) {
-            return null;
+            return false;
+        }
+        $determinant = $transform['a'] * $transform['e'] - $transform['b'] * $transform['d'];
+        if ($determinant <= 0.0) {
+            return false;
         }
         $scaleRatio = min($col1Len, $col2Len) / max($col1Len, $col2Len);
         $normalizedDot = abs($transform['a'] * $transform['b'] + $transform['d'] * $transform['e']) / ($col1Len * $col2Len);
-        if ($scaleRatio < 0.9 || $normalizedDot > 0.15) {
-            return null;
-        }
 
-        $residual = $this->affineResidual($transform, $manifestPoints, $pixelPoints);
-
-        // A correct fit should reproduce every fiducial within a couple of
-        // pixels; a genuine detection failure (bad crop, wrong page) produces
-        // a residual orders of magnitude larger. Guard against silently
-        // accepting a bad fit.
-        if ($residual > 25.0) {
-            return null;
-        }
-
-        return $transform;
+        return $scaleRatio >= 0.9 && $normalizedDot <= 0.15;
     }
 
     /**

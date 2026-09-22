@@ -268,6 +268,90 @@ final class RentalInspectionScanReaderServiceTest extends TestCase
         }
     }
 
+    public function test_reads_marks_correctly_from_a_20_degree_skewed_scan(): void
+    {
+        // A phone held in the hand, not braced against anything, is
+        // realistically tilted well past a couple of degrees — Johan,
+        // 2026-09-22: "±5° of tilt is too narrow... five degrees is a
+        // straighter photograph than most people take." Correspondence is
+        // now resolved via the fiducial rectangle's own edge structure
+        // (portrait vs sideways, from position alone, at any angle) plus
+        // the printed page identifier (right way up vs upside down,
+        // decoded under each surviving candidate) rather than an absolute
+        // shape threshold — measured envelope is now roughly ±24° around
+        // upright, sideways, and upside-down alike. 20° is comfortably
+        // inside that, well past the old ~7° ceiling.
+        $room = $this->addRoomWithItems('Bedroom 1', 3);
+        $items = $this->itemsOf($room);
+        $inspection = $this->inspection();
+
+        $form = app(RentalInspectionFormPdfService::class)->generate($inspection, $this->agent);
+        $manifest = $form->manifest_json;
+        $conditionKeys = collect($manifest['condition_states'])->pluck('key')->all();
+
+        $expected = [];
+        foreach ($items as $i => $item) {
+            $expected[$item->id] = $conditionKeys[($i + 3) % count($conditionKeys)];
+        }
+
+        $absolutePath = Storage::disk('local')->path($form->pdf_storage_path);
+        $page = $this->inkedPage($manifest, $expected, $absolutePath, function (Imagick $p) {
+            $p->rotateImage(new ImagickPixel('white'), 20);
+        });
+        $scan = $this->createScan($inspection, $this->pageToUploadedFile($page, 'skewed-20deg.png'));
+
+        app(RentalInspectionScanReaderService::class)->process($scan->fresh());
+        $scan->refresh();
+
+        $this->assertSame(RentalInspectionScan::STATUS_NEEDS_REVIEW, $scan->status, $scan->failure_reason ?? '');
+        foreach ($items as $item) {
+            $mark = $scan->marks()->where('rental_inspection_item_id', $item->id)->first();
+            $this->assertNotNull($mark, "no mark row for item {$item->id}");
+            $this->assertFalse($mark->ambiguous, "item {$item->id} unexpectedly ambiguous (20-degree skew)");
+            $this->assertSame($expected[$item->id], $mark->detected_condition_key, "item {$item->id} read wrong condition after a 20-degree skew");
+        }
+    }
+
+    public function test_reads_marks_correctly_from_a_90_degree_sideways_photo(): void
+    {
+        // A realistic mistake, not a synthetic edge case: an agent
+        // photographs the form in landscape orientation by accident. This
+        // used to be a genuinely dangerous case — the old shape-threshold
+        // correspondence logic resolved a wrong-but-plausible-looking
+        // transform here (confidently wrong, not rejected) until the
+        // geometric rewrite. Proves it now reads correctly rather than
+        // merely failing safe.
+        $room = $this->addRoomWithItems('Bedroom 1', 3);
+        $items = $this->itemsOf($room);
+        $inspection = $this->inspection();
+
+        $form = app(RentalInspectionFormPdfService::class)->generate($inspection, $this->agent);
+        $manifest = $form->manifest_json;
+        $conditionKeys = collect($manifest['condition_states'])->pluck('key')->all();
+
+        $expected = [];
+        foreach ($items as $i => $item) {
+            $expected[$item->id] = $conditionKeys[($i + 1) % count($conditionKeys)];
+        }
+
+        $absolutePath = Storage::disk('local')->path($form->pdf_storage_path);
+        $page = $this->inkedPage($manifest, $expected, $absolutePath, function (Imagick $p) {
+            $p->rotateImage(new ImagickPixel('white'), 90);
+        });
+        $scan = $this->createScan($inspection, $this->pageToUploadedFile($page, 'sideways.png'));
+
+        app(RentalInspectionScanReaderService::class)->process($scan->fresh());
+        $scan->refresh();
+
+        $this->assertSame(RentalInspectionScan::STATUS_NEEDS_REVIEW, $scan->status, $scan->failure_reason ?? '');
+        foreach ($items as $item) {
+            $mark = $scan->marks()->where('rental_inspection_item_id', $item->id)->first();
+            $this->assertNotNull($mark, "no mark row for item {$item->id}");
+            $this->assertFalse($mark->ambiguous, "item {$item->id} unexpectedly ambiguous (90-degree sideways)");
+            $this->assertSame($expected[$item->id], $mark->detected_condition_key, "item {$item->id} read wrong condition when photographed sideways");
+        }
+    }
+
     public function test_a_very_high_resolution_photo_is_capped_and_still_reads_correctly(): void
     {
         // A real phone photo carries whatever native resolution the camera
