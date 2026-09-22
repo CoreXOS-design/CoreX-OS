@@ -1583,6 +1583,75 @@ their own record rather than a work-order status:
   Fault Reports both, under the existing Rentals section.
 - Re-run `php artisan schema:dump`, commit refreshed `database/schema/mysql-schema.sql`
   (non-negotiable #12a).
+- **BUILT, Stage 6, 2026-09-22 — Johan's own walk of the two live screens found the design-standard
+  floor incomplete and asked for exactly two things named explicitly: "printing, audit tracking about
+  whos done what etc." plus the list-screen/navigation gaps a read-only investigation had already
+  found and reported.**
+  - **Audit trail — "who did what."** `database/migrations/2026_09_22_100000_create_rental_fault_report_updates_table.php`,
+    `app/Models/RentalFaultReportUpdate.php` — mirrors `rental_work_order_updates`/`RentalWorkOrderUpdate`
+    exactly (same columns: `update_type`, `from_status`/`to_status`, `note`, `created_by_user_id`,
+    `created_at`, append-only, no `updated_at`). Checked first, not assumed: CoreX has no single generic
+    audit mechanism (no spatie/activitylog, no polymorphic AuditLog table) — only a repeated per-module
+    pattern (`ContactAuditLog`, `PropertyAuditLog`, `RentalApplicationAuditLog`, and this same feature's
+    own `rental_work_order_updates`). The closest, same-domain, already-proven sibling was reused rather
+    than inventing a second convention. `RentalFaultReport::requestApproval()` now takes `User $by` and
+    logs; `setOutcome()` now takes `User $by` and logs — this closes the exact gap named: the outcome
+    field (this spec's own "spine of the record," §3a.2) previously recorded no actor anywhere.
+    `recordApproval()` on both records deliberately does NOT write a duplicate log row — the decision is
+    already fully evidenced on `rental_approvals` (actor, decision, evidence, timestamp); both models gained
+    a `history()` method that merges the synthetic "Logged" event (from `created_by_user_id`/`created_at`,
+    never duplicated into a row), every real update row, and every approval decision into ONE plain
+    chronological list — "who, what, when," no helper text, no per-row badge, rendered on both detail
+    screens under a "History" heading. `archive()`/`restoreRecord()` (both models) wrap the existing
+    soft-delete/restore and log it, replacing the controllers' previous raw `->delete()`/`->restore()`
+    calls. Verified against real QA1 data, not fabricated: fault report #2's real history shows "Logged
+    (Retha Kelly)" then "Approved (→ Owner handles) — Owner replied via WhatsApp: ..." with the real
+    evidence text and actor.
+  - **Printing.** `app/Services/Rentals/RentalDocumentPdfService.php` — the existing barryvdh/laravel-
+    dompdf pattern (`PropertyBrochureService.php:230`: `Pdf::loadView(...)->setPaper('a4','portrait')`,
+    remote/php disabled, dpi 96, shared `storage_path('app/dompdf-fonts')` font-cache dir) applied to two
+    new, simple, fixed-length documents — deliberately NOT reusing `PropertyBrochureService`'s own image-
+    grid/QR/shrink-to-fit machinery, which solves a property-photo-layout problem neither document has.
+    `resources/views/corex/rental-work-orders/pdf.blade.php` (supplier-facing), `.../rental-fault-reports/
+    pdf.blade.php` (landlord-facing) — same Inter font-face embed as the brochure, agency/branch logo with
+    a neutral agency-name wordmark fallback (never hardcoded to any one agency's own branding, non-
+    negotiable #9). `RentalWorkOrderController::pdf()`/`RentalFaultReportController::pdf()`, routed at
+    `.../{record}/pdf`, same query-layer scoping as each controller's own `show()` (route-model-binding +
+    the global `AgencyScope`) — a user who cannot open the record cannot download it either, by
+    construction, since both resolve the identical bound model the identical way. Both models gained a
+    `branch()` relation (previously absent) for the logo fallback. Verified for real: both PDFs generated
+    over real HTTP against real QA1 records, confirmed valid single-page A4 documents via `pdfinfo`, text
+    content extracted via `pdftotext` and confirmed to carry the real property address, tenant name,
+    job/fault title, and agency name — not merely a 200 status.
+  - **List-screen gaps**, all in `RentalWorkOrderController::index()` and `rental-work-orders/index.blade.php`:
+    `trade_type` filter (a `<select>` from `AgencyServiceType`, matching the create form's own picker) and
+    `priority` (added to `allowedSorts`, a filter `<select>`, and a table column) — both existed server-
+    side with no UI control before this stage. `property_id` (which already existed server-side but had
+    no reachable UI at all) and the new `lease_id`/`contact_id` filters (§Navigation below) are surfaced
+    as a named, clearable "Filtered to: ..." chip rather than a dropdown of every property/lease/contact
+    in the agency — the same reasoning BUILD_STANDARD §1b already applies to date-range filters: a filter
+    reached by drilling in from a specific record doesn't need a second, redundant picker on the list
+    screen itself. Search/sort/pagination/empty-state on both list screens were already complete per the
+    investigation; nothing else needed filling.
+  - **Navigation.** `resources/views/corex/leases/show.blade.php` gained a "This tenancy" card with
+    permission-gated links to that lease's own fault reports/work orders (`?lease_id=`).
+    `resources/views/corex/contacts/_rental-applications-tab-body.blade.php` (the existing Rentals tab
+    body) gained the same, via `?contact_id=` — resolved against EITHER `lease_tenants` (a tenant contact)
+    OR `contact_property` (a landlord contact) with an `orWhereHas`, since the link doesn't know or need
+    to know which the contact is. Both `RentalWorkOrderController::index()` and
+    `RentalFaultReportController::index()` gained the `lease_id`/`contact_id` query-parameter handling
+    behind these links.
+  - **Not touched, per explicit instruction**: `RentalWorkOrderSetting::thresholdFor()` remains
+    unconsumed (§8's own note) — wiring spend-threshold approval gating is a real design decision, since
+    escalated to Johan as landlord-granted per-property approval authority rather than a flat agency
+    number (investigated separately, not built in this stage). Owner/tenant-facing mail at the fault-
+    report stage remains the same named, open gap (§4/Stage 1's own note) — still parked.
+  - `tests/Feature/RentalFaultReports/RentalFaultReportLifecycleTest.php`,
+    `tests/Feature/RentalWorkOrders/RentalWorkOrderLifecycleTest.php` — verified via stash-compare against
+    unmodified `origin/QA1` (15 and 12 failures respectively, identical on both sides) that this stage
+    introduces zero new test regressions; both files carry pre-existing, unrelated baseline failures
+    (`assertSessionHasErrors()`/`assertForbidden()` failing broadly across both files) not touched or
+    diagnosed by this stage — reported, not fixed, per non-negotiable #2.
 
 ---
 

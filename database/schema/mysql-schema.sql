@@ -12768,6 +12768,28 @@ CREATE TABLE `rental_fault_report_photos` (
   CONSTRAINT `rfr_photos_report_fk` FOREIGN KEY (`rental_fault_report_id`) REFERENCES `rental_fault_reports` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_fault_report_updates`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_fault_report_updates` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rental_fault_report_id` bigint unsigned NOT NULL,
+  `update_type` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `from_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `to_status` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rfru_fault_report_fk` (`rental_fault_report_id`),
+  KEY `rfru_created_by_fk` (`created_by_user_id`),
+  KEY `rfru_agency_report_idx` (`agency_id`,`rental_fault_report_id`),
+  CONSTRAINT `rfru_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rfru_created_by_fk` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rfru_fault_report_fk` FOREIGN KEY (`rental_fault_report_id`) REFERENCES `rental_fault_reports` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_fault_reports`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -17491,3 +17513,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1411,'2026_09_21_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1412,'2026_09_21_160000_add_condition_states_to_rental_inspection_settings_table',349);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1413,'2026_09_21_160100_create_rental_inspection_room_notes_table',349);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1414,'2026_09_21_160200_add_overall_notes_to_rental_inspections_table',349);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1415,'2026_09_22_100000_create_rental_fault_report_updates_table',350);

@@ -101,6 +101,12 @@ class RentalFaultReport extends Model
         return $this->belongsTo(Property::class);
     }
 
+    /** Branch logo fallback for the landlord PDF (§"Printing", 2026-09-22). */
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
+
     public function lease(): BelongsTo
     {
         return $this->belongsTo(Lease::class);
@@ -158,6 +164,76 @@ class RentalFaultReport extends Model
     }
 
     /**
+     * "Who did what" — Johan, 2026-09-22: audit tracking, the headline of
+     * this build. Mirrors RentalWorkOrder::updates() exactly.
+     */
+    public function updates(): HasMany
+    {
+        return $this->hasMany(RentalFaultReportUpdate::class)->orderByDesc('created_at');
+    }
+
+    /**
+     * A single, plain, chronological history — every state-changing action
+     * on this record, actor + action + from/to + note + when, oldest first.
+     * Merges the synthetic "logged" event (this record's own creation,
+     * never written as a separate row — created_by_user_id/created_at
+     * already carry it, so it isn't duplicated into rental_fault_report_
+     * updates), the real update rows, and the approval decisions (a
+     * separate table, §3.4a, folded in here so an agent reads ONE timeline
+     * rather than two disconnected lists). Read-only, computed at request
+     * time — never stored, so it can never drift from the rows it reads.
+     *
+     * @return \Illuminate\Support\Collection<int, array{at: \Illuminate\Support\Carbon, actor: ?string, action: string, from: ?string, to: ?string, note: ?string}>
+     */
+    public function history(): \Illuminate\Support\Collection
+    {
+        $entries = collect();
+
+        $entries->push([
+            'at' => $this->created_at,
+            'actor' => $this->createdByUser?->name,
+            'action' => 'Logged',
+            'from' => null,
+            'to' => null,
+            'note' => null,
+        ]);
+
+        foreach ($this->updates as $update) {
+            $entries->push([
+                'at' => $update->created_at,
+                'actor' => $update->createdByUser?->name,
+                'action' => match ($update->update_type) {
+                    RentalFaultReportUpdate::TYPE_APPROVAL_REQUESTED => 'Owner approval requested',
+                    RentalFaultReportUpdate::TYPE_APPROVAL_RECORDED => 'Approval decision recorded',
+                    RentalFaultReportUpdate::TYPE_WORK_ORDER_RAISED => 'Work order raised',
+                    RentalFaultReportUpdate::TYPE_OUTCOME_SET => 'Outcome set',
+                    RentalFaultReportUpdate::TYPE_STATUS_CHANGE => 'Status changed',
+                    RentalFaultReportUpdate::TYPE_ARCHIVED => 'Archived',
+                    RentalFaultReportUpdate::TYPE_RESTORED => 'Restored',
+                    RentalFaultReportUpdate::TYPE_NOTE => 'Note added',
+                    default => ucfirst(str_replace('_', ' ', $update->update_type)),
+                },
+                'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,
+                'to' => $update->to_status ? ucfirst(str_replace('_', ' ', $update->to_status)) : null,
+                'note' => $update->note,
+            ]);
+        }
+
+        foreach ($this->approvals as $approval) {
+            $entries->push([
+                'at' => $approval->created_at,
+                'actor' => $approval->recordedByUser?->name,
+                'action' => $approval->decision === RentalApproval::DECISION_APPROVED ? 'Approved' : 'Declined',
+                'from' => null,
+                'to' => $approval->approval_route ? ucfirst(str_replace('_', ' ', $approval->approval_route)) : null,
+                'note' => $approval->evidence_text,
+            ]);
+        }
+
+        return $entries->sortBy('at')->values();
+    }
+
+    /**
      * §3a schema block — deletable only while nothing has been logged
      * against it: no photo, no linked work order. Once either exists, only
      * 'cancelled' — same reasoning and shape as RentalInspection::isDeletable().
@@ -165,6 +241,19 @@ class RentalFaultReport extends Model
     public function isDeletable(): bool
     {
         return $this->photos()->doesntExist() && $this->rental_work_order_id === null;
+    }
+
+    /** Records one line in this report's own history (updates()). */
+    private function logUpdate(string $type, ?User $by, ?string $note = null, ?string $from = null, ?string $to = null): void
+    {
+        $this->updates()->create([
+            'agency_id' => $this->agency_id,
+            'update_type' => $type,
+            'from_status' => $from,
+            'to_status' => $to,
+            'note' => $note,
+            'created_by_user_id' => $by?->id,
+        ]);
     }
 
     /**
@@ -178,12 +267,31 @@ class RentalFaultReport extends Model
             throw new \LogicException('This fault report is already cancelled.');
         }
 
+        $fromStatus = $this->status;
         $this->forceFill([
             'status' => self::STATUS_CANCELLED,
             'cancelled_at' => now(),
             'cancelled_by_user_id' => $by->id,
             'cancel_reason' => $reason,
         ])->save();
+
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_STATUS_CHANGE, $by, $reason, $fromStatus, self::STATUS_CANCELLED);
+    }
+
+    /**
+     * Johan, 2026-09-22 — archive/restore captured in the same "who did
+     * what" history as every other action on this record.
+     */
+    public function archive(User $by): void
+    {
+        $this->delete();
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_ARCHIVED, $by);
+    }
+
+    public function restoreRecord(User $by): void
+    {
+        $this->restore();
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_RESTORED, $by);
     }
 
     /**
@@ -195,7 +303,7 @@ class RentalFaultReport extends Model
      * first — an agent who already has the written reply in hand records
      * the decision directly, without a pointless intermediate click.
      */
-    public function requestApproval(): void
+    public function requestApproval(User $by): void
     {
         if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This fault report is already closed.');
@@ -208,6 +316,8 @@ class RentalFaultReport extends Model
             'status' => self::STATUS_AWAITING_APPROVAL,
             'owner_approval_status' => self::APPROVAL_PENDING,
         ])->save();
+
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_APPROVAL_REQUESTED, $by);
     }
 
     /**
@@ -271,7 +381,7 @@ class RentalFaultReport extends Model
      * `repaired` outcome with no work order ever having existed. This method
      * is callable from any state except already-closed, on purpose.
      */
-    public function setOutcome(array $attributes): void
+    public function setOutcome(array $attributes, User $by): void
     {
         if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This fault report is already closed.');
@@ -295,6 +405,30 @@ class RentalFaultReport extends Model
             'repaired_at' => $repairedAt,
             'resolved_at' => now(),
         ])->save();
+
+        // §4/Johan 2026-09-22 — "outcome set" is the spine of this record
+        // (this method's own earlier docblock) and, before this change, the
+        // ONE state-changing action on this table with no actor recorded
+        // anywhere. This is the fix.
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_OUTCOME_SET, $by, $note);
+    }
+
+    /**
+     * §3a.1, called from RentalWorkOrderService::fromFaultReport() — the
+     * agency_appoints route producing a real work order. Consolidates the
+     * mutation onto the model (matching this class's own convention) and
+     * captures the actor, which the inline forceFill() this replaces did
+     * not (Johan, 2026-09-22 — audit tracking is the point of this build).
+     */
+    public function recordWorkOrderRaised(RentalWorkOrder $workOrder, User $by): void
+    {
+        $fromStatus = $this->status;
+        $this->forceFill([
+            'rental_work_order_id' => $workOrder->id,
+            'status' => self::STATUS_WORK_ORDER_RAISED,
+        ])->save();
+
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_WORK_ORDER_RAISED, $by, null, $fromStatus, self::STATUS_WORK_ORDER_RAISED);
     }
 
     /**
