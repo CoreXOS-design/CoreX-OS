@@ -19,6 +19,14 @@ use Illuminate\Support\Facades\Schema;
  * Append-only: no updated_at, no deleted_at. A correction is a NEW row,
  * never an edit — same evidence-integrity reasoning as every other log
  * table in this feature family.
+ *
+ * `rental_fault_report_id` carries the COLUMN here but not the FK
+ * constraint — `rental_fault_reports` is created by a LATER-dated
+ * migration (2026_09_25_100000), so a fresh migrate:fresh (filename
+ * order) would fail here with "Failed to open the referenced table"
+ * before that table exists. The constraint itself (same name, same
+ * cascade rule) is added once that table exists — see
+ * 2026_09_30_100600_add_deferred_foreign_keys_for_later_created_tables.php.
  */
 return new class extends Migration
 {
@@ -28,8 +36,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('agency_id')
                 ->constrained('agencies', 'id', 'rfru_agency_fk')->cascadeOnDelete();
-            $table->foreignId('rental_fault_report_id')
-                ->constrained('rental_fault_reports', 'id', 'rfru_fault_report_fk')->cascadeOnDelete();
+            $table->foreignId('rental_fault_report_id');
 
             $table->string('update_type', 40);
             // logged | approval_requested | approval_recorded | work_order_raised |
