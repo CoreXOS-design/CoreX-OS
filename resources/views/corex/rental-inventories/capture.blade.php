@@ -34,6 +34,11 @@
 --}}
 
 @section('content')
+{{-- §4a — the SAME shared uploader rental-inspections built
+     (rental-inspections.md §20.13.4), not a second bespoke one. --}}
+@if($inventory)
+<script src="{{ asset_v('js/corex-photo-batch-uploader.js') }}"></script>
+@endif
 <div class="p-4 sm:p-6 max-w-3xl mx-auto space-y-4"
      @if($inventory) x-data="rentalInventoryCapture({{ $inventory->id }}, {{ $property->id }})" @endif>
 
@@ -87,7 +92,7 @@
                     <span class="flex items-center gap-2 text-xs shrink-0" style="color: var(--text-muted);">
                         <span x-text="linesFor(room.id).length + ' item' + (linesFor(room.id).length === 1 ? '' : 's')"></span>
                         <span>·</span>
-                        <span x-text="photosFor(room.id).length + ' photo' + (photosFor(room.id).length === 1 ? '' : 's')"></span>
+                        <span x-text="photoUploader().roomPhotos(room.id).length + ' photo' + (photoUploader().roomPhotos(room.id).length === 1 ? '' : 's')"></span>
                         <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" :style="openRooms[room.id] ? 'transform:rotate(90deg);' : ''" style="transition:transform .15s;"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </span>
                 </button>
@@ -114,7 +119,7 @@
                                     </template>
                                 </div>
                                 <div style="display:flex; align-items:center; justify-content:flex-end; gap:0.5rem;">
-                                    <button type="button" x-show="photosFor(room.id).length" @click="openTagger(line)" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Tag photo</button>
+                                    <button type="button" x-show="photoUploader().roomPhotos(room.id).length" @click="openTagger(line)" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Tag photo</button>
                                     <button type="button" @click="retireLine(line)" class="text-xs font-semibold" style="color: var(--ds-crimson,#c41e3a);">Remove</button>
                                 </div>
                             </div>
@@ -135,21 +140,53 @@
                                 class="text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9); padding:0.375rem 0.75rem; justify-self:end;">Add</button>
                     </form>
 
-                    {{-- Photos --}}
-                    <div class="pt-2" style="border-top:1px solid var(--border);">
-                        <div class="flex flex-wrap gap-2 pt-2">
-                            <template x-for="photo in photosFor(room.id)" :key="photo.id">
-                                <button type="button" @click="openTaggerForPhoto(room, photo)" class="relative shrink-0" style="width:64px; height:64px;">
-                                    <img :src="photo.storage_path" class="w-full h-full object-cover rounded-md" style="border:1px solid var(--border);" alt="Room photo">
-                                    <span x-show="photo.lines && photo.lines.length" class="absolute -top-1 -right-1 text-[10px] font-bold text-white rounded-full flex items-center justify-center" style="width:16px; height:16px; background:var(--brand-button,#0ea5e9);" x-text="photo.lines.length"></span>
-                                </button>
-                            </template>
-                            <label class="flex items-center justify-center rounded-md cursor-pointer shrink-0" style="width:64px; height:64px; border:1px dashed var(--border); color:var(--text-muted);">
-                                <span class="text-xs text-center leading-tight" x-text="roomUploading[room.id] ? '…' : '+ Photo'"></span>
-                                <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" @change="uploadPhotos(room, $event.target.files); $event.target.value = ''">
+                    {{-- Photos — §4a: adopts the SAME batched uploader
+                         (public/js/corex-photo-batch-uploader.js) and the
+                         SAME gallery-sized, count-clipped layout rental-
+                         inspections settled on (rental-inspections.md
+                         §20.14.3/§22.3) after four attempts got it wrong —
+                         never a height-based clip, never a frame size
+                         derived from a photo's own natural resolution. Tiles
+                         are a fixed aspect-ratio:1/1 grid cell with
+                         object-cover, so a 2560px-long-edge photo can never
+                         grow the tile or the row around it. --}}
+                    <div class="pt-2 space-y-1" style="border-top:1px solid var(--border);">
+                        <template x-if="photoUploader().roomPhotos(room.id).length">
+                            <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                                <template x-for="photo in (roomPhotosExpanded[room.id] ? photoUploader().roomPhotos(room.id) : photoUploader().roomPhotos(room.id).slice(0, 3))" :key="photo.id">
+                                    <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
+                                        <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer" @click="openTaggerForPhoto(room, photo)" alt="Room photo">
+                                        <span x-show="photo.lines && photo.lines.length" class="absolute top-0.5 left-0.5 text-[10px] font-bold text-white rounded-full flex items-center justify-center" style="width:16px; height:16px; background:var(--brand-button,#0ea5e9);" x-text="photo.lines.length"></span>
+                                        <button type="button" @click.stop="if (confirm('Archive this photo?')) photoUploader().archivePhoto(photo.id)"
+                                                class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                                style="background:var(--ds-crimson,#c41e3a); color:#fff; line-height:1;" title="Archive">&times;</button>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+                        <div class="flex items-center gap-2 flex-wrap pt-1">
+                            <button type="button" x-show="photoUploader().roomPhotos(room.id).length > 3"
+                                    @click="roomPhotosExpanded[room.id] = !roomPhotosExpanded[room.id]"
+                                    class="text-xs font-semibold underline" style="color:var(--text-secondary);"
+                                    x-text="roomPhotosExpanded[room.id] ? 'Show less' : ('Show all ' + photoUploader().roomPhotos(room.id).length)"></button>
+                            <label class="text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer inline-flex items-center gap-1" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
+                                <span>&#128247;</span>
+                                <span>Add photo(s)</span>
+                                <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" @change="photoUploader().uploadFiles($event.target.files, { property_room_id: room.id }); $event.target.value = ''">
                             </label>
                         </div>
-                        <p x-show="uploadError[room.id]" x-cloak class="text-xs pt-1" style="color:#ef4444;" x-text="uploadError[room.id]"></p>
+                        {{-- Same batch progress/retry rows as the inspections
+                             recording surface — real upload-progress percent,
+                             a batch that fails is independently retryable. --}}
+                        <template x-for="(batch, idx) in photoUploader().uploadBatches.filter(b => b.status !== 'done' && b.extraFields && Number(b.extraFields.property_room_id) === Number(room.id))" :key="idx">
+                            <div class="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md"
+                                 :style="batch.status === 'failed' ? 'background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);' : 'background:var(--surface-2);'">
+                                <span :style="batch.status === 'failed' ? 'color:var(--ds-crimson);' : 'color:var(--text-secondary);'"
+                                      x-text="batch.status === 'failed' ? (batch.files.length + ' photo(s) failed — ' + batch.error) : ('Uploading ' + batch.files.length + ' photo(s)… ' + (batch.percent || 0) + '%')"></span>
+                                <button type="button" x-show="batch.status === 'failed'" @click="photoUploader().retryBatch(batch)"
+                                        class="text-xs font-semibold underline" style="color:var(--text-secondary);">Retry</button>
+                            </div>
+                        </template>
                     </div>
                 </div>
             </div>
@@ -199,13 +236,15 @@ function rentalInventoryCapture(inventoryId, propertyId) {
         baseUrl: `/corex/rental-inventories/${inventoryId}`,
         rooms: @json($roomsForJs),
         lines: @json($linesForJs),
-        photos: @json($photosForJs),
 
         openRooms: {},
         newLine: {},
         lineBusy: {},
-        roomUploading: {},
-        uploadError: {},
+        // §4a — same photo layout discipline as inspections (rental-
+        // inspections.md §20.14.3): clipping is COUNT-based (first 3, "Show
+        // all N"), never height-based — a height clip is what cut real
+        // tiles in half on the deployed box the first time this shipped.
+        roomPhotosExpanded: {},
         tagger: { open: false, mode: null, line: null, photo: null, photos: [], lines: [] },
 
         init() {
@@ -213,13 +252,33 @@ function rentalInventoryCapture(inventoryId, propertyId) {
                 this.openRooms[r.id] = this.linesFor(r.id).length === 0;
                 this.newLine[r.id] = { quantity: 1, description: '' };
                 this.lineBusy[r.id] = false;
-                this.roomUploading[r.id] = false;
-                this.uploadError[r.id] = '';
             });
         },
         toggleRoom(id) { this.openRooms[id] = !this.openRooms[id]; },
         linesFor(roomId) { return this.lines.filter(l => Number(l.property_room_id) === Number(roomId)); },
-        photosFor(roomId) { return this.photos.filter(p => Number(p.property_room_id) === Number(roomId)); },
+
+        // §4a — the SAME reusable component rental-inspections built
+        // (public/js/corex-photo-batch-uploader.js, rental-inspections.md
+        // §20.13.4), not a second bespoke upload/progress implementation.
+        // One instance for the whole inventory (there is only one document
+        // here, unlike inspections' In/Out sections) — memoized so every
+        // call site shares the same reactive `photos`/`uploadBatches`
+        // state. `roomPhotos(roomId)` is the uploader's own generic
+        // filter — it also excludes anything carrying a
+        // rental_inspection_observation_id, a key inventory photos never
+        // have, so it filters correctly here with no changes needed.
+        _photoUploader: null,
+        photoUploader() {
+            if (!this._photoUploader) {
+                this._photoUploader = window.corexPhotoBatchUploader({
+                    csrf: this.csrf,
+                    uploadUrl: `${this.baseUrl}/photos`,
+                    archiveUrl: (photoId) => `${this.baseUrl}/photos/${photoId}`,
+                    photos: @json($photosForJs),
+                });
+            }
+            return this._photoUploader;
+        },
 
         async addLine(room) {
             const form = this.newLine[room.id];
@@ -249,48 +308,8 @@ function rentalInventoryCapture(inventoryId, propertyId) {
             this.lines = this.lines.filter(l => l.id !== line.id);
         },
 
-        planUploadBatches(files, maxCount, maxBytes) {
-            const batches = [];
-            let cur = [], curBytes = 0;
-            for (const f of files) {
-                if (cur.length && (cur.length >= maxCount || curBytes + f.size > maxBytes)) {
-                    batches.push(cur); cur = []; curBytes = 0;
-                }
-                cur.push(f); curBytes += f.size;
-            }
-            if (cur.length) batches.push(cur);
-            return batches;
-        },
-        async uploadPhotos(room, fileList) {
-            const files = Array.from(fileList || []);
-            if (!files.length) return;
-            this.uploadError[room.id] = '';
-            this.roomUploading[room.id] = true;
-            const batches = this.planUploadBatches(files, 10, 500 * 1024 * 1024);
-            try {
-                for (const batch of batches) {
-                    const fd = new FormData();
-                    fd.append('property_room_id', room.id);
-                    batch.forEach(f => {
-                        fd.append('photos[]', f);
-                        fd.append('client_idempotency_keys[]', (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random())));
-                    });
-                    const res = await fetch(`${this.baseUrl}/photos`, {
-                        method: 'POST',
-                        headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
-                        body: fd,
-                    });
-                    if (!res.ok) { this.uploadError[room.id] = 'Some photos failed to upload — try again.'; continue; }
-                    const body = await res.json();
-                    (body.photos || []).forEach(p => this.photos.push({ id: p.id, property_room_id: p.property_room_id, storage_path: p.storage_path, lines: [] }));
-                }
-            } finally {
-                this.roomUploading[room.id] = false;
-            }
-        },
-
         openTagger(line) {
-            this.tagger = { open: true, mode: 'line', line, photo: null, photos: this.photosFor(line.property_room_id), lines: [] };
+            this.tagger = { open: true, mode: 'line', line, photo: null, photos: this.photoUploader().roomPhotos(line.property_room_id), lines: [] };
         },
         openTaggerForPhoto(room, photo) {
             this.tagger = { open: true, mode: 'photo', line: null, photo, photos: [], lines: this.linesFor(room.id) };
@@ -308,7 +327,7 @@ function rentalInventoryCapture(inventoryId, propertyId) {
             });
             if (!res.ok) return;
             const lineRef = this.lines.find(l => l.id === line.id);
-            const photoRef = this.photos.find(p => p.id === photo.id);
+            const photoRef = this.photoUploader().photos.find(p => p.id === photo.id);
             if (tagged) {
                 if (lineRef) lineRef.photos = lineRef.photos.filter(id => id !== photo.id);
                 if (photoRef) photoRef.lines = photoRef.lines.filter(id => id !== line.id);

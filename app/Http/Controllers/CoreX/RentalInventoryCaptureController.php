@@ -137,7 +137,33 @@ class RentalInventoryCaptureController extends Controller
             ]);
         }
 
-        return response()->json(['photos' => $created], 201);
+        // §4a — the shared uploader (public/js/corex-photo-batch-uploader.js)
+        // pushes this response straight into its own reactive `photos` array,
+        // the same shape resolveOrStartFor()'s show() action already builds
+        // ($photosForJs) — 'lines' must always be present, even empty, or
+        // `photo.lines.length` on a freshly-uploaded tile throws client-side.
+        return response()->json([
+            'photos' => collect($created)->map(fn (RentalInventoryPhoto $p) => [
+                'id' => $p->id,
+                'property_room_id' => $p->property_room_id,
+                'storage_path' => $p->storage_path,
+                'lines' => $p->lines->pluck('id'),
+            ])->values(),
+        ], 201);
+    }
+
+    /**
+     * DELETE /corex/rental-inventories/{inventory}/photos/{photo} — archived
+     * (soft delete), never hard-deleted (non-negotiable #1). Mirrors
+     * RentalInspectionRecordingController::archivePhoto() exactly (§4a).
+     */
+    public function archivePhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryPhoto $photo): JsonResponse
+    {
+        abort_if((int) $photo->rental_inventory_id !== (int) $rentalInventory->id, 404);
+
+        $photo->archive($request->user());
+
+        return response()->json(['message' => 'Photo archived.']);
     }
 
     /** POST /corex/rental-inventories/{inventory}/lines/{line}/photos/{photo} — tag a line to a photo. Optional, never required (§0b). */

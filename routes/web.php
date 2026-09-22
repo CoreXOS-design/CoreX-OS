@@ -3264,6 +3264,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // optional line-to-photo tagging (the TV serial number example).
         Route::post('/{rentalInventory}/photos', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'storePhotos'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photos.store');
+        // §4a — archive (soft delete), the one control the shared uploader's
+        // config always needs (archiveUrl); mirrors rental-inspections' own
+        // DELETE .../photos/{photo} exactly.
+        Route::delete('/{rentalInventory}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'archivePhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photos.destroy');
         Route::post('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'attachLinePhoto'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.attach');
         Route::delete('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'detachLinePhoto'])

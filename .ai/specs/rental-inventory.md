@@ -6,7 +6,9 @@ on top of §0b's rebuild (property-embedded, room-based, autosaving, mobile-read
 §0a's reachability-only pass from earlier the same day (kept below for the record — its "not fixed"
 item about a sale property's missing Lease is still open, see §0b's own restatement). Comparison half
 (§8) is unaffected by either pass and remains as built 2026-10-01 — cc5's recommendations, Johan's
-approval, all four open questions resolved as stated.
+approval, all four open questions resolved as stated. §4a's photo-machinery adoption (shared uploader,
+gallery-sized fixed-frame layout) landed 2026-09-22 (cc4) — see §4a for exactly what was and wasn't
+adopted.
 
 ---
 
@@ -384,7 +386,7 @@ Confirmed directly against Johan's real lines (§1.1). `RentalInventoryLine::roo
 
 ---
 
-## 4a. Photo uploader/layout adoption — INTENT ONLY, NOT YET BUILT (2026-09-22)
+## 4a. Photo uploader/layout adoption — BUILT (2026-09-22, cc4)
 
 **§0c referenced this section by name before it existed — that dangling reference is fixed by writing
 it now, spec-only, no code changed in this pass.** Johan, reviewing the deployed §0b/§0c capture screen:
@@ -420,11 +422,51 @@ built and refined**, not a second implementation that happens to look similar.
   (`rental-inspections.md` §20.14.3, corrected) applies to Inventory's own per-room photo strip once its
   photo count can realistically exceed one row.
 
-**Why this is spec-only right now**: §0c explicitly scoped photos out of that pass — Inventory's current
-`capture.blade.php` uploads photos through its OWN pre-existing mechanism (§0b.1), not yet through the
-shared uploader. This section records the INTENT and the exact two files to read before building it, so
-the eventual swap is "adopt the finished thing," never "design a second one that happens to converge."
-**Not built. No migration, no controller change, no view change proposed or made by this pass.**
+**Why this was spec-only before this pass**: §0c explicitly scoped photos out of that pass — Inventory's
+`capture.blade.php` uploaded photos through its OWN bespoke mechanism (§0b.1), not the shared uploader.
+This section recorded the INTENT and the exact two files to read before building it, so the eventual swap
+would be "adopt the finished thing," never "design a second one that happens to converge."
+
+### 4a.1 What actually shipped (2026-09-22, cc4)
+
+Johan's own words, restated by the conductor: *"in what world will this screen use different configs to
+upload photos than what the inspections uses?"* — fixed. `capture.blade.php` now loads
+`public/js/corex-photo-batch-uploader.js` (the same `<script src>` line `properties/show.blade.php` uses
+for inspections) and every upload goes through one memoized `photoUploader()` instance for the whole
+inventory — the SAME batching, raw-XHR progress, per-file idempotency, and independently-retryable failed
+batches inspections already has. The bespoke `uploadPhotos()`/`planUploadBatches()` pair is gone.
+
+**Layout — the ROOM GALLERY mechanism (§20.14.3/R1), not the item-strip mechanism (§20.14.4/R2/§22.3).**
+Room photo tiles are a `grid-cols-3 sm:grid-cols-5` grid, `aspect-ratio:1/1`, `object-cover`, clipped by
+COUNT (first 3, "Show all N") — never by height, never derived from a photo's own natural resolution or an
+elastic container. This is deliberately the room-gallery pattern, not the item-strip's flex-stretch/
+absolutely-positioned-scroller pattern — the latter needed four attempts to get right for a fundamentally
+different shape (a button grid stretching a horizontally-scrolling strip to match its own height), and
+Inventory's line items have no equivalent button grid to stretch against. The existing line-tagging modal
+(64×64 fixed-size `object-cover` tiles) was already frame-safe and is unchanged.
+
+**Archive — added, not previously built.** `RentalInventoryPhoto` had `deleted_at` from its first
+migration but no reachable delete path anywhere on this screen (non-negotiable #1 gap). Added
+`archived_by_user_id` (migration `2026_10_02_100300`, mirrors `rental_inspection_photos` exactly),
+`RentalInventoryPhoto::archive()`, and `DELETE /corex/rental-inventories/{inventory}/photos/{photo}`
+(`corex.rental-inventories.photos.destroy`) — soft delete only, with a confirm-then-× control on every
+room photo tile, same as inspections' tray.
+
+**Deliberately NOT adopted — a real scope decision, not an oversight:**
+- **`tagUrl`/`tagBulkUrl`/`untagUrl` — no UI wired.** Inventory photos are still uploaded already-tagged
+  to the room the agent clicked "Add photo(s)" from (§0b's original design, unchanged) — there is no
+  untagged tray, no drag-marquee-select, no "move to a different room" control. The shared uploader
+  supports all of this (and the config already accepts these URLs if a future pass wants them — the
+  divergence is backend-endpoint only, per the note above), but building that UI was not part of this
+  ask and would be a real, separately-scoped surface. If Johan wants full tray/re-tag parity with
+  inspections, that is a follow-up.
+- Line-item photo tagging (`rental_inventory_line_photos`, the many-to-many pivot) is untouched — still
+  the pre-existing `attachLinePhoto`/`detachLinePhoto` endpoints and tagger modal, exactly the divergence
+  this section always said was backend-only, never a reason to fork the JS component.
+
+No new Tailwind utility classes were introduced — `grid-cols-3 sm:grid-cols-5`, `object-cover`,
+`overflow-hidden`, `aspect-ratio` (inline style) are all already compiled into the CSS bundle via
+`rental-inspection-recording.blade.php`'s own use of the identical classes.
 
 ---
 
