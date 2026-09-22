@@ -3156,6 +3156,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'store'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.store');
         Route::get('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'show'])->name('corex.rental-inspections.show');
+        // Printable tick-box form — same .view gate as show() itself, same
+        // scoping precedent as RentalWorkOrderController::pdf().
+        Route::get('/{rentalInspection}/form', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'form'])->name('corex.rental-inspections.form');
         Route::post('/{rentalInspection}/cancel', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'cancel'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.cancel');
         Route::delete('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'destroy'])

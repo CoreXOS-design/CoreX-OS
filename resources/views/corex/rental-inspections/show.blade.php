@@ -33,6 +33,9 @@
             <span class="text-xs" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', '-', $inspection->type)) }} inspection</span>
         </div>
         <div class="flex items-center gap-2">
+            {{-- The printable tick-box form — takes it to the property in wet
+                 ink, scans it back in (OMR reader lane builds on this). --}}
+            <a href="{{ route('corex.rental-inspections.form', $inspection) }}" class="corex-btn-outline text-xs">Download printable form</a>
             @if($inspection->type === 'out')
                 {{-- rental-inspection-form.md §7 — the in-vs-out deposit comparison. --}}
                 <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Move-in vs move-out comparison</a>

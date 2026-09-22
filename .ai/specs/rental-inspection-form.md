@@ -1,12 +1,15 @@
 # Rental Inspection Form — the paper document, faithfully specified
 
-**Status:** Partially built, 2026-09-21. Johan confirmed the gap analysis (§1) himself, in writing, after
-opening the real recording surface directly — the hold on building was lifted for the in-vs-out
-comparison specifically (§7), on his own instruction: build the comparison mechanics if unambiguous, stop
-before anything that turns a difference into a number against a deposit. §7.3 records exactly what
-shipped. Everything else in this document (header-block capture beyond keys/remotes/meters, four-state
-grading, per-room notes, Inventory) remains spec-only, awaiting his ruling.
-**Date:** 2026-09-21
+**Status:** Partially built, 2026-09-21; extended 2026-09-22 (§12, the printable OMR tick-box form —
+part 1 of a two-part job, a separate lane builds the scan reader against §12's own contract). Johan
+confirmed the gap analysis (§1) himself, in writing, after opening the real recording surface directly —
+the hold on building was lifted for the in-vs-out comparison specifically (§7), on his own instruction:
+build the comparison mechanics if unambiguous, stop before anything that turns a difference into a number
+against a deposit. §7.3 records exactly what shipped. Everything else in this document (header-block
+capture beyond keys/remotes/meters, four-state grading, per-room notes, Inventory) remains spec-only,
+awaiting his ruling — §12 is a separate, explicitly-ruled build (the printable form itself, not any of
+those still-open items) and does not change that status for the rest of the document.
+**Date:** 2026-09-21 (amended 2026-09-22)
 **Author:** cc5
 **Pillar:** Property (`Property`), Deal (`Lease`), Contact (tenant, landlord), Agent (`User`) — this
 spec does not introduce a new pillar connection; it describes a gap against the existing
@@ -610,4 +613,237 @@ Per BUILD_STANDARD §1a and this repo's non-negotiable #8: every new entity in t
 - `resources/views/corex/rental-inspections/show.blade.php` (one new conditional link, out-inspections only)
 - `tests/Feature/RentalInspections/RentalInspectionComparisonServiceTest.php`
 
-No files were created or modified other than this spec document itself.
+No files were created or modified other than this spec document itself, as of the 2026-09-21 revision —
+see §12 for what was built 2026-09-22.
+
+---
+
+## 12. The printable OMR tick-box form (built 2026-09-22) — part 1 of a two-part job
+
+Johan's requirement, verbatim in substance: an agent downloads a physical form, takes it to the
+property, marks it in wet ink, gets it signed, scans it back in. **"We read the form back by OMR —
+COLUMN MARKING ONLY. We do NOT read handwriting, ever. Free written text can be retyped, or the scanned
+copy stays on file."** Every item gets a row; condition ratings sit in tick-box COLUMNS on the right.
+A separate lane builds the scan reader against exactly what this section specifies — this build's output
+contract matters as much as the form itself, so it is stated here in full, not left implicit in code.
+
+### 12.1 Why the printed columns are the same values the screen uses, not a parallel scale
+
+The tick-box columns are `RentalInspectionSetting::conditionStatesFor($agencyId)` — the EXACT same
+agency-configurable vocabulary the on-screen one-tap chips render from (§20.3 of
+`rental-inspections.md`), read fresh at generation time. An agency that reduces to three states prints
+three columns; nothing here hardcodes CoreX's own six-plus-N/A default. This directly satisfies the
+"printed columns must be the same condition values" instruction — there is no second, PDF-only condition
+list anywhere in this build.
+
+### 12.2 PDF tooling — used what was already there, added nothing
+
+`barryvdh/laravel-dompdf` (already in `composer.json`, already the house convention —
+`RentalDocumentPdfService`, `PropertyBrochureService`) generates the PDF. `smalot/pdfparser` (already in
+`composer.json`, previously unused by this feature family) was reused, read-only, for this build's own
+verification pass — cross-checking the manifest's stated page count against the actual rendered PDF's
+real page count independently. **No barcode/QR library exists anywhere in `composer.json`, and none was
+added.** `PropertyBrochureService::qrSrc()` generates a QR via a REMOTE third-party HTTP API
+(`api.qrserver.com`), not a composer package — deliberately NOT reused here: a legal inspection
+document's page identifier should not depend on a third-party service being reachable at print time, nor
+should this feature's server-side generation step send any of an inspection's data to an external host.
+The page identifier is instead a small OMR bit-grid (§12.5), read by the SAME column-marking mechanism as
+every condition tick-box — one detection pipeline for the whole form, not two.
+
+### 12.3 Data model — one new table, additive, versioned, never deleted
+
+```
+rental_inspection_forms
+  id
+  agency_id, branch_id           -- BelongsToAgency; branch_id denormalized from the property
+  rental_inspection_id           -- FK rental_inspections
+  version                        -- unsigned int, starts at 1
+  content_hash                   -- sha256 of the ordered (room, item, condition-state) shape this
+                                  --   version was generated from — the "has the item list changed"
+                                  --   check. A rename counts as a change (the printed label itself
+                                  --   would be stale otherwise), by design.
+  pdf_storage_path                -- private disk (Storage::disk('local')), gated download route —
+                                  --   never the public-disk pattern rental_inspection_photos uses;
+                                  --   this is a legal document, not a marketing photo.
+  manifest_json                   -- THE CONTRACT — §12.6. A JSON column, not a sibling file: one
+                                  --   atomic row write means the PDF path and its manifest can never
+                                  --   drift apart independently of each other.
+  page_count, box_count           -- denormalized; box_count is checked against
+                                  --   count(manifest_json->boxes) directly in this build's own tests.
+  generated_by_user_id
+  created_at, updated_at, deleted_at   -- soft-delete floor present (non-negotiable #1); nothing in
+                                  --   this build ever calls it — a new version does not touch or
+                                  --   supersede an old one's row, both stay live, permanently, so a
+                                  --   returned scan can always be matched to the exact version that
+                                  --   was physically printed.
+```
+
+`RentalInspectionFormPdfService::generate()` is idempotent on content: re-downloading with nothing
+changed returns the current version's existing row rather than spawning a duplicate on every click.
+Any change to the room/item list, an item's label, or the agency's condition-state vocabulary produces a
+genuinely new `content_hash`, and therefore a new `version` row — the old one is retained, unmodified,
+forever.
+
+### 12.4 Layout — one PHP computation drives both what's drawn and what's recorded
+
+`RentalInspectionFormPdfService::buildLayout()` is the single source of truth: it returns page/room/item/
+box/fiducial/page-identifier/signature-block arrays that (a) the Blade view
+(`resources/views/corex/rental-inspections/form-pdf.blade.php`) iterates to render the PDF via
+absolutely-positioned, pt-unit `<div>`s, and (b) `buildManifest()` serializes directly into the persisted
+contract. There is deliberately no second computation anywhere — the PDF and the manifest cannot describe
+two different geometries, because only one geometry is ever computed.
+
+Pagination: rooms flow top to bottom; a room that spans a page break repeats its own heading as
+"(cont.)" plus the condition-column header on the new page, so every page is self-describing on its own —
+neither a human nor the reader ever needs to consult a different page to know which room or which
+columns a given page shows. The three-party (tenant(s)/landlord/agent — §15 of `rental-inspections.md`)
+signature block never splits across a page break.
+
+### 12.5 Registration marks and the page identifier — dependent on nothing but column marking
+
+- **Fiducials** — four filled marks per page, fixed inset from every corner, present on EVERY page (not
+  just page 1), so a scan of any single page can be de-skewed and scaled independently. The bottom-right
+  mark is deliberately a filled CIRCLE, not a square — the other three squares alone are
+  180°-rotation-symmetric, and this asymmetry lets a reader resolve a rotated scan from the fiducials
+  alone, before it has decoded anything else.
+- **Page identifier** — a fixed-position (top-right, every page, same offset from the top-right fiducial
+  on every form this service ever generates) 8×5 grid of 40 small tick-boxes: 24 bits `rental_inspection_id`
+  + 8 bits `page_number` + 8 bits `form_version`, MSB-first per field, row-major. A human-readable line
+  ("INSP #123 · Page 2/5 · v2") is printed directly above the grid for a person to read; the grid is what
+  the reader lane decodes — by the identical column-marking method as every condition box, no OCR, no
+  barcode decoder. Because the grid's position is a fixed design constant (not something that varies per
+  inspection), a reader can locate and decode it WITHOUT consulting any manifest first — it only needs
+  the manifest afterward, once it knows which inspection/page/version it's looking at, to read everything
+  else (condition-box positions, room/item labels). The manifest's own `page_identifiers` block repeats
+  the same bit coordinates anyway, so nothing about the encoding is ever a second, undocumented source of
+  truth.
+
+### 12.6 THE CONTRACT — the manifest schema, in full
+
+Persisted as `rental_inspection_forms.manifest_json`. Every field name and shape below is final as
+handed to the reader lane; anything not listed here is not part of the contract.
+
+**Coordinate space** (stated once, applies to every coordinate in the manifest): **origin top-left of
+each page; x increases rightward; y increases downward; unit = pt (PDF point, 1/72 inch — deliberately
+DPI-independent, since a scan's actual resolution is unknown and unconstrained); page = A4 portrait,
+595.28 × 841.89 pt.** A DPI figure is stated separately, as a print/detectability RECOMMENDATION only,
+never as part of the coordinate contract itself: `recommended_min_scan_dpi: 150` — a 10pt tick-box at
+150 DPI resolves to roughly 21×21 real pixels, comfortably OMR-detectable on a phone photo or a cheap
+office scanner. The four per-page fiducials are what let a reader calibrate an arbitrary scan's actual
+pixel grid back into this same physical space — the reader is never expected to assume a scan's DPI.
+
+```jsonc
+{
+  "manifest_version": 1,
+  "rental_inspection_id": 123,
+  "form_version": 2,
+  "agency_id": 7,
+  "content_hash": "…sha256 hex…",
+  "generated_at": "2026-09-22T09:14:00+02:00",
+  "page_count": 3,
+  "page_size": { "name": "A4", "width_pt": 595.28, "height_pt": 841.89 },
+  "coordinate_space": {
+    "origin": "top-left", "x_axis": "…", "y_axis": "…",
+    "unit": "pt (PDF point, 1/72 inch — DPI-independent)",
+    "recommended_min_scan_dpi": 150, "note": "…"
+  },
+  "condition_states": [ { "key": "good", "label": "Good" }, /* …agency's own configured set… */ ],
+  "fiducials": [
+    { "page": 1, "corner": "top_left", "x": 12.0, "y": 12.0, "size": 10.0, "shape": "filled_square" },
+    { "page": 1, "corner": "top_right", "...": "..." },
+    { "page": 1, "corner": "bottom_left", "...": "..." },
+    { "page": 1, "corner": "bottom_right", "...": "...", "shape": "filled_circle" }
+    /* …repeated per page… */
+  ],
+  "page_identifiers": [
+    {
+      "page": 1, "encoding": "binary_omr_grid",
+      "bit_order": "row_major_left_to_right_top_to_bottom_msb_first_per_field",
+      "grid": { "x": 397.28, "y": 48.0, "cols": 8, "rows": 5 },
+      "fields": [
+        { "name": "rental_inspection_id", "bit_length": 24, "value": 123 },
+        { "name": "page_number", "bit_length": 8, "value": 1 },
+        { "name": "form_version", "bit_length": 8, "value": 2 }
+      ],
+      "bits": [ { "index": 0, "value": 0, "x": 397.28, "y": 48.0, "width": 6.0, "height": 6.0 }, /* …40 total… */ ]
+    }
+    /* …one per page… */
+  ],
+  "boxes": [
+    {
+      "page": 1,
+      "rental_inspection_item_id": 456,
+      "room_label": "Bedroom 1", "item_label": "Ceiling",
+      "condition_key": "good", "condition_label": "Good",
+      "x": 166.0, "y": 154.0, "width": 10.0, "height": 10.0
+    }
+    /* …one entry per (item × condition-state) tick-box actually printed… */
+  ],
+  "signature_blocks": [
+    { "page": 3, "party_role": "tenant", "party_contact_id": 88, "label": "Thabo Tenant", "x": 36.0, "y": 700.0, "width": 160.0, "height": 74.0 }
+    /* …tenant(s), landlord, agent… */
+  ]
+}
+```
+
+Notes for the reader lane, stated plainly rather than left to be discovered:
+
+- **`boxes[].rental_inspection_item_id` is an ITEM id, never an observation id.** Nothing has been
+  observed yet at print time — the form is blank. A detected mark at a box's position means "create a
+  new observation for this item with this `condition_key`," which is exactly the atomic
+  `RentalInspectionObservation::record()` entry point `rental-inspections.md` §14.1 already names as the
+  one correct way to do that — the reader lane calls that, it does not write to the table directly.
+- **Any manifest number may round-trip through JSON as a plain integer even when the PHP source was a
+  float** (e.g. `x: 166.0` can arrive as `166`) — treat every coordinate/size field as a generic number,
+  never assume a specific numeric type.
+- **`signature_blocks` is geometry only, never OMR-read** — nothing there is ever marked or machine-
+  decided. It is included because it costs nothing to record and connects directly to the ALREADY-BUILT
+  `RentalInspectionSignature::storeWetInkUpload()` (§16 of `rental-inspections.md`): a downstream step MAY
+  crop a signed region from a scan and file it as that party's wet-ink upload without re-deriving where
+  on the page it is. This is the one deliberate addition beyond the five numbered build items in Johan's
+  brief — flagged here explicitly rather than left to be discovered as an unannounced extra.
+
+### 12.7 No new agency setting — checked, not skipped
+
+"Every list/label/threshold is agency-configurable" is already satisfied by what's reused: the
+condition-state vocabulary (§12.1) is the existing `RentalInspectionSetting::conditionStatesFor()`, room/
+item labels are the existing per-property data. Nothing new introduced by this build is a business-level
+list, label, or threshold an agency would ever want to change — box size, fiducial size, margins, and the
+bit-grid layout are print/layout CONSTANTS, not settings, the same way no agency has ever needed to
+configure a button's pixel padding on screen. Page size (A4) is a plain constant, not a setting — no
+agency using CoreX today operates outside SA/A4 conventions; if that changes, it's a real, separate ask.
+
+### 12.8 Scoping, permission, navigation
+
+`rental_inspection_forms` uses `BelongsToAgency`. The download route
+(`GET corex/rental-inspections/{rentalInspection}/form`) sits in the existing `rental-inspections` route
+group, inheriting that group's `permission:rental_inspections.view` gate — no new permission key, same
+precedent as `RentalWorkOrderController::pdf()` reusing its own `show()`'s gate. Route-model-binding on
+`RentalInspection` already 404s a cross-agency request via the global `AgencyScope`; the controller never
+trusts an id alone. Navigation: a "Download printable form" link on the inspection's own show screen
+(`resources/views/corex/rental-inspections/show.blade.php`), same day as the build, per non-negotiable
+#2 — no new top-level nav entry, matching this whole document's additive framing.
+
+### 12.9 Verified
+
+Real PDFs generated (not mocked) against seeded fixture data, in an isolated worktree — not against the
+deployed site (Standard −1s): a 2-room/15-item property produced 1 page/105 boxes; a 10-room/80-item
+property produced 3 pages/560 boxes. In both cases `manifest_json`'s own `boxes` array length matched
+`box_count` exactly, and `page_count` matched an INDEPENDENT count via `smalot/pdfparser` reading the
+actual rendered PDF bytes — the manifest was never trusted to grade its own homework. No box landed
+outside its stated page's valid range; no two boxes on the same page shared an identical position.
+Regenerating with no room/item change returned the same version (no duplicate row); adding one item
+produced a new version while the prior version's row and PDF file both remained present. A new PHPUnit
+file, `tests/Feature/RentalInspections/RentalInspectionFormPdfServiceTest.php`, covers all of the above
+plus the download route and its cross-agency 404.
+
+### 12.10 Files created
+
+- `database/migrations/2026_10_02_150000_create_rental_inspection_forms_table.php`
+- `app/Models/RentalInspectionForm.php`
+- `app/Services/Rentals/RentalInspectionFormPdfService.php`
+- `resources/views/corex/rental-inspections/form-pdf.blade.php`
+- `app/Http/Controllers/CoreX/RentalInspectionController.php` (`form()` method added)
+- `routes/web.php` (one new route, `corex.rental-inspections.form`)
+- `resources/views/corex/rental-inspections/show.blade.php` (one new link)
+- `tests/Feature/RentalInspections/RentalInspectionFormPdfServiceTest.php`
