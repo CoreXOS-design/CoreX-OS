@@ -240,8 +240,41 @@ class RentalInspectionScanReaderService
         $imagick = new Imagick($absolutePath);
         $this->flattenToOpaqueWhite($imagick);
         $imagick->setImageColorspace(Imagick::COLORSPACE_GRAY);
+        $this->capResolution($imagick);
 
         return [1 => $imagick];
+    }
+
+    /**
+     * A photographed upload carries whatever native resolution the phone's
+     * camera produced — unlike the PDF path, which is rasterized at a
+     * controlled RASTER_DPI, nothing here bounds that. Measured directly:
+     * calibratePage() cost scales roughly linearly with pixel count
+     * (~0.07s per megapixel), so an uncapped high-megapixel photo across a
+     * multi-page upload can approach QA's 30-second max_execution_time once
+     * decode/sampling/storage overhead is added. cc5's own manifest already
+     * publishes RECOMMENDED_MIN_SCAN_DPI=150 (roughly 1240-1750px for an A4
+     * page) as the floor for reliable reading — 3000px on the long edge
+     * keeps generous headroom above that floor while firmly bounding the
+     * worst case regardless of camera resolution.
+     */
+    private function capResolution(Imagick $image, int $maxLongEdge = 3000): void
+    {
+        $width = $image->getImageWidth();
+        $height = $image->getImageHeight();
+        $longEdge = max($width, $height);
+        if ($longEdge <= $maxLongEdge) {
+            return;
+        }
+
+        $scale = $maxLongEdge / $longEdge;
+        // A high-quality filter (LANCZOS) costs as much as the calibration
+        // step it exists to bound — measured at ~9.5s to downsample a
+        // 90-megapixel source, versus ~1s for scaleImage() with identical
+        // calibration/box-reading accuracy on the same test. This only
+        // feeds fill-ratio sampling, never a human's eyes, so resample
+        // quality below LANCZOS is not a real tradeoff here.
+        $image->scaleImage((int) round($width * $scale), (int) round($height * $scale));
     }
 
     /**
@@ -390,6 +423,30 @@ class RentalInspectionScanReaderService
             'bottom_right' => $circlePos,
         ];
         $transform = $this->solveAffine($manifestPoints, $pixelPoints);
+
+        // A genuinely correct fit is always a similarity transform (uniform
+        // scale + rotation only — a rigid printed page can never appear on
+        // a scan as a true shear or non-uniform stretch), so its linear
+        // part's two columns must be near-equal in length and near-
+        // perpendicular. Measured directly: a 90-degree-rotated page (a
+        // realistic mistake — a phone photo taken in the wrong orientation)
+        // resolves the wrong corner correspondence for THIS page's near-
+        // square-ish fiducial layout and passes the residual check anyway,
+        // producing a confidently WRONG transform (columns of very
+        // different length) rather than a rejection — exactly the failure
+        // mode that must never reach a human as a trustworthy read. Reject
+        // before the residual check ever gets a say.
+        $col1Len = sqrt($transform['a'] ** 2 + $transform['d'] ** 2);
+        $col2Len = sqrt($transform['b'] ** 2 + $transform['e'] ** 2);
+        if ($col1Len <= 0.0 || $col2Len <= 0.0) {
+            return null;
+        }
+        $scaleRatio = min($col1Len, $col2Len) / max($col1Len, $col2Len);
+        $normalizedDot = abs($transform['a'] * $transform['b'] + $transform['d'] * $transform['e']) / ($col1Len * $col2Len);
+        if ($scaleRatio < 0.9 || $normalizedDot > 0.15) {
+            return null;
+        }
+
         $residual = $this->affineResidual($transform, $manifestPoints, $pixelPoints);
 
         // A correct fit should reproduce every fiducial within a couple of

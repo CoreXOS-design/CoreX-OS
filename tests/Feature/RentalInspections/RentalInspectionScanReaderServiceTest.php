@@ -268,6 +268,47 @@ final class RentalInspectionScanReaderServiceTest extends TestCase
         }
     }
 
+    public function test_a_very_high_resolution_photo_is_capped_and_still_reads_correctly(): void
+    {
+        // A real phone photo carries whatever native resolution the camera
+        // produced (routinely 40+ megapixels), unlike a controlled PDF
+        // rasterization — measured directly: uncapped, that scales
+        // calibration cost into a genuine risk against QA's 30-second
+        // max_execution_time on a multi-page upload. This proves the
+        // resolution cap (capResolution()) that bounds it doesn't cost
+        // reading accuracy — the upscale here (~8000px wide) comfortably
+        // exceeds any resolution a real phone would produce for an A4 page.
+        $room = $this->addRoomWithItems('Bedroom 1', 3);
+        $items = $this->itemsOf($room);
+        $inspection = $this->inspection();
+
+        $form = app(RentalInspectionFormPdfService::class)->generate($inspection, $this->agent);
+        $manifest = $form->manifest_json;
+        $conditionKeys = collect($manifest['condition_states'])->pluck('key')->all();
+
+        $expected = [];
+        foreach ($items as $i => $item) {
+            $expected[$item->id] = $conditionKeys[($i + 1) % count($conditionKeys)];
+        }
+
+        $absolutePath = Storage::disk('local')->path($form->pdf_storage_path);
+        $page = $this->inkedPage($manifest, $expected, $absolutePath, function (Imagick $p) {
+            $p->resizeImage(8000, 0, Imagick::FILTER_LANCZOS, 1);
+        });
+        $scan = $this->createScan($inspection, $this->pageToUploadedFile($page, 'huge-photo.png'));
+
+        app(RentalInspectionScanReaderService::class)->process($scan->fresh());
+        $scan->refresh();
+
+        $this->assertSame(RentalInspectionScan::STATUS_NEEDS_REVIEW, $scan->status, $scan->failure_reason ?? '');
+        foreach ($items as $item) {
+            $mark = $scan->marks()->where('rental_inspection_item_id', $item->id)->first();
+            $this->assertNotNull($mark, "no mark row for item {$item->id}");
+            $this->assertFalse($mark->ambiguous, "item {$item->id} unexpectedly ambiguous (high-resolution photo)");
+            $this->assertSame($expected[$item->id], $mark->detected_condition_key, "item {$item->id} read wrong condition after resolution capping");
+        }
+    }
+
     // ── Ambiguity is flagged, never guessed ─────────────────────────────
 
     public function test_two_marks_on_one_row_is_flagged_ambiguous_not_guessed(): void
