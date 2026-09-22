@@ -75,6 +75,28 @@ class RentalInspectionScanReaderService
      */
     public function process(RentalInspectionScan $scan): void
     {
+        // 2026-09-22, Johan — checked ONCE, here, at the entry point, not
+        // scattered through rasterize()'s internals. Without this, a missing
+        // Imagick extension would still fail safely (the catch below already
+        // covers it — \Error extends \Throwable), but with a raw PHP "Class
+        // Imagick not found" string as the failure reason: indistinguishable
+        // from "the scan itself was unreadable" to the agent looking at it.
+        // Those are different facts and the agent needs to be able to tell
+        // them apart — one means try a clearer photo, the other means this
+        // environment cannot process scans at all and someone else needs to
+        // know. extension_loaded(), not class_exists(\Imagick::class) — the
+        // class can be autoload-discoverable while the extension itself is
+        // absent, which would pass a class_exists() check and still fatal
+        // the moment rasterize() actually instantiates it.
+        if (!extension_loaded('imagick')) {
+            $scan->forceFill([
+                'status' => RentalInspectionScan::STATUS_FAILED,
+                'failure_reason' => 'Scanning is not available in this environment — the Imagick PHP extension is not installed. This is a server configuration issue, not a problem with the uploaded scan. Contact support.',
+            ])->save();
+
+            return;
+        }
+
         $absolutePath = Storage::disk('local')->path($scan->storage_path);
 
         try {
