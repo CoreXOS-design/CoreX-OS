@@ -566,6 +566,11 @@ class Property extends Model
         'commission_percent',
         'admin_fee',
         'marketing_fee',
+        // .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-29 — the
+        // spend-threshold override lives HERE, on the property, not the lease
+        // (superseding the 2026-09-26 lease ruling). Null means "use the
+        // agency default" (RentalWorkOrderSetting::thresholdFor()).
+        'rental_no_approval_spend_threshold',
         'city',
         'suburb',
         'suburb_normalised',
@@ -768,6 +773,7 @@ class Property extends Model
         'commission_percent'  => 'float',
         'admin_fee'           => 'float',
         'marketing_fee'       => 'float',
+        'rental_no_approval_spend_threshold' => 'float',
         'latitude'                => 'decimal:7',
         'longitude'               => 'decimal:7',
         'geo_resolved_at'         => 'datetime',

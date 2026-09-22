@@ -160,6 +160,12 @@ class RentalWorkOrder extends Model
         return $this->hasMany(RentalApproval::class)->orderByDesc('created_at');
     }
 
+    /** §3.4c — several quotes can exist per work order; exactly one is_selected at a time. */
+    public function quotes(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrderQuote::class)->orderByDesc('quote_date');
+    }
+
     /**
      * A single, plain, chronological history — every state-changing action
      * on this record, actor + action + from/to + note + when, oldest first.
@@ -194,6 +200,10 @@ class RentalWorkOrder extends Model
                     'supplier_changed' => 'Supplier changed',
                     'status_change' => 'Status changed',
                     'note' => 'Note added',
+                    'quote_captured' => 'Quote captured',
+                    'quote_selected' => 'Quote selected',
+                    'quote_archived' => 'Quote archived',
+                    'quote_restored' => 'Quote restored',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
                 },
                 'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,
@@ -277,6 +287,105 @@ class RentalWorkOrder extends Model
         ])->save();
 
         return $approval;
+    }
+
+    /**
+     * §3.4c — an agent obtains a quote from a supplier before work starts.
+     * Johan's ruling: "agents will obtain quotes and thats the value that
+     * approval will ride against." Purely a capture — does not itself touch
+     * owner_approval_status; that only happens when a quote is SELECTED
+     * (selectQuote(), below).
+     */
+    public function recordQuote(array $attributes, User $by): RentalWorkOrderQuote
+    {
+        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This work order is already closed.');
+        }
+
+        $quote = $this->quotes()->create(array_merge($attributes, [
+            'agency_id' => $this->agency_id,
+            'captured_by_user_id' => $by->id,
+        ]));
+
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'quote_captured',
+            'note' => $this->describeQuote($quote), 'created_by_user_id' => $by->id,
+        ]);
+
+        return $quote;
+    }
+
+    /**
+     * §3.4c — THE gate: the value approval rides on is the SELECTED quote's
+     * amount, never cost_amount (only ever known after the job is done,
+     * complete() above). At or under the property's (or agency default)
+     * threshold, the agent approves it themselves (not_required) — over it,
+     * gates assignSupplier() below exactly as it already gates a directly-
+     * raised work order's own recordApproval() flow.
+     */
+    public function selectQuote(RentalWorkOrderQuote $quote, User $by): void
+    {
+        if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This work order is already closed.');
+        }
+        if ($quote->rental_work_order_id !== $this->id) {
+            throw new \LogicException('This quote does not belong to this work order.');
+        }
+
+        $this->quotes()->where('id', '!=', $quote->id)->update(['is_selected' => false]);
+        $quote->forceFill(['is_selected' => true])->save();
+
+        $threshold = RentalWorkOrderSetting::thresholdFor($this->property);
+        $this->forceFill([
+            'owner_approval_status' => (float) $quote->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING,
+        ])->save();
+
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'quote_selected',
+            'note' => $this->describeQuote($quote), 'created_by_user_id' => $by->id,
+        ]);
+    }
+
+    /**
+     * §3.4c — archive/restore, soft delete only (non-negotiable #1). Archiving
+     * the currently-selected quote clears is_selected — leaving a hidden
+     * quote marked "selected" is exactly the invisible-state bug
+     * BUILD_STANDARD's prevent-or-absorb rule exists to catch; it does NOT
+     * touch owner_approval_status, which stays whatever it last resolved to.
+     */
+    public function archiveQuote(RentalWorkOrderQuote $quote, User $by): void
+    {
+        if ($quote->rental_work_order_id !== $this->id) {
+            throw new \LogicException('This quote does not belong to this work order.');
+        }
+
+        $wasSelected = (bool) $quote->is_selected;
+        $quote->forceFill(['is_selected' => false])->save();
+        $quote->delete();
+
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'quote_archived',
+            'note' => ($wasSelected ? 'Was selected — ' : '') . $this->describeQuote($quote), 'created_by_user_id' => $by->id,
+        ]);
+    }
+
+    public function restoreQuote(RentalWorkOrderQuote $quote, User $by): void
+    {
+        if ($quote->rental_work_order_id !== $this->id) {
+            throw new \LogicException('This quote does not belong to this work order.');
+        }
+
+        $quote->restore();
+
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'quote_restored',
+            'note' => $this->describeQuote($quote), 'created_by_user_id' => $by->id,
+        ]);
+    }
+
+    private function describeQuote(RentalWorkOrderQuote $quote): string
+    {
+        return 'R' . number_format((float) $quote->amount, 2) . ' — ' . ($quote->supplier?->name ?? 'Unknown supplier');
     }
 
     /**

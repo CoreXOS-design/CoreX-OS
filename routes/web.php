@@ -3341,6 +3341,22 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.restore');
         Route::post('/{rentalWorkOrder}/photos', [\App\Http\Controllers\CoreX\RentalWorkOrderController::class, 'storePhoto'])
             ->middleware('permission:rental_work_orders.create')->name('corex.rental-work-orders.photos.store');
+
+        // §3.4c — quotes: the value the approval-limit gate rides on. No
+        // sidebar entry — reachable from the work order's own show screen.
+        Route::post('/{rentalWorkOrder}/quotes', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'store'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.store');
+        Route::put('/{rentalWorkOrder}/quotes/{quote}', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'update'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.update');
+        Route::post('/{rentalWorkOrder}/quotes/{quote}/select', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'select'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.select');
+        Route::delete('/{rentalWorkOrder}/quotes/{quote}', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'destroy'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.destroy');
+        Route::post('/{rentalWorkOrder}/quotes/{quote}/restore', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'restore'])
+            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.restore');
+        // Private disk, gated — NOT the public-disk photo pattern. §3.4c.
+        Route::get('/{rentalWorkOrder}/quotes/{quote}/download', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'download'])
+            ->middleware('deny_assistant_download')->name('corex.rental-work-orders.quotes.download');
     });
 
     // AT-392 Phase 2 — agent review split-screen (RentalApplicationReviewController,

@@ -181,11 +181,16 @@ class RentalWorkOrderController extends Controller
             'property', 'lease.tenants.contact', 'inspectionItem', 'supplier',
             'reportedByContact', 'reportedByUser', 'reportedFaultReport', 'cancelledByUser',
             'createdByUser', 'photos.uploadedBy', 'updates.createdByUser', 'approvals.recordedByUser',
+            'quotes.supplier', 'quotes.capturedByUser',
         ]);
 
         return view('corex.rental-work-orders.show', [
             'workOrder' => $rentalWorkOrder,
             'completionRequiresPhoto' => RentalWorkOrderSetting::completionRequiresPhotoFor($rentalWorkOrder->agency_id),
+            'noApprovalThreshold' => \App\Models\RentalWorkOrderSetting::thresholdFor($rentalWorkOrder->property),
+            // §3.4c full-CRUD floor — archived quotes stay reachable with a
+            // restore path on this same screen (no separate quotes index).
+            'archivedQuotes' => $rentalWorkOrder->quotes()->onlyTrashed()->with('supplier')->get(),
         ]);
     }
 

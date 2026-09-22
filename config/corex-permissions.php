@@ -187,6 +187,10 @@ return [
         ['key' => 'rental_work_orders.complete',        'label' => 'Mark Work Orders Complete',             'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 4],
         ['key' => 'rental_work_orders.cancel',           'label' => 'Cancel Work Orders',                    'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 5],
         ['key' => 'rental_work_orders.manage_settings', 'label' => 'Manage Rental Work Order Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 6],
+        // §3.4c, 2026-09-29 — capturing/selecting/archiving a quote is the
+        // value the approval-limit gate rides on, separate from .create
+        // (logging/editing the work order itself).
+        ['key' => 'rental_work_orders.manage_quotes', 'label' => 'Capture & Select Work Order Quotes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 7],
 
         // ── Rental Details (rental-property-tab.md §2/§8, Part 1) — agency-defined
         // fields, rental price type list, lease type list, all on one settings page.
