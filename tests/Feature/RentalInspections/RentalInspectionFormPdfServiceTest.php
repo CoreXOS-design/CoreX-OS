@@ -217,4 +217,33 @@ final class RentalInspectionFormPdfServiceTest extends TestCase
         $this->actingAs($otherAgent)->get(route('corex.rental-inspections.form', $inspection))
             ->assertNotFound();
     }
+
+    // ── Overflow must fail loudly, never silently wrap ──────────────────
+    //
+    // The 24-bit inspection-id field maxes out at 16,777,215. A value that
+    // doesn't fit must never be silently truncated to its low 24 bits —
+    // that would encode a DIFFERENT, WRONG inspection id with no error, and
+    // the printed form would scan back onto the wrong inspection.
+
+    public function test_encoding_a_value_that_overflows_its_bit_field_throws(): void
+    {
+        $service = app(RentalInspectionFormPdfService::class);
+        $toBits = new \ReflectionMethod($service, 'toBits');
+        $toBits->setAccessible(true);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('does not fit in 24 bits');
+        $toBits->invoke($service, 16_777_216, 24); // 2^24 — one past the 24-bit max.
+    }
+
+    public function test_encoding_the_maximum_value_that_fits_does_not_throw(): void
+    {
+        $service = app(RentalInspectionFormPdfService::class);
+        $toBits = new \ReflectionMethod($service, 'toBits');
+        $toBits->setAccessible(true);
+
+        $bits = $toBits->invoke($service, 16_777_215, 24); // 2^24 - 1 — the 24-bit max.
+        $this->assertCount(24, $bits);
+        $this->assertSame(1, $bits[0]); // MSB set, as expected for the max value.
+    }
 }

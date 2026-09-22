@@ -425,9 +425,26 @@ class RentalInspectionFormPdfService
         ];
     }
 
-    /** MSB-first, fixed bit_length — the reader is told the exact length per field, it never infers width from the value. */
+    /**
+     * MSB-first, fixed bit_length — the reader is told the exact length per
+     * field, it never infers width from the value.
+     *
+     * Throws rather than truncating. A silently-dropped high bit would
+     * encode a wrapped, WRONG id that still decodes to something — a form
+     * that scans back onto the wrong inspection with no error anywhere.
+     * Failing loudly here, at generation time, is the only place this can
+     * be caught before a page is printed.
+     */
     private function toBits(int $value, int $length): array
     {
+        $max = (2 ** $length) - 1;
+        if ($value < 0 || $value > $max) {
+            throw new \RuntimeException(
+                "RentalInspectionFormPdfService: value {$value} does not fit in {$length} bits (max {$max}). "
+                . 'Refusing to generate a form whose page identifier would silently wrap onto another id.'
+            );
+        }
+
         $bits = [];
         for ($i = $length - 1; $i >= 0; $i--) {
             $bits[] = ($value >> $i) & 1;
