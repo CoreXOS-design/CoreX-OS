@@ -23,6 +23,7 @@ class RentalInventoryPhoto extends Model
         'storage_path',
         'file_size_bytes',
         'uploaded_by_user_id',
+        'archived_by_user_id',
         'client_idempotency_key',
     ];
 
@@ -49,5 +50,16 @@ class RentalInventoryPhoto extends Model
     public function lines(): BelongsToMany
     {
         return $this->belongsToMany(RentalInventoryLine::class, 'rental_inventory_line_photos');
+    }
+
+    /**
+     * §4a — adopting the same photo machinery rental-inspections already
+     * built: soft-delete only, never a hard delete (non-negotiable #1).
+     * Mirrors RentalInspectionPhoto::archive() exactly.
+     */
+    public function archive(User $by): void
+    {
+        $this->forceFill(['archived_by_user_id' => $by->id])->save();
+        $this->delete();
     }
 }
