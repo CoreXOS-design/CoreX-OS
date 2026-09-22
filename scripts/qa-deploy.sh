@@ -12,6 +12,16 @@
 # NOT for staging/live. Refuses to run anywhere but the qa1 checkout. The general
 # scripts/deploy.sh is BANNED on qa1 — this is the blessed path.
 #
+# THIS SCRIPT MUST NEVER REPORT SUCCESS WHEN A STEP FAILED, AND MUST NEVER
+# SWALLOW A WARNING OR ERROR LINE. Summarise normal output all you like;
+# never drop a failure. (2026-09-22, Johan — this script told the conductor
+# a deploy had landed when a failed `git pull --ff-only` had left it
+# unchanged, and separately swallowed 89 of 90 real WARNING lines from a
+# step that only ever showed its last 3 lines. Every step below either
+# checks its own exit code and aborts loudly, or greps WARNING/ERROR
+# through unconditionally before truncating anything else — see each
+# step's own comment for which.)
+#
 set -uo pipefail
 
 APP_DIR="/corex-qa1"
@@ -34,7 +44,21 @@ OLDHEAD="$(git rev-parse HEAD)"
 
 echo "-- 1. fetch + fast-forward pull --"
 git fetch origin "$BRANCH" 2>&1 | tail -1
-git pull --ff-only origin "$BRANCH" 2>&1 | tail -3
+# 2026-09-22 — this used to pipe straight to `tail -3` with no exit-code
+# check. A failed pull leaves HEAD unmoved, so OLDHEAD==NEWHEAD, and the
+# script fell into the "no new commits" branch below — reporting a clean
+# no-op run for a run that actually failed to fetch the code at all. That
+# is exactly how the conductor told Johan a fix had landed when it had
+# not. A failed pull must abort here, loudly, full output, before anything
+# downstream can run against stale code.
+PULL_OUT="$(git pull --ff-only origin "$BRANCH" 2>&1)"
+PULL_STATUS=$?
+if [ $PULL_STATUS -ne 0 ]; then
+    echo "$PULL_OUT"
+    echo "ABORT: git pull --ff-only failed (exit $PULL_STATUS) — the working tree did NOT move. Refusing to report a clean run." >&2
+    exit 1
+fi
+echo "$PULL_OUT" | tail -3
 NEWHEAD="$(git rev-parse HEAD)"
 echo "   $OLDHEAD → $NEWHEAD"
 if [ "$OLDHEAD" = "$NEWHEAD" ]; then
@@ -51,24 +75,78 @@ echo "-- 2. frontend build ONLY if assets changed (qa1 serves built assets) --"
 if [ "$OLDHEAD" != "$NEWHEAD" ] && git diff --name-only "$OLDHEAD" "$NEWHEAD" \
      | grep -qE '^(resources/js/|resources/css/|vite\.config|package(-lock)?\.json|tailwind\.config)|\.blade\.php$'; then
     echo "   frontend changed → npm ci && npm run build"
-    npm ci  2>&1 | tail -3
-    npm run build 2>&1 | tail -5
+    # 2026-09-22 — neither call checked its own exit status before; a
+    # failed install or build just printed truncated output and the script
+    # sailed on to migrate/caches/restart as if the bundle were current.
+    # That is how a stale CSS bundle shipped for twelve days unnoticed.
+    NPM_CI_OUT="$(npm ci 2>&1)"
+    NPM_CI_STATUS=$?
+    if [ $NPM_CI_STATUS -ne 0 ]; then
+        echo "$NPM_CI_OUT"
+        echo "ABORT: npm ci failed (exit $NPM_CI_STATUS)." >&2
+        exit 1
+    fi
+    echo "$NPM_CI_OUT" | tail -3
+
+    NPM_BUILD_OUT="$(npm run build 2>&1)"
+    NPM_BUILD_STATUS=$?
+    if [ $NPM_BUILD_STATUS -ne 0 ]; then
+        echo "$NPM_BUILD_OUT"
+        echo "ABORT: npm run build failed (exit $NPM_BUILD_STATUS) — asset bundle NOT rebuilt, refusing to report success." >&2
+        exit 1
+    fi
+    echo "$NPM_BUILD_OUT" | tail -5
 else
     echo "   no frontend changes → skip npm build"
 fi
 
 echo "-- 3. composer install ONLY if composer.lock changed --"
 if [ "$OLDHEAD" != "$NEWHEAD" ] && git diff --name-only "$OLDHEAD" "$NEWHEAD" | grep -q '^composer\.lock'; then
-    composer install --no-dev --no-interaction --prefer-dist 2>&1 | tail -3
+    COMPOSER_OUT="$(composer install --no-dev --no-interaction --prefer-dist 2>&1)"
+    COMPOSER_STATUS=$?
+    if [ $COMPOSER_STATUS -ne 0 ]; then
+        echo "$COMPOSER_OUT"
+        echo "ABORT: composer install failed (exit $COMPOSER_STATUS)." >&2
+        exit 1
+    fi
+    echo "$COMPOSER_OUT" | tail -3
 else
     echo "   composer.lock unchanged → skip"
 fi
 
 echo "-- 4. migrate (idempotent) --"
-php artisan migrate --force 2>&1 | tail -4
+# 2026-09-22 — a failed migration's real error (the actual SQL error, the
+# migration filename, the stack trace) can easily exceed 4 lines; `tail -4`
+# could cut it down to nothing useful while the script carried on to
+# reference-data/permissions/caches against a half-migrated schema.
+MIGRATE_OUT="$(php artisan migrate --force 2>&1)"
+MIGRATE_STATUS=$?
+if [ $MIGRATE_STATUS -ne 0 ]; then
+    echo "$MIGRATE_OUT"
+    echo "ABORT: migrate --force failed (exit $MIGRATE_STATUS)." >&2
+    exit 1
+fi
+echo "$MIGRATE_OUT" | tail -4
 
 echo "-- 5. reference data (global seeder-owned rows; idempotent) --"
-php artisan deploy:sync-reference-data 2>&1 | tail -3
+# 2026-09-22 — this command has its own hard-failure path (AT-265: deploy
+# halted if role_permissions is empty after provisioning), 6 lines of
+# error+warn text that `tail -3` could cut mid-message. NOTE: unlike step
+# 6's sync-permissions (which hand-writes the literal word "WARNING" into
+# its own output string), this command's $this->error()/$this->warn() only
+# apply ANSI colour — the plain text never contains the words WARNING or
+# ERROR, so a grep for them here would silently match nothing and give
+# false confidence. What actually protects this step: the AT-265 path
+# genuinely returns self::FAILURE, so the command exits nonzero — check
+# that and dump the FULL output on failure, never the truncated tail.
+REFDATA_OUT="$(php artisan deploy:sync-reference-data 2>&1)"
+REFDATA_STATUS=$?
+if [ $REFDATA_STATUS -ne 0 ]; then
+    echo "$REFDATA_OUT"
+    echo "ABORT: deploy:sync-reference-data failed (exit $REFDATA_STATUS)." >&2
+    exit 1
+fi
+echo "$REFDATA_OUT" | tail -3
 
 # scripts/deploy.sh (staging/production) has always run this on every deploy
 # (see its own step 6) — qa-deploy.sh never did, which is exactly why
