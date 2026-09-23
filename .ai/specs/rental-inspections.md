@@ -2873,6 +2873,80 @@ mockup's own layout are fixed UX decisions, not something an agency would reason
 
 ---
 
+## 20.18 Six defects from live QA1 review, property 5792 (2026-09-24, cc2)
+
+Johan browser-tested the §20.17 deploy on QA1 (commit `86dac8df5`) and found the layout, top bar, item
+chips, tag bars and single-mode switcher all correct — **not rebuilt**. Six defects, fixed in place.
+
+**Defect 1/2 (BLOCKER, one root cause) — the item chip row didn't render on open, and opening from an
+item-level photo (inside `.rir-compare-cell`) could land on the wrong room/item with nothing loaded.**
+`_compareViewerContextFor(photo, insp)` resolved an item-kind photo's item id by searching the ONE
+passed-in `insp` snapshot's (`chainPredecessor` or `chainTail`) `.observations` for the clicked photo's
+`rental_inspection_observation_id` — and its returned object never carried a `roomId` key at all for the
+item-kind branch. Two consequences from that single function: `compareViewer.roomId` stayed `null`, so
+the item row's `x-show="compareViewerCurrentRoomGroup()"` never matched a room and the whole row was
+invisible on open (Defect 1); and because the tail cell's live photo objects (from `itemPhotosFor()`'s
+photoUploader cache) aren't guaranteed to be the same references the `chainTail` snapshot's own
+`.observations` was loaded from, the id lookup could resolve to the wrong item or nothing (Defect 2).
+Fixed by resolving BOTH `roomId` and `itemId` from `this.items` — the single global per-property item
+list `roomGroups()`/the SPACE and ITEM chip rows themselves already read from — by scanning each item's
+own `.observations` (unscoped by inspection, per `tabPayloadFor()`) for the clicked photo's observation
+id. One source of truth for "which chip is active" and "what data loads" removes the two-snapshot
+mismatch entirely. `_compareViewerContextFor()` no longer takes an `insp` parameter (it was already
+unused on the room-kind branch, and is now unused on the item-kind branch too).
+
+**Defect 3 — rail labels rendered as a narrow vertical strip beside the thumbnails, not one line above
+them.** The rail's per-side wrapper (`<div class="px-3 py-2 compare-viewer-side">`) reused the same
+`.compare-viewer-side` class as the pane wrapper above it (for the shared mobile-hide rule), but the pane
+wrapper also carries Tailwind's `flex flex-col` while the rail wrapper did not — `.compare-viewer-side`
+itself only declares `display:flex`, no `flex-direction`, so the rail wrapper defaulted to flex ROW and
+squeezed its two children (the label line, the thumbnail-strip line) side by side instead of stacking
+them. Fixed by adding `flex flex-col` to the rail wrapper, matching the pane wrapper exactly.
+
+**Defect 4 — the two rails' thumbnails didn't start at the same offset.** The prev/next chevron buttons
+used `x-show`, which removes them from layout (not just hides them) whenever that side's carousel had
+one or zero photos — so whichever side happened to have 2+ photos kept its button's 44px slot pushing the
+thumbnail strip in, while the other side's strip sat flush against the column edge. Fixed by keeping both
+buttons always in the layout (`:class="... ? '' : 'invisible'"` plus `:disabled`) so each rail's thumbnail
+strip starts at the same offset regardless of either side's own photo count.
+
+**Defect 5 — the zoom cluster sat bottom-right, overlapping the photo; the mockup puts it bottom-left,
+clear of the image.** Moved compare-mode's per-pane zoom cluster from `bottom-2 right-2` to
+`bottom-2 left-2`. The "1 of N matched candidates" step control was already at `bottom-2 left-2`
+(shown only when a side's match group has 2+ candidates) — left as-is it would now overlap the zoom
+cluster whenever both are visible, so the step control moved to `top-2 left-2` (mirroring the existing
+`top-2 right-2` expand-to-single button) as a direct, minimal consequence of putting the zoom cluster
+where Johan asked for it, not a separate design change.
+
+**Defect 6 — "Move together" defaulted Off; comparing the same patch of wall on both sides is the primary
+use of this screen, so it now defaults On.** `compareViewer.zoomLocked` (both the component's initial
+state and `openCompareViewer()`'s per-open reset) changed from `false` to `true`. This supersedes §20.17's
+"Independent by default" framing (itself citing an earlier Johan ruling), replaced by his own words this
+round: "independent panning is the exception." The two independent per-side zoom-transform objects
+(`compareViewerZoomLeft`/`Right`) are unchanged and still used whenever an agent explicitly turns the
+toggle off.
+
+**Verified** against the real authenticated render (`scripts/fetch-authenticated-page.php`, user 22,
+`/corex/properties/5792`, QA1) — grepped the served HTML for each of the six fixes (all six present
+verbatim, including the corrected `_compareViewerContextFor` body reading `this.activeItems()`), and ran
+`scripts/verify-alpine-render.mjs` against the dump: 1869 Alpine attribute expressions on the page compile
+clean, with zero scope-gap warnings anywhere in the `compareViewer*` component. The gate's overall FAIL
+on that run is pre-existing, page-wide noise unrelated to this change (Node has no `localStorage`/
+`document`, tripping unrelated `x-data` blocks elsewhere on the same property page — `qaOpen`,
+`wbReportOpen`, the spaces/features editors, etc.) — none of it named `compareViewer` or anything this
+round touched. **Not run: a real browser** — Alpine's actual click-driven reactivity (does clicking a
+photo really re-render the item row, does the rail scroll) can only be proven with JavaScript executing
+in a browser, which this verification pass deliberately did not do.
+
+### 20.18.1 Files touched this round
+
+- `resources/views/corex/properties/show.blade.php` — `_compareViewerContextFor()` (Defects 1/2),
+  `openCompareViewer()`'s `zoomLocked` reset (Defect 6), the rail wrapper's classlist (Defect 3), the
+  rail prev/next buttons (Defect 4), and the compare-mode pane's zoom-cluster/step-control positions
+  (Defect 5)
+
+---
+
 ## 21. Add an item to an EXISTING room (2026-09-22, cc1) — there was no way to do this at all
 
 Johan, verbatim, looking at property 4862's Inspection Items panel: *"I want to add lets say bic to

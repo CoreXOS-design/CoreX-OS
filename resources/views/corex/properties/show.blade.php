@@ -5327,14 +5327,28 @@
                                 </template>
                                 {{-- The "1 of 5" step control (Johan's own
                                      instinct, approved) — shown only when this
-                                     side's matched group has 2+ candidates. --}}
-                                <div class="absolute bottom-2 left-2 flex items-center gap-2 compare-viewer-step"
+                                     side's matched group has 2+ candidates.
+                                     DEFECT 5 FIX, 2026-09-24 — moved from
+                                     bottom-left to top-left: the zoom cluster
+                                     now owns bottom-left (Johan: "the design
+                                     puts it bottom-left, clear of the
+                                     image"), and the two controls occupying
+                                     the same corner would have overlapped
+                                     whenever both are visible at once. --}}
+                                <div class="absolute top-2 left-2 flex items-center gap-2 compare-viewer-step"
                                      x-show="compareViewerCandidatesFor('{{ $side }}').length > 1">
                                     <button type="button" @click.stop="compareViewerStep('{{ $side }}', -1)" aria-label="Previous matched photo" class="cv-touch font-semibold">&larr;</button>
                                     <span class="cv-mono text-xs" x-text="compareViewerStepLabel('{{ $side }}')"></span>
                                     <button type="button" @click.stop="compareViewerStep('{{ $side }}', 1)" aria-label="Next matched photo" class="cv-touch font-semibold">&rarr;</button>
                                 </div>
-                                <div class="absolute bottom-2 right-2 flex items-center gap-1 compare-viewer-zoom-controls">
+                                {{-- DEFECT 5 FIX, 2026-09-24, Johan: "the zoom
+                                     cluster is in the wrong corner and
+                                     overlaps the photo. It renders bottom-
+                                     right, sitting on top of the image
+                                     content. The design puts it bottom-left,
+                                     clear of the image." Moved from
+                                     bottom-right to bottom-left. --}}
+                                <div class="absolute bottom-2 left-2 flex items-center gap-1 compare-viewer-zoom-controls">
                                     <button type="button" @click.stop="compareViewerZoomOutBtn('{{ $side }}')" aria-label="Zoom out" class="cv-touch font-bold">&minus;</button>
                                     <span class="cv-mono text-xs px-1" x-text="compareViewerZoomPercent('{{ $side }}')"></span>
                                     <button type="button" @click.stop="compareViewerZoomInBtn('{{ $side }}')" aria-label="Zoom in" class="cv-touch font-bold">&plus;</button>
@@ -5375,13 +5389,39 @@
                     {{-- 5) TWO THUMBNAIL RAILS — same 2-column grid as the panes. --}}
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-px cv-rail-grid">
                         @foreach(['left', 'right'] as $side)
-                        <div class="px-3 py-2 compare-viewer-side" :class="compareViewerMobileSide === '{{ $side }}' ? '' : 'compare-viewer-side-hide-mobile'">
+                        {{-- DEFECT 3 FIX, 2026-09-24 — this wrapper is
+                             reused from the pane-side wrapper above
+                             (compare-viewer-side, so the same mobile-hide
+                             rule applies), but the pane wrapper also carries
+                             Tailwind's own `flex flex-col` while this one
+                             did not — `.compare-viewer-side` only declares
+                             `display:flex`, so with no flex-direction of its
+                             own this container defaulted to flex ROW,
+                             squeezing the label line and the thumbnail line
+                             side by side instead of stacking them. `flex
+                             flex-col` here matches the pane wrapper exactly. --}}
+                        <div class="px-3 py-2 flex flex-col compare-viewer-side" :class="compareViewerMobileSide === '{{ $side }}' ? '' : 'compare-viewer-side-hide-mobile'">
                             <div class="flex items-center justify-between cv-rail-label">
                                 <span class="text-xs font-semibold" :class="'{{ $side }}' === 'left' ? 'cv-text-secondary' : 'cv-accent'" x-text="compareViewerInspectionTypeName('{{ $side }}').toUpperCase() + '{{ $side === 'right' ? ' — CURRENT' : '' }}' + ' · ' + compareViewer.label"></span>
                                 <span class="cv-mono text-xs cv-text-secondary" x-text="(compareViewerCarouselPhotos('{{ $side }}').findIndex(p => p.id === compareViewer.{{ $side }}PhotoId) + 1) + ' of ' + compareViewerCarouselPhotos('{{ $side }}').length"></span>
                             </div>
                             <div class="flex items-center gap-1">
-                                <button type="button" @click="compareViewerStep('{{ $side }}', -1)" aria-label="Scroll thumbnails back" class="cv-touch flex-none" x-show="compareViewerCarouselPhotos('{{ $side }}').length > 1">&lsaquo;</button>
+                                {{-- DEFECT 4 FIX, 2026-09-24 — these prev/next
+                                     buttons used to x-show (display:none),
+                                     which removes them from layout entirely
+                                     on whichever side had 1 or fewer photos —
+                                     the thumbnail strip on THAT side then
+                                     started flush against the column edge
+                                     while the other side's strip stayed
+                                     pushed in by its own visible button,
+                                     so the two rails' thumbnails never lined
+                                     up. Both buttons now always occupy their
+                                     44px slot on both sides; only their
+                                     visibility/hit-testing toggles, so the
+                                     thumbnail strip starts at the same
+                                     offset in both columns regardless of
+                                     either side's photo count. --}}
+                                <button type="button" @click="compareViewerStep('{{ $side }}', -1)" aria-label="Scroll thumbnails back" class="cv-touch flex-none" :class="compareViewerCarouselPhotos('{{ $side }}').length > 1 ? '' : 'invisible'" :disabled="compareViewerCarouselPhotos('{{ $side }}').length <= 1">&lsaquo;</button>
                                 <div class="flex items-center gap-2 overflow-x-auto compare-viewer-carousel py-1">
                                     <template x-for="photo in compareViewerCarouselPhotos('{{ $side }}')" :key="'{{ $side }}-' + photo.id">
                                         <button type="button" @click="compareViewerSelectCarouselPhoto(photo, '{{ $side }}')"
@@ -5392,7 +5432,7 @@
                                         </button>
                                     </template>
                                 </div>
-                                <button type="button" @click="compareViewerStep('{{ $side }}', 1)" aria-label="Scroll thumbnails forward" class="cv-touch flex-none" x-show="compareViewerCarouselPhotos('{{ $side }}').length > 1">&rsaquo;</button>
+                                <button type="button" @click="compareViewerStep('{{ $side }}', 1)" aria-label="Scroll thumbnails forward" class="cv-touch flex-none" :class="compareViewerCarouselPhotos('{{ $side }}').length > 1 ? '' : 'invisible'" :disabled="compareViewerCarouselPhotos('{{ $side }}').length <= 1">&rsaquo;</button>
                             </div>
                         </div>
                         @endforeach
@@ -5783,13 +5823,19 @@
                     kind: null, roomId: null, itemId: null, label: '',
                     leftPhotoId: null, rightPhotoId: null,
                     primarySide: 'left',
-                    zoomLocked: false,
+                    zoomLocked: true,
                     step: { left: 0, right: 0 }, // which candidate is shown when a group has 2+ members on that side
                 },
                 compareViewerMobileSide: 'left',
-                // Independent by default (Johan: "default to independent");
-                // one shared transform used for BOTH sides only while
-                // zoomLocked is on — dragging either side then moves both.
+                // DEFECT 6 FIX, 2026-09-24, Johan — "Move together" now
+                // defaults ON, superseding the earlier "default to
+                // independent" ruling: "comparing the same patch of wall on
+                // both sides is the primary use of this screen; independent
+                // panning is the exception." One shared transform is used
+                // for BOTH sides while zoomLocked is on — dragging either
+                // side then moves both; the two independent transforms
+                // below remain available for the (now non-default) case the
+                // agent explicitly turns "Move together" off.
                 compareViewerZoomLeft: { scale: 1, tx: 0, ty: 0 },
                 compareViewerZoomRight: { scale: 1, tx: 0, ty: 0 },
                 compareViewerZoomShared: { scale: 1, tx: 0, ty: 0 },
@@ -5799,10 +5845,36 @@
                 // item-tagged, rental_inspection_observation_id (the exact
                 // shape §20.15.9 already relied on), so this needs no new
                 // field on the photo itself.
-                _compareViewerContextFor(photo, insp) {
+                //
+                // DEFECT 1/2 FIX, 2026-09-24 — this used to resolve the
+                // item (and never resolved a roomId at all) by searching
+                // the SINGLE passed-in `insp` snapshot's own .observations.
+                // Two bugs from that: (a) the 'item' branch returned no
+                // roomId key whatsoever, so compareViewer.roomId stayed
+                // null and the item-chip row's x-show="compareViewerCurrentRoomGroup()"
+                // never matched anything — the row simply never rendered
+                // on open; (b) `insp` is whichever ONE side (predecessor or
+                // tail) the click came from, but the clicked photo's own
+                // live object (from the tail's photoUploader cache) is not
+                // guaranteed to be the exact same object instance the
+                // passed insp snapshot's .observations was loaded from, so
+                // the id lookup could miss or land on nothing. Fixed by
+                // resolving BOTH roomId and itemId from this.items — the
+                // single global per-property item list (already the one
+                // and only source roomGroups()/the SPACE+ITEM chip rows
+                // themselves read from) — by scanning each item's own
+                // .observations (unscoped by inspection, per
+                // tabPayloadFor()) for the clicked photo's observation id.
+                // Same source of truth everywhere means the chip that
+                // lights up is guaranteed to be the chip the data loads
+                // from.
+                _compareViewerContextFor(photo) {
                     if (photo.rental_inspection_observation_id) {
-                        const obs = ((insp && insp.observations) || []).find(o => o.id === photo.rental_inspection_observation_id);
-                        return { kind: 'item', itemId: obs ? obs.rental_inspection_item_id : null };
+                        for (const item of this.activeItems()) {
+                            const obs = (item.observations || []).find(o => o.id === photo.rental_inspection_observation_id);
+                            if (obs) return { kind: 'item', roomId: item.room ? item.room.id : null, itemId: item.id };
+                        }
+                        return { kind: 'item', roomId: null, itemId: null };
                     }
                     return { kind: 'room', roomId: photo.property_room_id || null };
                 },
@@ -5822,7 +5894,7 @@
                     const side = isTail ? 'right' : 'left';
                     const otherSide = isTail ? 'left' : 'right';
                     const otherInsp = isTail ? this.chainPredecessor : this.chainTail;
-                    const ctx = this._compareViewerContextFor(photo, insp);
+                    const ctx = this._compareViewerContextFor(photo);
                     const label = this._compareViewerLabelFor(ctx.kind, ctx.roomId, ctx.itemId);
 
                     this.compareViewer = {
@@ -5830,7 +5902,7 @@
                         kind: ctx.kind, roomId: ctx.roomId || null, itemId: ctx.itemId || null, label,
                         leftPhotoId: null, rightPhotoId: null,
                         primarySide: side,
-                        zoomLocked: false,
+                        zoomLocked: true,
                         step: { left: 0, right: 0 },
                     };
                     this.compareViewer[side + 'PhotoId'] = photo.id;
