@@ -9,8 +9,8 @@
 
         {{-- Email --}}
         <div>
-            <label for="email" class="block text-xs font-medium mb-1">Email</label>
-            <input id="email" type="email" name="email" value="{{ old('email') }}" required autofocus autocomplete="username"
+            <label for="email" class="block text-xs font-medium mb-1">Email or username</label>
+            <input id="email" type="text" inputmode="email" autocapitalize="none" spellcheck="false" name="email" value="{{ old('email') }}" required autofocus autocomplete="username"
                    class="block w-full rounded-md px-3 py-2 text-sm" />
             @error('email')
                 <p class="error-text mt-1">{{ $message }}</p>

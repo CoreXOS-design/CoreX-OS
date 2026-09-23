@@ -104,9 +104,12 @@ class OnboardingPortalController extends Controller
         $agency = $portal->agency;
         $counts = $this->counts($portal);
         $parse = $this->parseProgress($portal);
+        // AT-423 (importer.md §15 B) — every person in the agency may own a listing, sub-users
+        // included, not only people already linked to a P24 agent. Never archived, never assistants.
         $agents = User::withoutGlobalScopes()
             ->where('agency_id', $portal->agency_id)
-            ->whereNotNull('p24_agent_id')
+            ->whereNull('deleted_at')
+            ->where('is_assistant', false)
             ->orderBy('name')
             ->get(['id', 'name']);
 
@@ -245,9 +248,11 @@ class OnboardingPortalController extends Controller
         $this->guardActive($portal);
 
         $data = $request->validate(['user_id' => 'required|integer|exists:users,id']);
+        // AT-423 — same people the picker offers (see review()).
         $agent = User::withoutGlobalScopes()->where('id', $data['user_id'])
             ->where('agency_id', $portal->agency_id)
-            ->whereNotNull('p24_agent_id')
+            ->whereNull('deleted_at')
+            ->where('is_assistant', false)
             ->first();
         abort_unless($agent, 422, 'Agent is not valid for this agency.');
 

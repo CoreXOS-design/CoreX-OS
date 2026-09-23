@@ -326,7 +326,7 @@ class ClientPortalController extends Controller
                 'agent'           => $p->agent ? [
                     'name'  => $p->agent->name,
                     'phone' => $p->agent->phone,
-                    'email' => $p->agent->email,
+                    'email' => $p->agent->deliveryEmail(),
                 ] : null,
                 'branch'          => $p->branch?->name,
                 'web_preview_url' => route('corex.properties.preview', $p->id),
@@ -718,7 +718,7 @@ class ClientPortalController extends Controller
             'title'      => $agent->designation ?: null,
             'phone'      => $mobile,
             'whatsapp'   => $whatsapp,
-            'email'      => $agent->email ?: null,
+            'email'      => $agent->deliveryEmail() ?: null,
             'photo_url'  => method_exists($agent, 'profilePhotoUrl') ? $agent->profilePhotoUrl() : null,
         ], fn ($v) => $v !== null && $v !== '');
     }

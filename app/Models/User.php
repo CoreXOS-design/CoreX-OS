@@ -245,8 +245,75 @@ class User extends Authenticatable
     protected function outwardEmail(): Attribute
     {
         return Attribute::make(
-            get: fn () => filled($this->display_email) ? $this->display_email : $this->email,
+            get: function () {
+                if (filled($this->display_email)) {
+                    return $this->display_email;
+                }
+
+                // AT-423 — a sub-user's `email` is a username (andre@hfcoastal), never an
+                // address to show the outside world; they are reached at the shared inbox.
+                return $this->isSubUser() ? $this->deliveryEmail() : $this->email;
+            },
         );
+    }
+
+    // ── One email (sub-users) — AT-423, .ai/specs/one-email-sub-users.md ──
+    //
+    // `users.email` stays the ONE unique sign-in identity for everybody. For a sub-user
+    // it holds a username such as `andre@hfcoastal` (no dot after the @, so it can never
+    // be a real address or collide with one). Mail meant FOR the sub-user goes to their
+    // agency's main account (agencies.one_email_user_id) — the shared inbox.
+
+    public function isSubUser(): bool
+    {
+        return (bool) $this->is_sub_user;
+    }
+
+    /**
+     * The agency's main account whose real email is this sub-user's shared inbox.
+     * Loaded without the agency scope and including archived rows: queued mail runs
+     * with no signed-in user, and an archived main account's inbox is still real.
+     */
+    public function mailboxUser(): ?User
+    {
+        if (!$this->isSubUser() || !$this->agency_id) {
+            return null;
+        }
+
+        // Agency::find() is memoised per request/job, so a list of sub-users costs one lookup.
+        $mainId = Agency::find((int) $this->agency_id)?->one_email_user_id;
+        if (!$mainId) {
+            return null;
+        }
+
+        return static::withoutGlobalScopes()->withTrashed()->find($mainId);
+    }
+
+    /**
+     * The address mail FOR this person is delivered to: their own email, or the
+     * shared inbox for a sub-user. Null only when a sub-user's agency has no main
+     * account — callers must not send in that case (the username is not deliverable).
+     */
+    public function deliveryEmail(): ?string
+    {
+        if (!$this->isSubUser()) {
+            return $this->email;
+        }
+
+        $address = $this->mailboxUser()?->email;
+        if (!$address) {
+            \Illuminate\Support\Facades\Log::warning('One email: sub-user has no shared inbox — mail not deliverable.', [
+                'user_id' => $this->id, 'agency_id' => $this->agency_id,
+            ]);
+        }
+
+        return $address ?: null;
+    }
+
+    /** Every $user->notify() mail goes to the delivery address (shared inbox for a sub-user). */
+    public function routeNotificationForMail($notification = null): ?string
+    {
+        return $this->deliveryEmail();
     }
 
     protected $casts = [
@@ -259,6 +326,8 @@ class User extends Authenticatable
         'is_active' => 'boolean',
         'show_in_performance_reports' => 'boolean',
         'is_assistant' => 'boolean',
+        'is_sub_user' => 'boolean',          // AT-423
+        'must_change_password' => 'boolean', // AT-423
         'fica_required' => 'boolean',
         'show_on_website' => 'boolean',
         'exclude_from_p24' => 'boolean',

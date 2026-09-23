@@ -127,6 +127,7 @@
             {{ session('status') }}
         </div>
     @endif
+    @include('admin.users._invite-link', ['inviteFor' => $user ?? null])
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm"
              style="background:color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent); color:var(--text-primary);">
@@ -171,7 +172,7 @@
                 <span class="ue-pill {{ $ueStatusCls }}">{{ $ueStatusLbl }}</span>
             </div>
             <dl class="ue-facts">
-                <div><dt>Email</dt><dd title="{{ $user->email }}">{{ $user->email }}</dd></div>
+                <div><dt>{{ $user->isSubUser() ? 'Username' : 'Email' }}</dt><dd title="{{ $user->email }}">{{ $user->email }}@if($user->isSubUser()) <span class="ue-sub">(mail goes to {{ $user->deliveryEmail() ?? 'no shared inbox' }})</span>@endif</dd></div>
                 <div><dt>Cell</dt><dd>{{ $user->cell ?: '—' }}</dd></div>
                 <div><dt>FFC valid to</dt><dd>@if($ueFfc)<span class="ue-pill {{ $ueFfcCls }}">{{ $ueFfc->format('d M Y') }}</span>@else — @endif</dd></div>
                 <div><dt>Last login</dt><dd>{{ $ueLastLogin ? \Carbon\Carbon::parse($ueLastLogin)->diffForHumans() : 'Never' }}</dd></div>
@@ -329,13 +330,69 @@
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                     </div>
-                    <div>
-                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Email Address <span class="text-red-500">*</span></label>
-                        <input type="email" name="email" value="{{ old('email', $isEdit ? $user->email : '') }}" required
-                               autocomplete="off" placeholder="user@example.com"
-                               class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
-                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                               onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                    @php
+                        // AT-423 — One email (sub-users). The choice appears only when the agency
+                        // switched Team Inbox on (Settings → Team Inbox), or when this person already signs
+                        // in with a username (so they can be given their own email later).
+                        $oe            = $oneEmailForm ?? ['enabled' => false, 'stem' => null, 'inbox' => null, 'is_main' => false];
+                        $isSub         = $isEdit && $user->isSubUser();
+                        $showSignInChoice = ($oe['enabled'] || $isSub) && !$oe['is_main'];
+                        $signInDefault = old('sign_in_type', $isSub ? 'username' : 'email');
+                        $usernameName  = old('username', $isSub ? strstr((string) $user->email, '@', true) : '');
+                        $usernameStem  = $isSub ? strstr((string) $user->email, '@') : ($oe['stem'] ?? '');
+                        $emailValue    = old('email', ($isEdit && !$isSub) ? $user->email : '');
+                    @endphp
+                    <div class="{{ $showSignInChoice ? 'sm:col-span-2' : '' }}" x-data="{ signIn: '{{ $signInDefault === 'username' ? 'username' : 'email' }}' }">
+                        @if($showSignInChoice)
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">How will this person sign in? <span class="text-red-500">*</span></label>
+                        <div class="flex flex-wrap gap-4 mb-3 text-sm" style="color:var(--text-primary);">
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="sign_in_type" value="email" x-model="signIn">
+                                Their own email address
+                            </label>
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="sign_in_type" value="username" x-model="signIn">
+                                A username, sharing an inbox
+                            </label>
+                        </div>
+                        @endif
+
+                        <div x-show="signIn === 'email'" @if($signInDefault === 'username') x-cloak @endif>
+                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Email Address <span class="text-red-500">*</span></label>
+                            <input type="email" name="email" value="{{ $emailValue }}"
+                                   autocomplete="off" placeholder="user@example.com"
+                                   class="w-full {{ $showSignInChoice ? 'sm:w-1/2' : '' }} rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                                   onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                            @if($isSub)
+                                <p class="mt-1 text-xs" style="color:var(--text-muted);">Enter their own email address. From then on they sign in with it instead of their username; their password stays the same.</p>
+                            @endif
+                            @if($oe['is_main'])
+                                <p class="mt-1 text-xs" style="color:var(--text-muted);">This person's inbox is the shared inbox for your sub-users, so they always sign in with their own email.</p>
+                            @endif
+                        </div>
+
+                        @if($showSignInChoice)
+                        <div x-show="signIn === 'username'" @if($signInDefault !== 'username') x-cloak @endif>
+                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Username <span class="text-red-500">*</span></label>
+                            <div class="flex items-stretch w-full sm:w-1/2">
+                                <input type="text" name="username" value="{{ $usernameName }}"
+                                       autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. andre"
+                                       class="flex-1 min-w-0 rounded-l-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                       style="background:var(--surface-2); border:1px solid var(--border); border-right:none; color:var(--text-primary);"
+                                       onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                                <span class="inline-flex items-center px-3 rounded-r-md text-sm"
+                                      style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);">{{ $usernameStem ?: '@…' }}</span>
+                            </div>
+                            <p class="mt-1 text-xs" style="color:var(--text-muted);">
+                                They sign in with this username and their own password.
+                                @if($oe['inbox'])
+                                    Their CoreX emails go to the shared inbox <strong>{{ $oe['inbox'] }}</strong>.
+                                @endif
+                                Letters, numbers, dots, dashes and underscores only.
+                            </p>
+                        </div>
+                        @endif
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">
@@ -348,7 +405,34 @@
                                onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                         <p class="mt-1 text-xs" style="color:var(--text-muted);">Used on presentations, e-sign documents, outreach &amp; portals. Login &amp; password reset always use the real email.</p>
                     </div>
-                    @if($isEdit)
+                    @if($isEdit && $isSub)
+                    {{-- AT-423 — Option A: only an admin resets a sub-user's password, as a temporary
+                         one; they choose their own at next sign-in. Spec one-email-sub-users.md §6.5. --}}
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">
+                            Reset password <span style="color:var(--text-muted); font-weight:400;">(leave blank to keep their current password)</span>
+                        </label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <input type="password" name="password"
+                                   autocomplete="new-password" placeholder="Temporary password (min 8 characters)"
+                                   class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                                   onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                            <input type="password" name="password_confirmation"
+                                   autocomplete="new-password" placeholder="Type the temporary password again"
+                                   class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                                   onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        </div>
+                        <p class="mt-1 text-xs" style="color:var(--text-muted);">
+                            Sub-users cannot reset their own password. Set a temporary one here and give it to them;
+                            the next time they sign in they must choose their own before they can continue.
+                            @if($user->must_change_password)
+                                <strong style="color:var(--ds-amber, #f59e0b);">They have not chosen their new password yet.</strong>
+                            @endif
+                        </p>
+                    </div>
+                    @elseif($isEdit)
                     <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">
                             Password <span style="color:var(--text-muted); font-weight:400;">(leave blank to keep)</span>
@@ -892,13 +976,19 @@
         <div x-show="activeTab === 'actions'" x-cloak class="space-y-5">
 
             {{-- Card: Pending Invite (only for users who haven't set up yet) --}}
-            @if($user->is_active && !$user->email_verified_at)
+            {{-- AT-423 — a sub-user is inactive until their first sign-in, so the card must show for
+                 them regardless of is_active: Resend is their only way to get a fresh set-up link. --}}
+            @if(($user->is_active || $user->isSubUser()) && !$user->email_verified_at)
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);">
                 <div class="flex items-center gap-2 mb-3">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
                     <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Invitation Pending</h3>
                 </div>
+                @if($user->isSubUser())
+                <p class="text-xs mb-3" style="color:var(--text-muted);">This person has not yet set up their password. Resending creates a new set-up link, emails it to the shared inbox, and shows it here so you can copy it.</p>
+                @else
                 <p class="text-xs mb-3" style="color:var(--text-muted);">This user has not yet set up their password. You can resend the invitation email.</p>
+                @endif
                 <form method="POST" action="{{ route('admin.users.resend-invite', $user) }}">
                     @csrf
                     <input type="hidden" name="active_tab" value="actions">

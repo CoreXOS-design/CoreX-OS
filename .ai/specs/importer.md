@@ -453,3 +453,78 @@ imports; a re-import of an affected agency heals its galleries via §14.3
 ---
 
 *End of spec. Awaiting approval before code.*
+
+---
+
+## 15. Linking imported agents who have no usable email *(AT-423 — SIGNED by Andre 2026-09-21, BUILT same day, uncommitted)*
+
+### 15.1 Why
+Stage 1 matches every P24 agent row to a CoreX user **by email only**
+(`ImporterController::resolveAgentMatch()` / `ProcessImporterRunJob::processAgents()`).
+Two real cases break that:
+
+1. **No usable email on the P24 row** (blank or malformed). `P24AgentsCsvParser` turned it
+   into a row error ("Invalid or missing EmailAddress"), so the agent was never imported, no
+   `p24_agent_id` was stored, and every one of their listings fell back to the importing admin
+   with "Primary agent not resolved". The same parser also errored every repeat of an email
+   ("Duplicate email in file") — so on a shared-inbox agency only the FIRST agent imported.
+2. **Agencies that share one inbox** (Team Inbox, `.ai/specs/one-email-sub-users.md`). Their
+   P24 agents often all carry `agents@agency.co.za`. Every row matches the SAME CoreX user
+   (the shared-inbox account); each row overwrites that user's `p24_agent_id`, so only the
+   last agent's listings land on it and every other agent's listings fall back to the admin.
+
+In addition, the listing "reassign agent" pickers (admin review + onboarding portal) only
+offer users who already have a `p24_agent_id`, so a sub-user created in CoreX can never be
+chosen there.
+
+### 15.2 What changes (proposed)
+**A. Agent preview — a "Link to" choice on the rows email can't settle.** A row needs the
+admin's choice when:
+- its email is blank, OR
+- its email belongs to the agency's Team Inbox shared inbox, OR
+- the same email appears on more than one agent row in the CSV.
+
+Such rows show **"Choose who this is"** instead of create/link, with:
+- **Link to an existing person** — a picker of this agency's people (active or pending set-up, not archived, not
+  assistants), sub-users included (name + email/username). On import, the P24 ids go onto THAT user; no email match
+  is attempted.
+- **Skip** — do not import this agent (their listings fall back as today and can be
+  reassigned).
+
+Rows email CAN settle (unique real email) behave exactly as today. Confirm is blocked while
+any "Choose who this is" row is undecided (prevent, not absorb — silently dropping them is
+the bug in 15.1).
+
+**B. Listing reassign picker** (onboarding portal review — the only listing picker with a screen; the admin `row.resolve-agent` route has no UI) list **every person
+in the agency** (active or still pending set-up — imported agents stay inactive until their
+first sign-in — never archived, never assistants), sub-users included — not only those already linked to P24. Reassigning a
+listing to a person with no `p24_agent_id` is allowed; it only sets the listing's agent.
+
+### 15.3 Input space / prevent-or-absorb
+| Situation | Decision |
+|---|---|
+| Blank-email row, admin picks nobody | **Prevent**: Confirm disabled; the row says "Choose who this is". |
+| Two rows linked to the same CoreX person | **Prevent**: refused — one person has one P24 agent id ("Thandi is already linked to row …"). |
+| Linked person belongs to another agency | **Prevent**: picker only lists this agency's users; server re-checks. |
+| Re-import of the same CSV | Rows already linked (user has that `p24_agent_id`) pre-select that person. |
+
+### 15.4 Files (proposed)
+`ImporterController` (resolve + preview + confirm), `ProcessImporterRunJob::processAgents()`,
+`admin/importer/preview.blade.php`, `OnboardingPortalController::review()` + the admin review
+agent list, `p24_import_rows` (store the chosen user / new username on the row — existing
+`resolved_agent_id` + one nullable column for the username), tests in
+`tests/Feature/Importer/`.
+
+### 15.4a As built
+- `P24AgentsCsvParser` no longer errors a missing / malformed / repeated email; `ImporterController::needsPersonChosen()` marks those rows `choose` (reason stored in `mapped_json.link_reason`). Migration `2026_09_21_000100` adds `choose` + `link` to `p24_import_rows.action`.
+- Preview: "Choose who this is" picker per row (people + "Skip"); **Confirm disabled in the screen** while any row is undecided or one person is picked twice (the server re-checks both, plus agency). The on-screen block matters because a refusal flash can be used up by the page's background pollers.
+- `ProcessImporterRunJob`: `link` rows stamp the P24 ids on the chosen person, never touching email; `choose` rows that reach it unanswered are marked errors, never guessed.
+- Onboarding portal picker + its save accept every non-archived, non-assistant person in the agency.
+- Tests: `tests/Feature/Importer/AgentImportChooseWhoTest.php` (9) + existing `AgentImportMatchOrCreateTest` (2) green; visible-Chrome walk on localhost passed (shared-inbox file → 3 rows to choose → same-person block → linked to two sub-users + skip).
+
+### 15.5 Rulings (Andre, 2026-09-21)
+1. The choice appears on **all three**: blank email, the Team Inbox shared inbox's email, and an
+   email repeated on several agent rows.
+2. **Only "Link to an existing person" or "Skip"** — no "create as sub-user" on the import row;
+   sub-users are created first under Admin → Users (or Assistants).
+3. **Yes** — the listing reassign picker lists every person in the agency, sub-users included.

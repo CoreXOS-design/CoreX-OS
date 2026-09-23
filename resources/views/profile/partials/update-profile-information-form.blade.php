@@ -24,9 +24,16 @@
         </div>
 
         <div>
+            @if ($user->isSubUser())
+                {{-- AT-423 — a sub-user's username is changed only by an admin. --}}
+                <x-input-label for="email" :value="__('Username')" />
+                <x-text-input id="email" type="text" class="mt-1 block w-full" :value="$user->email" disabled />
+                <p class="text-sm mt-2" style="color:var(--text-muted);">You sign in with this username. Your CoreX emails go to {{ $user->deliveryEmail() ?? 'your agency\'s shared inbox' }}. Only your admin can change it.</p>
+            @else
             <x-input-label for="email" :value="__('Email')" />
             <x-text-input id="email" name="email" type="email" class="mt-1 block w-full" :value="old('email', $user->email)" required autocomplete="username" />
             <x-input-error class="mt-2" :messages="$errors->get('email')" />
+            @endif
 
             @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())
                 <div>

@@ -20,6 +20,17 @@ class LoginRequest extends FormRequest
     }
 
     /**
+     * AT-423 — the field takes an email OR a sub-user's username (andre@hfcoastal, which the
+     * `email` rule accepts). Trim so a stray space from a phone keyboard never fails a sign-in.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->has('email')) {
+            $this->merge(['email' => trim((string) $this->input('email'))]);
+        }
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>

@@ -1,8 +1,11 @@
+{{-- AT-423 — "Choose a new password" after an admin reset. Spec: one-email-sub-users.md §6.5.
+     Same look as auth/account-setup.blade.php. --}}
 <x-guest-layout>
     <div style="text-align:center; margin-bottom:1.25rem;">
-        <h2 style="color:var(--text-primary); font-size:1.125rem; font-weight:700; margin:0 0 4px;">Set Up Your Account</h2>
+        <h2 style="color:var(--text-primary); font-size:1.125rem; font-weight:700; margin:0 0 4px;">Choose a New Password</h2>
         <p style="color:var(--text-muted); font-size:0.8125rem; margin:0;">
-            Welcome, <strong style="color:var(--text-primary);">{{ $user->name }}</strong>. Choose a password to get started.
+            Hi <strong style="color:var(--text-primary);">{{ $user->name }}</strong>. Your admin reset your password.
+            Choose your own password to continue.
         </p>
     </div>
 
@@ -14,39 +17,20 @@
         </div>
     @endif
 
-    @if($needsUsername ?? false)
-    {{-- AT-423 — sub-user step 1: prove the link reached the right person by typing the
-         username. The username is deliberately NOT shown. Spec: one-email-sub-users.md §6.3. --}}
-    <form method="POST" action="{{ $formAction }}">
-        @csrf
-        <div>
-            <label for="username" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">Enter your username</label>
-            <input id="username" name="username" type="text" value="{{ old('username') }}" required autofocus
-                   autocomplete="username" autocapitalize="none" spellcheck="false" inputmode="email"
-                   placeholder="e.g. andre@youragency"
-                   class="block mt-1 w-full rounded-lg px-3 py-2 text-sm"
-                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" />
-            <p style="color:var(--text-muted); font-size:0.75rem; margin:0.375rem 0 0;">Your admin gave you this username. You will use it to sign in.</p>
-        </div>
-        <div class="mt-6">
-            <button type="submit" class="login-btn w-full" style="width:100%; text-align:center;">Continue</button>
-        </div>
-    </form>
-    @else
-    <form method="POST" action="{{ $formAction }}">
+    <form method="POST" action="{{ route('password.change-required.store') }}">
         @csrf
 
-        {{-- Email / username (read-only) --}}
+        {{-- Username / email (read-only) --}}
         <div>
-            <label for="email" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">{{ $user->isSubUser() ? 'Username' : 'Email' }}</label>
-            <input id="email" type="text" value="{{ $user->email }}" disabled
+            <label for="login" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">{{ $user->isSubUser() ? 'Username' : 'Email' }}</label>
+            <input id="login" type="text" value="{{ $user->email }}" disabled
                    class="block mt-1 w-full rounded-lg px-3 py-2 text-sm"
                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted); cursor:not-allowed;" />
         </div>
 
-        {{-- Password --}}
+        {{-- New password --}}
         <div class="mt-4" x-data="{ show: false }">
-            <label for="password" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">Password</label>
+            <label for="password" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">New Password</label>
             <div style="position:relative;">
                 <input id="password" name="password" required autofocus autocomplete="new-password"
                        :type="show ? 'text' : 'password'"
@@ -66,9 +50,9 @@
             </div>
         </div>
 
-        {{-- Confirm Password --}}
+        {{-- Confirm --}}
         <div class="mt-4" x-data="{ show: false }">
-            <label for="password_confirmation" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">Confirm Password</label>
+            <label for="password_confirmation" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">Confirm New Password</label>
             <div style="position:relative;">
                 <input id="password_confirmation" name="password_confirmation" required autocomplete="new-password"
                        :type="show ? 'text' : 'password'"
@@ -88,12 +72,15 @@
             </div>
         </div>
 
-        {{-- Submit --}}
         <div class="mt-6">
             <button type="submit" class="login-btn w-full" style="width:100%; text-align:center;">
-                Set Password &amp; Continue
+                Save New Password &amp; Continue
             </button>
         </div>
     </form>
-    @endif
+
+    <form method="POST" action="{{ route('logout') }}" style="text-align:center; margin-top:0.75rem;">
+        @csrf
+        <button type="submit" style="background:none; border:none; color:var(--text-muted); font-size:0.8125rem; cursor:pointer; text-decoration:underline;">Log out</button>
+    </form>
 </x-guest-layout>

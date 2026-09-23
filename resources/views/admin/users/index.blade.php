@@ -7,6 +7,8 @@
     $totalUsers = is_countable($uCol) ? count($uCol) : 0;
     $roles      = $uCol->pluck('role')->filter()->unique()->sort()->values();
     $branchList = $branches ?? collect();
+    // AT-423 — the "Sign-in type" filter only appears once the agency uses usernames.
+    $hasSubUsers = $uCol->contains(fn ($u) => $u->isSubUser());
 @endphp
 
 <style>
@@ -74,6 +76,7 @@
             {{ session('status') }}
         </div>
     @endif
+    @include('admin.users._invite-link')
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm"
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
@@ -111,7 +114,10 @@
         <label><span style="position:absolute;left:-9999px">Branch</span><select x-model="branchFilter" class="ul-in"><option value="">Branch: All</option>@foreach($branchList as $b)<option value="{{ $b->id }}">{{ $b->name }}</option>@endforeach</select></label>
         <label><span style="position:absolute;left:-9999px">Status</span><select x-model="statusFilter" class="ul-in"><option value="">Status: Any</option><option value="active">Active</option><option value="pending">Invite pending</option><option value="inactive">Inactive</option></select></label>
         <label><span style="position:absolute;left:-9999px">FFC</span><select x-model="ffcFilter" class="ul-in"><option value="">FFC: Any</option><option value="ok">Valid</option><option value="warn">Expiring within 60 days</option><option value="bad">Expired</option><option value="none">None recorded</option></select></label>
-        <button type="button" class="ul-btn" x-show="search || roleFilter || branchFilter || statusFilter || ffcFilter" x-cloak @click="clearFilters()">Clear filters</button>
+        @if($hasSubUsers)
+        <label><span style="position:absolute;left:-9999px">Sign-in type</span><select x-model="signInFilter" class="ul-in"><option value="">Sign-in: Any</option><option value="email">Own email</option><option value="username">Username (sub-user)</option></select></label>
+        @endif
+        <button type="button" class="ul-btn" x-show="search || roleFilter || branchFilter || statusFilter || ffcFilter || signInFilter" x-cloak @click="clearFilters()">Clear filters</button>
     </div>
 
     {{-- Bulk bar — appears once anyone is ticked --}}
@@ -162,10 +168,10 @@
                data-id="{{ $uid }}" data-name="{{ strtolower($u->name) }}" data-email="{{ strtolower($u->email) }}"
                data-role="{{ $u->role }}" data-branch="{{ $u->branch_id }}" data-branchname="{{ strtolower((string) $branchNm) }}" data-status="{{ $stKey }}"
                data-ffc="{{ $ffcKey }}" data-ffcts="{{ $ffc ? $ffc->timestamp : 9999999999 }}" data-p24="{{ $p24Id ? (int) $p24Id : 0 }}"
-               data-listings="{{ $nListings }}" data-last="{{ $lastTs ? $lastTs->timestamp : 0 }}">
+               data-listings="{{ $nListings }}" data-last="{{ $lastTs ? $lastTs->timestamp : 0 }}" data-signintype="{{ $u->isSubUser() ? 'username' : 'email' }}">
             <tr :class="selected.includes({{ $uid }}) && 'sel'">
                 <td><button type="button" class="cb" :class="selected.includes({{ $uid }}) && 'on'" role="checkbox" :aria-checked="selected.includes({{ $uid }})" aria-label="Select {{ $u->name }}" @click="toggleRow({{ $uid }})"><span x-show="selected.includes({{ $uid }})" x-cloak><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="m5 12 5 5 9-10"/></svg></span></button></td>
-                <td><div class="who"><span class="av">{{ $initials }}</span><div style="min-width:0"><a class="nm" href="{{ route('admin.users.edit', $u) }}">{{ $u->name }}</a><small>{{ $u->email }}</small></div></div></td>
+                <td><div class="who"><span class="av">{{ $initials }}</span><div style="min-width:0"><a class="nm" href="{{ route('admin.users.edit', $u) }}">{{ $u->name }}</a><small>{{ $u->email }}@if($u->isSubUser()) <span title="Signs in with a username. Emails go to the shared inbox.">· Sub-user ({{ $u->deliveryEmail() ?? 'no shared inbox' }})</span>@endif</small></div></div></td>
                 <td style="text-transform:capitalize">{{ str_replace('_',' ',$u->role) }}</td>
                 <td>{{ $branchNm ?: '—' }}</td>
                 <td><span class="stt {{ $stCls }}"><i></i>{{ $stLabel }}</span></td>
@@ -561,7 +567,7 @@
 <script>
 function usersLedger() {
     return {
-        search: '', roleFilter: '', branchFilter: '', statusFilter: '', ffcFilter: '',
+        search: '', roleFilter: '', branchFilter: '', statusFilter: '', ffcFilter: '', signInFilter: '',
         sortKey: 'name', sortDir: 1, selected: [], confirmOpen: false,
         visible(el) {
             const d = el.dataset, q = this.search.trim().toLowerCase();
@@ -569,11 +575,12 @@ function usersLedger() {
                 && (this.roleFilter === '' || d.role === this.roleFilter)
                 && (this.branchFilter === '' || d.branch === this.branchFilter)
                 && (this.statusFilter === '' || d.status === this.statusFilter)
-                && (this.ffcFilter === '' || d.ffc === this.ffcFilter);
+                && (this.ffcFilter === '' || d.ffc === this.ffcFilter)
+                && (this.signInFilter === '' || d.signintype === this.signInFilter);
         },
         rows() { return this.$refs.tbl ? [...this.$refs.tbl.querySelectorAll('tbody[data-id]')] : []; },
         visibleCount() { return this.rows().filter(el => this.visible(el)).length; },
-        clearFilters() { this.search = this.roleFilter = this.branchFilter = this.statusFilter = this.ffcFilter = ''; },
+        clearFilters() { this.search = this.roleFilter = this.branchFilter = this.statusFilter = this.ffcFilter = this.signInFilter = ''; },
         sortBy(key) {
             if (this.sortKey === key) { this.sortDir = -this.sortDir; } else { this.sortKey = key; this.sortDir = 1; }
             const num = ['ffcts', 'p24', 'listings', 'last'].includes(key), dir = this.sortDir;
