@@ -98,17 +98,30 @@
                              either side's thumbnail opens the one shared
                              comparison modal for this item (cc2 owns
                              openCompareViewer() and everything it reads,
-                             untouched by this file). --}}
+                             untouched by this file). openCompareViewer(photo,
+                             insp) — on this (readOnly) branch $inspectionJs
+                             IS the inspection object already (chainPredecessor
+                             by default, see this file's own docblock), so it
+                             is passed straight through as insp. --}}
                         <img :src="photo.storage_path" style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
-                             @click="openCompareViewer('item', 'item_' + item.id, null, item)" alt="">
+                             @click="openCompareViewer(photo, {{ $inspectionJs }})" alt="">
                     </div>
                 </template>
 @else
                 <template x-for="photo in itemPhotosFor({{ $inspectionJs }}, item)" :key="photo.id">
                     <div class="relative rounded-md rir-item-photo-tile"
                          :style="photoUploader({{ $inspectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
+                        {{-- openCompareViewer(photo, insp) — on THIS (live)
+                             branch $inspectionJs is a section-type expression
+                             ('tailSection()' per this file's own docblock),
+                             not an inspection object, so it cannot be passed
+                             as insp here. This branch only ever renders the
+                             chain's tail, so chainTail (the same root-level
+                             property cc2's own implementation already reads
+                             via this.chainTail) is the correct inspection
+                             object. --}}
                         <img :src="photo.storage_path" style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
-                             @click="openCompareViewer('item', 'item_' + item.id, null, item)" alt="">
+                             @click="openCompareViewer(photo, chainTail)" alt="">
                         <button type="button" @click.stop="photoUploader({{ $inspectionJs }}).toggleSelected(photo.id)"
                                 class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                 :style="photoUploader({{ $inspectionJs }}).isSelected(photo.id) ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:rgba(0,0,0,0.5); color:#fff;'"

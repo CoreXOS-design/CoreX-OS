@@ -5774,8 +5774,10 @@
                 // point is openCompareViewer(photo, insp) — insp is
                 // whichever of chainPredecessor/chainTail the clicked photo
                 // belongs to; cc3's panel already has both in scope at every
-                // photo it renders (rental-inspection-readonly-panel.blade.php's
-                // own $inspectionJs var) and calls this directly.
+                // photo it renders (rental-inspection-item-cell.blade.php's
+                // own $inspectionJs var, and chainTail directly in
+                // rental-inspection-recording.blade.php's room gallery) and
+                // calls this directly.
                 compareViewer: {
                     open: false, mode: 'compare',
                     kind: null, roomId: null, itemId: null, label: '',

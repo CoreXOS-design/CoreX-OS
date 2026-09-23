@@ -545,9 +545,14 @@
                                     {{-- Clicking the photo opens cc2's shared comparison
                                          modal — same handler as every other photo tile on
                                          this screen (2026-09-23, standalone Compare
-                                         section removed, comparison lives in the modal). --}}
+                                         section removed, comparison lives in the modal).
+                                         openCompareViewer(photo, insp) — this room-photo
+                                         gallery is driven entirely by $sectionJs (the tail
+                                         side only; there is no predecessor-side room
+                                         gallery in this file), so chainTail is the correct
+                                         inspection object, same as the tail item cell. --}}
                                     <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer"
-                                         @click="openCompareViewer('room', 'room_' + group.room.id, group.room, null)" alt="">
+                                         @click="openCompareViewer(photo, chainTail)" alt="">
 @unless($tailReadOnly)
                                     {{-- Multi-select toggle — one tap/click, no modifier
                                          key, so it works identically at phone width. Feeds
