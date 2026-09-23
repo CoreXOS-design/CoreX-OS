@@ -37,23 +37,109 @@
             width: 9px; height: 9px; border-radius: 50%;
             box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent);
         }
-        /* §20.16, 2026-09-23 — the photo comparison viewer. Every static
+        /* §20.17, 2026-09-24 — the photo comparison viewer. Every static
            declaration lives here, never co-located with the :style binding
            that carries ONLY the zoom/pan transform on the same element
-           (compareViewerZoomStyle()) — the exact trap noted above. */
-        .compare-viewer-backdrop { background: rgba(0,0,0,0.92); }
-        .compare-viewer-mode-btn { background: rgba(255,255,255,0.12); color: #fff; }
-        .compare-viewer-mode-btn-active { background: var(--brand-button,#0ea5e9); color: #fff; }
-        .compare-viewer-close-btn { background: rgba(255,255,255,0.18); color: #fff; }
-        .compare-viewer-pane { overflow: hidden; touch-action: none; cursor: grab; background: #000; }
+           (compareViewerZoomStyle()) — the exact trap noted above.
+
+           FIX, 2026-09-24, Johan ("the site banner bleeds through the
+           modal toolbar"): z-[9999] (a Tailwind utility class on the
+           backdrop element) was not reliably beating whatever stacking
+           context the page's own top banner/identity strip establishes.
+           Two independent fixes, not one guess: the backdrop's z-index is
+           now set here, at the maximum safe CSS value, so no plausible
+           competing z-index on the page can ever exceed it; the toolbar
+           rows ALSO get their own fully opaque background rather than
+           relying solely on the backdrop showing through underneath them
+           — correct regardless of which of the two was the actual cause. */
+        /* Johan-approved mockup palette, 2026-09-24 — dark chrome because
+           this is a photo viewer, not a form. Font families declared here
+           only (IBM Plex Sans/Mono with real fallbacks) — no new font file
+           is loaded by this change; if IBM Plex isn't already present on
+           the page these fall back to the system stack rather than
+           silently doing nothing. */
+        .compare-viewer-backdrop {
+            background: #0B0E12; z-index: 2147483647;
+            font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+            color: #E4EBF1;
+        }
+        .cv-mono { font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace; }
+        .cv-text-primary { color: #E4EBF1; }
+        .cv-text-secondary { color: #8C99A6; }
+        .cv-accent { color: #3FC9E6; }
+        /* Every interactive control an agent touches on a tablet gets a
+           44px minimum target, regardless of how small its visible glyph
+           is — padding does the work so the click/tap AREA is 44px even
+           where the mockup's own drawn height is smaller. */
+        .cv-touch { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+        .compare-viewer-toolbar { background: #0B0E12; border-bottom: 1px solid #1E262F; }
+        .cv-topbar { height: 56px; }
+        .compare-viewer-mode-btn { background: #10151B; color: #E4EBF1; border: 1px solid #1E262F; }
+        .compare-viewer-mode-btn-active { background: #3FC9E6; color: #0B0E12; border-color: #3FC9E6; }
+        .compare-viewer-close-btn { background: #10151B; color: #E4EBF1; border: 1px solid #1E262F; }
+        .cv-navrow { height: 52px; border-bottom: 1px solid #1E262F; background: #10151B; }
+        .cv-navrow-label { flex: none; letter-spacing: 0.05em; }
+        .cv-space-tab { background: transparent; color: #8C99A6; border: none; border-bottom: 2px solid transparent; border-radius: 0; }
+        .cv-space-tab-active { color: #E4EBF1; border-bottom-color: #3FC9E6; background: transparent; }
+        .cv-item-chip { background: #10151B; color: #E4EBF1; border: 1px solid #1E262F; border-radius: 999px; }
+        .cv-item-chip-active { background: #3FC9E6; color: #0B0E12; border-color: #3FC9E6; }
+        .cv-chip-count { opacity: 0.7; margin-left: 0.35rem; }
+        /* FIX, 2026-09-24, Johan ("the two panes are not the same size and
+           the right image overflows"): an explicit, identical height on
+           every pane, single mode and compare mode alike — flex-stretch
+           alone left the two boxes free to size from their own image
+           content when the surrounding flex chain's height wasn't fully
+           propagating, which is exactly what let them drift apart and
+           clip. A fixed height can never do that, on either pane. */
+        .compare-viewer-pane { height: 48vh; overflow: hidden; touch-action: none; cursor: grab; background: #000; }
+        .cv-pane-single { height: 62vh; }
         .compare-viewer-pane:active { cursor: grabbing; }
         .compare-viewer-empty-pane { color: rgba(255,255,255,0.6); }
+        .cv-pane-grid { background: #1E262F; }
+        .cv-pane-grid > div, .cv-rail-grid > div { background: #10151B; }
+        .cv-rail-grid { background: #1E262F; }
+        .cv-pane-header { height: 52px; padding: 0 0.75rem; background: #10151B; border-bottom: 1px solid #29323C; }
+        .cv-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; padding: 0.1rem 0.4rem; border-radius: 4px; flex: none; }
+        .cv-badge-in { background: #29323C; color: #8C99A6; }
+        .cv-badge-current { background: #3FC9E6; color: #0B0E12; }
+        .cv-pill { font-size: 11px; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 999px; }
+        .cv-pill-good { background: #4FBE82; color: #0B0E12; }
+        .cv-pill-fair { background: #E0A34A; color: #0B0E12; }
+        .cv-pill-damaged { background: #D9534F; color: #0B0E12; }
         .compare-viewer-step { background: rgba(0,0,0,0.6); color: #fff; padding: 0.25rem 0.5rem; border-radius: 999px; }
-        .compare-viewer-match-btn { background: var(--surface-2); color: var(--text-secondary); }
-        .compare-viewer-match-btn-active { background: var(--brand-button,#0ea5e9); color: #fff; }
-        .compare-viewer-carousel { background: rgba(0,0,0,0.4); }
-        .compare-viewer-thumb { border: 2px solid transparent; opacity: 0.7; }
-        .compare-viewer-thumb-active { border-color: var(--brand-button,#0ea5e9); opacity: 1; }
+        .compare-viewer-zoom-controls { background: rgba(0,0,0,0.65); color: #fff; padding: 0.15rem 0.35rem; border-radius: 999px; }
+        .cv-zoom-sep { width: 1px; height: 16px; background: rgba(255,255,255,0.25); margin: 0 0.15rem; }
+        .cv-tagbar { height: 46px; background: #10151B; border-top: 1px solid #29323C; }
+        .cv-dot { width: 16px; height: 16px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; flex: none; }
+        .cv-dot-good { background: #4FBE82; color: #0B0E12; }
+        .cv-dot-fair { background: #E0A34A; }
+        .compare-viewer-match-btn { background: #10151B; color: #8C99A6; border: 1px solid #1E262F; }
+        .compare-viewer-match-btn-active { background: #3FC9E6; color: #0B0E12; }
+        .compare-viewer-carousel { background: #10151B; }
+        .compare-viewer-thumb { border: 2px solid transparent; opacity: 0.75; border-radius: 4px; }
+        .compare-viewer-thumb-active { border-color: #3FC9E6; opacity: 1; }
+        .cv-thumb-img { width: 92px; height: 66px; }
+        .cv-rail-label { height: 22px; }
+        .cv-untagged-dot { position: absolute; top: 2px; right: 2px; width: 8px; height: 8px; border-radius: 50%; background: #E0A34A; border: 1px solid #0B0E12; }
+        .cv-dim-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); pointer-events: none; }
+        .compare-viewer-side { display: flex; position: relative; }
+        @media (max-width: 639px) {
+            .compare-viewer-side.compare-viewer-side-hide-mobile { display: none; }
+        }
+        /* Tagging panel — 420px, anchored over the pane that opened it. */
+        .cv-tagpanel { position: absolute; top: 160px; width: 420px; max-width: 92vw; background: #10151B; border: 1px solid #29323C; border-radius: 8px; z-index: 20; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
+        .cv-tagpanel-left { left: 2%; }
+        .cv-tagpanel-right { right: 2%; }
+        .cv-tagpanel-head { border-bottom: 1px solid #1E262F; }
+        .cv-tagpanel-body { max-height: 280px; overflow-y: auto; background: #1E262F; }
+        .cv-tagpanel-col { background: #10151B; }
+        .cv-tagpanel-row { background: transparent; color: #E4EBF1; border: none; }
+        .cv-tagpanel-row-active { background: #3FC9E6; color: #0B0E12; }
+        .cv-tagpanel-foot { border-top: 1px solid #1E262F; }
+        .cv-untagged-tray { background: #10151B; border-top: 1px solid #29323C; }
+        .cv-untagged-thumb { border: 2px solid #E0A34A; opacity: 0.85; border-radius: 4px; }
+        .cv-untagged-thumb-selected { opacity: 1; border-color: #3FC9E6; }
+        .cv-untagged-thumb-img { width: 56px; height: 42px; }
     </style>
 <div class="w-full h-full flex flex-col space-y-4 corex-props-v2"
      x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false }"
@@ -4607,14 +4693,13 @@
                     // FIX, 2026-09-22, Johan: starting an inspection only ever
                     // hand-patched a few fields on the response (observations/
                     // discrepancies/signatures) — everything else the screen
-                    // depends on (compareLeft/compareRight/photoMatches most
-                    // visibly, since starting an out-inspection is exactly
-                    // when the Compare section should first appear) stayed
-                    // stale until a manual reload. tabData is the SAME
-                    // canonical payload tabPayloadFor() already produces —
-                    // refetching it after a successful start replaces every
-                    // dependent field at once instead of hand-patching a
-                    // fragile, incomplete subset again.
+                    // depends on (chainTail/chainPredecessor/photoMatches most
+                    // visibly, since starting a new inspection is exactly when
+                    // the chain moves on) stayed stale until a manual reload.
+                    // tabData is the SAME canonical payload tabPayloadFor()
+                    // already produces — refetching it after a successful
+                    // start replaces every dependent field at once instead of
+                    // hand-patching a fragile, incomplete subset again.
                     tabData: '{{ route('corex.properties.rental-inspection-tab.data', $property) }}',
                     itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
                     itemsReorder: '{{ route('corex.properties.rental-inspection-items.reorder', $property) }}',
@@ -5066,183 +5151,17 @@
                     </div>
                 </div>
 
-            {{-- §20.15 — the two-panel compare view. Gated entirely on
-                 compareRight (server-resolved: the earliest non-in,
-                 non-cancelled inspection on the same lease as the most
-                 recent in-inspection — Out today, a future ad-hoc type
-                 slots in without any change here) — a property with only
-                 an in-inspection so far shows nothing extra at all.
-                 Johan: "left is in inspection, right is the next
-                 inspection". Rooms/items are property-wide (roomGroups()
-                 is the same list already used by both recording sections
-                 above), so alignment by room and item is automatic — this
-                 section never sorts or matches rooms by hand.
 
-                 FIX, 2026-09-22 (deployed-site regression, Johan): the mobile
-                 side-toggle previously relied on a Tailwind `sm:block` class
-                 to re-show the non-selected side from 640px up — that exact
-                 class had never been used anywhere else in this codebase, so
-                 it was absent from the deployed (no-build-step) CSS bundle
-                 and silently did nothing at ANY viewport width, collapsing
-                 the view to a single full-width column even on a 1568px
-                 screen. Confirmed by fetching the actual deployed CSS and
-                 grepping for the compiled rule — zero matches. Replaced with
-                 a plain `<style>` block below: real CSS shipped as part of
-                 this page's own HTML, never a Vite-built asset, so nothing
-                 here can ever again depend on whether a build step ran. Each
-                 side is now unconditionally rendered at all times — a room/
-                 item with photos on only one side still shows BOTH panels,
-                 the empty one with its own explicit "Nothing yet" state, so
-                 an agent can see what's still missing (an out-inspection
-                 starting at zero photos is the normal case, not an edge
-                 case). A room/item with nothing on EITHER side still renders
-                 no row at all — the existing screen-space convention this
-                 whole tab already follows (§9) — there is nothing to compare
-                 yet either way.
 
-                 Frame sizing also fixed, same discipline as the item photo
-                 strip: aspect-ratio-from-an-elastic-width was what made the
-                 tile balloon to whatever width the (in this case, wrongly
-                 single) column happened to be — an explicit height, with the
-                 image at height:100%/width:100%/object-fit:cover, means the
-                 frame's size can never come from either the image's native
-                 resolution or its own container's width. --}}
-            <style>
-                .compare-side { display: block; }
-                @media (max-width: 639px) {
-                    .compare-side.compare-side-hide-mobile { display: none; }
-                }
-            </style>
-            <template x-if="compareRight">
-                <div class="prop-section">
-                    <button type="button" class="prop-section-toggle" @click="toggle('compare_inspection')">
-                        <h3 class="prop-section-heading">
-                            <span class="prop-section-heading-text">Compare</span>
-                            <span class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="'In vs ' + (compareRight.type === 'out' ? 'Out' : compareRight.type)"></span>
-                        </h3>
-                        <svg class="prop-section-chevron" :class="open['compare_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
-                    </button>
-                    <div x-show="open['compare_inspection']" x-collapse class="prop-section-body space-y-3">
-                        {{-- Item 7, Johan: "two panels side by side will not
-                             work at 390px... one panel at a time with a way
-                             to switch sides" — a plain toggle at phone
-                             width; both sides show side by side from 640px
-                             up via the media query above. --}}
-                        <div class="sm:hidden flex items-center justify-center gap-3 pb-1" style="border-bottom:1px solid var(--border);">
-                            <button type="button" @click="compareMobileSide = 'left'"
-                                    class="text-xs font-semibold px-2 py-1"
-                                    :style="compareMobileSide === 'left' ? 'color:var(--brand-icon,#0ea5e9); text-decoration:underline;' : 'color:var(--text-muted);'">In</button>
-                            <button type="button" @click="compareMobileSide = 'right'"
-                                    class="text-xs font-semibold px-2 py-1"
-                                    :style="compareMobileSide === 'right' ? 'color:var(--brand-icon,#0ea5e9); text-decoration:underline;' : 'color:var(--text-muted);'"
-                                    x-text="compareRight.type === 'out' ? 'Out' : compareRight.type"></button>
-                        </div>
-
-                        <template x-for="group in roomGroups()" :key="group.room ? 'croom-' + group.room.id : 'cgeneral'">
-                            <div class="space-y-2 pt-2" style="border-top:1px solid var(--border);">
-                                <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);" x-text="group.room ? group.room.label : 'General'"></h4>
-
-                                {{-- Room-level general photos, both sides — row renders
-                                     once EITHER side has something; each panel inside
-                                     it always renders regardless of that side's own
-                                     count (empty state when it has none). --}}
-                                <template x-if="group.room && (compareRoomPhotos('left', group.room).length || compareRoomPhotos('right', group.room).length)">
-                                    <div x-init="compareIndexes('room_' + group.room.id, compareRoomPhotos('left', group.room), compareRoomPhotos('right', group.room))"
-                                         class="flex gap-2 items-start" style="overflow-x:auto;">
-                                        @foreach(['left', 'right'] as $side)
-                                        <div class="compare-side space-y-1" :class="compareMobileSide === '{{ $side }}' ? '' : 'compare-side-hide-mobile'" style="flex:none; width:18rem;">
-                                            {{-- FIX, 2026-09-22, Johan: 10rem square was cropping over half a
-                                                 normal ~1.5:1 landscape photo's height away. Fixed 18rem×12rem
-                                                 (1.5:1) — a sensible photo shape, matched to the room gallery's
-                                                 own visual scale — and flex:none (not flex-1) so the frame's
-                                                 size is a literal constant, never derived from the wrapper's
-                                                 own elastic width, exactly like the item strip fix. --}}
-                                            <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:12rem; width:18rem; overflow:hidden; background:var(--surface-3);"
-                                                 @click="openCompareViewer('room', 'room_' + group.room.id, group.room, null)">
-                                                <template x-if="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room))">
-                                                    <img :src="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room)).storage_path" style="display:block; height:100%; width:100%; object-fit:cover;" alt="">
-                                                </template>
-                                                <template x-if="!compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room))">
-                                                    <span class="text-xs" style="color:var(--text-muted);">Nothing yet</span>
-                                                </template>
-                                            </div>
-                                            <div class="flex items-center justify-center gap-2">
-                                                <button type="button" @click.stop="compareFlip('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room), -1)" x-show="compareRoomPhotos('{{ $side }}', group.room).length > 1" class="text-xs" style="color:var(--text-secondary);">&larr;</button>
-                                                <span class="text-xs" style="color:var(--text-muted);" x-text="compareRoomPhotos('{{ $side }}', group.room).length ? (({{ $side === 'left' ? '(compareIndex[\'left_room_\' + group.room.id] || 0)' : '(compareIndex[\'right_room_\' + group.room.id] || 0)' }} + 1) + '/' + compareRoomPhotos('{{ $side }}', group.room).length) : '0/0'"></span>
-                                                <button type="button" @click.stop="compareFlip('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room), 1)" x-show="compareRoomPhotos('{{ $side }}', group.room).length > 1" class="text-xs" style="color:var(--text-secondary);">&rarr;</button>
-                                            </div>
-                                        </div>
-                                        @endforeach
-                                    </div>
-                                </template>
-                                <template x-if="group.room && (compareRoomPhotos('left', group.room).length && compareRoomPhotos('right', group.room).length)">
-                                    <div class="flex justify-center">
-                                        <button type="button"
-                                                @click="toggleCompareMatch(compareCurrentPhoto('left', 'room_' + group.room.id, compareRoomPhotos('left', group.room)), compareCurrentPhoto('right', 'room_' + group.room.id, compareRoomPhotos('right', group.room)))"
-                                                class="text-xs font-semibold px-3 py-1 rounded-md"
-                                                :style="matchFor(compareCurrentPhoto('left', 'room_' + group.room.id, compareRoomPhotos('left', group.room))?.id, compareCurrentPhoto('right', 'room_' + group.room.id, compareRoomPhotos('right', group.room))?.id)
-                                                    ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
-                                                    : 'background:var(--surface-2); color:var(--text-secondary);'"
-                                                x-text="matchFor(compareCurrentPhoto('left', 'room_' + group.room.id, compareRoomPhotos('left', group.room))?.id, compareCurrentPhoto('right', 'room_' + group.room.id, compareRoomPhotos('right', group.room))?.id) ? 'Matched — unmatch' : 'Match photos'"></button>
-                                    </div>
-                                </template>
-
-                                {{-- Item-level photos, both sides — same rule: the
-                                     row renders once either side has something, each
-                                     panel always renders with its own empty state. --}}
-                                <template x-for="item in group.items" :key="item.id">
-                                    <template x-if="compareItemPhotos('left', item).length || compareItemPhotos('right', item).length">
-                                        <div class="pl-3 space-y-1" x-init="compareIndexes('item_' + item.id, compareItemPhotos('left', item), compareItemPhotos('right', item))">
-                                            <span class="text-xs" style="color:var(--text-primary);" x-text="item.label"></span>
-                                            <div class="flex gap-2 items-start" style="overflow-x:auto;">
-                                                @foreach(['left', 'right'] as $side)
-                                                <div class="compare-side space-y-1" :class="compareMobileSide === '{{ $side }}' ? '' : 'compare-side-hide-mobile'" style="flex:none; width:18rem;">
-                                                    {{-- Same fixed-frame fix as the room-level row above. --}}
-                                                    <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:12rem; width:18rem; overflow:hidden; background:var(--surface-3);"
-                                                         @click="openCompareViewer('item', 'item_' + item.id, null, item)">
-                                                        <template x-if="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item))">
-                                                            <img :src="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item)).storage_path" style="display:block; height:100%; width:100%; object-fit:cover;" alt="">
-                                                        </template>
-                                                        <template x-if="!compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item))">
-                                                            <span class="text-xs" style="color:var(--text-muted);">Nothing yet</span>
-                                                        </template>
-                                                    </div>
-                                                    <div class="flex items-center justify-center gap-2">
-                                                        <button type="button" @click.stop="compareFlip('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item), -1)" x-show="compareItemPhotos('{{ $side }}', item).length > 1" class="text-xs" style="color:var(--text-secondary);">&larr;</button>
-                                                        <span class="text-xs" style="color:var(--text-muted);" x-text="compareItemPhotos('{{ $side }}', item).length ? (({{ $side === 'left' ? '(compareIndex[\'left_item_\' + item.id] || 0)' : '(compareIndex[\'right_item_\' + item.id] || 0)' }} + 1) + '/' + compareItemPhotos('{{ $side }}', item).length) : '0/0'"></span>
-                                                        <button type="button" @click.stop="compareFlip('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item), 1)" x-show="compareItemPhotos('{{ $side }}', item).length > 1" class="text-xs" style="color:var(--text-secondary);">&rarr;</button>
-                                                    </div>
-                                                </div>
-                                                @endforeach
-                                            </div>
-                                            <template x-if="compareItemPhotos('left', item).length && compareItemPhotos('right', item).length">
-                                                <div class="flex justify-center">
-                                                    <button type="button"
-                                                            @click="toggleCompareMatch(compareCurrentPhoto('left', 'item_' + item.id, compareItemPhotos('left', item)), compareCurrentPhoto('right', 'item_' + item.id, compareItemPhotos('right', item)))"
-                                                            class="text-xs font-semibold px-3 py-1 rounded-md"
-                                                            :style="matchFor(compareCurrentPhoto('left', 'item_' + item.id, compareItemPhotos('left', item))?.id, compareCurrentPhoto('right', 'item_' + item.id, compareItemPhotos('right', item))?.id)
-                                                                ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
-                                                                : 'background:var(--surface-2); color:var(--text-secondary);'"
-                                                            x-text="matchFor(compareCurrentPhoto('left', 'item_' + item.id, compareItemPhotos('left', item))?.id, compareCurrentPhoto('right', 'item_' + item.id, compareItemPhotos('right', item))?.id) ? 'Matched — unmatch' : 'Match photos'"></button>
-                                                </div>
-                                            </template>
-                                        </div>
-                                    </template>
-                                </template>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-            </template>
-
-            {{-- §20.16, 2026-09-23 — the full-screen photo comparison
-                 viewer. Replaces the old compareModal (same trigger:
-                 openCompareViewer(), the compact row's expand click).
-                 Johan: "1 view is this photo that was clicked view, the
-                 next view is a side by side comparison view... this one
-                 allows zooming in on each photo... a carousal allows you to
-                 flip through the photos and again tag them to each other."
+            {{-- §20.17, 2026-09-24 — the full-screen photo comparison
+                 viewer. This is now the ENTIRE comparison feature (Johan:
+                 "the modal that loads should carry the functionality, not
+                 a complete compare section") — opened from a photo on the
+                 side-by-side predecessor/tail screen via
+                 openCompareViewer(photo, insp). "1 view is this photo that
+                 was clicked view, the next view is a side by side
+                 comparison view... a carousal allows you to flip through
+                 the photos and again tag them to each other."
 
                  Named compareViewer* throughout (not the shorter "viewer")
                  — this same Alpine component already owns a DIFFERENT
@@ -5250,109 +5169,301 @@
                  rental-images lightbox; reusing that name would silently
                  clobber it. --}}
             <div x-show="compareViewer.open" x-cloak
-                 class="fixed inset-0 z-[9999] flex flex-col compare-viewer-backdrop"
+                 class="fixed inset-0 flex flex-col compare-viewer-backdrop"
                  @keydown.escape.window="closeCompareViewer()"
                  @mousemove.window="compareViewerDragMove($event)" @mouseup.window="compareViewerDragEnd()"
-                 @touchmove.window="compareViewerDragMove($event)" @touchend.window="compareViewerDragEnd()">
-                <div class="flex items-center justify-between px-4 py-3" @click.stop>
-                    <div class="flex items-center gap-2">
-                        <button type="button" @click="compareViewerSetMode('single')"
-                                class="text-xs font-semibold px-3 py-1.5 rounded-md compare-viewer-mode-btn"
-                                :class="compareViewer.mode === 'single' ? 'compare-viewer-mode-btn-active' : ''">Single</button>
-                        <button type="button" @click="compareViewerSetMode('compare')"
-                                x-show="compareViewerCandidatesFor('left').length >= 0 && (compareViewer.leftPhotoId || compareViewer.rightPhotoId)"
-                                class="text-xs font-semibold px-3 py-1.5 rounded-md compare-viewer-mode-btn"
-                                :class="compareViewer.mode === 'compare' ? 'compare-viewer-mode-btn-active' : ''">Compare</button>
-                        <button type="button" @click="compareViewerToggleLock()" x-show="compareViewer.mode === 'compare'"
-                                class="text-xs font-semibold px-3 py-1.5 rounded-md compare-viewer-mode-btn"
-                                :class="compareViewer.zoomLocked ? 'compare-viewer-mode-btn-active' : ''"
-                                title="Lock zoom/pan together — for the same wall, same spot">
-                            <span x-text="compareViewer.zoomLocked ? 'Zoom locked' : 'Zoom independent'"></span>
-                        </button>
+                 @touchmove.window="compareViewerDragMove($event)" @touchend.window="compareViewerDragEnd()"
+                 role="dialog" aria-modal="true" aria-label="Photo compare">
+                {{-- 1) TOP BAR — Johan-approved mockup, 2026-09-24. --}}
+                <div class="flex items-center justify-between px-4 gap-3 compare-viewer-toolbar cv-topbar" @click.stop>
+                    <div class="min-w-0">
+                        <div class="text-sm font-semibold cv-text-primary">Photo compare</div>
+                        <div class="text-xs cv-text-secondary truncate">{{ $property->buildDisplayAddress() }} · <span x-text="compareViewerInspectionTypeName(compareViewer.primarySide)"></span></div>
                     </div>
-                    <button type="button" @click="closeCompareViewer()" class="w-8 h-8 rounded-full flex items-center justify-center text-white compare-viewer-close-btn">&times;</button>
-                </div>
-
-                {{-- Mobile side toggle — item 7's own precedent, phone decision
-                     for THIS viewer: side-by-side is useless at 390px, so
-                     compare mode shows one panel at a time with a toggle,
-                     same as the compact row already does. --}}
-                <div class="flex justify-center gap-2 pb-2 sm:hidden" x-show="compareViewer.mode === 'compare'" @click.stop>
-                    <button type="button" @click="compareViewerMobileSide = 'left'" class="text-xs font-semibold px-3 py-1 rounded-md compare-viewer-mode-btn" :class="compareViewerMobileSide === 'left' ? 'compare-viewer-mode-btn-active' : ''">In</button>
-                    <button type="button" @click="compareViewerMobileSide = 'right'" class="text-xs font-semibold px-3 py-1 rounded-md compare-viewer-mode-btn" :class="compareViewerMobileSide === 'right' ? 'compare-viewer-mode-btn-active' : ''">Next</button>
-                </div>
-
-                <div class="flex-1 flex items-stretch justify-center gap-2 px-2 min-h-0" @click.stop>
-                    {{-- Single view — the clicked photo, large, still zoomable. --}}
-                    <template x-if="compareViewer.mode === 'single'">
-                        <div class="relative flex-1 compare-viewer-pane"
-                             @wheel.prevent="compareViewerWheelZoom('left', $event)"
-                             @mousedown="compareViewerDragStart('left', $event)"
-                             @touchstart="compareViewerDragStart('left', $event)"
-                             @dblclick="compareViewerDoubleClickReset('left')">
-                            <template x-if="compareViewerCurrentPhoto(compareViewer.primarySide || 'left')">
-                                <img :src="compareViewerCurrentPhoto(compareViewer.primarySide || 'left').storage_path"
-                                     :style="compareViewerZoomStyle('left')"
-                                     class="w-full h-full object-contain block select-none" draggable="false" alt="">
-                            </template>
+                    <div class="flex items-center gap-3 flex-none">
+                        <span class="cv-pill cv-pill-fair" x-show="compareViewerUntaggedCount() > 0" x-text="compareViewerUntaggedCount() + ' untagged photo' + (compareViewerUntaggedCount() === 1 ? '' : 's') + ' in this inspection'"></span>
+                        <div class="flex items-center gap-1">
+                            <button type="button" @click="compareViewerSetMode('single')"
+                                    class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                    :class="compareViewer.mode === 'single' ? 'compare-viewer-mode-btn-active' : ''">Single</button>
+                            <button type="button" @click="compareViewerSetMode('compare')"
+                                    class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                    :class="compareViewer.mode === 'compare' ? 'compare-viewer-mode-btn-active' : ''">Compare</button>
                         </div>
-                    </template>
+                        <button type="button" @click="compareViewerToggleLock()" x-show="compareViewer.mode === 'compare'"
+                                class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
+                                :class="compareViewer.zoomLocked ? 'compare-viewer-mode-btn-active' : ''"
+                                :aria-pressed="compareViewer.zoomLocked ? 'true' : 'false'"
+                                title="Pan and zoom linked across both panes">
+                            <span x-text="compareViewer.zoomLocked ? 'Move together: On' : 'Move together: Off'"></span>
+                        </button>
+                        <button type="button" @click="closeCompareViewer()" aria-label="Close photo compare" class="cv-touch rounded-full flex items-center justify-center text-white compare-viewer-close-btn">&times;</button>
+                    </div>
+                </div>
 
-                    {{-- Compare view — two panels, each independently (or,
-                         locked, jointly) zoomable/pannable. --}}
-                    <template x-if="compareViewer.mode === 'compare'">
-                        <template x-for="side in ['left', 'right']" :key="side">
-                            <div class="relative flex-1 compare-viewer-pane"
-                                 :class="'sm:block ' + (compareViewerMobileSide === side ? 'block' : 'hidden')"
-                                 @wheel.prevent="compareViewerWheelZoom(side, $event)"
-                                 @mousedown="compareViewerDragStart(side, $event)"
-                                 @touchstart="compareViewerDragStart(side, $event)"
-                                 @dblclick="compareViewerDoubleClickReset(side)">
-                                <template x-if="compareViewerCurrentPhoto(side)">
-                                    <img :src="compareViewerCurrentPhoto(side).storage_path"
-                                         :style="compareViewerZoomStyle(side)"
+                {{-- 2) SPACE ROW — every real room on the property; how the
+                     agent moves around the whole inspection without closing
+                     the modal. --}}
+                <div class="flex items-center gap-3 px-4 cv-navrow" @click.stop>
+                    <span class="text-xs font-semibold cv-text-secondary cv-navrow-label">SPACE</span>
+                    <div class="flex items-center gap-1 overflow-x-auto">
+                        <template x-for="group in compareViewerRoomTabs()" :key="'space-' + group.room.id">
+                            <button type="button" @click="compareViewerSelectRoom(group.room.id)"
+                                    class="text-xs font-semibold px-3 cv-touch cv-space-tab"
+                                    :class="compareViewer.roomId === group.room.id ? 'cv-space-tab-active' : ''"
+                                    x-text="group.room.label"></button>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- 3) ITEM ROW — the selected room's own items, "Whole
+                     room" first, each chip carrying its "IN / CURRENT"
+                     photo count so a gap ("Windows 0 / 2") is visible at a
+                     glance. --}}
+                <div class="flex items-center gap-3 px-4 cv-navrow" @click.stop x-show="compareViewerCurrentRoomGroup()">
+                    <span class="text-xs font-semibold cv-text-secondary cv-navrow-label" x-text="'IN ' + (compareViewerCurrentRoomGroup() ? compareViewerCurrentRoomGroup().room.label.toUpperCase() : '')"></span>
+                    <div class="flex items-center gap-1 overflow-x-auto">
+                        <button type="button" @click="compareViewerSelectItem(null)"
+                                class="text-xs font-semibold px-3 cv-touch cv-item-chip"
+                                :class="compareViewer.kind === 'room' ? 'cv-item-chip-active' : ''">
+                            Whole room <span class="cv-mono cv-chip-count" x-text="compareViewerChipCounts(null)"></span>
+                        </button>
+                        <template x-for="item in (compareViewerCurrentRoomGroup() ? compareViewerCurrentRoomGroup().items : [])" :key="'item-' + item.id">
+                            <button type="button" @click="compareViewerSelectItem(item.id)"
+                                    class="text-xs font-semibold px-3 cv-touch cv-item-chip"
+                                    :class="(compareViewer.kind === 'item' && compareViewer.itemId === item.id) ? 'cv-item-chip-active' : ''">
+                                <span x-text="item.label"></span> <span class="cv-mono cv-chip-count" x-text="compareViewerChipCounts(item.id)"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- Mobile side toggle — side-by-side is useless at 390px,
+                     so compare mode shows one panel (and its own carousel
+                     and rail) at a time. --}}
+                <div class="flex justify-center gap-2 py-2 sm:hidden" x-show="compareViewer.mode === 'compare'" @click.stop>
+                    <button type="button" @click="compareViewerMobileSide = 'left'" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" :class="compareViewerMobileSide === 'left' ? 'compare-viewer-mode-btn-active' : ''">Predecessor</button>
+                    <button type="button" @click="compareViewerMobileSide = 'right'" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" :class="compareViewerMobileSide === 'right' ? 'compare-viewer-mode-btn-active' : ''">Current</button>
+                </div>
+
+                {{-- SINGLE MODE — one header strip, one large image, one rail. --}}
+                <div class="flex-1 flex flex-col min-h-0 px-4 py-2 overflow-y-auto" x-show="compareViewer.mode === 'single'" @click.stop>
+                    <div class="flex items-center justify-between gap-2 cv-pane-header">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="cv-badge" :class="compareViewer.primarySide === 'left' ? 'cv-badge-in' : 'cv-badge-current'" x-text="compareViewer.primarySide === 'left' ? 'IN' : 'CURRENT'"></span>
+                            <span class="text-xs font-semibold cv-text-primary" x-text="compareViewerInspectionTypeName(compareViewer.primarySide)"></span>
+                            <span class="text-xs cv-mono cv-text-secondary" x-text="compareViewerInspectionDate(compareViewer.primarySide)"></span>
+                            <span class="text-xs cv-text-secondary truncate" x-text="compareViewer.label"></span>
+                        </div>
+                        <div class="flex items-center gap-2 flex-none">
+                            <span class="cv-pill" :class="compareViewerConditionClass(compareViewerConditionFor(compareViewer.primarySide))" x-show="compareViewerConditionFor(compareViewer.primarySide)" x-text="compareViewerConditionLabel(compareViewerConditionFor(compareViewer.primarySide))"></span>
+                            <button type="button" @click="compareViewerOpenTagPanel(compareViewer.primarySide)" x-show="compareViewerCurrentPhoto(compareViewer.primarySide)" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" x-text="(compareViewerCurrentPhoto(compareViewer.primarySide) && (compareViewerCurrentPhoto(compareViewer.primarySide).property_room_id || compareViewerCurrentPhoto(compareViewer.primarySide).rental_inspection_observation_id)) ? 'Retag' : 'Tag photo'"></button>
+                            <button type="button" @click="compareViewerSetMode('compare')" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Back to compare</button>
+                        </div>
+                    </div>
+                    <div class="relative compare-viewer-pane cv-pane-single"
+                         @wheel.prevent="compareViewerWheelZoom(compareViewer.primarySide, $event)"
+                         @mousedown="compareViewerDragStart(compareViewer.primarySide, $event)"
+                         @touchstart="compareViewerDragStart(compareViewer.primarySide, $event)"
+                         @dblclick="compareViewerDoubleClickReset(compareViewer.primarySide)">
+                        <template x-if="compareViewerCurrentPhoto(compareViewer.primarySide)">
+                            <img :src="compareViewerCurrentPhoto(compareViewer.primarySide).storage_path"
+                                 :style="compareViewerZoomStyle(compareViewer.primarySide)"
+                                 class="w-full h-full object-contain block select-none" draggable="false" alt="">
+                        </template>
+                        <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1 compare-viewer-zoom-controls">
+                            <button type="button" @click.stop="compareViewerZoomOutBtn(compareViewer.primarySide)" aria-label="Zoom out" class="cv-touch font-bold">&minus;</button>
+                            <span class="cv-mono text-xs px-1" x-text="compareViewerZoomPercent(compareViewer.primarySide)"></span>
+                            <button type="button" @click.stop="compareViewerZoomInBtn(compareViewer.primarySide)" aria-label="Zoom in" class="cv-touch font-bold">&plus;</button>
+                            <span class="cv-zoom-sep"></span>
+                            <button type="button" @click.stop="compareViewerDoubleClickReset(compareViewer.primarySide)" class="text-xs px-2 cv-touch">Fit</button>
+                            <span class="text-xs cv-text-secondary pl-1" x-show="_compareViewerZoomState(compareViewer.primarySide).scale > 1">drag to pan</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between px-1 pt-2 cv-rail-label">
+                        <span class="text-xs font-semibold" :class="compareViewer.primarySide === 'left' ? 'cv-text-secondary' : 'cv-accent'" x-text="compareViewerInspectionTypeName(compareViewer.primarySide).toUpperCase() + (compareViewer.primarySide === 'right' ? ' — CURRENT' : '')"></span>
+                        <span class="cv-mono text-xs cv-text-secondary" x-text="(compareViewerCarouselPhotos(compareViewer.primarySide).findIndex(p => p.id === compareViewer[compareViewer.primarySide + 'PhotoId']) + 1) + ' of ' + compareViewerCarouselPhotos(compareViewer.primarySide).length"></span>
+                    </div>
+                    <div class="px-1 py-2 flex items-center gap-2 justify-center overflow-x-auto compare-viewer-carousel">
+                        <template x-for="photo in compareViewerCarouselPhotos(compareViewer.primarySide)" :key="'single-' + photo.id">
+                            <button type="button" @click="compareViewerSelectCarouselPhoto(photo, compareViewer.primarySide)"
+                                    class="relative flex-none rounded overflow-hidden compare-viewer-thumb"
+                                    :class="compareViewer[compareViewer.primarySide + 'PhotoId'] === photo.id ? 'compare-viewer-thumb-active' : ''">
+                                <img :src="photo.storage_path" class="cv-thumb-img object-cover block" alt="">
+                                <span class="cv-untagged-dot" x-show="!photo.property_room_id && !photo.rental_inspection_observation_id"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                {{-- COMPARE MODE — 4) two panes, identical boxes; 5) two
+                     rails underneath, same grid. --}}
+                <div class="flex-1 flex flex-col min-h-0 overflow-y-auto" x-show="compareViewer.mode === 'compare'" @click.stop>
+                    <div class="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-px min-h-0 cv-pane-grid">
+                        @foreach(['left', 'right'] as $side)
+                        <div class="flex flex-col min-h-0 compare-viewer-side" :class="compareViewerMobileSide === '{{ $side }}' ? '' : 'compare-viewer-side-hide-mobile'">
+                            <div class="flex items-center justify-between gap-2 cv-pane-header">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="cv-badge" :class="'{{ $side }}' === 'left' ? 'cv-badge-in' : 'cv-badge-current'">{{ $side === 'left' ? 'IN' : 'CURRENT' }}</span>
+                                    <span class="text-xs font-semibold cv-text-primary" x-text="compareViewerInspectionTypeName('{{ $side }}')"></span>
+                                    <span class="text-xs cv-mono cv-text-secondary" x-text="compareViewerInspectionDate('{{ $side }}')"></span>
+                                </div>
+                                <span class="cv-pill" :class="compareViewerConditionClass(compareViewerConditionFor('{{ $side }}'))" x-show="compareViewerConditionFor('{{ $side }}')" x-text="compareViewerConditionLabel(compareViewerConditionFor('{{ $side }}'))"></span>
+                            </div>
+                            <div class="relative compare-viewer-pane"
+                                 @wheel.prevent="compareViewerWheelZoom('{{ $side }}', $event)"
+                                 @mousedown="compareViewerDragStart('{{ $side }}', $event)"
+                                 @touchstart="compareViewerDragStart('{{ $side }}', $event)"
+                                 @dblclick="compareViewerDoubleClickReset('{{ $side }}')">
+                                <template x-if="compareViewerCurrentPhoto('{{ $side }}')">
+                                    <img :src="compareViewerCurrentPhoto('{{ $side }}').storage_path"
+                                         :style="compareViewerZoomStyle('{{ $side }}')"
                                          class="w-full h-full object-contain block select-none" draggable="false" alt="">
                                 </template>
-                                <template x-if="!compareViewerCurrentPhoto(side)">
+                                <template x-if="!compareViewerCurrentPhoto('{{ $side }}')">
                                     <div class="w-full h-full flex items-center justify-center compare-viewer-empty-pane">
                                         <span class="text-xs">Nothing yet</span>
                                     </div>
                                 </template>
-                                {{-- The "1 of 5" step control (Johan's own instinct,
-                                     approved) — only shown when this side's matched
-                                     group actually has more than one candidate here. --}}
-                                <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2 compare-viewer-step"
-                                     x-show="compareViewerCandidatesFor(side).length > 1">
-                                    <button type="button" @click.stop="compareViewerStep(side, -1)" class="text-sm font-semibold px-2">&larr;</button>
-                                    <span class="text-xs" x-text="compareViewerStepLabel(side)"></span>
-                                    <button type="button" @click.stop="compareViewerStep(side, 1)" class="text-sm font-semibold px-2">&rarr;</button>
+                                {{-- The "1 of 5" step control (Johan's own
+                                     instinct, approved) — shown only when this
+                                     side's matched group has 2+ candidates. --}}
+                                <div class="absolute bottom-2 left-2 flex items-center gap-2 compare-viewer-step"
+                                     x-show="compareViewerCandidatesFor('{{ $side }}').length > 1">
+                                    <button type="button" @click.stop="compareViewerStep('{{ $side }}', -1)" aria-label="Previous matched photo" class="cv-touch font-semibold">&larr;</button>
+                                    <span class="cv-mono text-xs" x-text="compareViewerStepLabel('{{ $side }}')"></span>
+                                    <button type="button" @click.stop="compareViewerStep('{{ $side }}', 1)" aria-label="Next matched photo" class="cv-touch font-semibold">&rarr;</button>
                                 </div>
+                                <div class="absolute bottom-2 right-2 flex items-center gap-1 compare-viewer-zoom-controls">
+                                    <button type="button" @click.stop="compareViewerZoomOutBtn('{{ $side }}')" aria-label="Zoom out" class="cv-touch font-bold">&minus;</button>
+                                    <span class="cv-mono text-xs px-1" x-text="compareViewerZoomPercent('{{ $side }}')"></span>
+                                    <button type="button" @click.stop="compareViewerZoomInBtn('{{ $side }}')" aria-label="Zoom in" class="cv-touch font-bold">&plus;</button>
+                                    <span class="cv-zoom-sep"></span>
+                                    <button type="button" @click.stop="compareViewerDoubleClickReset('{{ $side }}')" class="text-xs px-2 cv-touch">Fit</button>
+                                </div>
+                                <button type="button" @click.stop="compareViewer.primarySide = '{{ $side }}'; compareViewerSetMode('single')"
+                                        aria-label="Open this photo full screen"
+                                        x-show="compareViewerCurrentPhoto('{{ $side }}')"
+                                        class="absolute top-2 right-2 cv-touch rounded-full flex items-center justify-center text-white compare-viewer-close-btn">&#9974;</button>
                             </div>
+                            {{-- Tag bar (item 4c) — tagged vs untagged state. --}}
+                            <div class="flex items-center justify-between gap-2 px-3 cv-tagbar" x-show="compareViewerCurrentPhoto('{{ $side }}')">
+                                <template x-if="compareViewerCurrentPhoto('{{ $side }}') && (compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)">
+                                    <div class="flex items-center gap-2 text-xs min-w-0">
+                                        <span class="cv-dot cv-dot-good">&check;</span>
+                                        <span class="cv-text-secondary">Tagged to</span>
+                                        <span class="font-semibold cv-text-primary truncate" x-text="compareViewer.label"></span>
+                                    </div>
+                                </template>
+                                <template x-if="compareViewerCurrentPhoto('{{ $side }}') && !(compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)">
+                                    <div class="flex items-center gap-2 text-xs min-w-0">
+                                        <span class="cv-dot cv-dot-fair"></span>
+                                        <span class="cv-text-secondary truncate">Untagged — not linked to a space or item yet</span>
+                                    </div>
+                                </template>
+                                <button type="button" @click="compareViewerOpenTagPanel('{{ $side }}')" class="text-xs font-semibold px-3 cv-touch rounded-md flex-none"
+                                        :class="(compareViewerCurrentPhoto('{{ $side }}') && (compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)) ? 'compare-viewer-mode-btn' : 'compare-viewer-match-btn-active'"
+                                        x-text="(compareViewerCurrentPhoto('{{ $side }}') && (compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)) ? 'Retag' : 'Tag photo'"></button>
+                            </div>
+                            {{-- Dim this pane while the tag panel is open on
+                                 the OTHER side, so focus is obvious. --}}
+                            <div class="cv-dim-overlay" x-show="compareViewerTagPanel.open && compareViewerTagPanel.side !== '{{ $side }}'"></div>
+                        </div>
+                        @endforeach
+                    </div>
+
+                    {{-- 5) TWO THUMBNAIL RAILS — same 2-column grid as the panes. --}}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-px cv-rail-grid">
+                        @foreach(['left', 'right'] as $side)
+                        <div class="px-3 py-2 compare-viewer-side" :class="compareViewerMobileSide === '{{ $side }}' ? '' : 'compare-viewer-side-hide-mobile'">
+                            <div class="flex items-center justify-between cv-rail-label">
+                                <span class="text-xs font-semibold" :class="'{{ $side }}' === 'left' ? 'cv-text-secondary' : 'cv-accent'" x-text="compareViewerInspectionTypeName('{{ $side }}').toUpperCase() + '{{ $side === 'right' ? ' — CURRENT' : '' }}' + ' · ' + compareViewer.label"></span>
+                                <span class="cv-mono text-xs cv-text-secondary" x-text="(compareViewerCarouselPhotos('{{ $side }}').findIndex(p => p.id === compareViewer.{{ $side }}PhotoId) + 1) + ' of ' + compareViewerCarouselPhotos('{{ $side }}').length"></span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button type="button" @click="compareViewerStep('{{ $side }}', -1)" aria-label="Scroll thumbnails back" class="cv-touch flex-none" x-show="compareViewerCarouselPhotos('{{ $side }}').length > 1">&lsaquo;</button>
+                                <div class="flex items-center gap-2 overflow-x-auto compare-viewer-carousel py-1">
+                                    <template x-for="photo in compareViewerCarouselPhotos('{{ $side }}')" :key="'{{ $side }}-' + photo.id">
+                                        <button type="button" @click="compareViewerSelectCarouselPhoto(photo, '{{ $side }}')"
+                                                class="relative flex-none rounded overflow-hidden compare-viewer-thumb"
+                                                :class="compareViewer.{{ $side }}PhotoId === photo.id ? 'compare-viewer-thumb-active' : ''">
+                                            <img :src="photo.storage_path" class="cv-thumb-img object-cover block" alt="">
+                                            <span class="cv-untagged-dot" x-show="!photo.property_room_id && !photo.rental_inspection_observation_id"></span>
+                                        </button>
+                                    </template>
+                                </div>
+                                <button type="button" @click="compareViewerStep('{{ $side }}', 1)" aria-label="Scroll thumbnails forward" class="cv-touch flex-none" x-show="compareViewerCarouselPhotos('{{ $side }}').length > 1">&rsaquo;</button>
+                            </div>
+                        </div>
+                        @endforeach
+                    </div>
+                </div>
+
+                {{-- Tagging panel — anchored over whichever pane opened it,
+                     420px wide, two-column SPACE/ITEM picker. Reuses the
+                     SAME tag endpoints the recording screen's own chooser
+                     calls (compareViewerConfirmTag()) — not a second
+                     mechanism. --}}
+                <div class="cv-tagpanel" x-show="compareViewerTagPanel.open" x-cloak @click.stop
+                     :class="compareViewerTagPanel.side === 'right' ? 'cv-tagpanel-right' : 'cv-tagpanel-left'">
+                    <div class="flex items-center justify-between px-3 py-2 cv-tagpanel-head">
+                        <span class="text-xs font-semibold">Tag photo</span>
+                        <button type="button" @click="compareViewerCloseTagPanel()" aria-label="Cancel tagging" class="cv-touch">&times;</button>
+                    </div>
+                    <div class="grid grid-cols-2 gap-px cv-tagpanel-body">
+                        <div class="cv-tagpanel-col">
+                            <div class="text-xs font-semibold cv-text-secondary px-2 py-1">SPACE</div>
+                            <template x-for="group in compareViewerRoomTabs()" :key="'tp-room-' + group.room.id">
+                                <button type="button" @click="compareViewerTagPanel.pickedRoomId = group.room.id; compareViewerTagPanel.pickedItemId = null"
+                                        class="block w-full text-left text-xs px-2 py-2 cv-tagpanel-row"
+                                        :class="compareViewerTagPanel.pickedRoomId === group.room.id ? 'cv-tagpanel-row-active' : ''"
+                                        x-text="group.room.label"></button>
+                            </template>
+                        </div>
+                        <div class="cv-tagpanel-col">
+                            <div class="text-xs font-semibold cv-text-secondary px-2 py-1">ITEM</div>
+                            <button type="button" @click="compareViewerTagPanel.pickedItemId = null"
+                                    class="block w-full text-left text-xs px-2 py-2 cv-tagpanel-row"
+                                    :class="!compareViewerTagPanel.pickedItemId ? 'cv-tagpanel-row-active' : ''">Whole room</button>
+                            <template x-for="item in compareViewerTagPanelItems()" :key="'tp-item-' + item.id">
+                                <button type="button" @click="compareViewerTagPanel.pickedItemId = item.id"
+                                        class="block w-full text-left text-xs px-2 py-2 cv-tagpanel-row"
+                                        :class="compareViewerTagPanel.pickedItemId === item.id ? 'cv-tagpanel-row-active' : ''"
+                                        x-text="item.label"></button>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between gap-2 px-3 py-2 cv-tagpanel-foot">
+                        <span class="text-xs cv-text-secondary truncate">
+                            Tagging to
+                            <span class="font-semibold cv-text-primary" x-text="(compareViewerRoomTabs().find(g => g.room.id === compareViewerTagPanel.pickedRoomId)?.room.label || '') + (compareViewerTagPanel.pickedItemId ? ' › ' + (compareViewerTagPanelItems().find(i => i.id === compareViewerTagPanel.pickedItemId)?.label || '') : '')"></span>
+                        </span>
+                        <div class="flex items-center gap-2 flex-none">
+                            <button type="button" @click="compareViewerCloseTagPanel()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Cancel</button>
+                            <button type="button" @click="compareViewerConfirmTag()" :disabled="!compareViewerTagPanel.pickedRoomId" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-match-btn-active">Tag photo</button>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Untagged tray — bottom of the modal, multi-select then
+                     bulk-tag, identical behaviour to the recording screen's
+                     own tray. --}}
+                <div class="px-4 py-2 flex items-center gap-3 cv-untagged-tray" x-show="compareViewerUntaggedCount() > 0" @click.stop>
+                    <span class="text-xs font-semibold cv-text-secondary flex-none">UNTAGGED<br><span class="cv-text-secondary" style="font-weight:400;">Not yet linked to a space</span></span>
+                    <div class="flex items-center gap-2 overflow-x-auto flex-1">
+                        <template x-for="photo in compareViewerUntaggedPhotos()" :key="'untagged-' + photo.id">
+                            <button type="button" @click="compareViewerToggleUntaggedSelect(photo.id)"
+                                    class="relative flex-none rounded overflow-hidden cv-untagged-thumb"
+                                    :class="compareViewerUntaggedSelected[photo.id] ? 'cv-untagged-thumb-selected' : ''">
+                                <img :src="photo.storage_path" class="cv-untagged-thumb-img object-cover block" alt="">
+                            </button>
                         </template>
-                    </template>
-                </div>
-
-                <div class="px-4 py-3 flex justify-center" x-show="compareViewer.mode === 'compare' && compareViewer.leftPhotoId && compareViewer.rightPhotoId" @click.stop>
-                    <button type="button" @click="compareViewerMatch()"
-                            class="text-sm font-semibold px-4 py-2 rounded-md compare-viewer-match-btn"
-                            :class="compareViewerIsMatched() ? 'compare-viewer-match-btn-active' : ''"
-                            x-text="compareViewerIsMatched() ? 'Matched — unmatch' : 'Match photos'"></button>
-                </div>
-
-                {{-- The carousel — every photo from both sides of this room/
-                     item. Clicking one loads it into its own side AND
-                     brings its matched counterpart into the other (Johan,
-                     item 5 of his brief). Matching/unmatching also works
-                     straight from here (item 6) via the button above once
-                     a carousel click has both sides populated. --}}
-                <div class="px-4 py-3 flex gap-2 overflow-x-auto compare-viewer-carousel" @click.stop>
-                    <template x-for="photo in compareViewerCarouselPhotos()" :key="photo._side + '_' + photo.id">
-                        <button type="button" @click="compareViewerSelectCarouselPhoto(photo)"
-                                class="flex-none rounded-md overflow-hidden compare-viewer-thumb"
-                                :class="(compareViewer.leftPhotoId === photo.id || compareViewer.rightPhotoId === photo.id) ? 'compare-viewer-thumb-active' : ''">
-                            <img :src="photo.storage_path" class="w-16 h-16 object-cover block" alt="">
-                        </button>
-                    </template>
+                    </div>
+                    <div class="flex items-center gap-2 flex-none">
+                        <span class="text-xs cv-text-secondary">Select several, then tag them together</span>
+                        <button type="button" @click="compareViewerSelectAllUntagged()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Select all</button>
+                        <button type="button" @click="compareViewerBulkTagUntagged(compareViewer.roomId)" :disabled="!Object.keys(compareViewerUntaggedSelected).length" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-match-btn-active">Tag to <span x-text="compareViewerCurrentRoomGroup() ? compareViewerCurrentRoomGroup().room.label : 'room'"></span></button>
+                    </div>
                 </div>
             </div>
 
@@ -5521,11 +5632,8 @@
                 // below — this is the only state currentInspection() reads.
                 chainTail: config.inspectionData.chain_tail,
                 chainPredecessor: config.inspectionData.chain_predecessor,
-                // §20.15 — the two-panel compare view. Null/null when there is
-                // nothing yet to compare (only an in-inspection so far, the
-                // common case) — compareRight gates the whole section.
-                compareLeft: config.inspectionData.compare_left_inspection,
-                compareRight: config.inspectionData.compare_right_inspection,
+                // §20.16 — every match GROUP touching the current predecessor/
+                // tail pair (server-scoped — see RentalInspection::tabPayloadFor()).
                 photoMatches: config.inspectionData.photo_matches,
                 // .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 — read-only,
                 // never edited from here (a fault report is resolved from its
@@ -5591,95 +5699,6 @@
                     return this.photoUploaders[section];
                 },
 
-                // ── §20.15 — the two-panel compare view ──────────────────────
-                // Mirrors photoUploader() above but resolves the inspection
-                // from compareLeft/compareRight (mostRecentFor() on the
-                // server, completed-inclusive) instead of currentInspection()
-                // (currentFor(), which excludes completed) — by the time a
-                // second inspection exists to compare against, the
-                // in-inspection is almost always already completed, and
-                // currentInspection('in') would go null right when compare
-                // needs it most. Same shared corexPhotoBatchUploader
-                // component either way, just a different inspection source,
-                // so roomPhotos()/itemPhotos() work identically.
-                compareUploaders: {},
-                comparePhotoUploader(side) {
-                    const insp = side === 'left' ? this.compareLeft : this.compareRight;
-                    if (!insp) return null;
-                    if (!this.compareUploaders[side] || this.compareUploaders[side]._cpu_inspId !== insp.id) {
-                        const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}`;
-                        this.compareUploaders[side] = window.corexPhotoBatchUploader({
-                            csrf: this.csrf,
-                            uploadUrl: `${base}/photos`,
-                            tagUrl: (photoId) => `${base}/photos/${photoId}/tag`,
-                            tagBulkUrl: `${base}/photos/tag-bulk`,
-                            untagUrl: (photoId) => `${base}/photos/${photoId}/untag`,
-                            archiveUrl: (photoId) => `${base}/photos/${photoId}`,
-                            photos: insp.photos || [],
-                        });
-                        this.compareUploaders[side]._cpu_inspId = insp.id;
-                    }
-                    return this.compareUploaders[side];
-                },
-                // Item 2 — room's own general shots, one side. Rooms/items are
-                // property-wide (roomGroups() is the SAME list for both sides
-                // already), so alignment is automatic — this is the only part
-                // that differs per side, and it's a plain filter of that
-                // side's own photo pool.
-                compareRoomPhotos(side, room) {
-                    const uploader = this.comparePhotoUploader(side);
-                    return uploader && room ? uploader.roomPhotos(room.id) : [];
-                },
-                compareItemPhotos(side, item) {
-                    const uploader = this.comparePhotoUploader(side);
-                    const insp = side === 'left' ? this.compareLeft : this.compareRight;
-                    if (!uploader || !insp) return [];
-                    const obsIds = (insp.observations || [])
-                        .filter(o => o.rental_inspection_item_id === item.id)
-                        .map(o => o.id);
-                    return uploader.itemPhotos(obsIds);
-                },
-
-                // Item 3, Johan: "you cannot let both rotate together" — each
-                // side flips independently, keyed by side+row so Bedroom 1's
-                // own flip position never bleeds into Bedroom 2's. Item 4,
-                // Johan: "flip in to photo 1, flip out to photo 3, hit match
-                // and the photos move to stay together... afterwards" — the
-                // first time a row is shown, if the CURRENT (default index 0)
-                // photo on one side already has a persisted match to a photo
-                // on the other side, both indices jump straight to that pair
-                // instead of sitting at an arbitrary 0/0 — this is what makes
-                // a matched pair "stay together" on later views.
-                compareIndex: {},
-                compareIndexes(key, leftPhotos, rightPhotos) {
-                    const lk = 'left_' + key, rk = 'right_' + key;
-                    if (!(lk in this.compareIndex) && !(rk in this.compareIndex)) {
-                        for (let li = 0; li < leftPhotos.length; li++) {
-                            const partnerId = this.matchPartnerId(leftPhotos[li].id);
-                            if (!partnerId) continue;
-                            const ri = rightPhotos.findIndex(p => p.id === partnerId);
-                            if (ri !== -1) {
-                                this.compareIndex[lk] = li;
-                                this.compareIndex[rk] = ri;
-                                break;
-                            }
-                        }
-                    }
-                    return { left: this.compareIndex[lk] || 0, right: this.compareIndex[rk] || 0 };
-                },
-                compareCurrentPhoto(side, key, photos) {
-                    if (!photos.length) return null;
-                    const idx = this.compareIndex[side + '_' + key] || 0;
-                    return photos[Math.min(idx, photos.length - 1)];
-                },
-                compareFlip(side, key, photos, delta) {
-                    if (!photos.length) return;
-                    const cur = this.compareIndex[side + '_' + key] || 0;
-                    let next = (cur + delta) % photos.length;
-                    if (next < 0) next += photos.length;
-                    this.compareIndex[side + '_' + key] = next;
-                },
-
                 // §20.16 — persisted match/unmatch, evidence-weight audit
                 // (added_by_user_id/added_at, removed_by_user_id — server
                 // side, RentalInspectionPhotoMatchGroup/...GroupMember). A
@@ -5697,8 +5716,9 @@
                     if (!group) return null;
                     return group.members.some(m => m.photo_id === otherPhotoId) ? group : null;
                 },
-                // First OTHER member of photoId's group, if any — what makes
-                // a matched set "stay together" on later views (compareIndexes()).
+                // First OTHER member of photoId's group, if any — used by
+                // openCompareViewer()/compareViewerSelectCarouselPhoto() to
+                // load the matched counterpart on the opposite side.
                 matchPartnerId(photoId) {
                     const group = this.groupForPhoto(photoId);
                     if (!group) return null;
@@ -5745,28 +5765,22 @@
                     }
                 },
 
-                // Item 7 — one side visible at a time at phone width (Johan:
-                // "two panels side by side will not work at 390px... one
-                // panel at a time with a way to switch sides"), both visible
-                // side by side from sm: up.
-                compareMobileSide: 'left',
-
-                // Item 5 — expand to a bigger view for the same row (room or
-                // item), same flip/match controls, just more room. Shares the
-                // exact same compareIndex/photoMatches state as the inline
-                // row — flipping or matching in the viewer is visible in the
-                // compact row underneath immediately, and vice versa.
-                //
-                // §20.16, 2026-09-23 — the full-screen photo viewer replaces
-                // the old compareModal (same trigger points: the compact
-                // row's expand click). Johan: "if the photos are clicked to
-                // display in full there should be 2 views, and a carousal
-                // at the bottom — 1 view is this photo that was clicked
-                // view, the next view is a side by side comparison view."
+                // §20.17, 2026-09-24, Johan — the standalone Compare section
+                // is gone (the inline rows above, deleted). Comparison now
+                // happens in exactly ONE place: this viewer, opened from a
+                // photo on the side-by-side predecessor/tail screen (cc3's
+                // panel). "the modal that loads should carry the
+                // functionality, not a complete compare section." Entry
+                // point is openCompareViewer(photo, insp) — insp is
+                // whichever of chainPredecessor/chainTail the clicked photo
+                // belongs to; cc3's panel already has both in scope at every
+                // photo it renders (rental-inspection-readonly-panel.blade.php's
+                // own $inspectionJs var) and calls this directly.
                 compareViewer: {
-                    open: false, mode: 'single', kind: null, room: null, item: null, key: null,
+                    open: false, mode: 'compare',
+                    kind: null, roomId: null, itemId: null, label: '',
                     leftPhotoId: null, rightPhotoId: null,
-                    primarySide: 'left', // which side's photo single-mode shows — whichever was clicked most recently
+                    primarySide: 'left',
                     zoomLocked: false,
                     step: { left: 0, right: 0 }, // which candidate is shown when a group has 2+ members on that side
                 },
@@ -5777,22 +5791,55 @@
                 compareViewerZoomLeft: { scale: 1, tx: 0, ty: 0 },
                 compareViewerZoomRight: { scale: 1, tx: 0, ty: 0 },
                 compareViewerZoomShared: { scale: 1, tx: 0, ty: 0 },
-                openCompareViewer(kind, key, room, item) {
-                    const leftPhotos = kind === 'room' ? this.compareRoomPhotos('left', room) : this.compareItemPhotos('left', item);
-                    const rightPhotos = kind === 'room' ? this.compareRoomPhotos('right', room) : this.compareItemPhotos('right', item);
-                    this.compareIndexes(key, leftPhotos, rightPhotos); // reuses the existing "stay together" jump
-                    const leftPhoto = this.compareCurrentPhoto('left', key, leftPhotos);
-                    const rightPhoto = this.compareCurrentPhoto('right', key, rightPhotos);
+                // Which room (untagged photo) or item (tagged-to-an-
+                // observation photo) a clicked photo belongs to — every
+                // photo already carries property_room_id and, if
+                // item-tagged, rental_inspection_observation_id (the exact
+                // shape §20.15.9 already relied on), so this needs no new
+                // field on the photo itself.
+                _compareViewerContextFor(photo, insp) {
+                    if (photo.rental_inspection_observation_id) {
+                        const obs = ((insp && insp.observations) || []).find(o => o.id === photo.rental_inspection_observation_id);
+                        return { kind: 'item', itemId: obs ? obs.rental_inspection_item_id : null };
+                    }
+                    return { kind: 'room', roomId: photo.property_room_id || null };
+                },
+                _compareViewerLabelFor(kind, roomId, itemId) {
+                    const groups = this.roomGroups();
+                    for (const group of groups) {
+                        if (kind === 'room' && group.room && group.room.id === roomId) return group.room.label;
+                        if (kind === 'item') {
+                            const item = (group.items || []).find(i => i.id === itemId);
+                            if (item) return (group.room ? group.room.label + ' — ' : '') + item.label;
+                        }
+                    }
+                    return kind === 'room' ? 'Room' : 'Item';
+                },
+                openCompareViewer(photo, insp) {
+                    const isTail = this.chainTail && insp && insp.id === this.chainTail.id;
+                    const side = isTail ? 'right' : 'left';
+                    const otherSide = isTail ? 'left' : 'right';
+                    const otherInsp = isTail ? this.chainPredecessor : this.chainTail;
+                    const ctx = this._compareViewerContextFor(photo, insp);
+                    const label = this._compareViewerLabelFor(ctx.kind, ctx.roomId, ctx.itemId);
+
                     this.compareViewer = {
-                        open: true, kind, key, room: room || null, item: item || null,
-                        mode: (leftPhoto && rightPhoto) ? 'compare' : 'single',
-                        leftPhotoId: leftPhoto ? leftPhoto.id : null,
-                        rightPhotoId: rightPhoto ? rightPhoto.id : null,
-                        primarySide: leftPhoto ? 'left' : 'right',
+                        open: true, mode: 'compare',
+                        kind: ctx.kind, roomId: ctx.roomId || null, itemId: ctx.itemId || null, label,
+                        leftPhotoId: null, rightPhotoId: null,
+                        primarySide: side,
                         zoomLocked: false,
                         step: { left: 0, right: 0 },
                     };
-                    this.compareViewerMobileSide = 'left';
+                    this.compareViewer[side + 'PhotoId'] = photo.id;
+
+                    if (otherInsp) {
+                        const candidates = this.compareViewerGroupSideMembers(photo.id, otherInsp.id);
+                        if (candidates.length) {
+                            this.compareViewer[otherSide + 'PhotoId'] = candidates[0].photo_id;
+                        }
+                    }
+                    this.compareViewerMobileSide = side;
                     this.compareViewerResetZoom();
                 },
                 closeCompareViewer() { this.compareViewer.open = false; },
@@ -5802,38 +5849,47 @@
                     this.compareViewerZoomRight = { scale: 1, tx: 0, ty: 0 };
                     this.compareViewerZoomShared = { scale: 1, tx: 0, ty: 0 };
                 },
-                // Every photo from BOTH sides of the room/item the viewer was
-                // opened from — the carousel's own scope. Judgement call
-                // (raised, not overridden, in the design report): matches
-                // the row/context the agent was already looking at, rather
-                // than every photo in the whole inspection.
-                compareViewerCarouselPhotos() {
-                    if (!this.compareViewer.open) return [];
-                    const left = this.compareViewer.kind === 'room' ? this.compareRoomPhotos('left', this.compareViewer.room) : this.compareItemPhotos('left', this.compareViewer.item);
-                    const right = this.compareViewer.kind === 'room' ? this.compareRoomPhotos('right', this.compareViewer.room) : this.compareItemPhotos('right', this.compareViewer.item);
-                    return left.map(p => ({ ...p, _side: 'left' })).concat(right.map(p => ({ ...p, _side: 'right' })));
+                // A carousel PER SIDE (Johan, 2026-09-24 — replacing the
+                // earlier single shared strip): every photo for the current
+                // room/item, scoped to THAT side's own inspection
+                // (chainPredecessor for left, chainTail for right) — reuses
+                // cc3's own roomPhotosForInspection()/conditionForInspection()
+                // rather than a second, parallel data path. The storage_path
+                // guard is what stops a stray/broken entry rendering as a
+                // blank tile.
+                compareViewerPhotosForSide(side) {
+                    const insp = side === 'left' ? this.chainPredecessor : this.chainTail;
+                    if (!insp) return [];
+                    const photos = this.compareViewer.kind === 'room'
+                        ? this.roomPhotosForInspection(insp, this.compareViewer.roomId)
+                        : ((this.conditionForInspection(insp, this.compareViewer.itemId) || {}).photos || []);
+                    return (photos || []).filter(p => p && p.storage_path);
+                },
+                compareViewerCarouselPhotos(side) {
+                    return this.compareViewer.open ? this.compareViewerPhotosForSide(side) : [];
                 },
                 compareViewerPhotoById(id) {
-                    return this.compareViewerCarouselPhotos().find(p => p.id === id) || null;
+                    if (!id) return null;
+                    return this.compareViewerCarouselPhotos('left').find(p => p.id === id)
+                        || this.compareViewerCarouselPhotos('right').find(p => p.id === id)
+                        || null;
                 },
                 // Clicking a carousel photo loads it into ITS OWN side, and
                 // its matched group's members into the other — Johan: "if I
                 // click a photo either side of the carousel it not only
                 // loads that photo into view, it also loads the tagged
                 // photo on the other side."
-                compareViewerSelectCarouselPhoto(photo) {
-                    const side = photo._side;
+                compareViewerSelectCarouselPhoto(photo, side) {
                     const otherSide = side === 'left' ? 'right' : 'left';
                     this.compareViewer[side + 'PhotoId'] = photo.id;
                     this.compareViewer.primarySide = side;
                     this.compareViewer.step[side] = 0;
 
-                    const otherInspId = otherSide === 'left' ? (this.compareLeft && this.compareLeft.id) : (this.compareRight && this.compareRight.id);
-                    const candidates = this.compareViewerGroupSideMembers(photo.id, otherInspId);
+                    const otherInsp = otherSide === 'left' ? this.chainPredecessor : this.chainTail;
+                    const candidates = otherInsp ? this.compareViewerGroupSideMembers(photo.id, otherInsp.id) : [];
                     if (candidates.length) {
                         this.compareViewer[otherSide + 'PhotoId'] = candidates[0].photo_id;
                         this.compareViewer.step[otherSide] = 0;
-                        this.compareViewer.mode = 'compare';
                     }
                     this.compareViewerResetZoom();
                 },
@@ -5849,8 +5905,8 @@
                 },
                 compareViewerCandidatesFor(side) {
                     const anchorId = side === 'left' ? this.compareViewer.rightPhotoId : this.compareViewer.leftPhotoId;
-                    const wantInspId = side === 'left' ? (this.compareLeft && this.compareLeft.id) : (this.compareRight && this.compareRight.id);
-                    return this.compareViewerGroupSideMembers(anchorId, wantInspId);
+                    const wantInsp = side === 'left' ? this.chainPredecessor : this.chainTail;
+                    return wantInsp ? this.compareViewerGroupSideMembers(anchorId, wantInsp.id) : [];
                 },
                 compareViewerCurrentPhoto(side) {
                     const id = this.compareViewer[side + 'PhotoId'];
@@ -5869,6 +5925,31 @@
                     const candidates = this.compareViewerCandidatesFor(side);
                     return candidates.length > 1 ? ((this.compareViewer.step[side] || 0) + 1) + ' of ' + candidates.length : '';
                 },
+                // The pane header (mockup, 2026-09-24, Johan-approved):
+                // badge + inspection NAME + date as separate elements, not
+                // one combined string — "IN"/"CURRENT" badge (never "OUT":
+                // "the chain can run In -> Routine -> Out, so the right
+                // pane is not always an out-inspection"), name, date in
+                // mono. Room/item label is the SAME on both sides (it is
+                // the same room/item being compared) — compareViewer.label.
+                compareViewerInspectionFor(side) {
+                    return side === 'left' ? this.chainPredecessor : this.chainTail;
+                },
+                compareViewerInspectionTypeName(side) {
+                    const insp = this.compareViewerInspectionFor(side);
+                    if (!insp) return 'Nothing yet';
+                    const typeLabel = insp.type === 'out' ? 'Out' : (insp.type === 'in' ? 'In' : 'Routine');
+                    return typeLabel + '-inspection';
+                },
+                compareViewerInspectionDate(side) {
+                    const insp = this.compareViewerInspectionFor(side);
+                    return insp ? (insp.scheduled_for || '') : '';
+                },
+                compareViewerPaneInspectionLabel(side) {
+                    const insp = this.compareViewerInspectionFor(side);
+                    if (!insp) return 'Nothing yet';
+                    return this.compareViewerInspectionTypeName(side) + (insp.scheduled_for ? ' — ' + insp.scheduled_for : '');
+                },
                 // Match/unmatch straight from the viewer/carousel, without
                 // leaving it (item 6, approved).
                 async compareViewerMatch() {
@@ -5882,13 +5963,17 @@
                     return !!this.matchFor(this.compareViewer.leftPhotoId, this.compareViewer.rightPhotoId);
                 },
                 // ── Forensic zoom/pan (item 3/4, approved) ───────────────────
-                // Real continuous zoom+pan, cursor/touch-anchored so zooming
-                // in on a mark doesn't immediately require panning to find
-                // it again. Locked mode (opt-in per session, default off)
-                // shares ONE transform between both sides — drag one, both
-                // move — for the same-wall-same-spot case; independent
-                // otherwise, since two shots of "the same thing" are rarely
-                // framed identically.
+                // Real continuous zoom+pan: wheel/pinch, drag to pan, PLUS
+                // explicit +/- /reset buttons (2026-09-24 — a lock toggle
+                // with no visible zoom control is not a zoom feature).
+                // Cursor/touch-anchored on wheel so zooming in on a mark
+                // doesn't immediately require panning to find it again;
+                // button zoom anchors on the pane's own center, since there
+                // is no cursor position to anchor to. Locked mode (opt-in
+                // per session, default off) shares ONE transform between
+                // both sides — drag or zoom either one, both move — for the
+                // same-wall-same-spot case; independent otherwise, since two
+                // shots of "the same thing" are rarely framed identically.
                 _compareViewerZoomState(side) {
                     return this.compareViewer.zoomLocked ? this.compareViewerZoomShared : (side === 'left' ? this.compareViewerZoomLeft : this.compareViewerZoomRight);
                 },
@@ -5902,19 +5987,23 @@
                     }
                     this.compareViewer.zoomLocked = !this.compareViewer.zoomLocked;
                 },
-                compareViewerWheelZoom(side, event) {
-                    event.preventDefault();
+                compareViewerZoomBy(side, factor, anchorPx, anchorPy) {
                     const z = this._compareViewerZoomState(side);
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    const px = event.clientX - rect.left;
-                    const py = event.clientY - rect.top;
-                    const factor = event.deltaY < 0 ? 1.15 : (1 / 1.15);
                     const newScale = Math.min(6, Math.max(1, z.scale * factor));
-                    // keep the point under the cursor fixed while scaling.
+                    const px = anchorPx === undefined ? 0 : anchorPx;
+                    const py = anchorPy === undefined ? 0 : anchorPy;
                     z.tx = px - (px - z.tx) * (newScale / z.scale);
                     z.ty = py - (py - z.ty) * (newScale / z.scale);
                     z.scale = newScale;
                     if (newScale <= 1) { z.tx = 0; z.ty = 0; }
+                },
+                compareViewerZoomInBtn(side) { this.compareViewerZoomBy(side, 1.3); },
+                compareViewerZoomOutBtn(side) { this.compareViewerZoomBy(side, 1 / 1.3); },
+                compareViewerWheelZoom(side, event) {
+                    event.preventDefault();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const factor = event.deltaY < 0 ? 1.15 : (1 / 1.15);
+                    this.compareViewerZoomBy(side, factor, event.clientX - rect.left, event.clientY - rect.top);
                 },
                 _compareViewerDrag: { active: false, side: null, startX: 0, startY: 0, startTx: 0, startTy: 0 },
                 compareViewerDragStart(side, event) {
@@ -5933,6 +6022,171 @@
                 compareViewerDoubleClickReset(side) {
                     const z = this._compareViewerZoomState(side);
                     z.scale = 1; z.tx = 0; z.ty = 0;
+                },
+                compareViewerZoomPercent(side) {
+                    return Math.round(this._compareViewerZoomState(side).scale * 100) + '%';
+                },
+
+                // ── §20.17 mockup, 2026-09-24, Johan-approved — room/item
+                // navigation WITHOUT closing the modal. "SPACE" tabs are
+                // every real room on the property; the "ITEM" row is the
+                // selected room's own items, plus a synthetic "Whole room"
+                // entry (itemId null) for that room's general photos —
+                // matching the tagging panel's own "Whole room" option.
+                compareViewerRoomTabs() {
+                    return this.roomGroups().filter(g => g.room);
+                },
+                compareViewerCurrentRoomGroup() {
+                    return this.compareViewerRoomTabs().find(g => g.room.id === this.compareViewer.roomId) || null;
+                },
+                compareViewerSelectRoom(roomId) {
+                    this.compareViewer.roomId = roomId;
+                    this.compareViewerSelectItem(null);
+                },
+                compareViewerSelectItem(itemId) {
+                    const group = this.compareViewerCurrentRoomGroup();
+                    this.compareViewer.kind = itemId ? 'item' : 'room';
+                    this.compareViewer.itemId = itemId;
+                    this.compareViewer.label = itemId
+                        ? this._compareViewerLabelFor('item', null, itemId)
+                        : (group ? group.room.label : '');
+                    this.compareViewer.leftPhotoId = null;
+                    this.compareViewer.rightPhotoId = null;
+                    this.compareViewer.step = { left: 0, right: 0 };
+
+                    const leftPhotos = this.compareViewerPhotosForSide('left');
+                    const rightPhotos = this.compareViewerPhotosForSide('right');
+                    if (leftPhotos.length) this.compareViewer.leftPhotoId = leftPhotos[0].id;
+                    if (rightPhotos.length) this.compareViewer.rightPhotoId = rightPhotos[0].id;
+                    // Prefer the LEFT photo's actual match over an arbitrary
+                    // "first photo" pairing, same rule openCompareViewer() uses.
+                    if (this.compareViewer.leftPhotoId && this.chainTail) {
+                        const candidates = this.compareViewerGroupSideMembers(this.compareViewer.leftPhotoId, this.chainTail.id);
+                        if (candidates.length) this.compareViewer.rightPhotoId = candidates[0].photo_id;
+                    }
+                    this.compareViewerResetZoom();
+                },
+                // The chip's own "2 / 1" count — IN side / CURRENT side.
+                compareViewerChipCounts(itemId) {
+                    const countFor = (insp) => {
+                        if (!insp) return 0;
+                        if (!itemId) return this.roomPhotosForInspection(insp, this.compareViewer.roomId).length;
+                        return ((this.conditionForInspection(insp, itemId) || {}).photos || []).length;
+                    };
+                    return countFor(this.chainPredecessor) + ' / ' + countFor(this.chainTail);
+                },
+                // Generic mapping over an agency-configurable condition
+                // vocabulary (conditionStates) — 'good' and anything
+                // containing "damag" get their own colour, everything else
+                // (fair/not working/missing/other/n_a) shares the amber
+                // "needs a look" colour, same bucket the mockup gives
+                // "untagged" too.
+                compareViewerConditionClass(conditionKey) {
+                    if (conditionKey === 'good') return 'cv-pill-good';
+                    if (conditionKey && conditionKey.indexOf('damag') !== -1) return 'cv-pill-damaged';
+                    return 'cv-pill-fair';
+                },
+                compareViewerConditionFor(side) {
+                    if (this.compareViewer.kind !== 'item' || !this.compareViewer.itemId) return null;
+                    const insp = side === 'left' ? this.chainPredecessor : this.chainTail;
+                    const obs = this.conditionForInspection(insp, this.compareViewer.itemId);
+                    return obs ? obs.condition : null;
+                },
+                compareViewerConditionLabel(conditionKey) {
+                    const state = (this.conditionStates || []).find(c => c.key === conditionKey);
+                    return state ? state.label : (conditionKey ? conditionKey.replace('_', ' ') : '');
+                },
+                // How many untagged photos exist on the CURRENT (tail)
+                // inspection — the top-bar amber pill.
+                compareViewerUntaggedCount() {
+                    if (!this.chainTail) return 0;
+                    return (this.chainTail.photos || []).filter(p => !p.property_room_id && !p.rental_inspection_observation_id).length;
+                },
+                compareViewerUntaggedPhotos() {
+                    if (!this.chainTail) return [];
+                    return (this.chainTail.photos || []).filter(p => !p.property_room_id && !p.rental_inspection_observation_id);
+                },
+
+                // ── Tagging, from the modal — reuses the SAME endpoints the
+                // recording screen's own tray/chooser already call
+                // (RentalInspectionRecordingController::tagPhoto/
+                // tagPhotosBulk/untagPhoto), not a second mechanism. An item
+                // with no observation recorded yet on that inspection has
+                // no observation id to tag a photo TO (the endpoint
+                // requires one, same constraint the recording screen's own
+                // camera control already works around) — the picker only
+                // lists items that already have one; "Whole room" always
+                // works since it needs no observation at all.
+                compareViewerTagPanel: { open: false, side: null, photoId: null, pickedRoomId: null, pickedItemId: null },
+                compareViewerOpenTagPanel(side) {
+                    const photoId = this.compareViewer[side + 'PhotoId'];
+                    if (!photoId) return;
+                    this.compareViewerTagPanel = {
+                        open: true, side, photoId,
+                        pickedRoomId: this.compareViewer.roomId,
+                        pickedItemId: this.compareViewer.kind === 'item' ? this.compareViewer.itemId : null,
+                    };
+                },
+                compareViewerCloseTagPanel() {
+                    this.compareViewerTagPanel = { open: false, side: null, photoId: null, pickedRoomId: null, pickedItemId: null };
+                },
+                compareViewerTagPanelItems() {
+                    const group = this.compareViewerRoomTabs().find(g => g.room.id === this.compareViewerTagPanel.pickedRoomId);
+                    if (!group) return [];
+                    const insp = this.compareViewerTagPanel.side === 'left' ? this.chainPredecessor : this.chainTail;
+                    return (group.items || []).filter(item => this.conditionForInspection(insp, item.id));
+                },
+                async compareViewerConfirmTag() {
+                    const panel = this.compareViewerTagPanel;
+                    if (!panel.photoId || !panel.pickedRoomId) return;
+                    const insp = panel.side === 'left' ? this.chainPredecessor : this.chainTail;
+                    if (!insp) return;
+                    const fields = { property_room_id: panel.pickedRoomId };
+                    if (panel.pickedItemId) {
+                        const obs = this.conditionForInspection(insp, panel.pickedItemId);
+                        if (obs) fields.rental_inspection_observation_id = obs.id;
+                    }
+                    const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}`;
+                    const res = await this._post(`${base}/photos/${panel.photoId}/tag`, fields);
+                    this._compareViewerReplacePhotoInInsp(insp, res);
+                    this.compareViewerCloseTagPanel();
+                    this.compareViewerSelectItem(this.compareViewer.itemId);
+                },
+                // The tag/untag/bulk-tag endpoints return the updated
+                // photo(s) — patch them into chainPredecessor/chainTail's
+                // own .photos array in place, the same "replace, don't
+                // refetch everything" pattern corex-photo-batch-uploader.js
+                // already uses for the recording screen.
+                _compareViewerReplacePhotoInInsp(insp, updatedPhoto) {
+                    if (!insp || !insp.photos) return;
+                    const idx = insp.photos.findIndex(p => p.id === updatedPhoto.id);
+                    if (idx !== -1) insp.photos[idx] = updatedPhoto; else insp.photos.push(updatedPhoto);
+                    if (insp.observations) {
+                        insp.observations.forEach(o => {
+                            o.photos = (o.photos || []).filter(p => p.id !== updatedPhoto.id);
+                            if (o.id === updatedPhoto.rental_inspection_observation_id) o.photos.push(updatedPhoto);
+                        });
+                    }
+                },
+
+                // ── Untagged tray — bottom of the modal, multi-select then
+                // bulk-tag, identical behaviour to the recording screen's
+                // own tray (tagPhotosBulk).
+                compareViewerUntaggedSelected: {},
+                compareViewerToggleUntaggedSelect(photoId) {
+                    if (this.compareViewerUntaggedSelected[photoId]) delete this.compareViewerUntaggedSelected[photoId];
+                    else this.compareViewerUntaggedSelected[photoId] = true;
+                },
+                compareViewerSelectAllUntagged() {
+                    this.compareViewerUntaggedPhotos().forEach(p => { this.compareViewerUntaggedSelected[p.id] = true; });
+                },
+                async compareViewerBulkTagUntagged(roomId) {
+                    const ids = Object.keys(this.compareViewerUntaggedSelected).map(Number);
+                    if (!ids.length || !roomId || !this.chainTail) return;
+                    const base = `${this.inspectionUrls.inspectionsBase}/${this.chainTail.id}`;
+                    const res = await this._post(`${base}/photos/tag-bulk`, { photo_ids: ids, property_room_id: roomId });
+                    (res.photos || []).forEach(p => this._compareViewerReplacePhotoInInsp(this.chainTail, p));
+                    this.compareViewerUntaggedSelected = {};
                 },
 
                 // Item 1 — the item camera control: multiple files, tagged
@@ -6271,12 +6525,12 @@
 
                 // FIX, 2026-09-22, Johan: "the screen does not refresh after
                 // starting an out inspection" — starting the SECOND
-                // inspection on a property is exactly the moment the Compare
-                // section should first appear, and hand-patching a handful of
-                // fields on the POST response never touched compareLeft/
-                // compareRight/photoMatches (or anything else added to the
-                // payload later). Refetch the canonical tab payload instead
-                // of trying to keep two response shapes in sync by hand.
+                // inspection on a property is exactly the moment chainTail/
+                // chainPredecessor/photoMatches first become meaningful, and
+                // hand-patching a handful of fields on the POST response
+                // never touched them (or anything else added to the payload
+                // later). Refetch the canonical tab payload instead of
+                // trying to keep two response shapes in sync by hand.
                 async startInspection(section) {
                     this.startBusy[section] = true;
                     this.startError[section] = '';
@@ -6317,8 +6571,6 @@
                     this.refusalReasonPresets = data.refusal_reason_presets;
                     this.outInspectionRecorded = data.out_inspection_recorded;
                     this.conditionStates = data.condition_states;
-                    this.compareLeft = data.compare_left_inspection;
-                    this.compareRight = data.compare_right_inspection;
                     this.photoMatches = data.photo_matches;
                 },
 
@@ -6338,11 +6590,12 @@
                 // both happen to share a type (two ad-hoc links back to
                 // back in a longer chain) — this is why these exist as
                 // separate functions rather than section-string overloads
-                // of the ones above. Read-only: no photoUploader instance,
-                // nothing here uploads, tags, or matches — that stays
-                // cc2's own comparePhotoUploader()/compareLeft/
-                // compareRight territory above, untouched. Each
-                // observation already carries its own .photos (tabPayloadFor()'s
+                // of the ones above. Read-only here: no photoUploader
+                // instance, nothing here uploads, tags, or matches — 2026-
+                // 09-24, these two are now ALSO the compare viewer's own
+                // data source (compareViewerPhotosForSide(), §20.17) rather
+                // than a second, parallel query path. Each observation
+                // already carries its own .photos (tabPayloadFor()'s
                 // 'observations.photos' eager-load), so item photos need
                 // no separate lookup at all — only room-level (untagged-to-
                 // item) photos need their own filter, mirroring

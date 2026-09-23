@@ -2719,82 +2719,157 @@ who matched them, when) is fully represented in the new shape; the only semantic
 transitively-connected chain now shows as one group instead of being invisible to itself, which is a
 correction to a real gap, not a loss.
 
-### 20.16.4 The viewer — two modes, real zoom/pan, a carousel
+### 20.16.4 SUPERSEDED by §20.17
 
-Replaces §20.15.6's `compareModal` at the exact same trigger (the compact row's expand click) —
-`openCompareViewer()`/`compareViewer` state, deliberately NOT named `viewer`/`openViewer`: this same
-Alpine component already owns a DIFFERENT `viewer`/`openViewer()`/`viewerPrev()`/`viewerNext()` for the
-unrelated rental-images gallery lightbox (found during investigation, not assumed) — reusing the bare
-name would have silently clobbered it.
+The first version of the viewer (two modes, a single shared carousel, opened from a standalone "Compare —
+In vs Out" section) shipped, was reviewed live on QA1, and was found not to match what Johan actually
+needed — see §20.17 for the full replacement, the defects found, and the mockup it was rebuilt against.
+That standalone Compare section no longer exists at all (§20.17.1).
 
-- **Single view** — the clicked photo, large, still zoomable.
-- **Compare view** — two panels side by side, each independently zoomable/pannable (approved item 3/4).
-- **Zoom/pan** — real continuous scale (1×–6×) and drag, cursor/touch-anchored (zooming in on a mark
-  doesn't immediately require re-panning to find it) via `compareViewerWheelZoom()`/
-  `compareViewerDragStart/Move/End()`. **Lock toggle, approved, default OFF (opt-in per session, not a
-  stored setting)**: independent by default since two shots of "the same thing" are rarely framed
-  identically; when locked, both panels share ONE transform (`compareViewerZoomShared`) — drag one, both
-  move — for the same-wall-same-spot case Johan described ("is that mark new").
-- **Carousel** — every photo from both sides of the room/item the viewer was opened from (a judgement
-  call, raised rather than decided unilaterally: matches the context the agent was already looking at,
-  not the whole inspection — Johan did not override this). Clicking a carousel photo loads it into its
-  own side AND its matched group's members into the other (`compareViewerSelectCarouselPhoto()`). Where
-  the other side's group has more than one candidate, Johan's own instinct — approved — shows the first
-  with a small step control (`compareViewerStep()`, "N of M", reusing the exact stepper pattern §20.15.5
-  already established for independent per-side flipping, not a new control).
-- **Match/unmatch from the carousel** (approved item 6) — `compareViewerMatch()` calls the same
-  `toggleCompareMatch()` the compact row already uses, now group-aware (`groupForPhoto()`/`matchFor()`
-  answer "are these two specific photos in the same group right now," `_applyGroupPatch()` reconciles
-  local state so a photo that just MOVED to a new group disappears from its old one client-side too, not
-  only server-side).
+---
 
-**Phone decision (Johan's to leave to judgement):** one panel at a time with a toggle, reusing §20.15.8's
-own established precedent (`compareMobileSide`) rather than inventing a second mobile paradigm for the
-same underlying problem — "two panels side by side will not work at 390px" is exactly as true in the
-full-screen viewer as it was in the compact row. `compareViewerMobileSide` toggles which side is visible
-below the `sm:` breakpoint; the carousel itself is naturally swipeable/scrollable regardless of screen
-width, so switching-which-side and flipping-through-photos don't collide as gestures.
+## 20.17 The compare viewer rebuilt to Johan's approved mockup (2026-09-24, cc2)
 
-**Alpine `:style` trap** — every static declaration for the viewer (backdrop, buttons, panes, thumbnails)
-lives in a CSS class (`.compare-viewer-*`, in `show.blade.php`'s own `<style>` block, which already
-carries the prior `.toggle-knob` fix and its own note on this exact trap). `:style` is used for exactly
-one thing, the zoom/pan transform (`compareViewerZoomStyle()`), which always returns a non-empty string
-and is never co-located with a static `style="..."` on the same element.
+Two rounds of live review on QA1 (property 5792) found the first version of the viewer (§20.16.4) did not
+work and did not match the spec: compare mode showed "Nothing yet" on one side while a matched photo
+existed, the two panes were different sizes with the right image clipped, one carousel was shared instead
+of one per side, a stray blank tile rendered in the carousel, the site's own top banner showed through the
+modal's toolbar, and "zoom" was a lock toggle with no actual zoom control. Johan then approved a full
+mockup and said to build to it exactly — that mockup is now this spec.
 
-### 20.16.5 Scoping
+### 20.17.1 The standalone Compare section is deleted
 
-Same pattern as the table it replaces: `agency_id` (`BelongsToAgency`) plus denormalized `property_id` on
-both new tables, checked in the controller (`storePhotoMatch`/`destroyPhotoMatch` — both photos, or the
-membership's own group, must belong to the request's own property; 404 otherwise). No new agency-
-configurable setting was added — considered and declined: group-membership rules (one group per photo),
-zoom bounds (1×–6×), and carousel scope are fixed UX/behavioral decisions, not something an agency would
-reasonably want to vary, unlike (for example) the OMR mark threshold elsewhere in this spec.
+Johan: "im not sure why we are still stuffing around with a compare section. it should work from the next
+inspection screen... the modal that loads should carry the functionality, not a complete compare
+section." The entire §20.15/§20.16.4 inline "Compare — In vs Out" collapsible section — its two-column
+photo rows, per-row carousels, flip arrows, and inline match button — is removed from `show.blade.php`
+outright, along with every JS method that existed only to render it (`compareRoomPhotos`,
+`compareItemPhotos`, `comparePhotoUploader`, `compareUploaders`, `compareIndex`/`compareIndexes`,
+`compareCurrentPhoto`, `compareFlip`, `compareMobileSide`, and the `compareLeft`/`compareRight` JS state
+that fed it). Comparison now happens in exactly one place: the viewer below, opened from a photo on
+cc3's side-by-side predecessor/tail screen. `compareLeft`/`compareRight` as a JS concept is gone; the
+viewer reads `chainPredecessor`/`chainTail` directly, the same state cc3's own read-only panel already
+uses (`roomPhotosForInspection()`/`conditionForInspection()` — the viewer is now a second consumer of
+those two functions, not a parallel data path).
 
-### 20.16.6 Files
+### 20.17.2 Entry contract — `openCompareViewer(photo, insp)`
 
-- `database/migrations/2026_10_03_100000_create_rental_inspection_photo_match_groups_table.php`
-- `database/migrations/2026_10_03_100100_create_rental_inspection_photo_match_group_members_table.php`
-- `database/migrations/2026_10_03_100200_migrate_pairwise_photo_matches_into_groups.php`
-- `app/Models/RentalInspectionPhotoMatchGroup.php`, `app/Models/RentalInspectionPhotoMatchGroupMember.php`
-- `app/Models/RentalInspectionPhotoMatch.php` (marked SUPERSEDED, kept unused, not deleted)
-- `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` (`storePhotoMatch`/`destroyPhotoMatch`
-  repointed to the group model; same routes, new request/response shape)
-- `app/Models/RentalInspection.php` (`tabPayloadFor()`'s `photo_matches` now group-shaped)
-- `resources/views/corex/properties/show.blade.php` (the viewer; `matchFor`/`matchPartnerId`/
-  `toggleCompareMatch`/`compareIndexes` made group-aware) — `rental-inspection-recording.blade.php`
-  (cc3's screen) was not touched
-- `tests/Feature/RentalInspections/RentalInspectionPhotoMatchGroupMigrationTest.php` (new)
-- `tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php` (photo-matching section
-  rewritten for the new group contract)
+Unchanged in shape from §20.16.4, confirmed against cc3's own `rental-inspection-readonly-panel.blade.php`
+docblock (which names this exact seam): `insp` is whichever of `chainPredecessor`/`chainTail` the clicked
+photo belongs to — cc3's panel already has both in scope at every photo it renders (its own `$inspectionJs`
+include variable) and calls this directly on click; cc2 does not edit that panel's structure. `openCompareViewer`
+resolves everything else itself: which side the photo lands on (tail is always the right/"CURRENT" pane,
+matching the side-by-side screen it was clicked from), whether it's a room-level or item-level photo (from
+the photo's own `property_room_id`/`rental_inspection_observation_id` — no new field needed), the room/item
+label, and — the core defect fix — the matched counterpart on the OTHER side via the photo's own match
+group, filtered to that other inspection's id. A photo with no match yet renders "Nothing yet" on the other
+side honestly; it does not fall back to guessing "whatever photo happens to be first."
 
-### 20.16.7 Known limit, named on purpose
+### 20.17.3 Layout, top to bottom (the approved mockup)
 
-§20.16.1's "third and fourth inspection" generalization of `compareRightFor()`/`compare_left_inspection`/
-`compare_right_inspection` into a full inspection chain is NOT built here — the group model and the
-viewer both already work correctly for any number of members from any number of inspections (the
-carousel/step-control logic never assumes exactly two sides), but the SCREEN currently only ever loads
-two inspections (`compareLeft`/`compareRight`) to compare against each other. Extending that lookup is a
-separate, scoped piece of work for whenever Johan wants to build toward the full chain.
+1. **Top bar** (`cv-topbar`, 56px) — title + property address + which inspection; Single/Compare segmented
+   control; a "Move together: On/Off" toggle (the same zoom-lock concept as §20.16.4, now labelled in
+   words, never an icon alone); an amber pill naming how many untagged photos exist on the current
+   inspection; close.
+2. **Space row** — a tab per real room on the property (`compareViewerRoomTabs()`, `roomGroups().filter(g
+   => g.room)`), so the agent can move to any room without closing the modal. Active tab gets a cyan
+   underline.
+3. **Item row** — the selected room's own items as pill chips, "Whole room" always first (room-level
+   general photos), each chip showing "IN-count / CURRENT-count" (`compareViewerChipCounts()`) so a gap
+   ("Windows 0 / 2") is visible without opening anything.
+4. **Two panes**, identical fixed-height boxes (`compare-viewer-pane`, one CSS height on both, single mode
+   and compare mode alike — this is the direct fix for "the two panes are not the same size": flex-stretch
+   alone had let the two boxes size from their own image content, which is exactly what let them drift
+   apart). Each pane: a header (type badge — "IN" muted / "CURRENT" cyan, never "OUT", since the chain can
+   run In → Routine → Out — inspection name, date in mono, a condition pill on completed item-level
+   photos); the image itself, centred/contained on a near-black background, with a bottom-anchored zoom
+   cluster (real − / percentage / + / Fit buttons, `compareViewerZoomInBtn`/`OutBtn`/`DoubleClickReset` —
+   not just the lock toggle) and a top-right expand button; a tag bar underneath (tagged: green check +
+   "Tagged to X › Y" + Retag; untagged: amber dot + explanatory text + a solid "Tag photo" button).
+5. **Two thumbnail rails**, one per side, in the same two-column grid as the panes above them — the direct
+   fix for "one carousel, shared": `compareViewerCarouselPhotos(side)` is now called with an explicit
+   side, filtered to that side's own inspection, and filters out any photo missing a `storage_path` (the
+   fix for the stray blank tile). Clicking a thumbnail on EITHER rail loads it into its own pane AND loads
+   its matched group's counterpart into the opposite pane (`compareViewerSelectCarouselPhoto(photo,
+   side)`) — Johan's own framing, unchanged since §20.16.4.
+
+**Single mode** — one header strip (badge, name, date, room › item, condition pill, Retag), one large
+image with the same zoom cluster plus a "drag to pan" hint once zoomed, a "Back to compare" button that
+returns to the two-pane view on the SAME photo, and one centred rail for that side only.
+
+**Z-index fix** — `.compare-viewer-backdrop`'s z-index is set to the maximum safe CSS value
+(2147483647) rather than relying on a Tailwind utility class competing against whatever stacking context
+the page's own top banner establishes; the toolbar rows also get their own fully opaque background as a
+second, independent fix — correct regardless of which of the two was the actual cause of the bleed-through.
+
+### 20.17.4 Tagging, from the modal — reused, not reinvented
+
+Johan: "borrowed from the recording screen — same mental model the agents already use, do not invent a
+second one." "Tag photo"/"Retag" opens a 420px panel anchored over the pane that triggered it
+(`compareViewerOpenTagPanel(side)`), two columns — SPACE (every room) and ITEM IN `<room>` ("Whole room"
+first, then that room's items) — calling the EXACT SAME endpoint the recording screen's own chooser calls
+(`POST .../photos/{photo}/tag`, via `compareViewerConfirmTag()`), not a second tagging mechanism. The
+opposite pane dims while the panel is open (`cv-dim-overlay`) so focus is obvious.
+
+**One real constraint, surfaced rather than silently worked around:** `tagPhoto()` requires an EXISTING
+`rental_inspection_observation_id` to file a photo against a specific item — it does not create an
+observation on the fly (same constraint the recording screen's own camera control already works around,
+by staging uploads until an observation exists). The tagging panel's ITEM column therefore only lists
+items that already have a recorded observation on that side's inspection; "Whole room" always works,
+since room-level tagging needs no observation at all. An item with zero observations recorded yet is
+simply not offered as a retag destination from the modal — recording a condition for it first (on the
+recording screen) is what makes it retaggable.
+
+An **untagged tray** runs along the bottom of the modal whenever the current (tail) inspection has any
+untagged photos at all — thumbnails with an amber border, multi-select (`compareViewerToggleUntaggedSelect`
+/`compareViewerSelectAllUntagged`), then bulk-tag to the currently-selected room
+(`compareViewerBulkTagUntagged`, calling the same `POST .../photos/tag-bulk` the recording screen's own
+tray already uses).
+
+### 20.17.5 Visual
+
+Dark chrome (`#0B0E12` backdrop, `#10151B` panels, `#1E262F`/`#29323C` borders, `#E4EBF1`/`#8C99A6` text,
+`#3FC9E6` cyan accent, `#4FBE82`/`#E0A34A`/`#D9534F` condition colours), `IBM Plex Sans`/`IBM Plex Mono`
+declared as the font-family with real system-font fallbacks. **Deliberately not done in this pass:** no
+new font file/stylesheet is loaded — if IBM Plex isn't already available on the page, these fall back to
+the system stack rather than the mockup's exact typeface; adding a new external font dependency is a
+separate decision, not bundled into this fix quietly. The "expand this photo full screen" button
+(top-right of each pane) is implemented as switching to Single mode on that pane's photo, not the browser's
+native Fullscreen API — a lower-risk interpretation of the mockup's own icon, named here rather than
+assumed silently correct.
+
+### 20.17.6 Accessibility
+
+Every control is a real `<button>` (none use a `div` with a click handler); icon-only buttons (`±`, close,
+rail prev/next, expand) carry an explicit `aria-label`; the lock toggle exposes `aria-pressed`; every
+interactive control an agent uses on a tablet (`cv-touch`) has a 44px minimum tap target via padding, even
+where the mockup's own drawn height is smaller than that.
+
+### 20.17.7 Scoping
+
+Unchanged from §20.16.5 — `agency_id`/denormalized `property_id` on both group tables, checked in the
+controller. No new agency-configurable setting: room/item navigation, the zoom bounds (1×–6×), and the
+mockup's own layout are fixed UX decisions, not something an agency would reasonably want to vary.
+
+### 20.17.8 Files touched this round
+
+- `resources/views/corex/properties/show.blade.php` — the standalone Compare section deleted outright;
+  the viewer rebuilt in full (state, room/item navigation, tagging panel, untagged tray, CSS)
+- `app/Models/RentalInspection.php` — `photo_matches` repointed from `compareLeft`/`compareRight` to the
+  chain's actual current predecessor/tail pair (`$rawPredecessor`/`$rawChainTail`), so it stays correct
+  once a third or fourth inspection joins the chain rather than silently pinning to the original in/out pair
+
+### 20.17.9 Known limits, named on purpose
+
+- §20.16.1's "third and fourth inspection" generalization of the SCREEN itself (cc3's territory) is
+  unaffected by this round — the viewer and the group model both already work for any number of members
+  from any number of inspections; only the surrounding screen currently ever loads two at a time.
+- Item-level retagging to an item with no recorded observation yet on that inspection is not possible from
+  the modal (§20.17.4) — record a condition for it first, on the recording screen.
+- No new font file is loaded (§20.17.5) — the declared IBM Plex stack falls back to system fonts until a
+  separate decision is made to add one.
+- "Open this photo full screen" switches to Single mode rather than invoking the browser's native
+  Fullscreen API (§20.17.5).
 
 ---
 
