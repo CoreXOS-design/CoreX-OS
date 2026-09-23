@@ -555,6 +555,39 @@ class RentalInspection extends Model
     }
 
     /**
+     * Johan's ruling, 2026-09-23, property 5792 — a pre-existing In/Out
+     * pair recorded before previous_inspection_id existed carries no
+     * link, so $tail->previousInspection is genuinely null even though an
+     * earlier inspection plainly precedes it. Decision (his own words:
+     * "decide and tell me which... I will take your recommendation unless
+     * it is wrong"): RESOLUTION falls back to type+date ordering rather
+     * than a data migration that writes a backfilled link. Reasoning:
+     * this exact "no explicit link, resolve by date/type instead"
+     * mechanism already exists, already in production, already what
+     * generates the In/Out pairing cc2's compare viewer shows RIGHT NOW
+     * on this same property (compareRightFor() below) — reusing a proven
+     * mechanism is lower-risk than inventing a migration that would have
+     * to guess a correct order for any property with more than two
+     * unlinked inspections and, once written, treat that guess as
+     * permanent (previousInspection()'s own docblock: "a recorded fact,
+     * never edited afterward") — a migration mistake is far harder to
+     * undo than a resolution-time fallback is to refine. Never touches
+     * previous_inspection_id itself; a chain created going forward via
+     * startNext() always has the real, explicit link and never falls
+     * back to this at all.
+     */
+    public static function inferredPredecessorFor(self $tail): ?self
+    {
+        return self::where('lease_id', $tail->lease_id)
+            ->where('id', '!=', $tail->id)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->where('created_at', '<', $tail->created_at)
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /**
      * §20.15 — the RIGHT-hand panel of the two-panel compare view. Johan:
      * "left is in inspection, right is the next inspection (and i state
      * next inspection as it can be ad hoc or out inspection)". Deliberately
@@ -867,8 +900,18 @@ class RentalInspection extends Model
         // inspection below already established.
         $chainDetail = fn (?self $insp) => $insp
             ?->load(['observations.item', 'observations.photos', 'photos', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
-        $chainTail = $chainDetail(self::chainTailFor($property));
-        $chainPredecessor = $chainTail ? $chainDetail($chainTail->previousInspection) : null;
+        $rawChainTail = self::chainTailFor($property);
+        // Johan's ruling, 2026-09-23, property 5792 — a real predecessor
+        // that simply never carries the explicit link (recorded before
+        // previous_inspection_id existed) falls back to inferredPredecessorFor()'s
+        // type+date resolution rather than showing "first in chain" for an
+        // inspection that plainly isn't. See that method's own docblock
+        // for the full reasoning against a data migration instead.
+        $rawPredecessor = $rawChainTail
+            ? ($rawChainTail->previousInspection ?? self::inferredPredecessorFor($rawChainTail))
+            : null;
+        $chainTail = $chainDetail($rawChainTail);
+        $chainPredecessor = $chainDetail($rawPredecessor);
 
         // §20.15 — the two-panel compare view. Both sides deliberately use
         // completed-inclusive lookups (mostRecentFor()/compareRightFor()),

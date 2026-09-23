@@ -335,4 +335,132 @@ final class RentalInspectionChainTest extends TestCase
         // The old two-independent-start-buttons shape is gone.
         $resp->assertDontSee('Start Out-Inspection');
     }
+
+    // ── Regression coverage for the 2026-09-23 QA1 bug report on property
+    // 5792. Both defects were invisible to a plain assertSee() pass — see
+    // each test's own docblock for why, and why the assertion below IS
+    // still meaningful despite that. ──────────────────────────────────────
+
+    /**
+     * DEFECT 1 root cause: wrapping the multi-root rental-inspection-
+     * recording/readonly-panel @includes inside an outer
+     * <template x-if="..."> violates Alpine's hard requirement that
+     * x-if's <template> contain exactly ONE root element — the included
+     * partials each expand to three/two top-level siblings (their own
+     * <style>/<template x-if> blocks). Alpine's mount/no-mount behaviour
+     * on that violation is CLIENT-SIDE JS; the raw HTTP response bytes
+     * are byte-identical whether Alpine successfully mounts the content
+     * or silently drops it, so assertSee() on the partial's own markup
+     * cannot distinguish broken from fixed (this is exactly why a green
+     * suite shipped while the page was dead, and why Johan's instruction
+     * was "a passing test suite is not evidence"). What CAN be asserted
+     * from raw HTML is the STRUCTURAL shape: the fix replaces the outer
+     * <template x-if> wrapper with a plain <div x-show>, which has no
+     * single-root constraint. Assert the fixed shape is present and the
+     * broken shape is gone — a deterministic, non-JS-dependent check of
+     * the actual root cause.
+     */
+    public function test_unified_section_wraps_the_recording_and_readonly_includes_in_x_show_not_template_x_if(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $resp = $this->get(route('corex.properties.show', $this->property->id));
+
+        $resp->assertOk();
+        $html = $resp->getContent();
+
+        self::assertStringContainsString('x-show="chainTail.status !== \'completed\'"', $html);
+        self::assertStringContainsString('x-show="chainTail.status === \'completed\'"', $html);
+        self::assertStringNotContainsString('<template x-if="chainTail.status !== \'completed\'">', $html);
+        self::assertStringNotContainsString('<template x-if="chainTail.status === \'completed\'">', $html);
+
+        // The recording partial's own tile CSS (each defined exactly once,
+        // in its <style> block) must still be shipped — proves the
+        // @include itself was not dropped, only its wrapper changed.
+        self::assertStringContainsString('.rir-item-photo-tile', $html);
+        self::assertStringContainsString('.rir-room-photo-tile', $html);
+        self::assertStringContainsString('.rir-tray-tile', $html);
+    }
+
+    /**
+     * DEFECT 2 — property 5792 had a real In inspection (awaiting_signature)
+     * and a real Out inspection (draft), both created before
+     * previous_inspection_id existed, so neither carries the explicit
+     * link. Johan's ruling: resolve by type+date fallback at read time
+     * (inferredPredecessorFor()), never a data migration that writes a
+     * permanent, possibly-wrong link. This fixture reproduces that exact
+     * shape: two inspections on the same lease with NO previous_inspection_id
+     * on either — startNext()/makeInspection(..., $previous) are
+     * deliberately NOT used for the link.
+     */
+    public function test_tab_payload_falls_back_to_type_and_date_ordering_when_predecessor_link_is_absent(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $in->forceFill(['created_at' => now()->subDay()])->save();
+        $out = $this->makeInspection(RentalInspection::TYPE_OUT);
+        $out->forceFill(['created_at' => now()])->save();
+
+        self::assertNull($out->previous_inspection_id);
+        self::assertNull($in->previous_inspection_id);
+
+        $payload = RentalInspection::tabPayloadFor($this->property);
+
+        self::assertSame($out->id, $payload['chain_tail']->id);
+        self::assertSame($in->id, $payload['chain_predecessor']->id);
+
+        // The fallback is resolution-time only — it must NEVER persist a
+        // link. previous_inspection_id stays null on both rows.
+        self::assertNull($out->fresh()->previous_inspection_id);
+    }
+
+    /**
+     * A cancelled inspection between two unlinked real inspections must
+     * never be resolved as the predecessor — property 5792 has exactly
+     * this shape (a cancelled Out sitting between the real In and the
+     * live draft Out). inferredPredecessorFor() excludes cancelled rows.
+     */
+    public function test_inferred_predecessor_skips_a_cancelled_inspection_between_two_real_ones(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $in->forceFill(['created_at' => now()->subDays(2)])->save();
+
+        $cancelled = $this->makeInspection(RentalInspection::TYPE_OUT);
+        $cancelled->forceFill(['status' => RentalInspection::STATUS_CANCELLED, 'created_at' => now()->subDay()])->save();
+
+        $out = $this->makeInspection(RentalInspection::TYPE_OUT);
+        $out->forceFill(['created_at' => now()])->save();
+
+        $predecessor = RentalInspection::inferredPredecessorFor($out);
+
+        self::assertNotNull($predecessor);
+        self::assertSame($in->id, $predecessor->id);
+    }
+
+    /**
+     * When an explicit previous_inspection_id link DOES exist (a chain
+     * built going forward via startNext()), the fallback must never
+     * override it — even if a more-recently-created inspection on the
+     * same lease would otherwise win the date ordering.
+     */
+    public function test_tab_payload_prefers_the_explicit_link_over_the_fallback_when_both_exist(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+
+        // A decoy: an unlinked inspection created BEFORE the real tail
+        // (lower id, so it never wins chainTailFor()'s own latest('id')
+        // tail selection) that would win inferredPredecessorFor()'s
+        // date ordering if the explicit link were ignored. It never gets
+        // the chance — $out->previousInspection is set, so the
+        // ?? fallback in tabPayloadFor() short-circuits before
+        // inferredPredecessorFor() is ever called.
+        $decoy = $this->makeInspection(RentalInspection::TYPE_AD_HOC);
+
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $payload = RentalInspection::tabPayloadFor($this->property);
+
+        self::assertSame($out->id, $payload['chain_tail']->id);
+        self::assertSame($in->id, $payload['chain_predecessor']->id);
+    }
 }

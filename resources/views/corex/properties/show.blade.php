@@ -4977,19 +4977,33 @@
                                         @include('corex.properties.partials.rental-inspection-readonly-panel', ['inspectionJs' => 'chainPredecessor'])
                                     </div>
                                     <div style="flex:1; min-width:0;">
-                                        {{-- A completed tail with no successor yet has
-                                             nothing left to record — shown read-only
-                                             too (the SAME lean panel, not the editable
-                                             form) until "Next inspection" is pressed.
-                                             While in progress, the real, unmodified
-                                             recording partial renders exactly as it
-                                             always has. --}}
-                                        <template x-if="chainTail.status !== 'completed'">
+                                        {{-- FIX, 2026-09-23 — Johan, property 5792: the
+                                             recording partial rendered ZERO rooms/items/
+                                             photos (0 .rir-item-photo-tile etc.) the moment
+                                             this went behind a <template x-if>. Root cause:
+                                             Alpine's <template x-if> requires EXACTLY ONE
+                                             root element inside it — the recording partial
+                                             expands to THREE top-level siblings (its own
+                                             <style> block plus two of its OWN <template
+                                             x-if> blocks for the started/not-started
+                                             branches), so wrapping the whole @include in a
+                                             FOURTH <template x-if> here was structurally
+                                             invalid; Alpine could only ever mount (or
+                                             silently drop) it, never render all three. A
+                                             plain x-show div has no such constraint — it
+                                             only toggles visibility on however many
+                                             children exist, never re-parses/re-mounts a
+                                             template — which is exactly how this same
+                                             partial was safely included before this round
+                                             (a plain x-show div, not a template). Read-only
+                                             panel below has the identical two-top-level-
+                                             sibling shape for the same reason, same fix. --}}
+                                        <div x-show="chainTail.status !== 'completed'">
                                             @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in', 'sectionJs' => 'tailSection()'])
-                                        </template>
-                                        <template x-if="chainTail.status === 'completed'">
+                                        </div>
+                                        <div x-show="chainTail.status === 'completed'">
                                             @include('corex.properties.partials.rental-inspection-readonly-panel', ['inspectionJs' => 'chainTail'])
-                                        </template>
+                                        </div>
                                     </div>
                                 </div>
 
