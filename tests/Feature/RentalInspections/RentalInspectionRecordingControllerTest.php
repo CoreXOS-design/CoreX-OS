@@ -1530,17 +1530,22 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         [$photoIn, $photoOut] = $this->makeMatchablePair();
 
         $response = $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
-            'photo_id_a' => $photoIn->id, 'photo_id_b' => $photoOut->id,
+            'photo_id' => $photoIn->id, 'anchor_photo_id' => $photoOut->id,
         ]);
 
         $response->assertStatus(201);
-        $this->assertDatabaseHas('rental_inspection_photo_matches', [
-            'photo_id_a' => min($photoIn->id, $photoOut->id),
-            'photo_id_b' => max($photoIn->id, $photoOut->id),
-            'agency_id' => $this->agency->id,
-            'property_id' => $this->property->id,
-            'matched_by_user_id' => $this->agent->id,
+        $groupId = $response->json('id');
+        $this->assertDatabaseHas('rental_inspection_photo_match_groups', [
+            'id' => $groupId, 'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
         ]);
+        $this->assertDatabaseHas('rental_inspection_photo_match_group_members', [
+            'rental_inspection_photo_match_group_id' => $groupId, 'rental_inspection_photo_id' => $photoIn->id,
+            'added_by_user_id' => $this->agent->id,
+        ]);
+        $this->assertDatabaseHas('rental_inspection_photo_match_group_members', [
+            'rental_inspection_photo_match_group_id' => $groupId, 'rental_inspection_photo_id' => $photoOut->id,
+        ]);
+        $this->assertCount(2, $response->json('members'));
     }
 
     public function test_matching_a_photo_to_itself_is_rejected(): void
@@ -1548,7 +1553,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         [$photoIn] = $this->makeMatchablePair();
 
         $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
-            'photo_id_a' => $photoIn->id, 'photo_id_b' => $photoIn->id,
+            'photo_id' => $photoIn->id, 'anchor_photo_id' => $photoIn->id,
         ])->assertStatus(422);
     }
 
@@ -1562,7 +1567,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $photos = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->get();
 
         $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
-            'photo_id_a' => $photos[0]->id, 'photo_id_b' => $photos[1]->id,
+            'photo_id' => $photos[0]->id, 'anchor_photo_id' => $photos[1]->id,
         ])->assertStatus(422);
     }
 
@@ -1575,56 +1580,110 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         ]);
 
         $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $otherProperty), [
-            'photo_id_a' => $photoIn->id, 'photo_id_b' => $photoOut->id,
+            'photo_id' => $photoIn->id, 'anchor_photo_id' => $photoOut->id,
         ])->assertNotFound();
     }
 
-    public function test_unmatching_a_pair_soft_deletes_it_never_hard_deletes(): void
+    /** A 2-member group dropping to one member (this unmatch) archives the group too — nothing left to compare. */
+    public function test_unmatching_a_pair_soft_deletes_the_membership_and_archives_the_now_empty_group(): void
     {
         [$photoIn, $photoOut] = $this->makeMatchablePair();
-        $match = \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoIn, $photoOut, $this->agent);
+        $group = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photoIn, $photoOut, $this->agent);
+        $member = $group->members()->where('rental_inspection_photo_id', $photoOut->id)->first();
 
-        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$this->property, $match]))
+        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$this->property, $member]))
             ->assertOk();
 
-        $this->assertSoftDeleted('rental_inspection_photo_matches', ['id' => $match->id]);
-        $this->assertDatabaseHas('rental_inspection_photo_matches', ['id' => $match->id, 'unmatched_by_user_id' => $this->agent->id]);
+        $this->assertSoftDeleted('rental_inspection_photo_match_group_members', ['id' => $member->id]);
+        $this->assertDatabaseHas('rental_inspection_photo_match_group_members', ['id' => $member->id, 'removed_by_user_id' => $this->agent->id]);
+        $this->assertSoftDeleted('rental_inspection_photo_match_groups', ['id' => $group->id]);
+        $this->assertDatabaseHas('rental_inspection_photo_match_groups', ['id' => $group->id, 'archived_by_user_id' => $this->agent->id]);
     }
 
-    /** BUILD_STANDARD §5a — a soft-deleted pair's unique slot must not block re-matching the same two photos. */
-    public function test_rematching_a_previously_unmatched_pair_restores_it_rather_than_colliding(): void
+    /** Unmatching one member of a THREE-photo group leaves the other two matched — only that one photo drops out. */
+    public function test_unmatching_one_member_of_a_larger_group_leaves_the_rest_matched(): void
     {
         [$photoIn, $photoOut] = $this->makeMatchablePair();
-        $match = \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoIn, $photoOut, $this->agent);
-        $match->unmatch($this->agent);
+        $secondOut = $this->makeInspection(RentalInspection::TYPE_OUT);
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $this->postJson(route('corex.rental-inspections.photos.store', $secondOut), [
+            'photos' => [UploadedFile::fake()->image('out2.jpg')],
+        ])->assertStatus(201);
+        $thirdPhoto = RentalInspectionPhoto::where('rental_inspection_id', $secondOut->id)->first();
 
-        $response = $this->postJson(route('corex.properties.rental-inspection-photo-matches.store', $this->property), [
-            'photo_id_a' => $photoIn->id, 'photo_id_b' => $photoOut->id,
-        ]);
+        $group = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photoIn, $photoOut, $this->agent);
+        \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($thirdPhoto, $photoOut, $this->agent);
+        $member = $group->members()->where('rental_inspection_photo_id', $thirdPhoto->id)->first();
 
-        $response->assertStatus(201);
-        $this->assertSame($match->id, $response->json('id'));
-        $this->assertSame(1, \App\Models\RentalInspectionPhotoMatch::withTrashed()->where('id', $match->id)->count());
-        $this->assertDatabaseHas('rental_inspection_photo_matches', ['id' => $match->id, 'deleted_at' => null]);
+        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$this->property, $member]))
+            ->assertOk();
+
+        $this->assertSoftDeleted('rental_inspection_photo_match_group_members', ['id' => $member->id]);
+        $this->assertDatabaseHas('rental_inspection_photo_match_groups', ['id' => $group->id, 'deleted_at' => null]);
+        $this->assertSame(2, $group->fresh()->members()->count());
+    }
+
+    /** BUILD_STANDARD §5a — re-adding a photo just removed from THIS group must not collide with its own soft-deleted membership row. */
+    public function test_rejoining_a_group_after_leaving_it_restores_the_membership_rather_than_colliding(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+        $group = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photoIn, $photoOut, $this->agent);
+        $secondOut = $this->makeInspection(RentalInspection::TYPE_OUT);
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $this->postJson(route('corex.rental-inspections.photos.store', $secondOut), [
+            'photos' => [UploadedFile::fake()->image('out2.jpg')],
+        ])->assertStatus(201);
+        $thirdPhoto = RentalInspectionPhoto::where('rental_inspection_id', $secondOut->id)->first();
+        $group->addMember($thirdPhoto, $this->agent); // keeps the group at 2+ members once photoOut leaves below
+        $member = $group->members()->where('rental_inspection_photo_id', $photoOut->id)->first();
+        $member->removeAndMaybeArchiveGroup($this->agent);
+
+        $restored = $group->addMember($photoOut, $this->agent);
+
+        $this->assertSame($member->id, $restored->id);
+        $this->assertDatabaseHas('rental_inspection_photo_match_group_members', ['id' => $member->id, 'deleted_at' => null, 'removed_by_user_id' => null]);
+    }
+
+    /** Johan, 2026-09-23: "one group per photo keeps it comprehensible" — linking a photo elsewhere moves it, it never belongs to two groups at once. */
+    public function test_a_photo_can_only_belong_to_one_active_group_at_a_time(): void
+    {
+        [$photoIn, $photoOut] = $this->makeMatchablePair();
+        $secondOut = $this->makeInspection(RentalInspection::TYPE_OUT);
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $this->postJson(route('corex.rental-inspections.photos.store', $secondOut), [
+            'photos' => [UploadedFile::fake()->image('out2.jpg')],
+        ])->assertStatus(201);
+        $otherOutPhoto = RentalInspectionPhoto::where('rental_inspection_id', $secondOut->id)->first();
+
+        $firstGroup = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photoIn, $photoOut, $this->agent);
+        // photoIn is now moved into a NEW group anchored on otherOutPhoto instead.
+        $secondGroup = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photoIn, $otherOutPhoto, $this->agent);
+
+        $this->assertNotSame($firstGroup->id, $secondGroup->id);
+        $this->assertSame(0, \App\Models\RentalInspectionPhotoMatchGroupMember::where('rental_inspection_photo_match_group_id', $firstGroup->id)
+            ->where('rental_inspection_photo_id', $photoIn->id)->count());
+        // The first group had only photoOut left (photoIn moved out) — archived, nothing left to compare.
+        $this->assertSoftDeleted('rental_inspection_photo_match_groups', ['id' => $firstGroup->id]);
     }
 
     public function test_unmatching_a_match_from_a_different_property_is_not_reachable(): void
     {
         [$photoIn, $photoOut] = $this->makeMatchablePair();
-        $match = \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoIn, $photoOut, $this->agent);
+        $group = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photoIn, $photoOut, $this->agent);
+        $member = $group->members()->where('rental_inspection_photo_id', $photoOut->id)->first();
         $otherProperty = Property::forceCreate([
             'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
             'title' => 'Other', 'status' => 'active', 'listing_type' => 'rental',
         ]);
 
-        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$otherProperty, $match]))
+        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$otherProperty, $member]))
             ->assertNotFound();
     }
 
     public function test_tab_payload_exposes_the_compare_pair_and_its_matches_once_an_out_inspection_exists(): void
     {
         [$photoIn, $photoOut] = $this->makeMatchablePair();
-        \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoIn, $photoOut, $this->agent);
+        \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photoIn, $photoOut, $this->agent);
 
         $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
 
@@ -1634,6 +1693,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertSame(RentalInspection::TYPE_IN, $response->json('compare_left_inspection.type'));
         $this->assertSame(RentalInspection::TYPE_OUT, $response->json('compare_right_inspection.type'));
         $this->assertCount(1, $response->json('photo_matches'));
+        $this->assertCount(2, $response->json('photo_matches.0.members'));
     }
 
     public function test_tab_payload_has_no_compare_pair_when_only_an_in_inspection_exists(): void

@@ -2643,6 +2643,161 @@ slots in as "the next inspection" without changing this method, but nothing here
 
 ---
 
+## 20.16 Photo comparison — groups, not pairs; a real viewer (2026-09-23, cc2)
+
+Johan, describing the real case §20.15's pairwise design couldn't express: "in inspection carries 2
+photos showing the same area, out inspection carries 5 photos... can you tag them together so you can
+work with them together?" and, on the viewer itself: "if the photos are clicked to display in full there
+should be 2 views, and a carousal at the bottom... in comparison view if I click a photo either side of
+the carousel it not only loads that photo into view, it also loads the tagged photo on the other side."
+
+### 20.16.1 Pairwise was wrong — investigated, confirmed, replaced
+
+§20.15.1's `rental_inspection_photo_matches` is a genuine self-join over exactly two photo id columns
+(`photo_id_a`/`photo_id_b`), with a unique index over the PAIR — structurally incapable of expressing a
+set. Worse than just "10 links for 2×5 photos" (Johan's own math, confirmed exactly right given the
+existing same-inspection-match rejection): the old JS (`matchFor()`/`matchPartnerId()`) only ever
+compared the two CURRENTLY-DISPLAYED photos directly — a photo matched to B, and B matched to C, were
+invisible to each other even though transitively related. Confirmed via `RentalInspection::
+tabPayloadFor()` (§20.15.2) too: `compare_left_inspection`/`compare_right_inspection` is a fixed PAIR of
+inspections, not a chain — Johan's "third and fourth inspection" vision needs `compareRightFor()`
+generalized into a full inspection history as a SEPARATE follow-on piece of work; the group model below
+is necessary for that vision but not sufficient by itself, and that generalization is not built here.
+
+### 20.16.2 The group model
+
+Two new tables, additive, replacing (not extending) the pairwise design:
+
+```
+rental_inspection_photo_match_groups
+  id, agency_id, property_id (denormalized, same reasoning as the old table)
+  created_by_user_id, archived_by_user_id, deleted_at   -- soft-deletable, never hard-deleted
+
+rental_inspection_photo_match_group_members
+  id, agency_id, rental_inspection_photo_match_group_id, rental_inspection_photo_id
+  added_by_user_id, added_at, removed_by_user_id, deleted_at
+```
+
+**A photo belongs to at most ONE active group at a time** — Johan's own instinct, taken as the rule:
+"one group per photo keeps it comprehensible." No real case for a photo needing two groups surfaced
+during design (a photo showing two distinct defects would need the AGENT to disambiguate which group it
+means every time it's clicked — genuine added confusion for a rare case, not a real need) — enforced in
+`RentalInspectionPhotoMatchGroup::addMember()`, NOT a database unique constraint on the photo id alone: a
+plain unique index can't express "unique among non-deleted rows only" in MySQL, the exact gotcha
+`RentalInspectionPhotoMatch::matchPhotos()` already had to work around for its own pair-uniqueness (a
+soft-deleted row still occupies its unique slot). `addMember()` soft-deletes any OTHER active membership
+for that photo first — a "move," both ends of which are independently audit-visible — before creating or
+restoring the new one (BUILD_STANDARD §5a: restore-aware, never colliding with a stale soft-deleted row).
+
+`RentalInspectionPhotoMatchGroup::linkPhotos($clicked, $anchor, $by)` is the actual "Match" action: decisive
+about the one genuinely ambiguous case (both photos already belong to DIFFERENT existing groups) —
+`$clicked` always moves into `$anchor`'s group, "whichever photo you're introducing into the comparison
+joins the group already anchored on the other side," never a silent merge of two pre-existing groups.
+
+Removing a photo (`RentalInspectionPhotoMatchGroupMember::removeAndMaybeArchiveGroup()`) soft-deletes
+just that membership; if the group drops to one or zero active members, the GROUP is archived too —
+nothing left to compare. Every removal records `removed_by_user_id`, mirroring the old table's
+`unmatched_by_user_id` — this is deposit-dispute evidence and carries the same audit weight as a recorded
+condition (Johan's own framing, §20.15.1, unchanged by this rebuild).
+
+### 20.16.3 Migration — connected components, not one-group-per-row
+
+`2026_10_03_100200_migrate_pairwise_photo_matches_into_groups` runs automatically on `migrate` (not a
+manual step a deploy could forget). Every ACTIVE pairwise edge is treated as a graph edge; union-find
+collapses each connected component into ONE group with every touched photo as a member — deliberately
+NOT "one group per old row," because that would still miss the transitive A-B/B-C case §20.16.1 found the
+old UI couldn't see. Proven directly (`RentalInspectionPhotoMatchGroupMigrationTest`): a single pair
+becomes a group of two; a transitive chain (A-B, B-C, never A-C directly) collapses into ONE group of
+three; two disjoint pairs become two separate groups; a soft-deleted (already-unmatched) old row is never
+migrated; the old table is left byte-for-byte untouched (`rental_inspection_photo_matches` — model and
+migration both marked SUPERSEDED, kept purely as historical record, never dropped, never written to
+again — dropping a table is not what "no hard deletes" protects, but there was no reason to discard a
+working historical record either). Group/member `created_by`/`added_by`/timestamps are backfilled from
+each component's/photo's own earliest touching edge, not just stamped "now" — a defensible provenance,
+not a guess. **Nothing failed to carry over** — every active pairwise row's information (which photos,
+who matched them, when) is fully represented in the new shape; the only semantic change is that a
+transitively-connected chain now shows as one group instead of being invisible to itself, which is a
+correction to a real gap, not a loss.
+
+### 20.16.4 The viewer — two modes, real zoom/pan, a carousel
+
+Replaces §20.15.6's `compareModal` at the exact same trigger (the compact row's expand click) —
+`openCompareViewer()`/`compareViewer` state, deliberately NOT named `viewer`/`openViewer`: this same
+Alpine component already owns a DIFFERENT `viewer`/`openViewer()`/`viewerPrev()`/`viewerNext()` for the
+unrelated rental-images gallery lightbox (found during investigation, not assumed) — reusing the bare
+name would have silently clobbered it.
+
+- **Single view** — the clicked photo, large, still zoomable.
+- **Compare view** — two panels side by side, each independently zoomable/pannable (approved item 3/4).
+- **Zoom/pan** — real continuous scale (1×–6×) and drag, cursor/touch-anchored (zooming in on a mark
+  doesn't immediately require re-panning to find it) via `compareViewerWheelZoom()`/
+  `compareViewerDragStart/Move/End()`. **Lock toggle, approved, default OFF (opt-in per session, not a
+  stored setting)**: independent by default since two shots of "the same thing" are rarely framed
+  identically; when locked, both panels share ONE transform (`compareViewerZoomShared`) — drag one, both
+  move — for the same-wall-same-spot case Johan described ("is that mark new").
+- **Carousel** — every photo from both sides of the room/item the viewer was opened from (a judgement
+  call, raised rather than decided unilaterally: matches the context the agent was already looking at,
+  not the whole inspection — Johan did not override this). Clicking a carousel photo loads it into its
+  own side AND its matched group's members into the other (`compareViewerSelectCarouselPhoto()`). Where
+  the other side's group has more than one candidate, Johan's own instinct — approved — shows the first
+  with a small step control (`compareViewerStep()`, "N of M", reusing the exact stepper pattern §20.15.5
+  already established for independent per-side flipping, not a new control).
+- **Match/unmatch from the carousel** (approved item 6) — `compareViewerMatch()` calls the same
+  `toggleCompareMatch()` the compact row already uses, now group-aware (`groupForPhoto()`/`matchFor()`
+  answer "are these two specific photos in the same group right now," `_applyGroupPatch()` reconciles
+  local state so a photo that just MOVED to a new group disappears from its old one client-side too, not
+  only server-side).
+
+**Phone decision (Johan's to leave to judgement):** one panel at a time with a toggle, reusing §20.15.8's
+own established precedent (`compareMobileSide`) rather than inventing a second mobile paradigm for the
+same underlying problem — "two panels side by side will not work at 390px" is exactly as true in the
+full-screen viewer as it was in the compact row. `compareViewerMobileSide` toggles which side is visible
+below the `sm:` breakpoint; the carousel itself is naturally swipeable/scrollable regardless of screen
+width, so switching-which-side and flipping-through-photos don't collide as gestures.
+
+**Alpine `:style` trap** — every static declaration for the viewer (backdrop, buttons, panes, thumbnails)
+lives in a CSS class (`.compare-viewer-*`, in `show.blade.php`'s own `<style>` block, which already
+carries the prior `.toggle-knob` fix and its own note on this exact trap). `:style` is used for exactly
+one thing, the zoom/pan transform (`compareViewerZoomStyle()`), which always returns a non-empty string
+and is never co-located with a static `style="..."` on the same element.
+
+### 20.16.5 Scoping
+
+Same pattern as the table it replaces: `agency_id` (`BelongsToAgency`) plus denormalized `property_id` on
+both new tables, checked in the controller (`storePhotoMatch`/`destroyPhotoMatch` — both photos, or the
+membership's own group, must belong to the request's own property; 404 otherwise). No new agency-
+configurable setting was added — considered and declined: group-membership rules (one group per photo),
+zoom bounds (1×–6×), and carousel scope are fixed UX/behavioral decisions, not something an agency would
+reasonably want to vary, unlike (for example) the OMR mark threshold elsewhere in this spec.
+
+### 20.16.6 Files
+
+- `database/migrations/2026_10_03_100000_create_rental_inspection_photo_match_groups_table.php`
+- `database/migrations/2026_10_03_100100_create_rental_inspection_photo_match_group_members_table.php`
+- `database/migrations/2026_10_03_100200_migrate_pairwise_photo_matches_into_groups.php`
+- `app/Models/RentalInspectionPhotoMatchGroup.php`, `app/Models/RentalInspectionPhotoMatchGroupMember.php`
+- `app/Models/RentalInspectionPhotoMatch.php` (marked SUPERSEDED, kept unused, not deleted)
+- `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` (`storePhotoMatch`/`destroyPhotoMatch`
+  repointed to the group model; same routes, new request/response shape)
+- `app/Models/RentalInspection.php` (`tabPayloadFor()`'s `photo_matches` now group-shaped)
+- `resources/views/corex/properties/show.blade.php` (the viewer; `matchFor`/`matchPartnerId`/
+  `toggleCompareMatch`/`compareIndexes` made group-aware) — `rental-inspection-recording.blade.php`
+  (cc3's screen) was not touched
+- `tests/Feature/RentalInspections/RentalInspectionPhotoMatchGroupMigrationTest.php` (new)
+- `tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php` (photo-matching section
+  rewritten for the new group contract)
+
+### 20.16.7 Known limit, named on purpose
+
+§20.16.1's "third and fourth inspection" generalization of `compareRightFor()`/`compare_left_inspection`/
+`compare_right_inspection` into a full inspection chain is NOT built here — the group model and the
+viewer both already work correctly for any number of members from any number of inspections (the
+carousel/step-control logic never assumes exactly two sides), but the SCREEN currently only ever loads
+two inspections (`compareLeft`/`compareRight`) to compare against each other. Extending that lookup is a
+separate, scoped piece of work for whenever Johan wants to build toward the full chain.
+
+---
+
 ## 21. Add an item to an EXISTING room (2026-09-22, cc1) — there was no way to do this at all
 
 Johan, verbatim, looking at property 4862's Inspection Items panel: *"I want to add lets say bic to

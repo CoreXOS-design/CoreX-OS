@@ -4288,7 +4288,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // different inspections on the same property, never one.
         Route::post('/{property}/rental-inspection-photo-matches', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storePhotoMatch'])
             ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.store');
-        Route::delete('/{property}/rental-inspection-photo-matches/{match}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'destroyPhotoMatch'])
+        Route::delete('/{property}/rental-inspection-photo-matches/{member}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'destroyPhotoMatch'])
             ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.destroy');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new
