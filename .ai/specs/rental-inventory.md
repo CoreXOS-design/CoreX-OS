@@ -499,6 +499,79 @@ inherited from §0c's own build), fixed by moving the static `transition:transfo
 
 ---
 
+## 4c. Spreadsheet-grid line entry — BUILT (2026-09-25/26, cc1)
+
+Johan, verbatim: *"I want that as soon as you type in a qty or description field that a new field is
+added, and as our tab focus needs to be on point here... this will promote speed a hell of a lot."*
+Expanded the same day to full Excel-style arrow-key grid navigation: *"think of a word processor process
+or excel. you type click right arrow, type, arrow to next cell, type, arrow."*
+
+**The grid.** Each room's line items — every already-saved `RentalInventoryLine` plus one permanent
+trailing blank row — form a two-column (qty, description) keyboard-navigable grid. The trailing row never
+goes away: committing it resets it in place, so there is always somewhere to go next. Existing lines are
+real `<input>` cells now, not read-only spans — arrow navigation into a saved item's text only means
+something if the agent can then fix a typo there.
+
+**Full key contract** (this is what gets tested key-by-key on the deployed page):
+
+| Key | From | Condition | Result |
+|---|---|---|---|
+| Tab | qty | — | native: moves to description, same row (untouched) |
+| Tab | description | not Shift | commits this row if non-empty/changed, lands on next row's qty (selected) |
+| Shift+Tab | any | — | left un-intercepted; native tab order already lands correctly because every other focusable control in the room (Add, photo archive/show-all/retry, Tag photo, Remove) carries `tabindex="-1"` |
+| Enter | qty or description | — | same as Tab-from-description: commit, next row's qty (selected) |
+| → ArrowRight | qty | caret at end, no selection | same row's description (selected), no commit |
+| → ArrowRight | description | caret at end, no selection | same as Tab: commit, next row's qty (selected) |
+| ← ArrowLeft | description | caret at start, no selection | same row's qty (selected), no commit |
+| ← ArrowLeft | qty | caret at start, no selection, not first row | commit this row if changed, previous row's description (selected) |
+| ↑ ArrowUp / ↓ ArrowDown | either | any caret position | commit this row if changed, same column of the prev/next row (selected); no-op at the grid's top/bottom edge |
+| any arrow | either | caret NOT at that boundary, or text selected | normal cursor movement / selection-collapse — untouched |
+
+Landing on a cell via any of the above SELECTS its text (`el.focus(); el.select()`), spreadsheet-style —
+the agent overtypes instead of clearing first. This is done ONLY from the navigation code, never via a
+generic `@focus` listener, specifically so mouse clicks keep placing the caret normally
+(`el.select()` on a plain `focus` handler would fire for a mouse click too and break click-to-fix-a-typo).
+
+**Commit point: row-exit, not per-keystroke and not debounced.** A row saves when the agent leaves it via
+one of the contract's committing keys — never on `input` events. For the trailing draft row, the save is
+fire-and-forget: `newLine[room.id]` resets to `{quantity: 1, description: ''}` **synchronously**, before
+the POST resolves, so a fast typist starting the next row can never race their own in-flight save. An
+empty row (no description) never reaches the server. An existing line is dirty-checked against a
+last-saved snapshot before any PUT fires, so pure review (arrowing through rows without changing anything)
+never sends a request; an edit that blanks a description reverts to the last-saved text rather than
+persisting an empty one (§4's own "never save an empty row", extended — an existing item's description
+being erased is not the same thing as an unstarted row never existing).
+
+**Why qty is `type="text" inputmode="numeric"`, not `type="number"`**: `selectionStart`, `selectionEnd`,
+and `.select()` throw `InvalidStateError` on a `type="number"` input in every major browser. The whole
+caret-boundary contract above needs those APIs on qty as much as on description, so qty had to move off
+`type="number"` — the numeric keyboard on mobile survives via `inputmode="numeric"`; server-side
+validation (`integer`, `min:0`) is unchanged and remains the actual type enforcement.
+
+**Feedback (§7 of the request — quiet, not a toast)**: a small in-place "✓ Saved" line, `x-transition`
+fade, auto-clears after ~1.2s. A save failure gets the equivalent quiet in-place line instead of silent
+loss, since the draft row's optimistic reset means the agent has typically already moved on to the next
+row by the time a failure would be known. Both use `x-show` + `x-transition` only — no `:style` binding
+anywhere in this addition (the transition drives `style.opacity` directly, not a bound `:style="..."`
+expression, so it cannot reproduce the chevron's clobber bug from §4a.1/§4b above).
+
+**"Add" button**: left in place (Johan: raising its removal separately) but `tabindex="-1"` — still
+mouse-clickable, never a keyboard stop. Its form now submits through the same `commitDraftRow()` the grid
+uses, so an Enter press anywhere in the row and an explicit Add click both go through one save path.
+
+**Not built, deliberately** — none of this was asked for: no literal multiple simultaneous draft rows
+(the one persistent trailing row already satisfies "always somewhere to go next"); no input filtering on
+the now-text qty field (server validation is the enforcement); no auto-focus into a room's first cell when
+it expands.
+
+**Proven, not assumed**: `test_a_line_with_no_description_is_refused_not_saved` and
+`test_updating_an_existing_line_persists_the_edit` (`RentalInventoryCaptureTest.php`) cover the save path
+server-side — an empty description never persists, and a PUT edit through the same endpoint the grid uses
+does. Keyboard/arrow behaviour itself is not something a PHP test can prove; verified by Johan directly on
+the deployed page.
+
+---
+
 ## 5. Signing — reused from §15, minus what wasn't asked for here
 
 Built: three party roles, refusal as a first-class disposition with a mandatory reason, the agent signing

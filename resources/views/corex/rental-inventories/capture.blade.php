@@ -135,7 +135,7 @@
                     </span>
                 </button>
 
-                <div x-show="openRooms[room.id]" x-collapse class="px-4 pb-4 space-y-3">
+                <div x-show="openRooms[room.id]" x-collapse class="px-4 pb-4 space-y-3" :data-room-id="room.id">
                     {{-- Line items — same 3-column layout as the entry row
                          below, so quantity/description/actions line up
                          exactly whether the room has 1 item or 20. Inline
@@ -146,37 +146,83 @@
                          and this screen has already shipped once with a
                          stale bundle on the deployed box. Inline style has
                          no such dependency. --}}
+                    {{-- §0b+2026-09-26 — every committed line is now a live grid
+                         cell, not a read-only span: arrow-key navigation (see
+                         onCellKeydown() below) has to be able to land here,
+                         focus it, and edit it — "arrow back and fix a typo"
+                         only means something if the typo is still reachable.
+                         qty is type=text/inputmode=numeric on purpose, not
+                         type=number: selectionStart/selectionEnd/.select()
+                         throw on a number input in every major browser, and
+                         the caret-boundary check the whole grid contract
+                         depends on needs them to work on qty too, not just
+                         description. --}}
                     <div>
                         <template x-for="line in linesFor(room.id)" :key="line.id">
                             <div class="text-sm" style="display:grid; grid-template-columns:4.5rem 1fr 7.5rem; gap:0.5rem; align-items:center; padding:0.375rem 0; border-bottom:1px solid var(--border);">
-                                <span style="color: var(--text-secondary);" x-text="line.quantity + '×'"></span>
+                                <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="line.quantity"
+                                       class="prop-input" style="width:100%;"
+                                       :data-row="'line-' + line.id" data-cell="qty"
+                                       @keydown="onCellKeydown($event, room, 'line', line, 'qty')">
                                 <div class="min-w-0">
-                                    <span x-text="line.description"></span>
+                                    <input type="text" x-model="line.description"
+                                           class="prop-input w-full"
+                                           :data-row="'line-' + line.id" data-cell="description"
+                                           @keydown="onCellKeydown($event, room, 'line', line, 'description')">
                                     <template x-if="line.photos && line.photos.length">
                                         <span class="text-xs ml-1" style="color: var(--text-muted);" x-text="'(' + line.photos.length + ' photo tag' + (line.photos.length === 1 ? '' : 's') + ')'"></span>
                                     </template>
                                 </div>
                                 <div style="display:flex; align-items:center; justify-content:flex-end; gap:0.5rem;">
-                                    <button type="button" x-show="photoUploader().roomPhotos(room.id).length" @click="openTagger(line)" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Tag photo</button>
-                                    <button type="button" @click="retireLine(line)" class="text-xs font-semibold" style="color: var(--ds-crimson,#c41e3a);">Remove</button>
+                                    {{-- tabindex="-1" on both: mouse-clickable, never a Tab/keyboard stop (§2 of the grid spec). --}}
+                                    <button type="button" tabindex="-1" x-show="photoUploader().roomPhotos(room.id).length" @click="openTagger(line)" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Tag photo</button>
+                                    <button type="button" tabindex="-1" @click="retireLine(line)" class="text-xs font-semibold" style="color: var(--ds-crimson,#c41e3a);">Remove</button>
                                 </div>
                             </div>
                         </template>
                         <p x-show="!linesFor(room.id).length" class="text-xs py-1" style="color: var(--text-muted);">No items yet.</p>
                     </div>
 
-                    {{-- Add line — one row: qty, description, add. Same
-                         columns as the item rows above, so the entry row
-                         lines up with the list it's adding to. Enter in the
-                         description field adds the item; no Save button. --}}
-                    <form @submit.prevent="addLine(room)" style="display:grid; grid-template-columns:4.5rem 1fr 7.5rem; gap:0.5rem; align-items:center; padding-top:0.5rem;">
-                        <input type="number" min="0" x-model="newLine[room.id].quantity" placeholder="Qty"
-                               class="prop-input" style="width:100%;">
+                    {{-- Add line — spreadsheet-grid capture (Johan,
+                         2026-09-25/26): qty/description cells across the
+                         WHOLE room (existing lines above + this row) behave
+                         like an Excel grid — see onCellKeydown() for the
+                         full contract (Tab/Enter/→-at-end commits and moves
+                         to the next row's qty; ←-at-start moves to the
+                         previous row's description; ↑/↓ always move a row in
+                         the same column; a caret NOT at a boundary, or an
+                         active selection, falls through to normal
+                         cursor/selection behaviour, untouched). This row is
+                         always the blank bottom row — committing resets it
+                         in place SYNCHRONOUSLY, before the save request
+                         resolves, so a fast typist filling the next row
+                         never races their own in-flight save. "Add" stays
+                         (Johan is raising its removal separately) but is out
+                         of the Tab path (tabindex="-1") — same for every
+                         other focusable control in this room's block, so
+                         keyboard navigation never leaves the grid. --}}
+                    <form @submit.prevent="commitDraftRow(room)" style="display:grid; grid-template-columns:4.5rem 1fr 7.5rem; gap:0.5rem; align-items:center; padding-top:0.5rem;">
+                        <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="newLine[room.id].quantity" placeholder="Qty"
+                               class="prop-input" style="width:100%;"
+                               data-row="draft" data-cell="qty"
+                               @keydown="onCellKeydown($event, room, 'draft', null, 'qty')">
                         <input type="text" x-model="newLine[room.id].description" placeholder="e.g. White wooden headboard"
-                               class="prop-input" @keydown.enter.prevent="addLine(room)">
-                        <button type="submit" :disabled="lineBusy[room.id]"
+                               class="prop-input"
+                               data-row="draft" data-cell="description"
+                               @keydown="onCellKeydown($event, room, 'draft', null, 'description')">
+                        <button type="submit" tabindex="-1" :disabled="lineBusy[room.id]"
                                 class="text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9); padding:0.375rem 0.75rem; justify-self:end;">Add</button>
                     </form>
+                    {{-- §7 — quiet, in-place feedback, never a toast: a
+                         one-line fade that disappears on its own. No :style
+                         anywhere here — x-transition manages opacity via
+                         direct style-property writes, not a bound :style
+                         expression, so it can't collide with a static style
+                         attribute the way the room chevron once did. --}}
+                    <p x-show="lineSavedFlash[room.id]" x-cloak x-transition.opacity.duration.400ms
+                       class="text-xs" style="color:#16a34a;">&#10003; Saved</p>
+                    <p x-show="lineSaveError[room.id]" x-cloak
+                       class="text-xs" style="color:var(--ds-crimson,#c41e3a);">Couldn't save that item — check your connection and try again.</p>
 
                     {{-- Photos — §4a: adopts the SAME batched uploader
                          (public/js/corex-photo-batch-uploader.js) and the
@@ -195,7 +241,7 @@
                                     <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
                                         <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer" @click="openTaggerForPhoto(room, photo)" alt="Room photo">
                                         <span x-show="photo.lines && photo.lines.length" class="absolute top-0.5 left-0.5 text-[10px] font-bold text-white rounded-full flex items-center justify-center" style="width:16px; height:16px; background:var(--brand-button,#0ea5e9);" x-text="photo.lines.length"></span>
-                                        <button type="button" @click.stop="if (confirm('Archive this photo?')) photoUploader().archivePhoto(photo.id)"
+                                        <button type="button" tabindex="-1" @click.stop="if (confirm('Archive this photo?')) photoUploader().archivePhoto(photo.id)"
                                                 class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                                 style="background:var(--ds-crimson,#c41e3a); color:#fff; line-height:1;" title="Archive">&times;</button>
                                     </div>
@@ -203,7 +249,7 @@
                             </div>
                         </template>
                         <div class="flex items-center gap-2 flex-wrap pt-1">
-                            <button type="button" x-show="photoUploader().roomPhotos(room.id).length > 3"
+                            <button type="button" tabindex="-1" x-show="photoUploader().roomPhotos(room.id).length > 3"
                                     @click="roomPhotosExpanded[room.id] = !roomPhotosExpanded[room.id]"
                                     class="text-xs font-semibold underline" style="color:var(--text-secondary);"
                                     x-text="roomPhotosExpanded[room.id] ? 'Show less' : ('Show all ' + photoUploader().roomPhotos(room.id).length)"></button>
@@ -221,7 +267,7 @@
                                  :style="batch.status === 'failed' ? 'background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);' : 'background:var(--surface-2);'">
                                 <span :style="batch.status === 'failed' ? 'color:var(--ds-crimson);' : 'color:var(--text-secondary);'"
                                       x-text="batch.status === 'failed' ? (batch.files.length + ' photo(s) failed — ' + batch.error) : ('Uploading ' + batch.files.length + ' photo(s)… ' + (batch.percent || 0) + '%')"></span>
-                                <button type="button" x-show="batch.status === 'failed'" @click="photoUploader().retryBatch(batch)"
+                                <button type="button" tabindex="-1" x-show="batch.status === 'failed'" @click="photoUploader().retryBatch(batch)"
                                         class="text-xs font-semibold underline" style="color:var(--text-secondary);">Retry</button>
                             </div>
                         </template>
@@ -279,6 +325,13 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         openRooms: {},
         newLine: {},
         lineBusy: {},
+        // §"spreadsheet-speed capture" (Johan, 2026-09-25/26) — per-room
+        // quiet-save feedback (§7) and per-line dirty-check snapshots for
+        // the arrow-key grid (keyed by real line id, across all rooms —
+        // not per-room, since a line id is already globally unique).
+        lineSavedFlash: {},
+        lineSaveError: {},
+        lineSnapshots: {},
         newSpace: { space_type: '', label: '' },
         spaceBusy: false,
         spaceError: '',
@@ -291,6 +344,7 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
 
         init() {
             this.rooms.forEach(r => this._initRoomState(r));
+            this.lines.forEach(l => { this.lineSnapshots[l.id] = { quantity: l.quantity, description: l.description }; });
         },
         // Extracted so a room added live via addSpace() (never present at
         // page-load init()) gets the exact same per-room state a
@@ -365,22 +419,179 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
             return this._photoUploader;
         },
 
-        async addLine(room) {
+        // ── Spreadsheet-grid capture (Johan, 2026-09-25, expanded
+        // 2026-09-26) ─────────────────────────────────────────────────
+        // Contract — this is what gets tested key-by-key on the deployed
+        // page, so it lives here as one readable block, not spread out:
+        //   Tab (no shift), from description      → commit this row if
+        //     non-empty, land on next row's qty (selected)
+        //   Enter, from either cell                → same as above
+        //   → (ArrowRight), caret at END, no selection, from description
+        //                                           → same as above
+        //   → (ArrowRight), caret at END, no selection, from qty
+        //                                           → same row's description
+        //     (selected), no commit — still the same row
+        //   ← (ArrowLeft), caret at START, no selection, from qty
+        //                                           → commit this row if
+        //     changed, land on PREVIOUS row's description (selected)
+        //   ← (ArrowLeft), caret at START, no selection, from description
+        //                                           → same row's qty
+        //     (selected), no commit — still the same row
+        //   ↑ (ArrowUp) / ↓ (ArrowDown), any caret position
+        //                                           → commit this row if
+        //     changed, land on the SAME column of the prev/next row
+        //     (selected); no-op at the top/bottom edge of the grid
+        //   Any arrow key when the caret is NOT at that boundary, or when
+        //     text is selected                      → normal cursor /
+        //     selection-collapse behaviour, untouched
+        //   Shift+Tab                                → left un-intercepted;
+        //     native tab order already lands on the right cell because
+        //     every other focusable control in a room's block carries
+        //     tabindex="-1" (Add button, photo archive/show-all/retry,
+        //     Tag photo/Remove)
+        // Committing a row never blocks the focus move — save requests are
+        // fire-and-forget (commitRow() is called, not awaited) so the
+        // keyboard never waits on the network. A row is never saved empty
+        // (draft) or blanked to empty (existing line — reverts instead).
+        gridRowKeys(room) {
+            return [...this.linesFor(room.id).map(l => 'line-' + l.id), 'draft'];
+        },
+        gridCell(container, rowKey, cellKind) {
+            return container ? container.querySelector(`[data-row="${rowKey}"][data-cell="${cellKind}"]`) : null;
+        },
+        focusAndSelect(el) {
+            if (!el) return;
+            el.focus();
+            el.select();
+        },
+        onCellKeydown(event, room, rowKind, rowRef, cellKind) {
+            const key = event.key;
+            if (key !== 'Enter' && key !== 'Tab' && key !== 'ArrowLeft' && key !== 'ArrowRight' && key !== 'ArrowUp' && key !== 'ArrowDown') return;
+
+            const el = event.target;
+            const container = el.closest('[data-room-id]');
+            const keys = this.gridRowKeys(room);
+            const currentKey = rowKind === 'draft' ? 'draft' : ('line-' + rowRef.id);
+            const idx = keys.indexOf(currentKey);
+            const hasSelection = el.selectionStart !== el.selectionEnd;
+            const atStart = el.selectionStart === 0 && el.selectionEnd === 0;
+            const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
+
+            const gotoNextRowQty = () => {
+                this.commitRow(room, rowKind, rowRef);
+                this.focusAndSelect(this.gridCell(container, keys[idx + 1] ?? 'draft', 'qty'));
+            };
+
+            if (key === 'Enter') { event.preventDefault(); gotoNextRowQty(); return; }
+
+            if (key === 'Tab') {
+                if (event.shiftKey || cellKind === 'qty') return;
+                event.preventDefault();
+                gotoNextRowQty();
+                return;
+            }
+
+            if (key === 'ArrowRight') {
+                if (hasSelection || !atEnd) return;
+                event.preventDefault();
+                if (cellKind === 'qty') this.focusAndSelect(this.gridCell(container, currentKey, 'description'));
+                else gotoNextRowQty();
+                return;
+            }
+
+            if (key === 'ArrowLeft') {
+                if (hasSelection || !atStart) return;
+                event.preventDefault();
+                if (cellKind === 'description') {
+                    this.focusAndSelect(this.gridCell(container, currentKey, 'qty'));
+                } else if (idx > 0) {
+                    this.commitRow(room, rowKind, rowRef);
+                    this.focusAndSelect(this.gridCell(container, keys[idx - 1], 'description'));
+                }
+                return;
+            }
+
+            if (key === 'ArrowDown') {
+                event.preventDefault();
+                if (idx < keys.length - 1) {
+                    this.commitRow(room, rowKind, rowRef);
+                    this.focusAndSelect(this.gridCell(container, keys[idx + 1], cellKind));
+                }
+                return;
+            }
+
+            if (key === 'ArrowUp') {
+                event.preventDefault();
+                if (idx > 0) {
+                    this.commitRow(room, rowKind, rowRef);
+                    this.focusAndSelect(this.gridCell(container, keys[idx - 1], cellKind));
+                }
+                return;
+            }
+        },
+        commitRow(room, rowKind, rowRef) {
+            if (rowKind === 'draft') this.commitDraftRow(room);
+            else this.commitExistingLineIfDirty(room, rowRef);
+        },
+        flashSaved(roomId) {
+            this.lineSavedFlash[roomId] = true;
+            setTimeout(() => { if (this.lineSavedFlash[roomId]) this.lineSavedFlash[roomId] = false; }, 1200);
+        },
+        // The trailing blank row. Resets IN PLACE, synchronously, before the
+        // save request resolves — a fast typist starting the next row must
+        // never race their own in-flight POST for this one.
+        commitDraftRow(room) {
             const form = this.newLine[room.id];
-            if (!form.description || !form.description.trim()) return;
+            const description = (form.description || '').trim();
+            if (!description) return; // never save an empty row
+            const payload = { property_room_id: room.id, quantity: form.quantity || 0, description };
+            this.newLine[room.id] = { quantity: 1, description: '' };
             this.lineBusy[room.id] = true;
-            try {
-                const res = await fetch(`${this.baseUrl}/lines`, {
-                    method: 'POST',
-                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ property_room_id: room.id, quantity: form.quantity || 0, description: form.description.trim() }),
-                });
-                if (!res.ok) return;
+            fetch(`${this.baseUrl}/lines`, {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            }).then(async (res) => {
+                if (!res.ok) { this.lineSaveError[room.id] = true; return; }
                 const line = await res.json();
                 this.lines.push({ id: line.id, property_room_id: line.property_room_id, quantity: line.quantity, description: line.description, photos: [] });
-                this.newLine[room.id] = { quantity: 1, description: '' };
-            } finally {
-                this.lineBusy[room.id] = false;
+                this.lineSnapshots[line.id] = { quantity: line.quantity, description: line.description };
+                this.lineSaveError[room.id] = false;
+                this.flashSaved(room.id);
+            }).catch(() => { this.lineSaveError[room.id] = true; })
+              .finally(() => { this.lineBusy[room.id] = false; });
+        },
+        // An existing (already-persisted) line, edited via the grid.
+        // Dirty-checked against the last-saved snapshot so pure navigation
+        // (arrowing through rows to review them) never fires a request.
+        async commitExistingLineIfDirty(room, line) {
+            const description = (line.description || '').trim();
+            const snap = this.lineSnapshots[line.id] || { quantity: line.quantity, description: line.description };
+            if (!description) {
+                // An edit can't blank an existing item's description out —
+                // that's not "removing an empty row", it's erasing a real
+                // one. Restore rather than silently losing it; "Remove" is
+                // its own explicit control (retireLine) for that.
+                line.description = snap.description;
+                return;
+            }
+            const quantity = line.quantity || 0;
+            if (snap.quantity === quantity && snap.description === description) return;
+            try {
+                const res = await fetch(`${this.baseUrl}/lines/${line.id}`, {
+                    method: 'PUT',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ property_room_id: line.property_room_id, quantity, description }),
+                });
+                if (!res.ok) { this.lineSaveError[room.id] = true; return; }
+                const updated = await res.json();
+                line.quantity = updated.quantity;
+                line.description = updated.description;
+                this.lineSnapshots[line.id] = { quantity: updated.quantity, description: updated.description };
+                this.lineSaveError[room.id] = false;
+                this.flashSaved(room.id);
+            } catch (e) {
+                this.lineSaveError[room.id] = true;
             }
         },
         async retireLine(line) {

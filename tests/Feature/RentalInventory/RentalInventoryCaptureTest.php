@@ -221,4 +221,54 @@ final class RentalInventoryCaptureTest extends TestCase
         $this->postJson(route('corex.rental-inventories.lines.photos.attach', [$inventory, $foreignLine->id, 1]))
             ->assertStatus(404);
     }
+
+    /**
+     * .ai/specs/rental-inventory.md §0b.3 — the spreadsheet-grid capture
+     * save path (Johan, 2026-09-25/26). commitDraftRow() only ever reaches
+     * the server with a non-empty description; a blank row must never
+     * become a request the server has to reject in the first place, but if
+     * a caller ever does send one, the server is still the backstop.
+     */
+    public function test_a_line_with_no_description_is_refused_not_saved(): void
+    {
+        $this->get(route('corex.properties.inventory.show', $this->property))->assertOk();
+        $inventory = RentalInventory::firstOrFail();
+
+        $this->postJson(route('corex.rental-inventories.lines.store', $inventory), [
+            'property_room_id' => $this->lounge->id,
+            'quantity' => 1,
+            'description' => '',
+        ])->assertStatus(422);
+
+        $this->assertSame(0, RentalInventoryLine::count());
+    }
+
+    /**
+     * .ai/specs/rental-inventory.md §0b.3 — the grid's own edit-in-place
+     * path: an agent arrows back into an already-saved line, fixes a typo,
+     * arrows away. commitExistingLineIfDirty() PUTs to this same endpoint.
+     */
+    public function test_updating_an_existing_line_persists_the_edit(): void
+    {
+        $this->get(route('corex.properties.inventory.show', $this->property))->assertOk();
+        $inventory = RentalInventory::firstOrFail();
+
+        $line = RentalInventoryLine::create([
+            'agency_id' => $this->agency->id, 'rental_inventory_id' => $inventory->id,
+            'property_room_id' => $this->lounge->id, 'room_label' => 'Lounge',
+            'quantity' => 1, 'description' => 'Whte wooden headboard',
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->putJson(route('corex.rental-inventories.lines.update', [$inventory, $line]), [
+            'property_room_id' => $this->lounge->id,
+            'quantity' => 2,
+            'description' => 'White wooden headboard',
+        ])->assertOk()
+          ->assertJsonPath('quantity', 2)
+          ->assertJsonPath('description', 'White wooden headboard');
+
+        $this->assertSame(2, $line->fresh()->quantity);
+        $this->assertSame('White wooden headboard', $line->fresh()->description);
+    }
 }
