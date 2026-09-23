@@ -8,6 +8,7 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Lease;
 use App\Models\Property;
+use App\Models\PropertyRoom;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
@@ -462,5 +463,189 @@ final class RentalInspectionChainTest extends TestCase
 
         self::assertSame($out->id, $payload['chain_tail']->id);
         self::assertSame($in->id, $payload['chain_predecessor']->id);
+    }
+
+    // ── The side-by-side comparison grid (2026-09-23, second round) —
+    // Johan, live-tested on QA1 property 5792: "The two sides are two
+    // INDEPENDENT lists rendered next to each other. They share nothing."
+    // rental-inspection-recording.blade.php now drives ONE shared x-for
+    // over roomGroups()/group.items, rendering a two-column grid row per
+    // item with the predecessor (left, read-only) and tail (right,
+    // editable) as DOM siblings — see rental-inspection-item-cell.blade.php
+    // for the shared per-item skeleton. ─────────────────────────────────
+
+    private function makeRoomItem(string $roomLabel, string $itemLabel): RentalInspectionItem
+    {
+        $room = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'type' => $roomLabel, 'label' => $roomLabel, 'source' => 'manual', 'sort_order' => 0,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        return RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id, 'property_room_id' => $room->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => $itemLabel, 'space_type' => $roomLabel,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+    }
+
+    /**
+     * The exact structural claim Johan demanded proof of: "the left cell
+     * and the right cell are siblings inside the same grid row container."
+     * Asserts it directly from the rendered response — a real CSS Grid
+     * container (.rir-compare-row) whose two DIRECT children are
+     * .rir-compare-cell divs, one reading chainPredecessor (disabled,
+     * read-only), one reading tailSection() (interactive) — both driven
+     * by the SAME x-for="item in group.items", so this holds for every
+     * item, including "Kitchen / Ceiling" (Johan's own worked example).
+     */
+    public function test_comparison_row_is_a_grid_container_with_predecessor_and_tail_cells_as_siblings(): void
+    {
+        $item = $this->makeRoomItem('Kitchen', 'Ceiling');
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $this->observe($in, $item, 'good');
+        RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $resp = $this->get(route('corex.properties.show', $this->property->id));
+        $resp->assertOk();
+        $html = $resp->getContent();
+
+        self::assertStringContainsString('rir-compare-row', $html);
+        self::assertStringContainsString('rir-compare-cell', $html);
+
+        // The row container is a real CSS Grid with two columns — never a
+        // flex pair of two independently-run loops (the exact shape Johan
+        // rejected: "not by luck").
+        self::assertMatchesRegularExpression(
+            '/<div class="rir-compare-row[^"]*" style="display:grid; grid-template-columns:1fr 1fr;/',
+            $html
+        );
+
+        // Immediately inside that row: two .rir-compare-cell divs back to
+        // back — the left reads chainPredecessor through the read-only
+        // accessor (conditionForInspection), the right reads tailSection()
+        // through the live/editable one (selectedConditionFor) — proving
+        // they are the SAME row's two siblings, not two separate lists.
+        self::assertMatchesRegularExpression(
+            '/<div class="rir-compare-row[^"]*"[^>]*>\s*<div class="rir-compare-cell[^"]*">.*?conditionForInspection\(chainPredecessor.*?<\/div>\s*<div class="rir-compare-cell[^"]*">.*?selectedConditionFor\(tailSection\(\)/s',
+            $html
+        );
+    }
+
+    /**
+     * Read-only means disabled controls on the SAME component, never a
+     * different one — the predecessor cell's condition buttons carry a
+     * literal disabled attribute; the tail cell's do not.
+     */
+    public function test_predecessor_cell_buttons_are_disabled_tail_cell_buttons_are_interactive(): void
+    {
+        $item = $this->makeRoomItem('Bedroom 1', 'Ceiling');
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $this->observe($in, $item, 'good');
+        RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $resp = $this->get(route('corex.properties.show', $this->property->id));
+        $html = $resp->getContent();
+
+        self::assertStringContainsString('<button type="button" disabled', $html);
+        self::assertStringContainsString('@click="onConditionTap(tailSection(), item, state.key)"', $html);
+    }
+
+    /**
+     * The standalone Compare section is being removed (cc2) — every photo
+     * tile on both cells must open cc2's shared openCompareViewer() modal,
+     * with the SAME call shape already used elsewhere on this page
+     * ('item', 'item_' + item.id, null, item). Never the old, now-orphaned
+     * openInspectionPhoto() single-viewer path from either cell.
+     */
+    public function test_both_comparison_cells_open_the_shared_compare_viewer_on_photo_click(): void
+    {
+        $item = $this->makeRoomItem('Kitchen', 'Ceiling');
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $this->observe($in, $item, 'good');
+        RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $resp = $this->get(route('corex.properties.show', $this->property->id));
+        $html = $resp->getContent();
+
+        // >= 4, not an exact count: rental-inspection-recording.blade.php
+        // is included TWICE (the active and completed x-show branches —
+        // see show.blade.php's own FIX docblock on why), each rendering
+        // BOTH cells of the shared item-cell partial with this exact call
+        // — 2 cells x 2 branches = 4 from this file alone. The still-
+        // present (not yet removed — that's cc2's own, separate change)
+        // standalone Compare section already used this identical call
+        // shape too, so the real page total is higher; asserting the
+        // floor this file is responsible for avoids coupling to whether
+        // cc2 has removed that section yet.
+        self::assertGreaterThanOrEqual(
+            4,
+            substr_count($html, "openCompareViewer('item', 'item_' + item.id, null, item)"),
+            'both the predecessor and tail item-cell photo tiles must call the same shared viewer'
+        );
+    }
+
+    /**
+     * Item 6, Johan's brief — "The tail's metadata block... moves OUT of
+     * the column. It belongs in a header... must not push the right
+     * column down relative to the left." Proven by absence of duplication:
+     * the metadata block renders exactly once (never per-cell), and
+     * nothing about it lives inside a .rir-compare-cell.
+     */
+    public function test_metadata_block_renders_once_not_per_cell(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $resp = $this->get(route('corex.properties.show', $this->property->id));
+        $html = $resp->getContent();
+
+        self::assertSame(1, substr_count($html, 'Electricity meter'), 'the metadata block must never be duplicated per column');
+    }
+
+    /**
+     * Item 7 — "Each column gets a header saying which inspection it is:
+     * type, date, status." One header strip, naming both sides, sitting
+     * above the shared grid it labels (never inside either cell).
+     */
+    public function test_column_headers_name_both_inspections(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $resp = $this->get(route('corex.properties.show', $this->property->id));
+        $html = $resp->getContent();
+
+        self::assertStringContainsString('rir-compare-headers', $html);
+    }
+
+    /**
+     * A completed tail renders BOTH cells read-only — the metadata/
+     * discrepancy/progress/tray/notes/signing chrome (nothing left to
+     * action on a completed inspection) is skipped entirely for that
+     * branch, proven by rendering the partial directly with
+     * $tailReadOnly=true vs false and comparing output, since both
+     * x-show branches coexist in one HTTP response (Alpine's runtime
+     * toggle, not server-conditional) and can't be told apart by a
+     * plain assertSee() the way this can.
+     */
+    public function test_recording_partial_tail_read_only_flag_suppresses_lifecycle_chrome(): void
+    {
+        $editableHtml = view('corex.properties.partials.rental-inspection-recording', [
+            'section' => 'in', 'sectionJs' => "'in'", 'predecessorJs' => 'chainPredecessor', 'tailReadOnly' => false,
+        ])->render();
+        $readOnlyHtml = view('corex.properties.partials.rental-inspection-recording', [
+            'section' => 'in', 'sectionJs' => "'in'", 'predecessorJs' => 'chainPredecessor', 'tailReadOnly' => true,
+        ])->render();
+
+        self::assertStringContainsString('Overall notes', $editableHtml);
+        self::assertStringNotContainsString('Overall notes', $readOnlyHtml);
+        self::assertStringContainsString('Electricity meter', $editableHtml);
+        self::assertStringNotContainsString('Electricity meter', $readOnlyHtml);
+
+        // The room/item comparison grid itself is the one thing a
+        // completed inspection still needs — it must NOT be skipped.
+        self::assertStringContainsString('rir-compare-row', $editableHtml);
+        self::assertStringContainsString('rir-compare-row', $readOnlyHtml);
     }
 }

@@ -33,6 +33,39 @@
     currentFor() excludes them), so the statuses possible here are only
     draft, in_progress, awaiting_signature — the lifecycle controls below
     don't need a "completed" branch.
+
+    Optional include vars, 2026-09-23 (Johan, property 5792 — "surely we
+    can ensure that the sides show the same and looks the same, and have
+    spaces next to each other, and have photos next to each other, and
+    kitchen ceilings next to each other?"):
+      $predecessorJs — a raw JS expression naming the chain's predecessor
+                 inspection object (defaults to 'chainPredecessor', the
+                 chain caller's only real value). Drives the LEFT cell of
+                 the shared room/item comparison grid below. Null-safe at
+                 every read (conditionForInspection()/
+                 itemPhotosForInspection()), so "no predecessor yet" and
+                 "predecessor has nothing recorded for this item" render
+                 identically — an empty cell, row by row — with no
+                 separate top-level special case needed.
+      $tailReadOnly  — PHP bool, compile-time, default false. true renders
+                 the RIGHT cell read-only too (chainTail.status ===
+                 'completed' — nothing left to record) and skips the
+                 metadata/discrepancy/progress/photo-tray/notes/signing
+                 blocks entirely (there is nothing to action on a
+                 completed inspection). The chain caller in show.blade.php
+                 includes this file TWICE, once per value, each behind its
+                 own <div x-show> (never <template x-if> — see that file's
+                 own FIX docblock on exactly why) so the flag is always a
+                 real PHP literal, never threaded through as a runtime
+                 expression.
+
+    Both cells of the room/item grid are rendered by the SAME shared
+    partial, rental-inspection-item-cell.blade.php — "Read-only means
+    disabled controls or a static rendering of the same component — it
+    does not mean a different component with a different look" (Johan).
+    The standalone Compare section is being removed (cc2); every photo
+    tile on both cells opens cc2's shared openCompareViewer() modal —
+    see that partial's own docblock.
 --}}
 {{-- FIX, 2026-09-22 (Johan, live measurement, AFTER 8fccccb5a "landed" and
      was STILL broken) — the real cause was never the sizing math, it was
@@ -78,6 +111,8 @@
 </style>
 {{-- $sectionJs override — see this file's own top docblock. --}}
 @php($sectionJs = $sectionJs ?? "'{$section}'")
+@php($predecessorJs = $predecessorJs ?? 'chainPredecessor')
+@php($tailReadOnly = $tailReadOnly ?? false)
 
 <template x-if="!currentInspection({{ $sectionJs }})">
     <div class="space-y-2">
@@ -90,6 +125,17 @@
 
 <template x-if="currentInspection({{ $sectionJs }})">
     <div class="space-y-3">
+        {{-- 2026-09-23 — a completed tail has nothing left to action:
+             no meters to correct, no discrepancies to resolve, nothing to
+             upload, nothing to sign. Skipped entirely rather than shown
+             disabled — Johan's own item-cell rule ("Read-only means
+             disabled controls... not a different component") is about the
+             room/item grid below, which every completed inspection still
+             needs (it's the comparison content itself); this metadata/
+             lifecycle chrome has no read-only rendering to fall back to
+             because it was never something the LEFT (predecessor) cell
+             showed either. --}}
+        @unless($tailReadOnly)
         {{--
             §17 — the header block, from Johan's real paper form: everything
             above the room tables. "Pull what we already know" — landlord,
@@ -346,6 +392,26 @@
                 </div>
             </template>
         </div>
+        @endunless
+
+        {{-- Item 7, 2026-09-23 (Johan) — "Right now nothing on the screen
+             tells you which side is which." One header per column, naming
+             type/date/status, sitting directly above the shared room/item
+             grid it labels — never inside either cell, so it can never
+             drift out of alignment with what it names. --}}
+        <div class="rir-compare-headers" style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+            <div class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">
+                <template x-if="{{ $predecessorJs }}">
+                    <span x-text="(({{ $predecessorJs }}.type === 'out' ? 'Out' : ({{ $predecessorJs }}.type === 'in' ? 'In' : 'Routine')) + '-inspection · ' + ({{ $predecessorJs }}.completed_at || {{ $predecessorJs }}.scheduled_for || {{ $predecessorJs }}.created_at || '').slice(0, 10) + ' · ' + {{ $predecessorJs }}.status.replace('_',' '))"></span>
+                </template>
+                <template x-if="!{{ $predecessorJs }}">
+                    <span style="color:var(--text-muted); font-weight:normal; text-transform:none;">First inspection in this chain — nothing yet to compare against.</span>
+                </template>
+            </div>
+            <div class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">
+                <span x-text="(({{ $sectionJs }} === 'out' ? 'Out' : ({{ $sectionJs }} === 'in' ? 'In' : 'Routine')) + '-inspection · ' + (currentInspection({{ $sectionJs }}).completed_at || currentInspection({{ $sectionJs }}).scheduled_for || currentInspection({{ $sectionJs }}).created_at || '').slice(0, 10) + ' · ' + currentInspection({{ $sectionJs }}).status.replace('_',' '))"></span>
+            </div>
+        </div>
 
         {{-- 2026-09-21, Johan on property 5792 — same room-heading grouping
              as the Inspection Items panel above, applied here so a walkthrough
@@ -378,9 +444,12 @@
                      :style="(dragOverRoom === (group.room?.id ?? null) ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); outline:2px dashed var(--brand-icon,#0ea5e9);' : '') + 'cursor:pointer; transition:background .1s;'"
                      @mouseenter="$el.style.background = 'var(--surface-2)'" @mouseleave="$el.style.background = 'transparent'; dragOverRoom = null"
                      @click="toggleRoomOpen({{ $sectionJs }}, group)"
+@unless($tailReadOnly)
                      @dragover.prevent="group.room && (dragOverRoom = group.room.id)"
                      @dragleave="dragOverRoom = null"
-                     @drop.prevent="group.room && photoUploader({{ $sectionJs }}).dropOnRoom($event, group.room.id); dragOverRoom = null">
+                     @drop.prevent="group.room && photoUploader({{ $sectionJs }}).dropOnRoom($event, group.room.id); dragOverRoom = null"
+@endunless
+                     >
                     <button type="button" class="flex items-center gap-1.5 text-left py-1" tabindex="0">
                         <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"
                              :style="'color:var(--text-muted); transition:transform .15s; transform:rotate(' + (isRoomOpen({{ $sectionJs }}, group) ? 90 : 0) + 'deg);'">
@@ -390,6 +459,7 @@
                             x-text="(group.room ? group.room.label : 'General') + ' — ' + roomProgress({{ $sectionJs }}, group).recorded + '/' + roomProgress({{ $sectionJs }}, group).total
                                     + (roomProgress({{ $sectionJs }}, group).photos ? ' · ' + roomProgress({{ $sectionJs }}, group).photos + ' photo' + (roomProgress({{ $sectionJs }}, group).photos === 1 ? '' : 's') + ' total' : '')"></h4>
                     </button>
+                    @unless($tailReadOnly)
                     <div class="flex items-center gap-1" @click.stop>
                         {{-- Item 2, 2026-09-22 — the room's own general
                              photo(s), independent of any item; always
@@ -424,6 +494,7 @@
                             </div>
                         </template>
                     </div>
+                    @endunless
                 </div>
 
                 {{-- R1, 2026-09-22, Johan: "the small images is a waste of
@@ -467,12 +538,17 @@
                         <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
                             <template x-for="photo in (roomPhotosExpanded[group.room.id] ? roomPhotosFor({{ $sectionJs }}, group.room) : roomPhotosFor({{ $sectionJs }}, group.room).slice(0, 3))" :key="photo.id">
                                 <div class="relative rounded-md overflow-hidden rir-room-photo-tile"
-                                     :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
-                                    {{-- Clicking the photo opens it (unchanged) — any
-                                         control on the tile is its own small hit target,
-                                         @click.stop, so it never also opens the photo. --}}
+@unless($tailReadOnly)
+                                     :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''"
+@endunless
+                                     >
+                                    {{-- Clicking the photo opens cc2's shared comparison
+                                         modal — same handler as every other photo tile on
+                                         this screen (2026-09-23, standalone Compare
+                                         section removed, comparison lives in the modal). --}}
                                     <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer"
-                                         @click="openInspectionPhoto({{ $sectionJs }}, roomPhotosFor({{ $sectionJs }}, group.room), photo, group.room)" alt="">
+                                         @click="openCompareViewer('room', 'room_' + group.room.id, group.room, null)" alt="">
+@unless($tailReadOnly)
                                     {{-- Multi-select toggle — one tap/click, no modifier
                                          key, so it works identically at phone width. Feeds
                                          the same `selected` Set the tray's own multi-select
@@ -489,6 +565,7 @@
                                     <button type="button" @click.stop="photoUploader({{ $sectionJs }}).untagPhoto(photo.id)"
                                             class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                             style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to tray">&uarr;</button>
+@endunless
                                 </div>
                             </template>
                         </div>
@@ -497,6 +574,7 @@
                                     @click="roomPhotosExpanded[group.room.id] = !roomPhotosExpanded[group.room.id]"
                                     class="text-xs font-semibold underline" style="color:var(--text-secondary);"
                                     x-text="roomPhotosExpanded[group.room.id] ? 'Show less' : ('Show all ' + roomPhotosFor({{ $sectionJs }}, group.room).length)"></button>
+                            @unless($tailReadOnly)
                             {{-- Bulk case: room → item still needs a chooser (many
                                  destinations), so it keeps its own dropdown here — the
                                  single-photo path moved to the opened view, but there's
@@ -520,202 +598,58 @@
                                     <button type="button" @click="photoUploader({{ $sectionJs }}).clearSelection()" class="text-xs font-semibold underline" style="color:var(--text-secondary);">Clear</button>
                                 </div>
                             </template>
+                            @endunless
                         </div>
                     </div>
                 </template>
 
                 <div x-show="isRoomOpen({{ $sectionJs }}, group)" class="space-y-1">
+                    {{-- Johan, 2026-09-23, property 5792 — "Stop rendering
+                         two lists. Render ONE list of rows, where each row
+                         has a left cell and a right cell." ONE x-for drives
+                         BOTH cells; item N is always item N on both sides
+                         by construction, never by luck. Each row is its
+                         own 2-column grid (rir-compare-row) — a real CSS
+                         Grid container whose two direct children
+                         (rir-compare-cell) are DOM siblings, so "Kitchen
+                         Ceiling" on the left is structurally, not
+                         visually-by-coincidence, beside "Kitchen Ceiling"
+                         on the right. If one side has nothing recorded,
+                         rental-inspection-item-cell.blade.php's own
+                         null-safe reads (conditionForInspection() /
+                         itemPhotosForInspection()) render that cell's own
+                         empty state in the same footprint — the row never
+                         collapses or shifts. --}}
                     <template x-for="item in group.items" :key="item.id">
-                        <div class="py-2 pl-3 space-y-1.5" style="border-bottom:1px solid var(--border);">
-                            <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
-                            {{-- R2, 2026-09-22, Johan: "why dont we stack the buttons
-                                 neat and tidy on top of each other and use 2 columns
-                                 for all the buttons... sizing should work out that
-                                 its essentially the same height as the photos running
-                                 next to the buttons towards the right".
-                                 FIX, 2026-09-22 (third pass, Johan): "surely theres a
-                                 specific size the buttons take up and that same size
-                                 can be applied to photos" — right, and the fixed 80px
-                                 from the previous pass was wrong for any agency but
-                                 the one it was measured against. Standard mechanism
-                                 for exactly this: the row is flex+stretch; the button
-                                 grid is flex:none so IT alone sets the row's height
-                                 (3 rows for 6 states, 4 for 7, whatever the agency has
-                                 configured); the strip is flex:1 with min-width:0,
-                                 min-height:0 and position:relative, and contains
-                                 NOTHING that can contribute height itself — inside it,
-                                 an ABSOLUTELY POSITIONED scroller (inset:0) does the
-                                 actual horizontal scrolling. Because the scroller is
-                                 out of flow, nothing inside it — however large a
-                                 photo's native resolution — can ever feed back into
-                                 the row's height; the row is sized purely by the
-                                 buttons and the strip stretches to match, for any
-                                 agency's condition-state count. --}}
-                            <div class="flex items-stretch gap-3" style="display:flex; align-items:stretch; min-height:0;">
-                                <div class="flex-none space-y-1.5" style="flex:none;">
-                                    {{-- Item 3, 2026-09-22 — one tap, agency's own
-                                         condition vocabulary
-                                         (RentalInspectionSetting::conditionStatesFor()),
-                                         now a 2-column grid (R2) instead of a wrapping
-                                         row — holds for any list length, never a
-                                         hardcoded count. Item 4 — no separate condition
-                                         text anywhere else; the selected button itself
-                                         is the only place the current condition shows. --}}
-                                    <div class="grid grid-cols-2 gap-1">
-                                        <template x-for="state in conditionStates" :key="state.key">
-                                            <button type="button"
-                                                    :disabled="isObsBusy({{ $sectionJs }}, item.id)"
-                                                    @click="onConditionTap({{ $sectionJs }}, item, state.key)"
-                                                    class="text-xs font-semibold px-2.5 py-1.5 rounded-md"
-                                                    :style="selectedConditionFor({{ $sectionJs }}, item) === state.key
-                                                        ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
-                                                        : 'background:var(--surface-2); color:var(--text-secondary);'"
-                                                    x-text="state.label"></button>
-                                        </template>
-                                    </div>
-                                    <input type="text"
-                                           x-show="selectedConditionFor({{ $sectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $sectionJs }}, item))"
-                                           x-model="obsField({{ $sectionJs }}, item.id).notes"
-                                           @input="onNotesInput({{ $sectionJs }}, item)"
-                                           placeholder="Notes (required)"
-                                           class="prop-input w-full">
-                                </div>
-
-                                {{-- R2 — item photos, height derived from the button
-                                     grid above via the row's own stretch, never a
-                                     hardcoded pixel value. The scrollable strip
-                                     contributes NO height of its own — the absolutely
-                                     positioned scroller inside it holds only the
-                                     PHOTOS, out of flow, so nothing in there can ever
-                                     grow the row. FIX, 2026-09-22 (regression, Johan:
-                                     "Ive now lost the tagging per item. the little
-                                     camera per item is gone?") — the add-tile used to
-                                     live INSIDE that same scroller, so once an item had
-                                     photos it scrolled off to the right and became
-                                     unreachable. Moved to its own flex:none slot,
-                                     outside the scroller, in normal flow — a plain
-                                     flex sibling of the scrollable strip, so it
-                                     receives the SAME row-driven stretch height
-                                     directly and is visible at a fixed position
-                                     whether the item has zero photos or twelve.
-                                     Tile controls (select/tag/untag, all six photo
-                                     moves) are the photo-tagging feature (cc,
-                                     2026-09-22) layered onto this sizing — this
-                                     strip's own sizing/positioning is untouched by
-                                     that work, merge conflict resolved 2026-09-22
-                                     by keeping this structure and bringing the
-                                     tagging controls over onto it.
-
-                                     FIX, 2026-09-22, SECOND PASS (Johan, live DOM
-                                     chain measured with getBoundingClientRect — the
-                                     flex+aspect-ratio version above shipped in this
-                                     branch's first commit was never landed and would
-                                     not have fixed this): the WRAPPER (885x124),
-                                     STRIP CONTAINER (860x124) and SCROLLER (860x124,
-                                     `white-space:nowrap; font-size:0`) all measure
-                                     correctly on their own — the scroller's own
-                                     `height:100%` DOES resolve, because its parent
-                                     strip container has a real, flex-stretch-derived
-                                     height. The bug is one level deeper than the
-                                     first pass diagnosed: the TILE div had NO
-                                     explicit size at all (not even the
-                                     `display:inline-block; height:100%` the first
-                                     pass assumed was already there), so as a plain
-                                     block it took the scroller's full 860px width,
-                                     its height stayed auto, and the img's own
-                                     `height:100%` then had no definite parent height
-                                     to resolve against and fell back to its natural
-                                     860x645 — confirmed by direct measurement, not
-                                     assumed. Reverted the scroller to its original
-                                     inline-block/white-space mechanism (flex was the
-                                     wrong direction to fix this in) and instead give
-                                     the TILE an explicit, FIXED width — `height:100%`
-                                     on the tile now resolves correctly because the
-                                     SCROLLER (its immediate containing block) has a
-                                     real, already-working explicit height; only
-                                     WIDTH needed to stop being implicit. 165px chosen
-                                     to read roughly 4:3 against a 124px row (the
-                                     common condition-list-length case) — an agency
-                                     with a taller/shorter row (more/fewer condition
-                                     states) gets the same 165px width at whatever
-                                     that agency's own row height is, never a fixed
-                                     px height on the tile itself, so the row height
-                                     stays the scroller's alone to set. No Tailwind
-                                     class added — every property here is an inline
-                                     style, same discipline as the rest of this
-                                     block. --}}
-                                <div style="display:flex; align-items:stretch; flex:1; min-width:0;">
-                                    <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
-                                        <div style="position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
-                                            <template x-for="photo in itemPhotosFor({{ $sectionJs }}, item)" :key="photo.id">
-                                                <div class="relative rounded-md rir-item-photo-tile"
-                                                     :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
-                                                    {{-- Clicking the photo opens it — the
-                                                         controls below are their own small hit
-                                                         targets, @click.stop, so none of them
-                                                         also open the photo. --}}
-                                                    <img :src="photo.storage_path" style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
-                                                         @click="openInspectionPhoto({{ $sectionJs }}, itemPhotosFor({{ $sectionJs }}, item), photo, group.room)" alt="">
-                                                    {{-- Multi-select toggle — same tap/click, no
-                                                         modifier key, as every other tile on this
-                                                         screen. --}}
-                                                    <button type="button" @click.stop="photoUploader({{ $sectionJs }}).toggleSelected(photo.id)"
-                                                            class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
-                                                            :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:rgba(0,0,0,0.5); color:#fff;'"
-                                                            title="Select">&check;</button>
-                                                    {{-- Item → room — a SINGLE destination (this
-                                                         item's own room), plain button (Johan).
-                                                         Only offered when this item actually
-                                                         belongs to a real room (never shown in the
-                                                         roomless "General" meters/legacy group —
-                                                         there is no room to step back to). --}}
-                                                    <button type="button" x-show="group.room" @click.stop="photoUploader({{ $sectionJs }}).tagPhoto(photo.id, { property_room_id: group.room?.id })"
-                                                            class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
-                                                            style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to room">&uarr;</button>
-                                                    {{-- Item → untagged — also a SINGLE destination
-                                                         (the tray), so this is a second plain
-                                                         button rather than folded into the same
-                                                         control as "back to room" — distinct icon
-                                                         (double arrow = "all the way back", vs the
-                                                         single arrow above = "one level back"). --}}
-                                                    <button type="button" @click.stop="photoUploader({{ $sectionJs }}).untagPhoto(photo.id)"
-                                                            class="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
-                                                            style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to untagged">&#8657;</button>
-                                                </div>
-                                            </template>
-                                        </div>
-                                        <label class="rounded-md cursor-pointer rir-add-tile"
-                                               :style="'left:min(' + (itemPhotosFor({{ $sectionJs }}, item).length * 171) + 'px, calc(100% - 124px));' + ((obsField({{ $sectionJs }}, item.id).photos || []).length
-                                                    ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
-                                                    : 'background:var(--surface-2); color:var(--text-secondary);')"
-                                               :title="(obsField({{ $sectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
-                                            <span>&#128247;</span>
-                                            <input type="file" accept="image/*" multiple class="hidden"
-                                                   @change="onItemPhotosSelected({{ $sectionJs }}, item, $event.target.files); $event.target.value = null;">
-                                        </label>
-                                    </div>
-                                </div>
+                        <div class="rir-compare-row py-2" style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; border-bottom:1px solid var(--border);">
+                            <div class="rir-compare-cell pl-3 space-y-1.5">
+                                <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                                @include('corex.properties.partials.rental-inspection-item-cell', ['inspectionJs' => $predecessorJs, 'readOnly' => true])
                             </div>
-                            {{-- Bulk case: item → room and item → untagged are both
-                                 single-destination even in bulk, so this is two plain
-                                 buttons, no chooser — same shape as the room bulk bar
-                                 below the room grid above, minus the dropdown since
-                                 there's nothing here that needs one. Sits below the
-                                 flex row entirely, so it never touches cc2's
-                                 height-sensitive strip layout above. --}}
-                            <template x-if="selectedItemPhotoIds({{ $sectionJs }}, item).length">
-                                <div class="flex items-center gap-2 pl-3">
-                                    <span class="text-xs" style="color:var(--text-secondary);" x-text="selectedItemPhotoIds({{ $sectionJs }}, item).length + ' selected'"></span>
-                                    <button type="button" x-show="group.room" @click="backToRoomSelectedItemPhotos({{ $sectionJs }}, item, group.room)"
-                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Back to room</button>
-                                    <button type="button" @click="untagSelectedItemPhotos({{ $sectionJs }}, item)"
-                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Untag selected</button>
-                                    <button type="button" @click="photoUploader({{ $sectionJs }}).clearSelection()" class="text-xs font-semibold underline" style="color:var(--text-secondary);">Clear</button>
-                                </div>
-                            </template>
+                            <div class="rir-compare-cell pl-3 space-y-1.5">
+                                <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
+                                @include('corex.properties.partials.rental-inspection-item-cell', ['inspectionJs' => $sectionJs, 'readOnly' => $tailReadOnly])
+                                @unless($tailReadOnly)
+                                {{-- Bulk case: item → room and item → untagged are both
+                                     single-destination even in bulk, so this is two plain
+                                     buttons, no chooser — tail cell only, the predecessor
+                                     cell has no tagging at all. --}}
+                                <template x-if="selectedItemPhotoIds({{ $sectionJs }}, item).length">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs" style="color:var(--text-secondary);" x-text="selectedItemPhotoIds({{ $sectionJs }}, item).length + ' selected'"></span>
+                                        <button type="button" x-show="group.room" @click="backToRoomSelectedItemPhotos({{ $sectionJs }}, item, group.room)"
+                                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Back to room</button>
+                                        <button type="button" @click="untagSelectedItemPhotos({{ $sectionJs }}, item)"
+                                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Untag selected</button>
+                                        <button type="button" @click="photoUploader({{ $sectionJs }}).clearSelection()" class="text-xs font-semibold underline" style="color:var(--text-secondary);">Clear</button>
+                                    </div>
+                                </template>
+                                @endunless
+                            </div>
                         </div>
                     </template>
 
+                    @unless($tailReadOnly)
                     {{-- §17, Johan 2026-09-21, from Retha's real paper form:
                          one free-text notes box per room, holding evidence
                          that belongs to the whole room, not any single item —
@@ -730,10 +664,12 @@
                                       rows="2" class="prop-input w-full text-xs"></textarea>
                         </div>
                     </template>
+                    @endunless
                 </div>
             </div>
         </template>
 
+        @unless($tailReadOnly)
         {{-- §17, Johan 2026-09-21, from Retha's real paper form: a single
              free-text summary for the whole inspection, at the foot — hers
              reads "OVERALL - APARTMENT CLEAN - FAIR - PARTIALLY FURNISHED".
@@ -889,5 +825,6 @@
                 </div>
             </div>
         </template>
+        @endunless
     </div>
 </template>

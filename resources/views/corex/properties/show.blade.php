@@ -4972,39 +4972,39 @@
 
                         <template x-if="chainTail">
                             <div class="space-y-3">
-                                <div class="flex flex-col md:flex-row gap-4 items-start">
-                                    <div style="flex:1; min-width:0;">
-                                        @include('corex.properties.partials.rental-inspection-readonly-panel', ['inspectionJs' => 'chainPredecessor'])
-                                    </div>
-                                    <div style="flex:1; min-width:0;">
-                                        {{-- FIX, 2026-09-23 — Johan, property 5792: the
-                                             recording partial rendered ZERO rooms/items/
-                                             photos (0 .rir-item-photo-tile etc.) the moment
-                                             this went behind a <template x-if>. Root cause:
-                                             Alpine's <template x-if> requires EXACTLY ONE
-                                             root element inside it — the recording partial
-                                             expands to THREE top-level siblings (its own
-                                             <style> block plus two of its OWN <template
-                                             x-if> blocks for the started/not-started
-                                             branches), so wrapping the whole @include in a
-                                             FOURTH <template x-if> here was structurally
-                                             invalid; Alpine could only ever mount (or
-                                             silently drop) it, never render all three. A
-                                             plain x-show div has no such constraint — it
-                                             only toggles visibility on however many
-                                             children exist, never re-parses/re-mounts a
-                                             template — which is exactly how this same
-                                             partial was safely included before this round
-                                             (a plain x-show div, not a template). Read-only
-                                             panel below has the identical two-top-level-
-                                             sibling shape for the same reason, same fix. --}}
-                                        <div x-show="chainTail.status !== 'completed'">
-                                            @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in', 'sectionJs' => 'tailSection()'])
-                                        </div>
-                                        <div x-show="chainTail.status === 'completed'">
-                                            @include('corex.properties.partials.rental-inspection-readonly-panel', ['inspectionJs' => 'chainTail'])
-                                        </div>
-                                    </div>
+                                {{-- REBUILD, 2026-09-23 — Johan, property 5792, after
+                                     browser-testing the previous round's fix: "The two
+                                     sides are two INDEPENDENT lists rendered next to
+                                     each other. They share nothing." The old
+                                     two-independent-@include shape (readonly-panel on
+                                     the left, recording on the right, each running its
+                                     OWN roomGroups() x-for) could never guarantee
+                                     row-for-row alignment — it only worked "by luck"
+                                     when both sides happened to have identical
+                                     recorded/collapsed state, which real data never
+                                     does. rental-inspection-recording.blade.php is now
+                                     the WHOLE comparison surface (metadata/discrepancy/
+                                     progress/tray moved out of any column — there is no
+                                     column wrapper here at all now — and a single
+                                     shared room/item grid inside it drives BOTH cells
+                                     from ONE x-for, so item N is the same DOM row on
+                                     both sides by construction). rental-inspection-
+                                     readonly-panel.blade.php is retired (git rm'd) —
+                                     see that file's own former docblock; Johan: "Reuse
+                                     the recording partial for both sides with a
+                                     readOnly flag rather than maintaining a separate
+                                     read-only panel that drifts."
+                                     Kept as two x-show branches (never <template x-if>
+                                     — see the PRIOR fix on this exact line for why)
+                                     purely to flip $tailReadOnly between a real,
+                                     literal PHP true/false at compile time — no runtime
+                                     boolean threading into the partial's own @if/
+                                     @unless blocks. --}}
+                                <div x-show="chainTail.status !== 'completed'">
+                                    @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in', 'sectionJs' => 'tailSection()', 'predecessorJs' => 'chainPredecessor', 'tailReadOnly' => false])
+                                </div>
+                                <div x-show="chainTail.status === 'completed'">
+                                    @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in', 'sectionJs' => 'tailSection()', 'predecessorJs' => 'chainPredecessor', 'tailReadOnly' => true])
                                 </div>
 
                                 {{-- Johan's ruling, 2026-09-23 — "Next inspection".
@@ -6356,6 +6356,21 @@
                 roomPhotosForInspection(insp, roomId) {
                     if (!insp || !roomId) return [];
                     return (insp.photos || []).filter(p => p.property_room_id === roomId && !p.rental_inspection_observation_id);
+                },
+                // 2026-09-23 — the read-only cell's own generic counterpart
+                // to itemPhotosFor() below (which reads through
+                // photoUploader(section)'s live upload/tag cache — the
+                // right, EDITABLE cell's own path, unchanged). This one
+                // reads straight off the plain inspection object's own
+                // eager-loaded observations[].photos (tabPayloadFor()'s
+                // 'observations.photos'), exactly like conditionForInspection()
+                // just above reads .observations directly — no uploader
+                // instance needed for a historical, non-current inspection.
+                itemPhotosForInspection(insp, itemId) {
+                    if (!insp) return [];
+                    return (insp.observations || [])
+                        .filter(o => o.rental_inspection_item_id === itemId)
+                        .flatMap(o => o.photos || []);
                 },
 
                 obsForm: {},
