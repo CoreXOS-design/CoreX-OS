@@ -974,17 +974,21 @@ class RentalInspection extends Model
             // UI is gated entirely on compare_right_inspection being present.
             'compare_left_inspection' => $compareLeft,
             'compare_right_inspection' => $compareRight,
-            // §20.16 — every match GROUP touching either side, not pairwise
-            // rows: a group may carry members from more than just these two
-            // inspections (Johan's own "third and fourth inspection" case),
-            // and every one of those members ships to the frontend too, not
-            // only the ones on compareLeft/compareRight — the viewer's own
-            // carousel/group-loading logic decides what to show from there.
-            'photo_matches' => ($compareLeft && $compareRight)
+            // §20.17, 2026-09-24 — every match GROUP touching the chain's
+            // CURRENT predecessor/tail pair (not compareLeft/compareRight,
+            // which stay pinned to the original in/out lookup and would
+            // silently go stale once a third or fourth inspection joins the
+            // chain — the exact case this key exists to support). A group
+            // may carry members from more than just these two inspections
+            // (Johan's own "third and fourth inspection" case), and every
+            // one of those members ships to the frontend too, not only the
+            // ones on the current pair — the viewer's own carousel/group-
+            // loading logic decides what to show from there.
+            'photo_matches' => ($rawPredecessor && $rawChainTail)
                 ? \App\Models\RentalInspectionPhotoMatchGroup::with('members.photo')
                     ->whereHas(
                         'members.photo',
-                        fn ($q) => $q->whereIn('rental_inspection_id', [$compareLeft->id, $compareRight->id]),
+                        fn ($q) => $q->whereIn('rental_inspection_id', [$rawPredecessor->id, $rawChainTail->id]),
                     )
                     ->get()
                     ->map(fn ($group) => $group->toComparePayload())
