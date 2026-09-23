@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalInspection;
+use App\Models\RentalInspectionItem;
 use App\Services\Rentals\RentalInspectionFormPdfService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -156,6 +157,13 @@ class RentalInspectionController extends Controller
             'observations.item', 'observations.observedByUser', 'observations.observedByContact', 'observations.photos',
             'discrepancies.observations', 'discrepancies.resolvedBy', 'discrepancies.acceptedObservation',
             'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy', 'createdBy', 'cancelledBy',
+            // 2026-09-23 — the chain. previousInspection loaded one level
+            // deep with its own observations so the comparison row below
+            // needs no per-item query; nextInChain so the screen can hide
+            // "Next inspection" once one already exists (the unique index
+            // means there can only ever be at most one).
+            'previousInspection.observations.item',
+            'nextInChain',
         ]);
 
         return view('corex.rental-inspections.show', [
@@ -165,7 +173,66 @@ class RentalInspectionController extends Controller
             // agency has since removed/renamed still shows the key itself
             // (never blank) via the blade's own fallback.
             'refusalReasonPresets' => \App\Models\RentalInspectionSetting::refusalReasonPresetsFor($rentalInspection->agency_id),
+            // Johan's ruling, 2026-09-23 — §2/§3 of the approved proposal:
+            // the predecessor-vs-current row set, and each item's full run
+            // for the on-demand history popover. Null when this is the
+            // first inspection in its chain (§6 — must render gracefully).
+            'comparisonRows' => $this->buildComparisonRows($rentalInspection),
         ]);
+    }
+
+    /**
+     * Johan's ruling, 2026-09-23 — §2 (predecessor left/read-only, current
+     * right/editable — this screen is read-only on BOTH sides, so "editable"
+     * here just means "this inspection's own recorded value") and §3
+     * (row shows the immediate predecessor's value; the full run — "Good,
+     * Good, Damaged" — is available on demand, not cluttering the row).
+     *
+     * Grouped by room (items are property-scoped, not inspection-scoped —
+     * §20.15.4's own alignment-is-automatic reasoning applies here
+     * identically). No query per item: $rentalInspection->previousInspection
+     * is already eager-loaded with its own observations by show() above, so
+     * every lookup here filters an already-loaded collection in memory.
+     * historyFor() does issue one query per link per item beyond the
+     * predecessor (walks previousInspection() further back) — acceptable
+     * for a read-only detail page opened one inspection at a time, not the
+     * tab's own high-frequency recording surface.
+     */
+    private function buildComparisonRows(RentalInspection $rentalInspection): ?\Illuminate\Support\Collection
+    {
+        if (! $rentalInspection->previousInspection) {
+            return null;
+        }
+
+        $items = RentalInspectionItem::where('property_id', $rentalInspection->property_id)
+            ->where('is_retired', false)
+            ->with('room')
+            ->get();
+
+        $currentByItem = $rentalInspection->observations->groupBy('rental_inspection_item_id')
+            ->map(fn ($group) => $group->sortByDesc('created_at')->first());
+        $predecessorByItem = $rentalInspection->previousInspection->observations->groupBy('rental_inspection_item_id')
+            ->map(fn ($group) => $group->sortByDesc('created_at')->first());
+
+        return $items
+            ->map(function (RentalInspectionItem $item) use ($rentalInspection, $currentByItem, $predecessorByItem) {
+                $current = $currentByItem->get($item->id);
+                $predecessor = $predecessorByItem->get($item->id);
+                if (! $current && ! $predecessor) {
+                    return null; // nothing to show on EITHER side — same screen-space convention the tab already follows.
+                }
+                $history = $rentalInspection->previousInspection->historyFor($item);
+
+                return (object) [
+                    'item' => $item,
+                    'room' => $item->room,
+                    'current' => $current,
+                    'predecessor' => $predecessor,
+                    'history' => $history, // every link BEFORE this one; current's own value is the run's next/latest entry.
+                ];
+            })
+            ->filter()
+            ->groupBy(fn ($row) => $row->room?->id ?? 'general');
     }
 
     /**
@@ -187,6 +254,80 @@ class RentalInspectionController extends Controller
         abort_unless(Storage::disk('local')->exists($form->pdf_storage_path), 404);
 
         return Storage::disk('local')->download($form->pdf_storage_path, $service->filenameFor($form));
+    }
+
+    /**
+     * Johan, 2026-09-23, approved — the COMPLETED inspection report: no
+     * photos (they live behind the public link, printed as a QR + URL
+     * instead), predecessor-vs-current comparison, signatures. A
+     * completely different document from form() above, which is the
+     * BLANK OMR capture form generated BEFORE an inspection happens —
+     * same DomPDF machinery, unrelated purpose, never confused with each
+     * other in either direction.
+     */
+    public function report(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
+    {
+        $rentalInspection->loadMissing([
+            'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
+            'observations.item.room', 'observations.item', 'signatures.partyContact',
+        ]);
+
+        // A tenant/landlord scans the PDF's QR code straight into the
+        // public link — generate one now if none is live, rather than
+        // printing a QR that 404s the moment someone actually scans it.
+        if (! $rentalInspection->publicLinkIsValid()) {
+            $rentalInspection->generatePublicLink();
+        }
+
+        $pdf = $service->generate($rentalInspection);
+
+        return $pdf->download($service->filenameFor($rentalInspection));
+    }
+
+    /**
+     * Johan's ruling, 2026-09-23 — "Next inspection" from any inspection:
+     * the deliberate action that records the chain (RentalInspection::
+     * startNext(), see its own docblock). Lands the agent on the new
+     * inspection's own show() page — the read-only agency-level screen,
+     * deliberately NOT the property tab's live recording surface — where
+     * §2 of the approved proposal's predecessor/current comparison renders.
+     */
+    public function next(Request $request, RentalInspection $rentalInspection): RedirectResponse
+    {
+        $validated = $request->validate([
+            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+        ]);
+
+        try {
+            $next = RentalInspection::startNext($rentalInspection, $validated['type'], $request->user());
+        } catch (\LogicException $e) {
+            return back()->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
+
+        return redirect()->route('corex.rental-inspections.show', $next)
+            ->with('success', ucfirst($validated['type']) . '-inspection started, compared against this one.');
+    }
+
+    /**
+     * Johan, 2026-09-23, approved — "signed, expiring, read-only... it
+     * must work for someone with NO CoreX login... revocable." Generates
+     * (or regenerates — see RentalInspection::generatePublicLink()'s own
+     * docblock) the token and shows the agent the resulting link.
+     */
+    public function generatePublicLink(Request $request, RentalInspection $rentalInspection): RedirectResponse
+    {
+        $rentalInspection->generatePublicLink();
+
+        return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+            ->with('success', 'Public link generated — any previous link for this inspection has stopped working.');
+    }
+
+    public function revokePublicLink(Request $request, RentalInspection $rentalInspection): RedirectResponse
+    {
+        $rentalInspection->revokePublicLink();
+
+        return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+            ->with('success', 'Public link revoked.');
     }
 
     public function cancel(Request $request, RentalInspection $rentalInspection): RedirectResponse

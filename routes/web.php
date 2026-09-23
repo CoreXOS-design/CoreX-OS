@@ -3159,6 +3159,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Printable tick-box form — same .view gate as show() itself, same
         // scoping precedent as RentalWorkOrderController::pdf().
         Route::get('/{rentalInspection}/form', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'form'])->name('corex.rental-inspections.form');
+        // 2026-09-23, Johan's ruling — the completed-inspection report: no
+        // photos, a QR + link to the public page below instead.
+        Route::get('/{rentalInspection}/report', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'report'])->name('corex.rental-inspections.report');
+        // The chain — "Next inspection" from this one, and the public-link
+        // lifecycle (generate/regenerate, revoke).
+        Route::post('/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'next'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.next');
+        Route::post('/{rentalInspection}/public-link', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'generatePublicLink'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.public-link.generate');
+        Route::delete('/{rentalInspection}/public-link', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'revokePublicLink'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.public-link.revoke');
         // §13 — the OMR scan reader, part 2 of cc5's two-part job. Upload/
         // apply/archive are mutating (.create gate, matching cancel/destroy
         // above); review/download are read (the group's own .view gate).
@@ -5525,6 +5536,17 @@ Route::prefix('rental-application')->group(function () {
         ->where('customFieldKey', '[a-z0-9_]+')->middleware('throttle:rental-application-documents')->name('rental-applications.public.custom-fields.replace');
     Route::post('/{token}/custom-fields/{customFieldKey}/remove', [\App\Http\Controllers\RentalApplicationSigningController::class, 'removeCustomFieldDocument'])
         ->where('customFieldKey', '[a-z0-9_]+')->middleware('throttle:rental-application-documents')->name('rental-applications.public.custom-fields.remove');
+});
+
+// ===== RENTAL INSPECTION REPORT — public, no auth, token-based =====
+// Johan, 2026-09-23, approved — the completed-report PDF's QR/link, for a
+// tenant or landlord with no CoreX login. Same class of problem as the
+// rental-application public group above, same throttle convention (see
+// AppServiceProvider::boot()); one route, read-only — there is nothing to
+// submit here, unlike the application flow above.
+Route::prefix('rental-inspection-report')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\RentalInspectionPublicController::class, 'show'])
+        ->middleware('throttle:rental-inspection-public-show')->name('rental-inspections.public.show');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====
