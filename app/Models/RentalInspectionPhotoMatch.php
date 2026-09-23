@@ -8,6 +8,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
+ * SUPERSEDED, 2026-09-23 — .ai/specs/rental-inspections.md §20.16. The app
+ * no longer reads or writes this table; RentalInspectionPhotoMatchGroup /
+ * RentalInspectionPhotoMatchGroupMember replaced it (Johan: pairwise was
+ * wrong for "2 photos on one inspection, 5 on another, all one wall" —
+ * that needs a SET, not 10 separate pairs). Every row that was active at
+ * the time carried over into the new tables via the
+ * 2026_10_03_100200_migrate_pairwise_photo_matches_into_groups migration
+ * (connected-components over the old pairwise edges); this table and model
+ * are kept, unused, purely as the historical record of what existed before
+ * — never dropped, never written to again.
+ *
  * .ai/specs/rental-inspections.md §20.15 — links a photo on one inspection
  * to a photo on another (In vs Out/ad-hoc), persisted so the pair stays
  * together in the compare view, the modal, and any report generated later.

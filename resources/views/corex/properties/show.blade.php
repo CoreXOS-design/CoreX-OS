@@ -37,6 +37,23 @@
             width: 9px; height: 9px; border-radius: 50%;
             box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 25%, transparent);
         }
+        /* §20.16, 2026-09-23 — the photo comparison viewer. Every static
+           declaration lives here, never co-located with the :style binding
+           that carries ONLY the zoom/pan transform on the same element
+           (compareViewerZoomStyle()) — the exact trap noted above. */
+        .compare-viewer-backdrop { background: rgba(0,0,0,0.92); }
+        .compare-viewer-mode-btn { background: rgba(255,255,255,0.12); color: #fff; }
+        .compare-viewer-mode-btn-active { background: var(--brand-button,#0ea5e9); color: #fff; }
+        .compare-viewer-close-btn { background: rgba(255,255,255,0.18); color: #fff; }
+        .compare-viewer-pane { overflow: hidden; touch-action: none; cursor: grab; background: #000; }
+        .compare-viewer-pane:active { cursor: grabbing; }
+        .compare-viewer-empty-pane { color: rgba(255,255,255,0.6); }
+        .compare-viewer-step { background: rgba(0,0,0,0.6); color: #fff; padding: 0.25rem 0.5rem; border-radius: 999px; }
+        .compare-viewer-match-btn { background: var(--surface-2); color: var(--text-secondary); }
+        .compare-viewer-match-btn-active { background: var(--brand-button,#0ea5e9); color: #fff; }
+        .compare-viewer-carousel { background: rgba(0,0,0,0.4); }
+        .compare-viewer-thumb { border: 2px solid transparent; opacity: 0.7; }
+        .compare-viewer-thumb-active { border-color: var(--brand-button,#0ea5e9); opacity: 1; }
     </style>
 <div class="w-full h-full flex flex-col space-y-4 corex-props-v2"
      x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false }"
@@ -5059,7 +5076,7 @@
                                                  size is a literal constant, never derived from the wrapper's
                                                  own elastic width, exactly like the item strip fix. --}}
                                             <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:12rem; width:18rem; overflow:hidden; background:var(--surface-3);"
-                                                 @click="openCompareModal('room', 'room_' + group.room.id, group.room, null)">
+                                                 @click="openCompareViewer('room', 'room_' + group.room.id, group.room, null)">
                                                 <template x-if="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room))">
                                                     <img :src="compareCurrentPhoto('{{ $side }}', 'room_' + group.room.id, compareRoomPhotos('{{ $side }}', group.room)).storage_path" style="display:block; height:100%; width:100%; object-fit:cover;" alt="">
                                                 </template>
@@ -5100,7 +5117,7 @@
                                                 <div class="compare-side space-y-1" :class="compareMobileSide === '{{ $side }}' ? '' : 'compare-side-hide-mobile'" style="flex:none; width:18rem;">
                                                     {{-- Same fixed-frame fix as the room-level row above. --}}
                                                     <div class="rounded-md cursor-pointer flex items-center justify-center" style="height:12rem; width:18rem; overflow:hidden; background:var(--surface-3);"
-                                                         @click="openCompareModal('item', 'item_' + item.id, null, item)">
+                                                         @click="openCompareViewer('item', 'item_' + item.id, null, item)">
                                                         <template x-if="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item))">
                                                             <img :src="compareCurrentPhoto('{{ $side }}', 'item_' + item.id, compareItemPhotos('{{ $side }}', item)).storage_path" style="display:block; height:100%; width:100%; object-fit:cover;" alt="">
                                                         </template>
@@ -5136,47 +5153,123 @@
                 </div>
             </template>
 
-            {{-- §20.15, item 5 — expand to a bigger modal: same flip/match
-                 controls, shared state with the compact row above (matching
-                 or flipping here updates the row underneath immediately). --}}
-            <div x-show="compareModal.open" x-cloak
-                 class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-                 style="background:rgba(0,0,0,0.85);"
-                 @keydown.escape.window="compareModal.open = false">
-                <div class="relative w-full max-w-4xl rounded-lg overflow-hidden" style="background:var(--surface);" @click.stop>
-                    <button type="button" @click="compareModal.open = false" class="absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center text-white" style="background:rgba(0,0,0,0.6);">&times;</button>
-                    <div class="p-4 flex flex-col sm:flex-row gap-4">
-                        @foreach(['left', 'right'] as $side)
-                        <div class="space-y-2" style="display:flex; flex-direction:column; align-items:center;">
-                            {{-- FIX, 2026-09-22, Johan: same 1.5:1 landscape correction as
-                                 the compact row — 21rem×14rem (bigger than the compact
-                                 row's 18rem×12rem, "a proper look at the photo"), fixed
-                                 and centered, never derived from the modal's own width. --}}
-                            <div class="rounded-md flex items-center justify-center" style="height:14rem; width:21rem; overflow:hidden; background:var(--surface-3);">
-                                <template x-if="compareModal{{ ucfirst($side) }}Photos().length">
-                                    <img :src="compareCurrentPhoto('{{ $side }}', compareModal.key, compareModal{{ ucfirst($side) }}Photos()).storage_path" style="display:block; height:100%; width:100%; object-fit:contain;" alt="">
-                                </template>
-                                <template x-if="!compareModal{{ ucfirst($side) }}Photos().length">
-                                    <span class="text-xs" style="color:var(--text-muted);">Nothing yet</span>
-                                </template>
-                            </div>
-                            <div class="flex items-center justify-center gap-3">
-                                <button type="button" @click="compareFlip('{{ $side }}', compareModal.key, compareModal{{ ucfirst($side) }}Photos(), -1)" x-show="compareModal{{ ucfirst($side) }}Photos().length > 1" class="text-sm font-semibold px-2 py-1" style="color:var(--text-secondary);">&larr;</button>
-                                <span class="text-xs" style="color:var(--text-muted);" x-text="compareModal{{ ucfirst($side) }}Photos().length ? ((compareIndex['{{ $side }}_' + compareModal.key] || 0) + 1) + '/' + compareModal{{ ucfirst($side) }}Photos().length : '0/0'"></span>
-                                <button type="button" @click="compareFlip('{{ $side }}', compareModal.key, compareModal{{ ucfirst($side) }}Photos(), 1)" x-show="compareModal{{ ucfirst($side) }}Photos().length > 1" class="text-sm font-semibold px-2 py-1" style="color:var(--text-secondary);">&rarr;</button>
-                            </div>
+            {{-- §20.16, 2026-09-23 — the full-screen photo comparison
+                 viewer. Replaces the old compareModal (same trigger:
+                 openCompareViewer(), the compact row's expand click).
+                 Johan: "1 view is this photo that was clicked view, the
+                 next view is a side by side comparison view... this one
+                 allows zooming in on each photo... a carousal allows you to
+                 flip through the photos and again tag them to each other."
+
+                 Named compareViewer* throughout (not the shorter "viewer")
+                 — this same Alpine component already owns a DIFFERENT
+                 viewer/openViewer/viewerPrev/viewerNext for the generic
+                 rental-images lightbox; reusing that name would silently
+                 clobber it. --}}
+            <div x-show="compareViewer.open" x-cloak
+                 class="fixed inset-0 z-[9999] flex flex-col compare-viewer-backdrop"
+                 @keydown.escape.window="closeCompareViewer()"
+                 @mousemove.window="compareViewerDragMove($event)" @mouseup.window="compareViewerDragEnd()"
+                 @touchmove.window="compareViewerDragMove($event)" @touchend.window="compareViewerDragEnd()">
+                <div class="flex items-center justify-between px-4 py-3" @click.stop>
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="compareViewerSetMode('single')"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md compare-viewer-mode-btn"
+                                :class="compareViewer.mode === 'single' ? 'compare-viewer-mode-btn-active' : ''">Single</button>
+                        <button type="button" @click="compareViewerSetMode('compare')"
+                                x-show="compareViewerCandidatesFor('left').length >= 0 && (compareViewer.leftPhotoId || compareViewer.rightPhotoId)"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md compare-viewer-mode-btn"
+                                :class="compareViewer.mode === 'compare' ? 'compare-viewer-mode-btn-active' : ''">Compare</button>
+                        <button type="button" @click="compareViewerToggleLock()" x-show="compareViewer.mode === 'compare'"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md compare-viewer-mode-btn"
+                                :class="compareViewer.zoomLocked ? 'compare-viewer-mode-btn-active' : ''"
+                                title="Lock zoom/pan together — for the same wall, same spot">
+                            <span x-text="compareViewer.zoomLocked ? 'Zoom locked' : 'Zoom independent'"></span>
+                        </button>
+                    </div>
+                    <button type="button" @click="closeCompareViewer()" class="w-8 h-8 rounded-full flex items-center justify-center text-white compare-viewer-close-btn">&times;</button>
+                </div>
+
+                {{-- Mobile side toggle — item 7's own precedent, phone decision
+                     for THIS viewer: side-by-side is useless at 390px, so
+                     compare mode shows one panel at a time with a toggle,
+                     same as the compact row already does. --}}
+                <div class="flex justify-center gap-2 pb-2 sm:hidden" x-show="compareViewer.mode === 'compare'" @click.stop>
+                    <button type="button" @click="compareViewerMobileSide = 'left'" class="text-xs font-semibold px-3 py-1 rounded-md compare-viewer-mode-btn" :class="compareViewerMobileSide === 'left' ? 'compare-viewer-mode-btn-active' : ''">In</button>
+                    <button type="button" @click="compareViewerMobileSide = 'right'" class="text-xs font-semibold px-3 py-1 rounded-md compare-viewer-mode-btn" :class="compareViewerMobileSide === 'right' ? 'compare-viewer-mode-btn-active' : ''">Next</button>
+                </div>
+
+                <div class="flex-1 flex items-stretch justify-center gap-2 px-2 min-h-0" @click.stop>
+                    {{-- Single view — the clicked photo, large, still zoomable. --}}
+                    <template x-if="compareViewer.mode === 'single'">
+                        <div class="relative flex-1 compare-viewer-pane"
+                             @wheel.prevent="compareViewerWheelZoom('left', $event)"
+                             @mousedown="compareViewerDragStart('left', $event)"
+                             @touchstart="compareViewerDragStart('left', $event)"
+                             @dblclick="compareViewerDoubleClickReset('left')">
+                            <template x-if="compareViewerCurrentPhoto(compareViewer.primarySide || 'left')">
+                                <img :src="compareViewerCurrentPhoto(compareViewer.primarySide || 'left').storage_path"
+                                     :style="compareViewerZoomStyle('left')"
+                                     class="w-full h-full object-contain block select-none" draggable="false" alt="">
+                            </template>
                         </div>
-                        @endforeach
-                    </div>
-                    <div class="px-4 pb-4 flex justify-center" x-show="compareModalLeftPhotos().length && compareModalRightPhotos().length">
-                        <button type="button"
-                                @click="toggleCompareMatch(compareCurrentPhoto('left', compareModal.key, compareModalLeftPhotos()), compareCurrentPhoto('right', compareModal.key, compareModalRightPhotos()))"
-                                class="text-sm font-semibold px-4 py-2 rounded-md"
-                                :style="matchFor(compareCurrentPhoto('left', compareModal.key, compareModalLeftPhotos())?.id, compareCurrentPhoto('right', compareModal.key, compareModalRightPhotos())?.id)
-                                    ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
-                                    : 'background:var(--surface-2); color:var(--text-secondary);'"
-                                x-text="matchFor(compareCurrentPhoto('left', compareModal.key, compareModalLeftPhotos())?.id, compareCurrentPhoto('right', compareModal.key, compareModalRightPhotos())?.id) ? 'Matched — unmatch' : 'Match photos'"></button>
-                    </div>
+                    </template>
+
+                    {{-- Compare view — two panels, each independently (or,
+                         locked, jointly) zoomable/pannable. --}}
+                    <template x-if="compareViewer.mode === 'compare'">
+                        <template x-for="side in ['left', 'right']" :key="side">
+                            <div class="relative flex-1 compare-viewer-pane"
+                                 :class="'sm:block ' + (compareViewerMobileSide === side ? 'block' : 'hidden')"
+                                 @wheel.prevent="compareViewerWheelZoom(side, $event)"
+                                 @mousedown="compareViewerDragStart(side, $event)"
+                                 @touchstart="compareViewerDragStart(side, $event)"
+                                 @dblclick="compareViewerDoubleClickReset(side)">
+                                <template x-if="compareViewerCurrentPhoto(side)">
+                                    <img :src="compareViewerCurrentPhoto(side).storage_path"
+                                         :style="compareViewerZoomStyle(side)"
+                                         class="w-full h-full object-contain block select-none" draggable="false" alt="">
+                                </template>
+                                <template x-if="!compareViewerCurrentPhoto(side)">
+                                    <div class="w-full h-full flex items-center justify-center compare-viewer-empty-pane">
+                                        <span class="text-xs">Nothing yet</span>
+                                    </div>
+                                </template>
+                                {{-- The "1 of 5" step control (Johan's own instinct,
+                                     approved) — only shown when this side's matched
+                                     group actually has more than one candidate here. --}}
+                                <div class="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-2 compare-viewer-step"
+                                     x-show="compareViewerCandidatesFor(side).length > 1">
+                                    <button type="button" @click.stop="compareViewerStep(side, -1)" class="text-sm font-semibold px-2">&larr;</button>
+                                    <span class="text-xs" x-text="compareViewerStepLabel(side)"></span>
+                                    <button type="button" @click.stop="compareViewerStep(side, 1)" class="text-sm font-semibold px-2">&rarr;</button>
+                                </div>
+                            </div>
+                        </template>
+                    </template>
+                </div>
+
+                <div class="px-4 py-3 flex justify-center" x-show="compareViewer.mode === 'compare' && compareViewer.leftPhotoId && compareViewer.rightPhotoId" @click.stop>
+                    <button type="button" @click="compareViewerMatch()"
+                            class="text-sm font-semibold px-4 py-2 rounded-md compare-viewer-match-btn"
+                            :class="compareViewerIsMatched() ? 'compare-viewer-match-btn-active' : ''"
+                            x-text="compareViewerIsMatched() ? 'Matched — unmatch' : 'Match photos'"></button>
+                </div>
+
+                {{-- The carousel — every photo from both sides of this room/
+                     item. Clicking one loads it into its own side AND
+                     brings its matched counterpart into the other (Johan,
+                     item 5 of his brief). Matching/unmatching also works
+                     straight from here (item 6) via the button above once
+                     a carousel click has both sides populated. --}}
+                <div class="px-4 py-3 flex gap-2 overflow-x-auto compare-viewer-carousel" @click.stop>
+                    <template x-for="photo in compareViewerCarouselPhotos()" :key="photo._side + '_' + photo.id">
+                        <button type="button" @click="compareViewerSelectCarouselPhoto(photo)"
+                                class="flex-none rounded-md overflow-hidden compare-viewer-thumb"
+                                :class="(compareViewer.leftPhotoId === photo.id || compareViewer.rightPhotoId === photo.id) ? 'compare-viewer-thumb-active' : ''">
+                            <img :src="photo.storage_path" class="w-16 h-16 object-cover block" alt="">
+                        </button>
+                    </template>
                 </div>
             </div>
 
@@ -5498,42 +5591,68 @@
                     this.compareIndex[side + '_' + key] = next;
                 },
 
-                // Item 4 — persisted match/unmatch, evidence-weight audit
-                // (matched_by_user_id/matched_at, unmatched_by_user_id — the
-                // server side, RentalInspectionPhotoMatch). A photo may carry
-                // more than one match; matchFor() finds the one relevant to
-                // THIS currently-shown pairing (does the OTHER side's current
-                // photo specifically match this one), never just "any match
-                // on this photo at all".
-                matchFor(photoId, otherPhotoId) {
-                    return (this.photoMatches || []).find(m =>
-                        (m.photo_id_a === photoId && m.photo_id_b === otherPhotoId) ||
-                        (m.photo_id_b === photoId && m.photo_id_a === otherPhotoId));
+                // §20.16 — persisted match/unmatch, evidence-weight audit
+                // (added_by_user_id/added_at, removed_by_user_id — server
+                // side, RentalInspectionPhotoMatchGroup/...GroupMember). A
+                // GROUP, not a pair: groupForPhoto() finds the set a photo
+                // currently belongs to (Johan: "join the group, not the
+                // other photo"); matchFor() answers the narrower "are THESE
+                // TWO specific photos in the same group right now" question
+                // every existing template binding already expects a
+                // truthy/falsy answer to.
+                groupForPhoto(photoId) {
+                    return (this.photoMatches || []).find(g => (g.members || []).some(m => m.photo_id === photoId)) || null;
                 },
+                matchFor(photoId, otherPhotoId) {
+                    const group = this.groupForPhoto(photoId);
+                    if (!group) return null;
+                    return group.members.some(m => m.photo_id === otherPhotoId) ? group : null;
+                },
+                // First OTHER member of photoId's group, if any — what makes
+                // a matched set "stay together" on later views (compareIndexes()).
                 matchPartnerId(photoId) {
-                    const m = (this.photoMatches || []).find(m => m.photo_id_a === photoId || m.photo_id_b === photoId);
-                    if (!m) return null;
-                    return m.photo_id_a === photoId ? m.photo_id_b : m.photo_id_a;
+                    const group = this.groupForPhoto(photoId);
+                    if (!group) return null;
+                    const other = group.members.find(m => m.photo_id !== photoId);
+                    return other ? other.photo_id : null;
+                },
+                // Reconciles local state after any match/unmatch: one group
+                // per photo (Johan's rule) means a photo that just moved
+                // must disappear from wherever it USED to be, not only
+                // appear in its new group — so every affected photo id is
+                // stripped from every OTHER local group first.
+                _applyGroupPatch(group, affectedPhotoIds) {
+                    this.photoMatches = (this.photoMatches || [])
+                        .filter(g => g.id !== group.id)
+                        .map(g => ({ ...g, members: g.members.filter(m => !affectedPhotoIds.includes(m.photo_id)) }))
+                        .filter(g => g.members.length > 1);
+                    if (group.members && group.members.length > 1) {
+                        this.photoMatches.push(group);
+                    }
                 },
                 async toggleCompareMatch(leftPhoto, rightPhoto) {
                     if (!leftPhoto || !rightPhoto) return;
-                    const existing = this.matchFor(leftPhoto.id, rightPhoto.id);
-                    if (existing) {
-                        await fetch(`${this.inspectionUrls.photoMatchesBase}/${existing.id}`, {
+                    const group = this.matchFor(leftPhoto.id, rightPhoto.id);
+                    if (group) {
+                        const member = group.members.find(m => m.photo_id === rightPhoto.id);
+                        if (!member) return;
+                        const res = await fetch(`${this.inspectionUrls.photoMatchesBase}/${member.member_id}`, {
                             method: 'DELETE',
                             headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                         });
-                        this.photoMatches = this.photoMatches.filter(m => m.id !== existing.id);
+                        if (res.ok) {
+                            const data = await res.json();
+                            this._applyGroupPatch(data.group || { id: group.id, members: [] }, [rightPhoto.id]);
+                        }
                         return;
                     }
                     const res = await fetch(this.inspectionUrls.photoMatchesStore, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                        body: JSON.stringify({ photo_id_a: leftPhoto.id, photo_id_b: rightPhoto.id }),
+                        body: JSON.stringify({ photo_id: leftPhoto.id, anchor_photo_id: rightPhoto.id }),
                     });
                     if (res.ok) {
-                        const match = await res.json();
-                        this.photoMatches.push(match);
+                        this._applyGroupPatch(await res.json(), [leftPhoto.id, rightPhoto.id]);
                     }
                 },
 
@@ -5543,26 +5662,188 @@
                 // side by side from sm: up.
                 compareMobileSide: 'left',
 
-                // Item 5 — expand to a bigger modal for the same row (room or
+                // Item 5 — expand to a bigger view for the same row (room or
                 // item), same flip/match controls, just more room. Shares the
                 // exact same compareIndex/photoMatches state as the inline
-                // row — flipping or matching in the modal is visible in the
+                // row — flipping or matching in the viewer is visible in the
                 // compact row underneath immediately, and vice versa.
-                compareModal: { open: false, key: null, kind: null, room: null, item: null },
-                openCompareModal(kind, key, room, item) {
-                    this.compareModal = { open: true, kind, key, room: room || null, item: item || null };
+                //
+                // §20.16, 2026-09-23 — the full-screen photo viewer replaces
+                // the old compareModal (same trigger points: the compact
+                // row's expand click). Johan: "if the photos are clicked to
+                // display in full there should be 2 views, and a carousal
+                // at the bottom — 1 view is this photo that was clicked
+                // view, the next view is a side by side comparison view."
+                compareViewer: {
+                    open: false, mode: 'single', kind: null, room: null, item: null, key: null,
+                    leftPhotoId: null, rightPhotoId: null,
+                    primarySide: 'left', // which side's photo single-mode shows — whichever was clicked most recently
+                    zoomLocked: false,
+                    step: { left: 0, right: 0 }, // which candidate is shown when a group has 2+ members on that side
                 },
-                compareModalLeftPhotos() {
-                    if (!this.compareModal.open) return [];
-                    return this.compareModal.kind === 'room'
-                        ? this.compareRoomPhotos('left', this.compareModal.room)
-                        : this.compareItemPhotos('left', this.compareModal.item);
+                compareViewerMobileSide: 'left',
+                // Independent by default (Johan: "default to independent");
+                // one shared transform used for BOTH sides only while
+                // zoomLocked is on — dragging either side then moves both.
+                compareViewerZoomLeft: { scale: 1, tx: 0, ty: 0 },
+                compareViewerZoomRight: { scale: 1, tx: 0, ty: 0 },
+                compareViewerZoomShared: { scale: 1, tx: 0, ty: 0 },
+                openCompareViewer(kind, key, room, item) {
+                    const leftPhotos = kind === 'room' ? this.compareRoomPhotos('left', room) : this.compareItemPhotos('left', item);
+                    const rightPhotos = kind === 'room' ? this.compareRoomPhotos('right', room) : this.compareItemPhotos('right', item);
+                    this.compareIndexes(key, leftPhotos, rightPhotos); // reuses the existing "stay together" jump
+                    const leftPhoto = this.compareCurrentPhoto('left', key, leftPhotos);
+                    const rightPhoto = this.compareCurrentPhoto('right', key, rightPhotos);
+                    this.compareViewer = {
+                        open: true, kind, key, room: room || null, item: item || null,
+                        mode: (leftPhoto && rightPhoto) ? 'compare' : 'single',
+                        leftPhotoId: leftPhoto ? leftPhoto.id : null,
+                        rightPhotoId: rightPhoto ? rightPhoto.id : null,
+                        primarySide: leftPhoto ? 'left' : 'right',
+                        zoomLocked: false,
+                        step: { left: 0, right: 0 },
+                    };
+                    this.compareViewerMobileSide = 'left';
+                    this.compareViewerResetZoom();
                 },
-                compareModalRightPhotos() {
-                    if (!this.compareModal.open) return [];
-                    return this.compareModal.kind === 'room'
-                        ? this.compareRoomPhotos('right', this.compareModal.room)
-                        : this.compareItemPhotos('right', this.compareModal.item);
+                closeCompareViewer() { this.compareViewer.open = false; },
+                compareViewerSetMode(mode) { this.compareViewer.mode = mode; },
+                compareViewerResetZoom() {
+                    this.compareViewerZoomLeft = { scale: 1, tx: 0, ty: 0 };
+                    this.compareViewerZoomRight = { scale: 1, tx: 0, ty: 0 };
+                    this.compareViewerZoomShared = { scale: 1, tx: 0, ty: 0 };
+                },
+                // Every photo from BOTH sides of the room/item the viewer was
+                // opened from — the carousel's own scope. Judgement call
+                // (raised, not overridden, in the design report): matches
+                // the row/context the agent was already looking at, rather
+                // than every photo in the whole inspection.
+                compareViewerCarouselPhotos() {
+                    if (!this.compareViewer.open) return [];
+                    const left = this.compareViewer.kind === 'room' ? this.compareRoomPhotos('left', this.compareViewer.room) : this.compareItemPhotos('left', this.compareViewer.item);
+                    const right = this.compareViewer.kind === 'room' ? this.compareRoomPhotos('right', this.compareViewer.room) : this.compareItemPhotos('right', this.compareViewer.item);
+                    return left.map(p => ({ ...p, _side: 'left' })).concat(right.map(p => ({ ...p, _side: 'right' })));
+                },
+                compareViewerPhotoById(id) {
+                    return this.compareViewerCarouselPhotos().find(p => p.id === id) || null;
+                },
+                // Clicking a carousel photo loads it into ITS OWN side, and
+                // its matched group's members into the other — Johan: "if I
+                // click a photo either side of the carousel it not only
+                // loads that photo into view, it also loads the tagged
+                // photo on the other side."
+                compareViewerSelectCarouselPhoto(photo) {
+                    const side = photo._side;
+                    const otherSide = side === 'left' ? 'right' : 'left';
+                    this.compareViewer[side + 'PhotoId'] = photo.id;
+                    this.compareViewer.primarySide = side;
+                    this.compareViewer.step[side] = 0;
+
+                    const otherInspId = otherSide === 'left' ? (this.compareLeft && this.compareLeft.id) : (this.compareRight && this.compareRight.id);
+                    const candidates = this.compareViewerGroupSideMembers(photo.id, otherInspId);
+                    if (candidates.length) {
+                        this.compareViewer[otherSide + 'PhotoId'] = candidates[0].photo_id;
+                        this.compareViewer.step[otherSide] = 0;
+                        this.compareViewer.mode = 'compare';
+                    }
+                    this.compareViewerResetZoom();
+                },
+                // Every member of photoId's match group that belongs to the
+                // given inspection — the "1 of 5" stepper's own candidate
+                // list (Johan's own instinct, approved: "show the first of
+                // the group with a small '1 of 5' control").
+                compareViewerGroupSideMembers(photoId, inspectionId) {
+                    if (!photoId || !inspectionId) return [];
+                    const group = this.groupForPhoto(photoId);
+                    if (!group) return [];
+                    return group.members.filter(m => m.rental_inspection_id === inspectionId);
+                },
+                compareViewerCandidatesFor(side) {
+                    const anchorId = side === 'left' ? this.compareViewer.rightPhotoId : this.compareViewer.leftPhotoId;
+                    const wantInspId = side === 'left' ? (this.compareLeft && this.compareLeft.id) : (this.compareRight && this.compareRight.id);
+                    return this.compareViewerGroupSideMembers(anchorId, wantInspId);
+                },
+                compareViewerCurrentPhoto(side) {
+                    const id = this.compareViewer[side + 'PhotoId'];
+                    return id ? this.compareViewerPhotoById(id) : null;
+                },
+                compareViewerStep(side, delta) {
+                    const candidates = this.compareViewerCandidatesFor(side);
+                    if (candidates.length < 2) return;
+                    let next = (this.compareViewer.step[side] + delta) % candidates.length;
+                    if (next < 0) next += candidates.length;
+                    this.compareViewer.step[side] = next;
+                    this.compareViewer[side + 'PhotoId'] = candidates[next].photo_id;
+                    this.compareViewerResetZoom();
+                },
+                compareViewerStepLabel(side) {
+                    const candidates = this.compareViewerCandidatesFor(side);
+                    return candidates.length > 1 ? ((this.compareViewer.step[side] || 0) + 1) + ' of ' + candidates.length : '';
+                },
+                // Match/unmatch straight from the viewer/carousel, without
+                // leaving it (item 6, approved).
+                async compareViewerMatch() {
+                    if (!this.compareViewer.leftPhotoId || !this.compareViewer.rightPhotoId) return;
+                    const leftPhoto = this.compareViewerPhotoById(this.compareViewer.leftPhotoId);
+                    const rightPhoto = this.compareViewerPhotoById(this.compareViewer.rightPhotoId);
+                    await this.toggleCompareMatch(leftPhoto, rightPhoto);
+                },
+                compareViewerIsMatched() {
+                    if (!this.compareViewer.leftPhotoId || !this.compareViewer.rightPhotoId) return false;
+                    return !!this.matchFor(this.compareViewer.leftPhotoId, this.compareViewer.rightPhotoId);
+                },
+                // ── Forensic zoom/pan (item 3/4, approved) ───────────────────
+                // Real continuous zoom+pan, cursor/touch-anchored so zooming
+                // in on a mark doesn't immediately require panning to find
+                // it again. Locked mode (opt-in per session, default off)
+                // shares ONE transform between both sides — drag one, both
+                // move — for the same-wall-same-spot case; independent
+                // otherwise, since two shots of "the same thing" are rarely
+                // framed identically.
+                _compareViewerZoomState(side) {
+                    return this.compareViewer.zoomLocked ? this.compareViewerZoomShared : (side === 'left' ? this.compareViewerZoomLeft : this.compareViewerZoomRight);
+                },
+                compareViewerZoomStyle(side) {
+                    const z = this._compareViewerZoomState(side);
+                    return 'transform: translate(' + z.tx + 'px,' + z.ty + 'px) scale(' + z.scale + '); transform-origin: 0 0;';
+                },
+                compareViewerToggleLock() {
+                    if (!this.compareViewer.zoomLocked) {
+                        this.compareViewerZoomShared = { ...this.compareViewerZoomLeft };
+                    }
+                    this.compareViewer.zoomLocked = !this.compareViewer.zoomLocked;
+                },
+                compareViewerWheelZoom(side, event) {
+                    event.preventDefault();
+                    const z = this._compareViewerZoomState(side);
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const px = event.clientX - rect.left;
+                    const py = event.clientY - rect.top;
+                    const factor = event.deltaY < 0 ? 1.15 : (1 / 1.15);
+                    const newScale = Math.min(6, Math.max(1, z.scale * factor));
+                    // keep the point under the cursor fixed while scaling.
+                    z.tx = px - (px - z.tx) * (newScale / z.scale);
+                    z.ty = py - (py - z.ty) * (newScale / z.scale);
+                    z.scale = newScale;
+                    if (newScale <= 1) { z.tx = 0; z.ty = 0; }
+                },
+                _compareViewerDrag: { active: false, side: null, startX: 0, startY: 0, startTx: 0, startTy: 0 },
+                compareViewerDragStart(side, event) {
+                    const point = event.touches ? event.touches[0] : event;
+                    const z = this._compareViewerZoomState(side);
+                    this._compareViewerDrag = { active: true, side, startX: point.clientX, startY: point.clientY, startTx: z.tx, startTy: z.ty };
+                },
+                compareViewerDragMove(event) {
+                    if (!this._compareViewerDrag.active) return;
+                    const point = event.touches ? event.touches[0] : event;
+                    const z = this._compareViewerZoomState(this._compareViewerDrag.side);
+                    z.tx = this._compareViewerDrag.startTx + (point.clientX - this._compareViewerDrag.startX);
+                    z.ty = this._compareViewerDrag.startTy + (point.clientY - this._compareViewerDrag.startY);
+                },
+                compareViewerDragEnd() { this._compareViewerDrag.active = false; },
+                compareViewerDoubleClickReset(side) {
+                    const z = this._compareViewerZoomState(side);
+                    z.scale = 1; z.tx = 0; z.ty = 0;
                 },
 
                 // Item 1 — the item camera control: multiple files, tagged

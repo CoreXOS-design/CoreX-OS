@@ -858,39 +858,54 @@ class RentalInspectionRecordingController extends Controller
 
     /**
      * POST /corex/properties/{property}/rental-inspection-photo-matches —
-     * §20.15, the compare view's "match photos" control. Property-scoped
-     * (not inspection-scoped, like the routes above) because a match
-     * genuinely spans two different inspections on the same property —
-     * the same pattern already used for items/rooms, which are also
-     * property-wide, cross-inspection concepts.
+     * §20.16, the viewer's "match photos" control. `anchor_photo_id` is
+     * whichever photo is already showing on the other side of the
+     * comparison; `photo_id` is the one being brought in — it joins the
+     * anchor's group (creating one if the anchor doesn't have one yet).
+     * Property-scoped (not inspection-scoped, like the routes above)
+     * because a match genuinely spans two different inspections on the
+     * same property — the same pattern already used for items/rooms.
      */
     public function storePhotoMatch(Request $request, Property $property): JsonResponse
     {
         $validated = $request->validate([
-            'photo_id_a' => ['required', 'integer', 'different:photo_id_b'],
-            'photo_id_b' => ['required', 'integer'],
+            'photo_id' => ['required', 'integer', 'different:anchor_photo_id'],
+            'anchor_photo_id' => ['required', 'integer'],
         ]);
 
-        $photoA = RentalInspectionPhoto::findOrFail($validated['photo_id_a']);
-        $photoB = RentalInspectionPhoto::findOrFail($validated['photo_id_b']);
+        $photo = RentalInspectionPhoto::findOrFail($validated['photo_id']);
+        $anchor = RentalInspectionPhoto::findOrFail($validated['anchor_photo_id']);
 
-        abort_if((int) $photoA->inspection?->property_id !== (int) $property->id, 404, 'That photo is not part of this property.');
-        abort_if((int) $photoB->inspection?->property_id !== (int) $property->id, 404, 'That photo is not part of this property.');
-        abort_if((int) $photoA->rental_inspection_id === (int) $photoB->rental_inspection_id, 422, 'Photos on the same inspection cannot be matched to each other.');
+        abort_if((int) $photo->inspection?->property_id !== (int) $property->id, 404, 'That photo is not part of this property.');
+        abort_if((int) $anchor->inspection?->property_id !== (int) $property->id, 404, 'That photo is not part of this property.');
+        abort_if((int) $photo->rental_inspection_id === (int) $anchor->rental_inspection_id, 422, 'Photos on the same inspection cannot be matched to each other.');
 
-        $match = \App\Models\RentalInspectionPhotoMatch::matchPhotos($photoA, $photoB, $request->user());
+        $group = \App\Models\RentalInspectionPhotoMatchGroup::linkPhotos($photo, $anchor, $request->user());
 
-        return response()->json($match->load(['photoA', 'photoB']), 201);
+        return response()->json($group->toComparePayload(), 201);
     }
 
-    /** DELETE /corex/properties/{property}/rental-inspection-photo-matches/{match} — unmatch, the exact reverse. */
-    public function destroyPhotoMatch(Request $request, Property $property, \App\Models\RentalInspectionPhotoMatch $match): JsonResponse
+    /**
+     * DELETE /corex/properties/{property}/rental-inspection-photo-matches/{member}
+     * — unmatch ONE photo out of its group (the exact reverse of joining
+     * it). A group with two members behaves exactly like the old pairwise
+     * unmatch; a larger group just loses that one photo, the rest stay
+     * together — auto-archived if that leaves one or zero members left.
+     */
+    public function destroyPhotoMatch(Request $request, Property $property, \App\Models\RentalInspectionPhotoMatchGroupMember $member): JsonResponse
     {
-        abort_if((int) $match->property_id !== (int) $property->id, 404);
+        abort_if((int) $member->group?->property_id !== (int) $property->id, 404);
 
-        $match->unmatch($request->user());
+        $groupId = $member->rental_inspection_photo_match_group_id;
+        $member->removeAndMaybeArchiveGroup($request->user());
 
-        return response()->json(['message' => 'Photos unmatched.']);
+        // Report the group's own state back rather than leaving the caller
+        // to guess: a larger group just lost one member (return what's
+        // left so it can patch its local state precisely); a two-member
+        // group auto-archived (group: null — nothing left to show).
+        $group = \App\Models\RentalInspectionPhotoMatchGroup::find($groupId);
+
+        return response()->json(['message' => 'Photo unmatched.', 'group' => $group?->toComparePayload()]);
     }
 
     /** POST /corex/rental-inspections/{inspection}/discrepancies/{discrepancy}/resolve */
