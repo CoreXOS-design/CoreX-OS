@@ -707,7 +707,7 @@ class RentalInspectionRecordingController extends Controller
             'client_idempotency_keys.*' => ['nullable', 'uuid'],
         ]);
 
-        $roomId = $validated['property_room_id'] ?? null;
+        $roomId = isset($validated['property_room_id']) ? (int) $validated['property_room_id'] : null;
         $observationId = $validated['rental_inspection_observation_id'] ?? null;
 
         if ($observationId) {

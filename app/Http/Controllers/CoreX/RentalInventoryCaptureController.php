@@ -155,7 +155,7 @@ class RentalInventoryCaptureController extends Controller
         return response()->json([
             'photos' => collect($created)->map(fn (RentalInventoryPhoto $p) => [
                 'id' => $p->id,
-                'property_room_id' => $p->property_room_id,
+                'property_room_id' => $p->property_room_id !== null ? (int) $p->property_room_id : null,
                 'storage_path' => $p->storage_path,
                 'lines' => $p->lines->pluck('id'),
             ])->values(),
