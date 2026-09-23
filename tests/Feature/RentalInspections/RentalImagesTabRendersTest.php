@@ -36,12 +36,18 @@ final class RentalImagesTabRendersTest extends TestCase
             'title' => 'Tab Render Property', 'status' => 'active', 'listing_type' => 'rental',
         ]);
 
+        // Johan's ruling, 2026-09-23 — the chain: In is always the first
+        // link, so it's the only type offered from nothing. "Start
+        // Out-Inspection" as an independent trigger (the old segregated
+        // two-section shape this test used to lock in) no longer exists —
+        // Out is only ever reachable via "Next inspection" from an
+        // existing predecessor now (RentalInspection::startNext()).
         $this->actingAs($agent)
             ->get(route('corex.properties.show', $property->id))
             ->assertOk()
             ->assertSee('Inspection Items')
             ->assertSee('Start In-Inspection')
-            ->assertSee('Start Out-Inspection');
+            ->assertDontSee('Start Out-Inspection');
     }
 
     public function test_rental_images_tab_renders_with_items_and_an_active_lease(): void
