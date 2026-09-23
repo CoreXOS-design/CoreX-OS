@@ -1113,9 +1113,15 @@ class CommandCentreService
 
     private function myTraining(int $userId): array
     {
+        $agencyId = \App\Models\User::find($userId)?->effectiveAgencyId();
+
         try {
-            // Required courses not yet completed
+            // Required courses not yet completed — this agency's live courses
+            // only. Raw query, so neither AgencyScope nor SoftDeletes applies
+            // (AT-424: a new agency saw another agency's deleted courses).
             $incomplete = DB::table('training_courses as tc')
+                ->where('tc.agency_id', $agencyId)
+                ->whereNull('tc.deleted_at')
                 ->where('tc.is_required', true)
                 ->where('tc.is_published', true)
                 ->whereNotExists(function ($q) use ($userId) {
@@ -1131,6 +1137,8 @@ class CommandCentreService
             // Expiring completions (within 30 days)
             $expiring = DB::table('training_completions as tp')
                 ->join('training_courses as tc', 'tc.id', '=', 'tp.course_id')
+                ->where('tc.agency_id', $agencyId)
+                ->whereNull('tc.deleted_at')
                 ->where('tp.user_id', $userId)
                 ->whereNotNull('tp.expires_at')
                 ->where('tp.expires_at', '<=', now()->addDays(30))
@@ -1201,13 +1209,17 @@ class CommandCentreService
                 ->limit(5)
                 ->get(['id', 'title', 'event_date', 'category']);
 
-            // Filter to only classes that require feedback
-            $feedbackClasses = CalendarEventClassSetting::withoutGlobalScopes()
-                ->where('completion_behaviour', 'require_feedback')
-                ->pluck('event_class')
-                ->toArray();
-
-            $filtered = $events->filter(fn($e) => in_array($e->category, $feedbackClasses));
+            // Filter to only classes that require feedback — resolved for THIS
+            // user's agency (its own row, else the global default). AT-424: the
+            // old query merged every agency's class settings into this filter.
+            $agencyId = \App\Models\User::find($userId)?->effectiveAgencyId();
+            $filtered = $events->filter(function ($e) use ($agencyId) {
+                if (!$e->category) {
+                    return false;
+                }
+                $setting = CalendarEventClassSetting::forAgencyAndClass($agencyId ? (int) $agencyId : null, $e->category);
+                return $setting && $setting->completion_behaviour === 'require_feedback';
+            });
         } catch (\Throwable $e) {
             $filtered = collect();
         }

@@ -25,8 +25,13 @@ class WorksheetMarketController extends Controller
         // AT-278 §11 — raw query, so the SoftDeletes scope does not apply.
         // Without these two filters an archived agent still appeared in the
         // worksheet market picker.
+        // AT-424 — raw queries bypass AgencyScope; clamp explicitly so an
+        // agency admin sees only their own agency's agents and branches.
+        $agencyId = $this->marketAgencyId($u);
+
         $agents = DB::table('users')
             ->whereNull('deleted_at')
+            ->when($agencyId !== null, fn ($q) => $q->where('agency_id', $agencyId))
             ->where('is_active', 1)
             ->whereIn('role', ['agent','branch_manager'])
             ->whereNotNull('branch_id')
@@ -37,7 +42,9 @@ class WorksheetMarketController extends Controller
 
         $worksheets = Worksheet::where('period', $period)->get()->keyBy('user_id');
 
-        $branches = DB::table('branches')->select('id','name')->get()->keyBy('id');
+        $branches = DB::table('branches')
+            ->when($agencyId !== null, fn ($q) => $q->where('agency_id', $agencyId))
+            ->select('id','name')->get()->keyBy('id');
 
 
           // Market averages per branch from Deal Register (schema: deals.period, property_value, total_commission)
@@ -262,6 +269,21 @@ $periodStart = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
                   ]);
     }
 
+    /**
+     * The agency this Worksheet Market is for. Null only for an owner who has
+     * not switched into an agency (platform-wide view, as before). Any other
+     * user with no agency is refused rather than shown every agency.
+     */
+    private function marketAgencyId($user): ?int
+    {
+        $agencyId = $user->effectiveAgencyId();
+        if ($agencyId) {
+            return (int) $agencyId;
+        }
+        abort_unless($user->isOwnerRole(), 403);
+        return null;
+    }
+
     public function store(Request $request)
 {
     $u = Auth::user();
@@ -290,7 +312,9 @@ $periodStart = \Carbon\Carbon::createFromFormat('Y-m', $period)->startOfMonth();
     $branchId = isset($data['branch_id']) && $data['branch_id'] !== '' ? (int)$data['branch_id'] : null;
 
     // Allowed users: agents + branch managers, optionally filtered by branch
+    $agencyId = $this->marketAgencyId($u);
     $allowedUsers = DB::table('users')
+        ->when($agencyId !== null, fn ($q) => $q->where('agency_id', $agencyId))
         ->whereIn('role', ['agent','branch_manager'])
         ->whereNotNull('branch_id')
         ->when($branchId, fn($q) => $q->where('branch_id', $branchId))

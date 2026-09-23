@@ -874,8 +874,12 @@ class MarketIntelligenceController extends Controller
             ->unique()
             ->values();
         if ($blankAddressPropertyIds->isNotEmpty()) {
+            // AT-424 — only ever show an address from the viewer's own agency,
+            // even if a matcher ever linked a listing across agencies.
+            $viewerAgencyId = auth()->user()?->effectiveAgencyId();
             $matchedPropAddresses = \App\Models\Property::withoutGlobalScopes()
                 ->whereIn('id', $blankAddressPropertyIds)
+                ->when($viewerAgencyId, fn ($q) => $q->where('agency_id', $viewerAgencyId))
                 ->whereNull('deleted_at')
                 ->get(['id', 'address', 'street_number', 'street_name', 'suburb'])
                 ->mapWithKeys(function ($p) {

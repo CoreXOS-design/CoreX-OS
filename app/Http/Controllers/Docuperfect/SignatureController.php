@@ -2170,6 +2170,9 @@ class SignatureController extends Controller
     public function resendEmail(Request $request, Document $document, SignatureRequest $signatureRequest)
     {
         $this->authorizeDocument($request->user(), $document);
+        // AT-424 — SignatureRequest is not agency-scoped; without this a user
+        // could pass another agency's request id with one of their own documents.
+        $this->authorizeSignatureRequestForDocument($signatureRequest, $document);
 
         if ($signatureRequest->party_role === 'agent') {
             return redirect()->back()->with('error', 'The agent is notified in-app and does not receive a signing email.');

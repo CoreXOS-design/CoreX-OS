@@ -24,7 +24,7 @@ class MarketDataSnapshotService
 
         $comparableSales = $this->getComparableSales($propertyId);
         $comparableListings = $this->getComparableListings($propertyId);
-        $areaAvg = $this->calculateAreaAverages($property->suburb);
+        $areaAvg = $this->calculateAreaAverages($property->suburb, $property->agency_id);
         $recommendedPrice = $this->calculateRecommendedPrice($property, $comparableSales);
         $dom = $property->published_at ? (int) $property->published_at->diffInDays(now()) : null;
 
@@ -56,10 +56,12 @@ class MarketDataSnapshotService
         if (!$property) return collect();
 
         // Primary source: property_sold_records (M9 Phase 1)
+        // AT-424 — this agency's sold records only (raw query, no AgencyScope).
         $soldRecords = DB::table('property_sold_records')
+            ->where('agency_id', $property->agency_id)
             ->where('suburb', $property->suburb)
             ->where('sold_date', '>=', now()->subMonths($rangeMonths))
-            ->where('id', '!=', $propertyId) // exclude self
+            ->where(fn ($q) => $q->whereNull('property_id')->orWhere('property_id', '!=', $propertyId)) // exclude self
             ->orderByDesc('sold_date')
             ->limit(10)
             ->get(['suburb', 'sold_price as sold_price_inc', 'sold_date', 'bedrooms as beds', 'sqm as size_m2']);
@@ -111,13 +113,16 @@ class MarketDataSnapshotService
      * property_sold_records (a MEDIAN) — two different tables, structurally
      * irreconcilable on the same card. Both now cascade the same sources.
      */
-    public function calculateAreaAverages(?string $suburb): array
+    public function calculateAreaAverages(?string $suburb, ?int $agencyId): array
     {
-        if (!$suburb) return ['avg_price' => null, 'avg_dom' => null];
+        // AT-424 — every source below is one agency's private data (sold
+        // prices, stock). Without an agency there is no area figure to show.
+        if (!$suburb || !$agencyId) return ['avg_price' => null, 'avg_dom' => null];
 
         // Primary: canonical M9 sold records (all types — this is a true
         // "area" figure, deliberately broader than the gated comp pool).
         $avgPrice = DB::table('property_sold_records')
+            ->where('agency_id', $agencyId)
             ->where('suburb', $suburb)
             ->where('sold_date', '>=', now()->subMonths(12))
             ->whereNotNull('sold_price')
@@ -127,6 +132,7 @@ class MarketDataSnapshotService
         if (!$avgPrice) {
             $avgPrice = DB::table('presentation_sold_comps')
                 ->join('presentations', 'presentations.id', '=', 'presentation_sold_comps.presentation_id')
+                ->where('presentations.agency_id', $agencyId)
                 ->where('presentation_sold_comps.suburb', $suburb)
                 ->whereNull('presentation_sold_comps.deleted_at')
                 ->where('presentation_sold_comps.sold_date', '>=', now()->subMonths(12))
@@ -135,6 +141,7 @@ class MarketDataSnapshotService
 
         // Area days on market from active listings
         $avgDom = Property::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
             ->where('suburb', $suburb)
             ->whereNotNull('published_at')
             ->whereNull('deleted_at')
@@ -209,9 +216,10 @@ class MarketDataSnapshotService
         $since = now()->subMonths($rangeMonths);
 
         $rows = DB::table('property_sold_records')
+            ->where('agency_id', $property->agency_id) // AT-424
             ->where('suburb', $suburb)
             ->where('sold_date', '>=', $since)
-            ->where('id', '!=', $property->id)
+            ->where(fn ($q) => $q->whereNull('property_id')->orWhere('property_id', '!=', $property->id))
             ->whereNotNull('sold_price')
             ->get(['sold_price', 'property_type', 'sqm', 'address']);
 

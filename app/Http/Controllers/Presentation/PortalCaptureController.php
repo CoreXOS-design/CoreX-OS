@@ -446,6 +446,17 @@ class PortalCaptureController extends Controller
      */
     public function attach(Presentation $presentation, PortalCapture $capture)
     {
+        // AT-424 — PortalCapture is not agency-scoped and ids are sequential.
+        // Only the caller's own capture, not yet on another presentation, may
+        // be attached (the same set index() offers as "unattached"). Otherwise
+        // any capture could be pulled in, read back via index(), and detached
+        // from its real presentation.
+        $ownsCapture = (int) $capture->user_id === (int) auth()->id();
+        $free = $capture->presentation_id === null || (int) $capture->presentation_id === (int) $presentation->id;
+        if (!$ownsCapture || !$free) {
+            abort(404);
+        }
+
         $capture->update(['presentation_id' => $presentation->id]);
 
         // Attempt to link to a matching presentation link
