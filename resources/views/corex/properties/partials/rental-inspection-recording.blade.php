@@ -1,13 +1,33 @@
 {{--
-    Rental inspection recording — shared by In Inspection and Out Inspection.
-    Rendered inside the `rentalImages()` Alpine component.
+    Rental inspection recording — the ONE editable side of the chain's
+    current tail. Rendered inside the `rentalImages()` Alpine component.
     Spec: .ai/specs/rental-inspections.md §4/§14, §18 (Inspections-tab
     rebuild, 2026-09-22 — autosave, one-tap condition, All Good bulk-fill,
-    progress/collapse, read-only property type).
+    progress/collapse, read-only property type), and the chain (2026-09-23
+    — "the tab must render whichever inspection is the current link, not
+    just one of two hardcoded types").
 
     Required include var:
-      $section — 'in' or 'out' (literal PHP string, used to build the JS
-                 string literal below)
+      $section — the inspection's type ('in'/'out'/'ad_hoc'), a real PHP
+                 string. Used for the one PHP-compile-time branch below
+                 (there is exactly one — the move-in-date field used to
+                 read $section directly; it is now the reactive check
+                 further down instead) and as a display label.
+
+    Optional include var:
+      $sectionJs — override the JS expression every Alpine call below is
+                 built from (`currentInspection({{ $sectionJs }})` etc).
+                 Defaults to a quoted literal of $section (the original,
+                 pre-chain shape: 'in' or 'out', fixed at render time).
+                 The chain's own caller (show.blade.php's single unified
+                 include) passes the LIVE JS call 'tailSection()' instead
+                 (no quotes — a real expression, not a string), so every
+                 Alpine lookup here re-resolves reactively against
+                 whichever inspection is actually the chain's tail right
+                 now — including immediately after "Next inspection",
+                 with no page reload — rather than staying frozen at
+                 whatever type happened to be current when this partial
+                 was first rendered.
 
     currentInspection() never returns a completed/cancelled one (§0.5's
     currentFor() excludes them), so the statuses possible here are only
@@ -56,7 +76,8 @@
        chip grid stays that. */
     .rir-add-tile { position:absolute; top:0; bottom:0; width:124px; display:flex; align-items:center; justify-content:center; font-size:1.25rem; border-radius:6px; cursor:pointer; }
 </style>
-@php($sectionJs = "'{$section}'")
+{{-- $sectionJs override — see this file's own top docblock. --}}
+@php($sectionJs = $sectionJs ?? "'{$section}'")
 
 <template x-if="!currentInspection({{ $sectionJs }})">
     <div class="space-y-2">
@@ -136,13 +157,23 @@
                                @input="autosaveDetails({{ $sectionJs }})" placeholder="e.g. gate remotes" class="prop-input w-full">
                     </div>
                 </div>
-                @if($section === 'out')
+                {{-- 2026-09-23 — was a PHP-compile-time @if($section === 'out'),
+                     baked into the compiled HTML at whatever type happened
+                     to be current when this partial was first rendered.
+                     With $sectionJs now able to be a LIVE expression
+                     (tailSection() — see the top docblock), that PHP-time
+                     check would stay frozen at the type from the initial
+                     page load even after "Next inspection" changes which
+                     type is actually current, without a full page reload.
+                     Alpine x-if reacts the same way every other lifecycle
+                     control on this screen already does. --}}
+                <template x-if="{{ $sectionJs }} === 'out'">
                 <div>
                     <label class="text-xs font-semibold" style="color:var(--text-secondary);">Move-in date</label>
                     <input type="date" x-model="currentInspection({{ $sectionJs }}).move_in_date_recorded"
                            @change="autosaveDetails({{ $sectionJs }})" class="prop-input w-full">
                 </div>
-                @endif
+                </template>
             </div>
         </div>
 

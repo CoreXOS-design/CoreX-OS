@@ -195,4 +195,144 @@ final class RentalInspectionChainTest extends TestCase
         $resp->assertSessionHasErrors('rental_inspection');
         self::assertSame(1, RentalInspection::where('previous_inspection_id', $in->id)->count());
     }
+
+    // ── The property tab's own chain resolution (2026-09-23) —
+    // RentalInspection::chainTailFor()/tabPayloadFor()'s chain_tail/
+    // chain_predecessor, generalized beyond the old fixed in/out slots so
+    // the tab can render whichever inspection is the current link, not
+    // just one of two hardcoded types. ────────────────────────────────
+
+    public function test_chain_tail_for_resolves_the_actual_tail_of_a_multi_link_chain(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $routine = RentalInspection::startNext($in, RentalInspection::TYPE_AD_HOC, $this->agent);
+        $out = RentalInspection::startNext($routine, RentalInspection::TYPE_OUT, $this->agent);
+
+        $tail = RentalInspection::chainTailFor($this->property);
+
+        // Must be the LAST link (Out), never the root (In) or the middle
+        // (Routine) — this is the whole point of whereDoesntHave('nextInChain')
+        // over walking from the root forward.
+        self::assertTrue($tail->is($out));
+        self::assertTrue($tail->previousInspection->is($routine));
+    }
+
+    public function test_chain_tail_for_returns_null_when_nothing_has_started(): void
+    {
+        self::assertNull(RentalInspection::chainTailFor($this->property));
+    }
+
+    public function test_chain_tail_for_stays_on_a_completed_tail_with_no_successor(): void
+    {
+        // §6 of the approved proposal / the tab must not go blank the
+        // instant the tail completes — that is exactly when "Next
+        // inspection" matters most (same reasoning already proven for
+        // mostRecentOutFor() vs currentFor() elsewhere in this model).
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $in->forceFill(['status' => RentalInspection::STATUS_COMPLETED, 'completed_at' => now()])->save();
+
+        self::assertTrue(RentalInspection::chainTailFor($this->property)->is($in));
+    }
+
+    public function test_tab_payload_exposes_chain_tail_and_predecessor_for_a_multi_link_chain(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $routine = RentalInspection::startNext($in, RentalInspection::TYPE_AD_HOC, $this->agent);
+        $out = RentalInspection::startNext($routine, RentalInspection::TYPE_OUT, $this->agent);
+
+        $payload = RentalInspection::tabPayloadFor($this->property);
+
+        self::assertSame($out->id, $payload['chain_tail']->id);
+        self::assertSame($routine->id, $payload['chain_predecessor']->id);
+        // The pre-existing, unchanged in_inspection/out_inspection keys
+        // must still resolve exactly as before (currentFor(), draft
+        // status here) — nothing that already reads them needed to change.
+        self::assertSame($in->id, $payload['in_inspection']->id);
+    }
+
+    public function test_tab_payload_has_null_chain_tail_when_nothing_has_started(): void
+    {
+        $payload = RentalInspection::tabPayloadFor($this->property);
+
+        self::assertNull($payload['chain_tail']);
+        self::assertNull($payload['chain_predecessor']);
+    }
+
+    // ── The property-scoped JSON "next" action (2026-09-23) — the tab's
+    // own AJAX flow, a second caller of RentalInspection::startNext(),
+    // not a second implementation. ──────────────────────────────────────
+
+    public function test_property_scoped_next_route_creates_a_successor(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+
+        $resp = $this->postJson(
+            route('corex.properties.rental-inspections.next', [$this->property, $in]),
+            ['type' => 'out'],
+        );
+
+        $resp->assertCreated();
+        $out = RentalInspection::where('previous_inspection_id', $in->id)->first();
+        self::assertNotNull($out);
+        self::assertSame('out', $out->type);
+        self::assertSame($out->id, $resp->json('id'));
+    }
+
+    public function test_property_scoped_next_route_refuses_an_inspection_from_a_different_property(): void
+    {
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'A Different Property', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+
+        $resp = $this->postJson(
+            route('corex.properties.rental-inspections.next', [$otherProperty, $in]),
+            ['type' => 'out'],
+        );
+
+        $resp->assertNotFound();
+        self::assertSame(0, RentalInspection::where('previous_inspection_id', $in->id)->count());
+    }
+
+    public function test_property_scoped_next_route_refuses_a_second_successor(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        RentalInspection::startNext($in, RentalInspection::TYPE_AD_HOC, $this->agent);
+
+        $resp = $this->postJson(
+            route('corex.properties.rental-inspections.next', [$this->property, $in]),
+            ['type' => 'out'],
+        );
+
+        $resp->assertStatus(409);
+        self::assertSame(1, RentalInspection::where('previous_inspection_id', $in->id)->count());
+    }
+
+    // ── The property tab itself renders the chain data (not just the
+    // agency-level show() screen already covered above). ────────────────
+
+    public function test_property_tab_embeds_chain_tail_and_predecessor_for_the_browser_to_read(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $item = $this->makeItem('Ceiling');
+        $this->observe($in, $item, 'good');
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $resp = $this->get(route('corex.properties.show', $this->property->id));
+
+        $resp->assertOk();
+        // The embedded x-data JSON is server-rendered HTML (Standard -1s —
+        // this proves the RIGHT data reached the page; it cannot prove
+        // Alpine renders it correctly in a browser, which Johan verifies
+        // himself on the deployed page). Js::from() HTML-escapes every
+        // quote to the literal six characters ", not a real double-
+        // quote character — confirmed directly via
+        // Illuminate\Support\Js::from(), not assumed.
+        $idNeedle = '\\u0022id\\u0022:';
+        $resp->assertSee($idNeedle . $out->id, false);
+        $resp->assertSee($idNeedle . $in->id, false);
+        // The old two-independent-start-buttons shape is gone.
+        $resp->assertDontSee('Start Out-Inspection');
+    }
 }

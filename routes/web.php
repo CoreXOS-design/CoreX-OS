@@ -4277,6 +4277,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Spec: rental-inspections.md §14.1/§14.2.
         Route::get('/{property}/rental-inspection-tab', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'tabData'])->name('rental-inspection-tab.data');
         Route::post('/{property}/rental-inspections/start', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'start'])->name('rental-inspections.start');
+        // Johan's ruling, 2026-09-23 — "Next inspection" from the tab's own
+        // live recording surface. JSON, same "thin call into the shared
+        // model method" pattern as start() above (RentalInspection::
+        // startNext(), same one the agency-level RentalInspectionController::
+        // next() also calls) — mirrors that controller's own action, a
+        // second caller for the property tab's AJAX flow, not a second
+        // implementation.
+        Route::post('/{property}/rental-inspections/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'next'])
+            ->name('rental-inspections.next');
         Route::post('/{property}/rental-inspection-items', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeItem'])->name('rental-inspection-items.store');
         Route::post('/{property}/rental-inspection-items/{item}/retire', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'retireItem'])->name('rental-inspection-items.retire');
         // 2026-09-22 — Johan, property 4862: "how do I add to a room, not a

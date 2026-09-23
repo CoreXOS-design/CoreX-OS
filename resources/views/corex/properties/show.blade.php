@@ -4589,6 +4589,11 @@
                     itemsReorder: '{{ route('corex.properties.rental-inspection-items.reorder', $property) }}',
                     seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
+                    // Johan's ruling, 2026-09-23 — "Next inspection". Base
+                    // only (mirrors photoMatchesBase above): the predecessor
+                    // id is not known until the chain's own tail is, so it's
+                    // appended at call time, not baked in here.
+                    nextInspectionBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspections') }}',
                     roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
                     roomsApplyDefaultOrder: '{{ route('corex.properties.rental-inspection-rooms.apply-default-order', $property) }}',
                     // §20.15 — compare view match/unmatch. Base only for the
@@ -4633,15 +4638,18 @@
              {{-- R3, 2026-09-22, Johan: "in in inspection we can use the full
                   width of the screen" — collapses the existing property
                   sidebar toggle (sbCollapsed, defined on the page's OUTER
-                  x-data, §line 34) when exactly one of In/Out Inspection is
-                  open, giving the item row's new button+photo layout (R2)
+                  x-data, §line 34) when the Inspection section is open,
+                  giving the side-by-side predecessor/tail layout (2026-09-23)
                   room to breathe. One-directional by design: it only ever
                   collapses, never force-reopens, so a user who manually
                   expands the sidebar again keeps that choice until they next
-                  toggle an inspection section. Never fires outside this tab
-                  (activeTab check) so it can't touch the sidebar preference
-                  on any other tab. --}}
-             x-effect="if (activeTab === 'inspections' && (!!open['in_inspection'] !== !!open['out_inspection'])) sbCollapsed = true">
+                  toggle the section. Never fires outside this tab (activeTab
+                  check) so it can't touch the sidebar preference on any
+                  other tab. Simplified 2026-09-23 from the old "exactly one
+                  of In/Out is open" XOR — there is only the one unified
+                  section to check now (open['inspection'], not two
+                  independent in_inspection/out_inspection keys). --}}
+             x-effect="if (activeTab === 'inspections' && open['inspection']) sbCollapsed = true">
 
             <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
 
@@ -4894,71 +4902,122 @@
                 </div>
             </div>
 
-            {{-- In Inspection — rebuilt per rental-inspections.md §4/§14: item-based
-                 recording, not a flat photo gallery. --}}
+            {{-- Inspection — Johan's ruling, 2026-09-23: "the out inspection
+                 sits BELOW the in inspection as a separate section — that
+                 is the segregated thing he is objecting to, and it is what
+                 must change." Replaces the two independently-toggled In/Out
+                 sections above with ONE section: the chain's predecessor
+                 (read-only, left) beside its current tail (editable, right),
+                 side by side, whichever two links those actually are — In
+                 and Out for the common two-link case, or any two adjacent
+                 links in a longer In -> Routine -> Routine -> Out chain.
+                 "Aligned row by row, same item sits opposite itself" — both
+                 sides iterate the SAME roomGroups() (§20.15.4's own
+                 alignment-is-automatic reasoning), never resorted or
+                 filtered differently between them. --}}
                 <div class="prop-section">
-                    <button type="button" class="prop-section-toggle" @click="toggle('in_inspection')">
+                    <button type="button" class="prop-section-toggle" @click="toggle('inspection')">
                         <h3 class="prop-section-heading">
-                            <span class="prop-section-heading-text">In Inspection</span>
-                            {{-- FIX, 2026-09-22, Johan: the previous `?.status.replace(...) +
-                                 '...'` short-circuited to the JS VALUE undefined when no
-                                 inspection exists, and string concatenation coerced that
-                                 into the literal text "undefined" — genuinely in the DOM
-                                 (accessibility tree, screen readers) regardless of the
-                                 x-show hiding it visually. A ternary that returns a real
-                                 empty string when there's nothing to show is the fix, not
-                                 relying on x-show alone. --}}
-                            <span x-show="currentInspection('in')" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="currentInspection('in') ? (currentInspection('in').status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress('in').recorded + '/' + inspectionProgress('in').total : '')) : ''"></span>
+                            <span class="prop-section-heading-text">Inspection</span>
+                            {{-- Same "never the coerced literal undefined" fix
+                                 as the pre-chain version (2026-09-22) — a
+                                 ternary that returns a real empty string. --}}
+                            <span x-show="chainTail" class="ml-2 text-xs" style="color:var(--text-muted);"
+                                  x-text="chainTail ? ((chainTail.type === 'out' ? 'Out' : (chainTail.type === 'in' ? 'In' : 'Routine')) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
                         </h3>
-                        <svg class="prop-section-chevron" :class="open['in_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                        <svg class="prop-section-chevron" :class="open['inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                     </button>
-                    <div x-show="open['in_inspection']" x-collapse class="prop-section-body">
-                        @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in'])
-                    </div>
-                </div>
+                    <div x-show="open['inspection']" x-collapse class="prop-section-body space-y-3">
+                        {{-- §6 of the approved proposal — nothing started yet
+                             for this property at all. The ONLY case that
+                             creates a type='in' inspection (RentalInspection::
+                             start(), unchanged) — every later link is
+                             "Next inspection" below, off an explicit
+                             predecessor (RentalInspection::startNext()). --}}
+                        <template x-if="!chainTail">
+                            <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+                                <div x-show="startError['in']" x-cloak class="text-xs mb-2" style="color:#ef4444;" x-text="startError['in']"></div>
+                                <button type="button" :disabled="startBusy['in']" @click="startInspection('in')"
+                                        class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                        x-text="startBusy['in'] ? 'Starting…' : 'Start In-Inspection'"></button>
+                            </div>
+                        </template>
 
-            {{-- Out Inspection — rebuilt per rental-inspections.md §4/§14. --}}
-                <div class="prop-section">
-                    <button type="button" class="prop-section-toggle" @click="toggle('out_inspection')">
-                        <h3 class="prop-section-heading">
-                            <span class="prop-section-heading-text">Out Inspection</span>
-                            {{-- FIX, 2026-09-22 — same class of bug as In Inspection's
-                                 header above, same fix: a ternary that renders a real
-                                 empty string, never the coerced literal "undefined". --}}
-                            <span x-show="currentInspection('out')" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="currentInspection('out') ? (currentInspection('out').status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress('out').recorded + '/' + inspectionProgress('out').total : '')) : ''"></span>
-                        </h3>
-                        <svg class="prop-section-chevron" :class="open['out_inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
-                    </button>
-                    <div x-show="open['out_inspection']" x-collapse class="prop-section-body">
-                        @include('corex.properties.partials.rental-inspection-recording', ['section' => 'out'])
+                        <template x-if="chainTail">
+                            <div class="space-y-3">
+                                <div class="flex flex-col md:flex-row gap-4 items-start">
+                                    <div style="flex:1; min-width:0;">
+                                        @include('corex.properties.partials.rental-inspection-readonly-panel', ['inspectionJs' => 'chainPredecessor'])
+                                    </div>
+                                    <div style="flex:1; min-width:0;">
+                                        {{-- A completed tail with no successor yet has
+                                             nothing left to record — shown read-only
+                                             too (the SAME lean panel, not the editable
+                                             form) until "Next inspection" is pressed.
+                                             While in progress, the real, unmodified
+                                             recording partial renders exactly as it
+                                             always has. --}}
+                                        <template x-if="chainTail.status !== 'completed'">
+                                            @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in', 'sectionJs' => 'tailSection()'])
+                                        </template>
+                                        <template x-if="chainTail.status === 'completed'">
+                                            @include('corex.properties.partials.rental-inspection-readonly-panel', ['inspectionJs' => 'chainTail'])
+                                        </template>
+                                    </div>
+                                </div>
 
-                        {{-- .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 —
-                             Johan's own reason for the whole feature: "geyser in
-                             month 7... an agent can see what damages there were,
-                             and what was not repaired." Attached, not merged —
-                             a separate block, never inside the recording above.
-                             Read-only: resolved from its own screen, not here. --}}
-                        <template x-if="outInspectionRecorded">
-                            <div class="mt-3 pt-3 space-y-2" style="border-top:1px solid var(--border);">
-                                <h4 class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Fault &amp; Repair History — this tenancy</h4>
-                                <template x-if="!outInspectionFaultHistory.length">
-                                    <div class="text-xs" style="color:var(--text-muted);">No faults reported during this tenancy.</div>
-                                </template>
-                                <template x-for="fault in outInspectionFaultHistory" :key="fault.id">
-                                    <div class="text-sm py-1.5" style="border-bottom:1px solid var(--border);">
-                                        <div class="flex items-center justify-between gap-3">
-                                            <span x-text="fault.title" style="color:var(--text-primary);"></span>
-                                            <span class="text-xs" style="color:var(--text-muted);">
-                                                <span x-text="fault.outcome ? fault.outcome.replace('_',' ') : fault.status.replace('_',' ')" class="uppercase tracking-wide"></span>
-                                                <span x-text="'— ' + fault.reported_at.substring(0, 10)"></span>
-                                            </span>
+                                {{-- Johan's ruling, 2026-09-23 — "Next inspection".
+                                     chainTail, by construction (chainTailFor()'s own
+                                     whereDoesntHave('nextInChain')), never already
+                                     has a successor — no extra check needed for
+                                     when to offer this. In is never offered here:
+                                     it can only ever be the chain's first link
+                                     (RentalInspection::startNext()'s own guard). --}}
+                                @permission('rental_inspections.create')
+                                    <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);">
+                                        <div x-show="nextError" x-cloak class="text-xs mb-2" style="color:#ef4444;" x-text="nextError"></div>
+                                        <div class="flex items-center gap-2 flex-wrap">
+                                            <span class="text-xs font-semibold" style="color:var(--text-secondary);">Next inspection:</span>
+                                            <select x-model="nextType" class="prop-input text-xs" style="max-width:11rem;">
+                                                <option value="ad_hoc">Routine (mid-tenancy)</option>
+                                                <option value="out">Out</option>
+                                            </select>
+                                            <button type="button" :disabled="nextBusy" @click="nextInspection(nextType)"
+                                                    class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
+                                                    x-text="nextBusy ? 'Starting…' : 'Start'"></button>
+                                            <span class="text-xs" style="color:var(--text-muted);">Compares against this inspection's own recorded condition, room by room.</span>
                                         </div>
-                                        <div x-show="fault.repaired_at" class="text-xs" style="color:var(--text-muted);">
-                                            Repaired: <span x-text="fault.repaired_at"></span>
-                                        </div>
-                                        <div x-show="fault.outcome_note" class="text-xs" style="color:var(--text-muted);" x-text="fault.outcome_note"></div>
+                                    </div>
+                                @endpermission
+
+                                {{-- .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 —
+                                     Johan's own reason for the whole feature: "geyser in
+                                     month 7... an agent can see what damages there were,
+                                     and what was not repaired." Attached, not merged —
+                                     a separate block, unchanged from the pre-chain
+                                     version, still gated the same way. Read-only:
+                                     resolved from its own screen, not here. --}}
+                                <template x-if="outInspectionRecorded">
+                                    <div class="pt-3 space-y-2" style="border-top:1px solid var(--border);">
+                                        <h4 class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Fault &amp; Repair History — this tenancy</h4>
+                                        <template x-if="!outInspectionFaultHistory.length">
+                                            <div class="text-xs" style="color:var(--text-muted);">No faults reported during this tenancy.</div>
+                                        </template>
+                                        <template x-for="fault in outInspectionFaultHistory" :key="fault.id">
+                                            <div class="text-sm py-1.5" style="border-bottom:1px solid var(--border);">
+                                                <div class="flex items-center justify-between gap-3">
+                                                    <span x-text="fault.title" style="color:var(--text-primary);"></span>
+                                                    <span class="text-xs" style="color:var(--text-muted);">
+                                                        <span x-text="fault.outcome ? fault.outcome.replace('_',' ') : fault.status.replace('_',' ')" class="uppercase tracking-wide"></span>
+                                                        <span x-text="'— ' + fault.reported_at.substring(0, 10)"></span>
+                                                    </span>
+                                                </div>
+                                                <div x-show="fault.repaired_at" class="text-xs" style="color:var(--text-muted);">
+                                                    Repaired: <span x-text="fault.repaired_at"></span>
+                                                </div>
+                                                <div x-show="fault.outcome_note" class="text-xs" style="color:var(--text-muted);" x-text="fault.outcome_note"></div>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
                             </div>
@@ -5337,8 +5396,14 @@
                 // implementation) ──────────────────────────────────────────
                 inspectionUrls: config.inspectionUrls,
                 items: config.inspectionData.items,
-                inInspection: config.inspectionData.in_inspection,
-                outInspection: config.inspectionData.out_inspection,
+                // Johan's ruling, 2026-09-23 — replaces the old fixed
+                // inInspection/outInspection pair: the tab's live recording
+                // surface is always exactly ONE inspection (the chain's
+                // tail, any type) beside its own predecessor, never two
+                // independently-tracked named slots. See currentInspection()
+                // below — this is the only state currentInspection() reads.
+                chainTail: config.inspectionData.chain_tail,
+                chainPredecessor: config.inspectionData.chain_predecessor,
                 // §20.15 — the two-panel compare view. Null/null when there is
                 // nothing yet to compare (only an in-inspection so far, the
                 // common case) — compareRight gates the whole section.
@@ -5869,9 +5934,28 @@
                     finally { this.seedBusy = false; }
                 },
 
-                // ── In/out inspections — recording (§14.1/§14.2, same endpoints a
+                // ── Inspection recording (§14.1/§14.2, same endpoints a
                 // mobile client calls) ──────────────────────────────────────────
-                currentInspection(section) { return section === 'in' ? this.inInspection : this.outInspection; },
+                // Johan's ruling, 2026-09-23 — generalized beyond the old
+                // fixed 'in'/'out' ternary: the recording partial is always
+                // included with $section set to the chain tail's OWN type
+                // (in/out/ad_hoc), so "does this match the tail?" is the
+                // whole rule — works for any chain length without special-
+                // casing a third slot. Returns null for any other value,
+                // same as the old ternary did for an unrecognised section.
+                currentInspection(section) { return (this.chainTail && this.chainTail.type === section) ? this.chainTail : null; },
+                // The read-only left panel — always this inspection's own
+                // predecessor, never resolved by type. Null for the first
+                // inspection in a chain (§6 of the approved proposal).
+                predecessorInspection() { return this.chainPredecessor; },
+                // 'in' | 'out' | 'ad_hoc' | null — the tab's own single
+                // editable section is always the chain tail; this is what
+                // the include below passes as $section (see the Blade
+                // markup, not this script).
+                tailSection() { return this.chainTail?.type ?? null; },
+                sourceForSection(section) {
+                    return section === 'in' ? 'in_inspection' : (section === 'out' ? 'out_inspection' : 'ad_hoc');
+                },
                 hasUnresolvedDiscrepancy(section) {
                     const insp = this.currentInspection(section);
                     return !!insp && (insp.discrepancies || []).some(d => !d.resolved_at);
@@ -5897,13 +5981,32 @@
                     } catch (e) { this.startError[section] = e.message; }
                     finally { this.startBusy[section] = false; }
                 },
+                // Johan's ruling, 2026-09-23 — "Next inspection" from the
+                // chain's current tail. Same refetch-the-canonical-payload
+                // pattern as startInspection() above, for the same reason:
+                // a new link is exactly the moment chainPredecessor/
+                // chainTail both change, and hand-patching risks missing a
+                // field added to the payload later.
+                nextBusy: false,
+                nextError: '',
+                nextType: 'ad_hoc',
+                async nextInspection(type) {
+                    if (!this.chainTail) return;
+                    this.nextBusy = true;
+                    this.nextError = '';
+                    try {
+                        await this._post(`${this.inspectionUrls.nextInspectionBase}/${this.chainTail.id}/next`, { type });
+                        await this.refreshInspectionData();
+                    } catch (e) { this.nextError = e.message; }
+                    finally { this.nextBusy = false; }
+                },
                 async refreshInspectionData() {
                     const data = await fetch(this.inspectionUrls.tabData, {
                         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
                     }).then(r => r.json());
                     this.items = data.items;
-                    this.inInspection = data.in_inspection;
-                    this.outInspection = data.out_inspection;
+                    this.chainTail = data.chain_tail;
+                    this.chainPredecessor = data.chain_predecessor;
                     this.outInspectionFaultHistory = data.out_inspection_fault_history;
                     this.landlordContact = data.landlord_contact;
                     this.refusalReasonPresets = data.refusal_reason_presets;
@@ -5922,6 +6025,32 @@
                     const mine = insp.observations.filter(o => o.rental_inspection_item_id === itemId);
                     if (!mine.length) return null;
                     return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+                },
+                // Johan's ruling, 2026-09-23 — the read-only predecessor
+                // panel's own equivalents, taking the inspection OBJECT
+                // directly rather than a section/type key. A section key
+                // can't distinguish the predecessor from the tail when
+                // both happen to share a type (two ad-hoc links back to
+                // back in a longer chain) — this is why these exist as
+                // separate functions rather than section-string overloads
+                // of the ones above. Read-only: no photoUploader instance,
+                // nothing here uploads, tags, or matches — that stays
+                // cc2's own comparePhotoUploader()/compareLeft/
+                // compareRight territory above, untouched. Each
+                // observation already carries its own .photos (tabPayloadFor()'s
+                // 'observations.photos' eager-load), so item photos need
+                // no separate lookup at all — only room-level (untagged-to-
+                // item) photos need their own filter, mirroring
+                // corex-photo-batch-uploader.js's own roomPhotos() exactly.
+                conditionForInspection(insp, itemId) {
+                    if (!insp) return null;
+                    const mine = (insp.observations || []).filter(o => o.rental_inspection_item_id === itemId);
+                    if (!mine.length) return null;
+                    return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
+                },
+                roomPhotosForInspection(insp, roomId) {
+                    if (!insp || !roomId) return [];
+                    return (insp.photos || []).filter(p => p.property_room_id === roomId && !p.rental_inspection_observation_id);
                 },
 
                 obsForm: {},
@@ -6019,7 +6148,7 @@
                             rental_inspection_item_id: item.id,
                             condition: form.condition,
                             notes: form.notes || null,
-                            source: section === 'in' ? 'in_inspection' : 'out_inspection',
+                            source: this.sourceForSection(section),
                         });
                         observation.photos = [];
                         insp.observations.push(observation);
@@ -6144,7 +6273,7 @@
                         rental_inspection_item_id: itemId,
                         condition: this.baselineConditionKey,
                         notes: null,
-                        source: section === 'in' ? 'in_inspection' : 'out_inspection',
+                        source: this.sourceForSection(section),
                     });
                     observation.photos = [];
                     insp.observations.push(observation);

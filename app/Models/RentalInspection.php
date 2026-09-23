@@ -525,6 +525,36 @@ class RentalInspection extends Model
     }
 
     /**
+     * Johan's ruling, 2026-09-23 — generalizes currentFor()'s own two
+     * fixed in/out slots (§4/§14 tab): the property tab's live recording
+     * surface is always exactly ONE inspection — whichever chain link has
+     * no successor yet — beside its own predecessor, regardless of how
+     * many links deep the chain runs (In -> Routine -> Routine -> Out,
+     * any length). Completed-inclusive, cancelled-exclusive, same
+     * reasoning as mostRecentFor()/mostRecentOutFor() above: the tab must
+     * not go blank the instant the tail completes — that is exactly the
+     * moment "Next inspection" matters most. Scoped to the property's
+     * active lease, matching currentFor()/start()'s own scoping.
+     *
+     * whereDoesntHave('nextInChain') is what finds the tail directly — no
+     * need to walk from the chain's root forward; the tail IS, by
+     * definition, the one nothing points back to as a predecessor.
+     */
+    public static function chainTailFor(Property $property): ?self
+    {
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+        if (! $lease) {
+            return null;
+        }
+
+        return self::where('lease_id', $lease->id)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->whereDoesntHave('nextInChain')
+            ->latest('id')
+            ->first();
+    }
+
+    /**
      * §20.15 — the RIGHT-hand panel of the two-panel compare view. Johan:
      * "left is in inspection, right is the next inspection (and i state
      * next inspection as it can be ad hoc or out inspection)". Deliberately
@@ -825,6 +855,21 @@ class RentalInspection extends Model
         // the tab show" instead, and keeps answering it after completion.
         $mostRecentOut = self::mostRecentOutFor($property);
 
+        // Johan's ruling, 2026-09-23 — the tab's own live recording surface:
+        // the chain's tail (whichever link has no successor yet, ANY type)
+        // beside its own predecessor. Same detail shape as $withDetail
+        // above (in_inspection/out_inspection) — the recording partial
+        // treats whichever inspection it's handed identically regardless
+        // of which of the three keys supplied it, so the shape must match.
+        // Null/null when no inspection has ever been started for this
+        // property (the very first "Start In-Inspection" case) — rendered
+        // gracefully, not as an error, same convention compare_right_
+        // inspection below already established.
+        $chainDetail = fn (?self $insp) => $insp
+            ?->load(['observations.item', 'observations.photos', 'photos', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
+        $chainTail = $chainDetail(self::chainTailFor($property));
+        $chainPredecessor = $chainTail ? $chainDetail($chainTail->previousInspection) : null;
+
         // §20.15 — the two-panel compare view. Both sides deliberately use
         // completed-inclusive lookups (mostRecentFor()/compareRightFor()),
         // same reasoning as $mostRecentOut above: by the time a second
@@ -842,6 +887,12 @@ class RentalInspection extends Model
             'items' => $items,
             'in_inspection' => $withDetail(self::TYPE_IN),
             'out_inspection' => $outInspection,
+            // Johan's ruling, 2026-09-23 — the tab's unified side-by-side
+            // section reads these two, not in_inspection/out_inspection
+            // above (kept unchanged for the existing mobile/test-shape
+            // contract — nothing that already reads them needed to change).
+            'chain_tail' => $chainTail,
+            'chain_predecessor' => $chainPredecessor,
             // .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 — Johan's own
             // reason for this whole feature: "geyser in month 7... an agent
             // can see what damages there were... and what was not repaired."

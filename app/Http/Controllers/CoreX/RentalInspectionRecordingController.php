@@ -70,6 +70,34 @@ class RentalInspectionRecordingController extends Controller
     }
 
     /**
+     * POST /corex/properties/{property}/rental-inspections/{rentalInspection}/next
+     * — Johan's ruling, 2026-09-23: "Next inspection" from the tab's own
+     * live recording surface. Same shared RentalInspection::startNext()
+     * the agency-level RentalInspectionController::next() also calls — a
+     * second caller, not a second implementation (§14.1). The tab's own
+     * refreshInspectionData() re-fetches the canonical tabPayloadFor()
+     * payload afterward (same pattern start() above already established),
+     * so the response here only needs to signal success/failure, not
+     * carry the new inspection's own full detail.
+     */
+    public function next(Request $request, Property $property, RentalInspection $rentalInspection): JsonResponse
+    {
+        abort_if($rentalInspection->property_id !== $property->id, 404);
+
+        $validated = $request->validate([
+            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+        ]);
+
+        try {
+            $next = RentalInspection::startNext($rentalInspection, $validated['type'], $request->user());
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+
+        return response()->json($next, 201);
+    }
+
+    /**
      * POST /corex/properties/{property}/rental-inspection-items — Johan's
      * ruling §0.6: the agent adds items per property. AT-current (2026-09-21)
      * fix: a `kind=space` add now goes through the exact same
