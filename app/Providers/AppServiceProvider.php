@@ -1072,6 +1072,23 @@ class AppServiceProvider extends ServiceProvider
                 ], 429));
         });
 
+        // Johan, 2026-09-23 — the rental-inspection public report link,
+        // same token-keyed reasoning as rental-application-show above (a
+        // tenant reloading on bad mobile data must never collide with
+        // another tenant sharing the same carrier IP). Not agency-
+        // configurable — a much smaller, lower-stakes surface than the
+        // whole application flow (read-only, one page, nothing to submit)
+        // — a fixed, generous budget rather than a new setting for it.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-inspection-public-show', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(30)
+                ->by('rental-inspection-public-show:' . $token)
+                ->response(fn () => response()->view('rental-inspections.public.unavailable', [
+                    'reason' => 'rate_limited',
+                ], 429));
+        });
+
         // PDF — read-only render, generous default, same window as
         // documents for one consistent rule.
         \Illuminate\Support\Facades\RateLimiter::for('rental-application-pdf', function (\Illuminate\Http\Request $request) {

@@ -62,6 +62,15 @@ class RentalInspection extends Model
         // the inspection's own summary, not an append-only evidentiary
         // fact like an Observation.
         'overall_notes',
+        // 2026-09-23 — the chain. Set once, at creation, by startNext()
+        // below — never edited afterward (which inspection this one was
+        // compared against is a recorded fact, not something that drifts).
+        'previous_inspection_id',
+        // 2026-09-23 — the public link. Written only by generatePublicLink()/
+        // revokePublicLink() below, never through mass-assignment from a
+        // request.
+        'public_token',
+        'public_token_expires_at',
     ];
 
     protected $casts = [
@@ -73,6 +82,7 @@ class RentalInspection extends Model
         'keys_count' => 'integer',
         'remotes_count' => 'integer',
         'move_in_date_recorded' => 'date',
+        'public_token_expires_at' => 'datetime',
     ];
 
     protected static function boot(): void
@@ -153,6 +163,27 @@ class RentalInspection extends Model
     public function photos(): HasMany
     {
         return $this->hasMany(RentalInspectionPhoto::class);
+    }
+
+    /**
+     * 2026-09-23 — the chain. Null for the first inspection in any chain,
+     * and for every inspection recorded before this column existed (§6 of
+     * the approved proposal — must render gracefully, not look broken).
+     */
+    public function previousInspection(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'previous_inspection_id');
+    }
+
+    /**
+     * The inverse — this inspection's own successor, if "Next inspection"
+     * has been pressed from it. At most one, enforced by the migration's
+     * unique index on previous_inspection_id (one linear chain, never a
+     * fork).
+     */
+    public function nextInChain(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(self::class, 'previous_inspection_id');
     }
 
     /** §13 — every active scanned/photographed wet-ink form uploaded against this inspection. An archived scan is never hard-deleted (non-negotiable #1) — it simply drops off this default list, same as every other soft-deletable list on this screen. */
@@ -555,6 +586,151 @@ class RentalInspection extends Model
             'furnished_status' => $property->furnished_status,
             'move_in_date_recorded' => $type === self::TYPE_OUT ? $lease->start_date : null,
         ]);
+    }
+
+    /**
+     * Johan's ruling, 2026-09-23 — "Next inspection" from any inspection:
+     * the deliberate action that records the chain. No rooms/items are
+     * copied — they already belong to the PROPERTY, not to a specific
+     * inspection (§20.15.4 already leans on this same fact for the compare
+     * view), so every link in the chain automatically shares the same
+     * structure. "Copied from the predecessor" is a read (the predecessor's
+     * own recorded condition, resolved via historyFor()/previousInspection()
+     * below), never a duplicate row.
+     *
+     * Refuses a predecessor that already has a successor — the migration's
+     * own unique index on previous_inspection_id would refuse it too, but
+     * this gives a real message instead of a raw constraint violation, and
+     * catches it before the query even runs. Refuses type=in outright — In
+     * is, by definition, the first link; it never has a predecessor, so it
+     * is only ever created via start() above.
+     */
+    public static function startNext(self $predecessor, string $type, User $by): self
+    {
+        if ($type === self::TYPE_IN) {
+            throw new \LogicException('An In-inspection is always the first link in a chain — it cannot follow another inspection.');
+        }
+        if (! in_array($type, [self::TYPE_OUT, self::TYPE_AD_HOC], true)) {
+            throw new \LogicException('Unknown inspection type.');
+        }
+        if ($predecessor->nextInChain()->exists()) {
+            throw new \LogicException('This inspection already has a next inspection — a chain link cannot fork.');
+        }
+
+        $lease = $predecessor->lease ?? Lease::withoutGlobalScopes()->find($predecessor->lease_id);
+        $property = $predecessor->property ?? Property::find($predecessor->property_id);
+
+        return self::create([
+            'agency_id' => $predecessor->agency_id,
+            'lease_id' => $predecessor->lease_id,
+            'previous_inspection_id' => $predecessor->id,
+            'type' => $type,
+            'created_by_user_id' => $by->id,
+            // Same "pull what we already know NOW, confirm rather than
+            // retype" reasoning as start() — the live property record, not
+            // a copy of the predecessor's own snapshot (property_type may
+            // have genuinely changed between links in a long chain).
+            'property_type' => $property?->property_type,
+            'furnished_status' => $property?->furnished_status,
+            'move_in_date_recorded' => $type === self::TYPE_OUT ? $lease?->start_date : null,
+        ]);
+    }
+
+    /**
+     * Johan's ruling, 2026-09-23 — "doing the next inspection is essentially
+     * a combination of all previous inspections... the row shows the
+     * previous value with the full run available on demand." Walks
+     * previousInspection() back from $this (NOT from the chain's first
+     * link forward — every inspection only ever knows its own predecessor,
+     * never its successor's successor), collecting the most recent
+     * observation for $item as recorded AT each link, oldest first so the
+     * run reads left-to-right the way it happened: Good, Good, Damaged.
+     * Stops at the first link with no predecessor (§6 — a first inspection
+     * yields a single-entry, or empty, run, not an error). Capped at 50
+     * links as a sane backstop against a corrupted/cyclic chain — no real
+     * tenancy will ever have that many inspections.
+     */
+    public function historyFor(RentalInspectionItem $item): \Illuminate\Support\Collection
+    {
+        $run = collect();
+        $current = $this;
+        $seen = [];
+        $guard = 0;
+
+        while ($current && $guard < 50) {
+            $guard++;
+            if (isset($seen[$current->id])) {
+                break; // defensive — a cycle should be structurally impossible (unique + self-FK), never trust that alone.
+            }
+            $seen[$current->id] = true;
+
+            $observation = $current->relationLoaded('observations')
+                ? $current->observations->where('rental_inspection_item_id', $item->id)->sortByDesc('created_at')->first()
+                : $current->observations()->where('rental_inspection_item_id', $item->id)->latest('created_at')->first();
+
+            if ($observation) {
+                $run->prepend((object) [
+                    'inspection_id' => $current->id,
+                    'inspection_type' => $current->type,
+                    'scheduled_for' => $current->scheduled_for,
+                    'observation' => $observation,
+                ]);
+            }
+
+            $current = $current->previousInspection;
+        }
+
+        return $run;
+    }
+
+    /**
+     * Johan, 2026-09-23, approved — "signed, expiring, read-only... it
+     * must work for someone with NO CoreX login... revocable." A stored,
+     * regenerable token (RentalApplication's own precedent) rather than
+     * Laravel's temporarySignedRoute() — see the migration's own docblock
+     * for why. Regenerating overwrites whatever token already existed,
+     * immediately invalidating any previously-issued link — that IS the
+     * revoke mechanism; there is no separate revoked flag to also check.
+     */
+    public function generatePublicLink(?int $expiryDays = null): string
+    {
+        $days = $expiryDays ?? RentalInspectionSetting::publicLinkExpiryDaysFor($this->agency_id);
+
+        $this->forceFill([
+            'public_token' => \Illuminate\Support\Str::random(48),
+            'public_token_expires_at' => now()->addDays($days),
+        ])->save();
+
+        return $this->public_token;
+    }
+
+    /** Revoke: clear the token — any existing link (PDF already printed, forwarded email) stops working immediately. */
+    public function revokePublicLink(): void
+    {
+        $this->forceFill(['public_token' => null, 'public_token_expires_at' => null])->save();
+    }
+
+    public function publicLinkIsValid(): bool
+    {
+        return $this->public_token !== null
+            && $this->public_token_expires_at !== null
+            && $this->public_token_expires_at->isFuture();
+    }
+
+    /**
+     * §5 of the approved proposal — resolves a token to its inspection,
+     * scoped to a live, unexpired link only. withoutGlobalScopes(): the
+     * whole point of this lookup is an unauthenticated caller with no
+     * agency context to scope against — the token itself IS the
+     * authorization, exactly like RentalApplication::findByToken()'s own
+     * established pattern for the same class of problem.
+     */
+    public static function findByPublicToken(string $token): ?self
+    {
+        return self::withoutGlobalScopes()
+            ->where('public_token', $token)
+            ->where('public_token_expires_at', '>', now())
+            ->first();
     }
 
     /**

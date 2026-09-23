@@ -394,6 +394,14 @@ return [
              'label' => 'Days a tenant has to sign the out-inspection',
              'explain' => 'Once an out-inspection is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
              'affects' => 'How long CoreX waits for the tenant\'s own signature before allowing an agent to close it out on their behalf. 7 days suits most agencies.'],
+            // 2026-09-23 — same saver as the two window fields above
+            // (RentalInspectionSettingsController::update() — registered
+            // once, above); nullable + has()-guarded there, so this control
+            // is safe alongside a step render that omits it.
+            ['key' => 'public_link_expiry_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 90, 'min' => 1, 'max' => 3650,
+             'label' => 'Days the public inspection-report link stays live',
+             'explain' => 'A completed inspection\'s PDF carries a link a tenant or landlord can open with no CoreX login. This many days after it is issued, the link stops working.',
+             'affects' => 'How long a shared inspection-report link keeps working. 90 days suits most agencies — an agent can always issue a fresh link later from the inspection\'s own screen.'],
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
              'label' => 'No-approval spend threshold (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
