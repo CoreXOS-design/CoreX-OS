@@ -4579,6 +4579,20 @@
         {{-- §20.13, 2026-09-22 — the reusable bulk-upload/tag component;
              cc6's rental-inventory capture surface includes this same file. --}}
         <script src="{{ asset_v('js/corex-photo-batch-uploader.js') }}"></script>
+        {{-- Johan's ruling, 2026-09-23 — "Next inspection". nextInspectionBase
+             below is base-only (mirrors photoMatchesBase further down): the
+             predecessor id is not known until the chain's own tail is, so
+             it's appended at call time, not baked in here.
+             FIX, 2026-09-23 — this note used to sit as a // comment inside
+             the x-data="rentalImages({...})" attribute below. A double
+             quote in a JS comment inside a double-quoted HTML attribute
+             terminates the attribute right there — the browser's HTML
+             parser has no concept of JS comments, so everything after that
+             quote silently falls out of x-data, leaving rentalImages()'s
+             object literal unclosed. Every attribute on this page that
+             carries inline JS commentary must never contain a literal "
+             character anywhere in that commentary; when a note needs one,
+             it belongs out here instead, exactly like this. --}}
         <div x-show="activeTab === 'inspections'" x-cloak class="p-6 space-y-4"
              x-data="rentalImages({
                 csrf: '{{ csrf_token() }}',
@@ -4606,10 +4620,6 @@
                     itemsReorder: '{{ route('corex.properties.rental-inspection-items.reorder', $property) }}',
                     seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
-                    // Johan's ruling, 2026-09-23 — "Next inspection". Base
-                    // only (mirrors photoMatchesBase above): the predecessor
-                    // id is not known until the chain's own tail is, so it's
-                    // appended at call time, not baked in here.
                     nextInspectionBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspections') }}',
                     roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
                     roomsApplyDefaultOrder: '{{ route('corex.properties.rental-inspection-rooms.apply-default-order', $property) }}',
