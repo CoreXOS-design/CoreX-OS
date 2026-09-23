@@ -30,7 +30,10 @@ class RentalInventoryRecordingController extends Controller
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
             'room_label' => ['nullable', 'required_without:property_room_id', 'string', 'max:100'],
-            'quantity' => ['required', 'integer', 'min:0'],
+            // Johan, 2026-10-02: a new line's qty starts blank, not 1 — "lets
+            // get that to null and it will work perfect." Blank stays blank;
+            // never silently defaulted.
+            'quantity' => ['nullable', 'integer', 'min:0'],
             'description' => ['required', 'string'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
@@ -55,7 +58,7 @@ class RentalInventoryRecordingController extends Controller
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
             'room_label' => ['nullable', 'required_without:property_room_id', 'string', 'max:100'],
-            'quantity' => ['required', 'integer', 'min:0'],
+            'quantity' => ['nullable', 'integer', 'min:0'],
             'description' => ['required', 'string'],
         ]);
 

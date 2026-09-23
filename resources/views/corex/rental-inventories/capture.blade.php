@@ -344,7 +344,14 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
 
         init() {
             this.rooms.forEach(r => this._initRoomState(r));
-            this.lines.forEach(l => { this.lineSnapshots[l.id] = { quantity: l.quantity, description: l.description }; });
+            // §4c/qty-nullable (Johan, 2026-10-02) — a blank quantity is
+            // `null` server-side but ALWAYS '' client-side, never null: this
+            // keeps every x-model-bound qty input dealing with one blank
+            // representation instead of reasoning about null vs ''.
+            this.lines.forEach(l => {
+                l.quantity = this.normalizeQtyDisplay(l.quantity);
+                this.lineSnapshots[l.id] = { quantity: l.quantity, description: l.description };
+            });
         },
         // Extracted so a room added live via addSpace() (never present at
         // page-load init()) gets the exact same per-room state a
@@ -352,8 +359,22 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         // that could drift.
         _initRoomState(room) {
             this.openRooms[room.id] = this.linesFor(room.id).length === 0;
-            this.newLine[room.id] = { quantity: 1, description: '' };
+            // Johan, 2026-10-02: "I type the qty, tabbing goes to desc" —
+            // qty defaulting to 1 meant deleting it first to type 4. Starts
+            // blank now; stays blank if left blank (never silently saved as
+            // 0 or 1 — see commitDraftRow()/qtyForPayload()).
+            this.newLine[room.id] = { quantity: '', description: '' };
             this.lineBusy[room.id] = false;
+        },
+        // Blank is always '' client-side (never null/undefined) — see init().
+        normalizeQtyDisplay(v) {
+            return (v === null || v === undefined) ? '' : v;
+        },
+        // Blank is always null server-side (never silently 0) — Johan,
+        // 2026-10-02: "lets get that to null and it will work perfect."
+        qtyForPayload(v) {
+            const t = (v === null || v === undefined) ? '' : String(v).trim();
+            return t === '' ? null : t;
         },
         toggleRoom(id) { this.openRooms[id] = !this.openRooms[id]; },
         linesFor(roomId) { return this.lines.filter(l => Number(l.property_room_id) === Number(roomId)); },
@@ -544,8 +565,10 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
             const form = this.newLine[room.id];
             const description = (form.description || '').trim();
             if (!description) return; // never save an empty row
-            const payload = { property_room_id: room.id, quantity: form.quantity || 0, description };
-            this.newLine[room.id] = { quantity: 1, description: '' };
+            // Blank qty ships as null, never silently defaulted to 0/1
+            // (Johan, 2026-10-02).
+            const payload = { property_room_id: room.id, quantity: this.qtyForPayload(form.quantity), description };
+            this.newLine[room.id] = { quantity: '', description: '' };
             this.lineBusy[room.id] = true;
             fetch(`${this.baseUrl}/lines`, {
                 method: 'POST',
@@ -554,8 +577,9 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
             }).then(async (res) => {
                 if (!res.ok) { this.lineSaveError[room.id] = true; return; }
                 const line = await res.json();
-                this.lines.push({ id: line.id, property_room_id: line.property_room_id, quantity: line.quantity, description: line.description, photos: [] });
-                this.lineSnapshots[line.id] = { quantity: line.quantity, description: line.description };
+                const quantity = this.normalizeQtyDisplay(line.quantity);
+                this.lines.push({ id: line.id, property_room_id: line.property_room_id, quantity, description: line.description, photos: [] });
+                this.lineSnapshots[line.id] = { quantity, description: line.description };
                 this.lineSaveError[room.id] = false;
                 this.flashSaved(room.id);
             }).catch(() => { this.lineSaveError[room.id] = true; })
@@ -566,7 +590,8 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         // (arrowing through rows to review them) never fires a request.
         async commitExistingLineIfDirty(room, line) {
             const description = (line.description || '').trim();
-            const snap = this.lineSnapshots[line.id] || { quantity: line.quantity, description: line.description };
+            const quantity = this.normalizeQtyDisplay(line.quantity);
+            const snap = this.lineSnapshots[line.id] || { quantity, description: line.description };
             if (!description) {
                 // An edit can't blank an existing item's description out —
                 // that's not "removing an empty row", it's erasing a real
@@ -575,19 +600,18 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 line.description = snap.description;
                 return;
             }
-            const quantity = line.quantity || 0;
             if (snap.quantity === quantity && snap.description === description) return;
             try {
                 const res = await fetch(`${this.baseUrl}/lines/${line.id}`, {
                     method: 'PUT',
                     headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ property_room_id: line.property_room_id, quantity, description }),
+                    body: JSON.stringify({ property_room_id: line.property_room_id, quantity: this.qtyForPayload(quantity), description }),
                 });
                 if (!res.ok) { this.lineSaveError[room.id] = true; return; }
                 const updated = await res.json();
-                line.quantity = updated.quantity;
+                line.quantity = this.normalizeQtyDisplay(updated.quantity);
                 line.description = updated.description;
-                this.lineSnapshots[line.id] = { quantity: updated.quantity, description: updated.description };
+                this.lineSnapshots[line.id] = { quantity: line.quantity, description: updated.description };
                 this.lineSaveError[room.id] = false;
                 this.flashSaved(room.id);
             } catch (e) {
