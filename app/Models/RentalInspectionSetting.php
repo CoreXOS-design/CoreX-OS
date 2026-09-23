@@ -204,6 +204,17 @@ class RentalInspectionSetting extends Model
      */
     public const DEFAULT_OMR_MARK_THRESHOLD = 0.35;
 
+    /**
+     * Johan, 2026-09-23, approved — the public inspection-report link's
+     * expiry window. 90 days: long enough to cover the real post-move-out
+     * follow-up window (deposit release, a dispute raised soon after
+     * handover), short enough that a leaked/forwarded link doesn't stay
+     * live indefinitely. A dispute surfacing years later (§0.2) is handled
+     * by the agent issuing a fresh link from the inspection's own screen,
+     * not by the original one never expiring.
+     */
+    public const DEFAULT_PUBLIC_LINK_EXPIRY_DAYS = 90;
+
     protected $fillable = [
         'agency_id',
         'fault_report_window_days',
@@ -216,6 +227,7 @@ class RentalInspectionSetting extends Model
         'baseline_condition_key',
         'require_notes_blocks_progression',
         'omr_mark_threshold',
+        'public_link_expiry_days',
     ];
 
     protected $casts = [
@@ -228,6 +240,7 @@ class RentalInspectionSetting extends Model
         'condition_states' => 'array',
         'require_notes_blocks_progression' => 'boolean',
         'omr_mark_threshold' => 'float',
+        'public_link_expiry_days' => 'integer',
     ];
 
     /**
@@ -268,6 +281,16 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('out_inspection_signing_window_days');
 
         return $value !== null ? (int) $value : self::DEFAULT_SIGNING_WINDOW_DAYS;
+    }
+
+    public static function publicLinkExpiryDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('public_link_expiry_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS;
     }
 
     /**

@@ -29,6 +29,9 @@ class RentalInspectionSettingsController extends Controller
             'signingWindowDays' => RentalInspectionSetting::signingWindowDaysFor($agencyId),
             'defaultFaultReportDays' => RentalInspectionSetting::DEFAULT_FAULT_REPORT_WINDOW_DAYS,
             'defaultSigningDays' => RentalInspectionSetting::DEFAULT_SIGNING_WINDOW_DAYS,
+            // 2026-09-23 — the public inspection-report link's expiry window.
+            'publicLinkExpiryDays' => RentalInspectionSetting::publicLinkExpiryDaysFor($agencyId),
+            'defaultPublicLinkExpiryDays' => RentalInspectionSetting::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS,
             // §15.6 — editable here, NOT in the Setup Wizard: the wizard's
             // generic control types (number/select/text/textarea/toggle)
             // have no repeater/list type, and building one is out of scope
@@ -82,12 +85,22 @@ class RentalInspectionSettingsController extends Controller
             'refusal_reason_presets' => ['nullable', 'array'],
             'refusal_reason_presets.*.key' => ['required_with:refusal_reason_presets', 'string', 'max:60'],
             'refusal_reason_presets.*.label' => ['required_with:refusal_reason_presets', 'string', 'max:191'],
+            // 2026-09-23 — nullable + has()-guarded below, NOT required like
+            // the two window fields above: this is the second field added to
+            // this shared saver after refusal_reason_presets, and making it
+            // required here would break the same wizard-step callers that
+            // omit refusal_reason_presets (this method is also registered
+            // as a wizard saver — see the onboarding config's own comment).
+            'public_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
         ]);
 
         $attributes = [
             'fault_report_window_days' => $validated['fault_report_window_days'],
             'out_inspection_signing_window_days' => $validated['out_inspection_signing_window_days'],
         ];
+        if ($request->has('public_link_expiry_days')) {
+            $attributes['public_link_expiry_days'] = $validated['public_link_expiry_days'];
+        }
 
         // Guarded on has(), not just validated() — the wizard step (§4/§8's
         // own docblock warning) posts this saver WITHOUT refusal_reason_presets

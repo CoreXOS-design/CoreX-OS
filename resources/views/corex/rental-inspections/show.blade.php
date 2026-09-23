@@ -36,6 +36,11 @@
             {{-- The printable tick-box form — takes it to the property in wet
                  ink, scans it back in (OMR reader lane builds on this). --}}
             <a href="{{ route('corex.rental-inspections.form', $inspection) }}" class="corex-btn-outline text-xs">Download printable form</a>
+            {{-- Johan, 2026-09-23, approved — the COMPLETED report: no photos,
+                 a QR/link to the public page instead. A different document
+                 from the printable form above (that one is blank, for
+                 capture BEFORE an inspection; this one is the record AFTER). --}}
+            <a href="{{ route('corex.rental-inspections.report', $inspection) }}" class="corex-btn-outline text-xs">Download report (PDF)</a>
             @if($inspection->type === 'out')
                 {{-- rental-inspection-form.md §7 — the in-vs-out deposit comparison. --}}
                 <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Move-in vs move-out comparison</a>
@@ -43,6 +48,74 @@
             <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">&larr; All inspections</a>
         </div>
     </div>
+
+    {{-- Johan's ruling, 2026-09-23 — "Next inspection" records the chain:
+         In -> Routine -> Routine -> Out, any length. Hidden once a
+         successor already exists (the migration's own unique index
+         enforces this server-side too — one chain, never a fork), and In
+         is never offered here since it can only ever be the first link
+         (RentalInspection::startNext()'s own guard). --}}
+    @permission('rental_inspections.create')
+        @if(! $inspection->nextInChain)
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+                <form method="POST" action="{{ route('corex.rental-inspections.next', $inspection) }}" class="flex items-center gap-2 flex-wrap">
+                    @csrf
+                    <span class="text-xs font-semibold" style="color: var(--text-secondary);">Next inspection:</span>
+                    <select name="type" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+                        <option value="ad_hoc">Routine (mid-tenancy)</option>
+                        <option value="out">Out</option>
+                    </select>
+                    <button type="submit" class="corex-btn-primary text-xs">Start</button>
+                    <span class="text-xs" style="color: var(--text-muted);">Compares against this inspection's own recorded condition, room by room.</span>
+                </form>
+            </div>
+        @else
+            <p class="text-xs" style="color: var(--text-muted);">
+                Next in this chain:
+                <a href="{{ route('corex.rental-inspections.show', $inspection->nextInChain) }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">
+                    {{ ucfirst(str_replace('_', '-', $inspection->nextInChain->type)) }}-inspection
+                </a>
+            </p>
+        @endif
+    @endpermission
+    @if($inspection->previousInspection)
+        <p class="text-xs" style="color: var(--text-muted);">
+            Follows:
+            <a href="{{ route('corex.rental-inspections.show', $inspection->previousInspection) }}" class="underline" style="color: var(--brand-icon, #0ea5e9);">
+                {{ ucfirst(str_replace('_', '-', $inspection->previousInspection->type)) }}-inspection
+            </a>
+        </p>
+    @endif
+
+    {{-- Johan, 2026-09-23, approved — the public link a tenant/landlord
+         with no CoreX login uses (also what the PDF's QR/link points at).
+         Regenerating shows a NEW link and immediately invalidates any
+         previous one — RentalInspection::generatePublicLink()'s own
+         docblock. --}}
+    @permission('rental_inspections.create')
+        <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
+            <h2 class="text-sm font-semibold">Public link</h2>
+            @if($inspection->publicLinkIsValid())
+                <p class="text-xs break-all" style="color: var(--text-secondary);">{{ route('rental-inspections.public.show', $inspection->public_token) }}</p>
+                <p class="text-xs" style="color: var(--text-muted);">Live until {{ $inspection->public_token_expires_at->format('Y-m-d') }}.</p>
+            @else
+                <p class="text-xs" style="color: var(--text-muted);">No live link — generate one to share, or download the report above (it generates one automatically).</p>
+            @endif
+            <div class="flex items-center gap-2">
+                <form method="POST" action="{{ route('corex.rental-inspections.public-link.generate', $inspection) }}">
+                    @csrf
+                    <button type="submit" class="corex-btn-outline text-xs">{{ $inspection->publicLinkIsValid() ? 'Regenerate' : 'Generate' }} link</button>
+                </form>
+                @if($inspection->publicLinkIsValid())
+                    <form method="POST" action="{{ route('corex.rental-inspections.public-link.revoke', $inspection) }}" onsubmit="return confirm('Revoke this link? Anyone with the current link or PDF will lose access immediately.');">
+                        @csrf
+                        @method('DELETE')
+                        <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Revoke</button>
+                    </form>
+                @endif
+            </div>
+        </div>
+    @endpermission
 
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="grid grid-cols-2 gap-3 text-sm">
@@ -116,6 +189,84 @@
     </div>
     @endif
 
+    @if($comparisonRows !== null)
+        {{-- Johan's ruling, 2026-09-23 — §2 (predecessor left/read-only,
+             this inspection's own value right), §3 (row shows the
+             immediate predecessor's value; the full run is on demand, via
+             plain <details> — no Alpine, nothing here can fall into the
+             :style-clobber trap that cost four rounds on the recording
+             screen tonight). Replaces the flat list below entirely once a
+             predecessor exists — §6, the FIRST inspection in a chain has
+             none, and falls through to that flat list unchanged. --}}
+        <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+            <h2 class="text-sm font-semibold">
+                Compared against the {{ $inspection->previousInspection->type }}-inspection
+                <span class="text-xs" style="color: var(--text-muted);">({{ $inspection->previousInspection->scheduled_for?->format('Y-m-d') ?? $inspection->previousInspection->created_at->format('Y-m-d') }})</span>
+            </h2>
+            @foreach($comparisonRows as $roomId => $roomRows)
+                @php
+                    // Shorthand @php(...) form mis-parses on a nested-paren
+                    // expression like first()->room (it closes on the FIRST
+                    // ")" it finds — from first(), not the statement's own
+                    // end — corrupting every directive compiled after it in
+                    // the whole file. Block form has no such fragility.
+                    $room = $roomRows->first()->room;
+                @endphp
+                <div class="space-y-1.5">
+                    <h3 class="text-xs font-bold uppercase tracking-wide" style="color: var(--text-secondary);">{{ $room?->label ?? 'General' }}</h3>
+                    <table class="w-full text-sm" style="border-collapse: collapse;">
+                        <thead>
+                            <tr class="text-xs" style="color: var(--text-muted);">
+                                <th class="text-left font-normal py-1">Item</th>
+                                <th class="text-left font-normal py-1">Previous</th>
+                                <th class="text-left font-normal py-1">Current</th>
+                                <th class="text-left font-normal py-1"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach($roomRows as $row)
+                                <tr style="border-top: 1px solid var(--border);">
+                                    <td class="py-1.5 align-top">{{ $row->item->label }}</td>
+                                    <td class="py-1.5 align-top">
+                                        @if($row->predecessor)
+                                            <span class="ds-badge {{ $conditionBadgeClass($row->predecessor->condition) }}">{{ ucfirst($row->predecessor->condition) }}</span>
+                                            @if($row->predecessor->notes)
+                                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $row->predecessor->notes }}</div>
+                                            @endif
+                                        @else
+                                            <span class="text-xs" style="color: var(--text-muted);">—</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-1.5 align-top">
+                                        @if($row->current)
+                                            <span class="ds-badge {{ $conditionBadgeClass($row->current->condition) }}">{{ ucfirst($row->current->condition) }}</span>
+                                            @if($row->current->notes)
+                                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $row->current->notes }}</div>
+                                            @endif
+                                        @else
+                                            <span class="text-xs" style="color: var(--text-muted);">Not yet recorded</span>
+                                        @endif
+                                    </td>
+                                    <td class="py-1.5 align-top">
+                                        @if($row->history->count() > 1)
+                                            <details>
+                                                <summary class="text-xs cursor-pointer" style="color: var(--brand-icon, #0ea5e9);">Full history ({{ $row->history->count() }})</summary>
+                                                <div class="text-xs mt-1 space-y-0.5" style="color: var(--text-secondary);">
+                                                    @foreach($row->history as $entry)
+                                                        <div>{{ ucfirst($entry->inspection_type) }} ({{ $entry->scheduled_for?->format('Y-m-d') ?? '—' }}): {{ ucfirst($entry->observation->condition) }}</div>
+                                                    @endforeach
+                                                </div>
+                                            </details>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            @endforeach
+        </div>
+    @else
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Observations</h2>
         @forelse($inspection->observations as $observation)
@@ -134,6 +285,7 @@
             <p class="text-xs" style="color: var(--text-muted);">No observations recorded yet.</p>
         @endforelse
     </div>
+    @endif
 
     {{-- .ai/specs/rental-inspection-form.md §13 — the OMR scan reader, part 2
          of cc5's printable-form job. Upload the wet-ink-marked printed form

@@ -62,6 +62,17 @@
                         tenant's behalf, with a note recording why.
                     </p>
                 </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days the public inspection-report link stays live</label>
+                    <input type="number" name="public_link_expiry_days" value="{{ old('public_link_expiry_days', $publicLinkExpiryDays) }}"
+                           min="1" max="3650"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $defaultPublicLinkExpiryDays }} days. The link on a completed
+                        inspection's PDF (a tenant or landlord opens it with no CoreX login) stops working
+                        after this — an agent can always issue a fresh one from the inspection's own screen.
+                    </p>
+                </div>
             </div>
         </div>
 
