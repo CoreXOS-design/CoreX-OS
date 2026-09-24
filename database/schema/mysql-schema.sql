@@ -17997,3 +17997,9 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1445,'2026_10_02_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1446,'2026_10_03_100000_create_rental_inspection_photo_match_groups_table',367);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1447,'2026_10_03_100100_create_rental_inspection_photo_match_group_members_table',367);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1448,'2026_10_03_100200_migrate_pairwise_photo_matches_into_groups',367);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1449,'2026_10_03_200000_create_rental_checklist_template_sections_table',368);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1450,'2026_10_03_200100_create_rental_checklist_template_items_table',368);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1451,'2026_10_03_200200_create_rental_application_checklist_sections_table',368);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1452,'2026_10_03_200300_create_rental_application_checklist_items_table',368);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1453,'2026_10_03_200400_create_rental_review_panel_preferences_table',368);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1454,'2026_10_03_200500_add_require_checklist_complete_to_rental_application_qualifying_settings',368);
