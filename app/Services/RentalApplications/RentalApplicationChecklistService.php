@@ -248,4 +248,30 @@ class RentalApplicationChecklistService
 
         return true;
     }
+
+    /**
+     * AT-430, 2026-09-24 — added for cc4's approval-controller block message
+     * ("complete these before approving: ..."). Uses the EXACT same
+     * "not_started" definition as isCompleteFor() above (same query shape,
+     * same exclusion of not_applicable/done items) so the two can never
+     * disagree about what counts as outstanding — a block message that
+     * named different items than the ones the gate actually blocked on
+     * would be worse than no message at all.
+     */
+    public static function outstandingItemNames(RentalApplication $application): array
+    {
+        $sections = RentalApplicationChecklistSection::where('rental_application_id', $application->id)
+            ->with('items')->orderBy('sort_order')->get();
+
+        $names = [];
+        foreach ($sections as $section) {
+            foreach ($section->items as $item) {
+                if ($item->state === RentalApplicationChecklistItem::STATE_NOT_STARTED) {
+                    $names[] = $item->name;
+                }
+            }
+        }
+
+        return $names;
+    }
 }
