@@ -3005,6 +3005,36 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/rental-applications/decline-reason-templates/{declineReasonTemplate}/restore', [\App\Http\Controllers\CoreX\RentalApplicationDeclineReasonTemplateController::class, 'restore'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.decline-reason-templates.restore');
 
+    // AT-430 §3.3 — "Application checklist" settings screen. Full CRUD
+    // (sections + items), archive-only, orderable via move up/down. Own
+    // dedicated screen, deliberately not added to
+    // corex/settings/rental-applications.blade.php (cc4's file, AT-430
+    // tasking boundary) — linked from there instead.
+    Route::get('/settings/rental-applications/checklist', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'index'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.index');
+    Route::post('/settings/rental-applications/checklist/sections', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'storeSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.store');
+    Route::put('/settings/rental-applications/checklist/sections/{section}', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'updateSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.update');
+    Route::post('/settings/rental-applications/checklist/sections/{section}/archive', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'archiveSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.archive');
+    Route::post('/settings/rental-applications/checklist/sections/{section}/restore', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'restoreSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.restore');
+    Route::post('/settings/rental-applications/checklist/sections/{section}/move/{direction}', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'moveSection'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.sections.move')
+        ->where('direction', 'up|down');
+    Route::post('/settings/rental-applications/checklist/sections/{section}/items', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'storeItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.store');
+    Route::put('/settings/rental-applications/checklist/items/{item}', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'updateItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.update');
+    Route::post('/settings/rental-applications/checklist/items/{item}/archive', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'archiveItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.archive');
+    Route::post('/settings/rental-applications/checklist/items/{item}/restore', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'restoreItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.restore');
+    Route::post('/settings/rental-applications/checklist/items/{item}/move/{direction}', [\App\Http\Controllers\CoreX\RentalApplicationChecklistTemplateController::class, 'moveItem'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.checklist.items.move')
+        ->where('direction', 'up|down');
+
     Route::post('/settings/generate-token', [CoreXSettingsController::class, 'generateApiToken'])->name('corex.settings.generate-token');
     Route::post('/settings/notifications', [CoreXSettingsController::class, 'updateNotificationPreferences'])->middleware('permission:access_settings')->name('corex.settings.notifications.update');
     Route::post('/settings/my-portal', [CoreXSettingsController::class, 'updatePortalPreferences'])->middleware('permission:access_settings')->name('corex.settings.my-portal.update');
@@ -3437,6 +3467,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // own actions live under a separate prefix below, gated to authorisers.
         Route::post('/{rentalApplication}/review/request-more-info', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'requestMoreInfoFromApplicant'])->name('corex.rental-applications.review.request-more-info');
         Route::post('/{rentalApplication}/review/submit-for-approval', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'submitForApproval'])->name('corex.rental-applications.review.submit-for-approval');
+        // AT-430 §3 — checklist panel. Section description is Johan's one
+        // free-text box per section; item updates refuse a derived item's
+        // state (Part D — those tick themselves off the lease, never by
+        // hand).
+        Route::put('/{rentalApplication}/checklist/sections/{checklistSection}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateChecklistSectionDescription'])->name('corex.rental-applications.checklist.sections.update');
+        Route::put('/{rentalApplication}/checklist/items/{checklistItem}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateChecklistItem'])->name('corex.rental-applications.checklist.items.update');
+        // §3.1 — "Open/collapsed state is remembered per user per section."
+        // A per-user UI preference, not application data — no {rentalApplication}
+        // in the path, but kept in this same permission-gated group since it
+        // only ever fires from this screen.
+        Route::post('/review-panel-preference', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updatePanelPreference'])->name('corex.rental-applications.review.panel-preference');
         // Reopen/resubmit, 2026-09-08 — send a returned/under-assessment
         // application back to the applicant to fix an answer and re-sign.
         Route::post('/{rentalApplication}/review/reopen', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'reopen'])->name('corex.rental-applications.review.reopen');

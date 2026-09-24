@@ -229,6 +229,9 @@ class RentalApplicationQualifyingSetting extends Model
      */
     public const DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION = false;
 
+    /** AT-430 §3.6 — see requireChecklistCompleteFor()'s own docblock. */
+    public const DEFAULT_REQUIRE_CHECKLIST_COMPLETE = false;
+
     /**
      * Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
      * not gated but if the applicant submits... after initial submission
@@ -323,7 +326,7 @@ class RentalApplicationQualifyingSetting extends Model
         'pdf_rate_limit_max', 'pdf_rate_limit_window_minutes',
         'document_view_rate_limit_max', 'document_view_rate_limit_window_minutes',
         'autosave_request_rate_limit_max', 'autosave_request_rate_limit_window_minutes',
-        'require_fica_before_authorisation',
+        'require_fica_before_authorisation', 'require_checklist_complete',
         'return_gate_method', 'return_gate_attempt_max', 'return_gate_attempt_window_minutes',
         'identity_gate_enabled', 'identity_gate_otp_length', 'identity_gate_otp_expiry_minutes',
         'identity_gate_attempt_max', 'identity_gate_attempt_window_minutes', 'identity_gate_resend_cooldown_seconds',
@@ -345,6 +348,7 @@ class RentalApplicationQualifyingSetting extends Model
         'document_rate_limit_window_minutes' => 'integer',
         'document_uploads_open_after_approval' => 'boolean',
         'require_fica_before_authorisation' => 'boolean',
+        'require_checklist_complete' => 'boolean',
         'return_gate_attempt_max' => 'integer',
         'return_gate_attempt_window_minutes' => 'integer',
         'show_rate_limit_max' => 'integer',
@@ -653,6 +657,28 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->require_fica_before_authorisation !== null
             ? (bool) $row->require_fica_before_authorisation
             : self::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION;
+    }
+
+    /**
+     * AT-430 §3.6 — "the checklist does not block approval by default."
+     * Default OFF: Sherry's checklist is a working aid, not a gate, until an
+     * agency deliberately turns it into one. Consulted by
+     * RentalApplicationChecklistService::isCompleteFor() at the approve
+     * action — see that service's own docblock for the ownership boundary
+     * (this lane builds the check, the approval controller itself is
+     * cc4's file and wires the call).
+     */
+    public static function requireChecklistCompleteFor(?int $agencyId): bool
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_REQUIRE_CHECKLIST_COMPLETE;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->require_checklist_complete !== null
+            ? (bool) $row->require_checklist_complete
+            : self::DEFAULT_REQUIRE_CHECKLIST_COMPLETE;
     }
 
     public static function returnGateMethodFor(?int $agencyId): string

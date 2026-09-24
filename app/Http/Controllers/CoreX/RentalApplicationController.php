@@ -10,6 +10,7 @@ use App\Models\RentalApplicationCustomField;
 use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationStatusHistory;
+use App\Services\RentalApplications\RentalApplicationChecklistService;
 use App\Services\RentalApplications\RentalApplicationMailer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -686,6 +687,11 @@ class RentalApplicationController extends Controller
                 ),
             ],
         ));
+
+        // AT-430 §3.2 — snapshot the agency's CURRENT checklist template
+        // onto this application now, so a later template edit never
+        // rewrites an application already in flight.
+        RentalApplicationChecklistService::snapshotFor($application);
 
         return redirect()
             ->route('corex.rental-applications.show', $application)
