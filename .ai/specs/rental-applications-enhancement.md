@@ -130,6 +130,15 @@ No agency's behaviour changes on deploy.
 
 ## 3. Part B — Right-hand panel as sections
 
+**BUILT, 2026-09-24.** Data model: `rental_checklist_template_sections` /
+`rental_checklist_template_items` (the agency's own template, archive-only)
+and `rental_application_checklist_sections` / `rental_application_checklist_items`
+(the per-application snapshot). Settings screen at
+`corex.settings.rental-applications.checklist.index`. Panel rebuilt as an
+accordion in `resources/views/corex/rental-applications/review.blade.php`
+(`rentalChecklistPanel()`, shared by the agent and authoriser Alpine
+components). See the build report for file list and verification detail.
+
 ### 3.1 Structure
 
 The right-hand panel on the application review screen becomes a set of
@@ -223,13 +232,27 @@ editable per agency.
 - Occupied
 - Body corporate rules signed
 
-Note on the last section: several of these items duplicate facts the system
-already holds once a lease exists (deposit paid, rent paid, occupation
-date). Before building, check whether each should be a tick the agent sets
-by hand or a read-only state the system derives. Do not build a second
-source of truth for money that the lease already tracks. Ask Johan if it is
-not obvious — the default should be: derived where the system knows,
-manual tick where it does not.
+**RESOLVED, 2026-09-24 — Johan's ruling: derived where the system knows,
+manual tick where it does not.** Deposit paid, First rent paid and Occupied
+are derived from the lease and rendered read-only; Lease drafted / Sent to
+tenant / Signed by tenant / Sent to landlord / Signed by landlord / Body
+corporate rules signed stay manual ticks. If no lease exists yet, a derived
+item renders as not started and visibly derived, never as something the
+agent can click.
+
+**Build-time finding, flagged rather than worked around:** at build time,
+`Lease` (`app/Models/Lease.php`) carries `deposit_amount` — the AGREED
+figure — but CoreX has no fact anywhere for whether a deposit or first
+rent was actually PAID; `.ai/specs/leases.md` §3.3/§627 explicitly defers
+"deposit-held tracking / trust-account reconciliation" as a future, unbuilt
+feature. Treating `deposit_amount is set` as "paid" would have invented
+exactly the false second-source-of-truth signal this ruling exists to
+prevent. So today: **Occupied** genuinely derives (lease exists, not
+cancelled, `start_date` has passed); **Deposit paid** and **First rent
+paid** derive to `not_started` with an honest "not yet trackable" note
+until lease payment tracking exists to derive from. Revisit both once that
+feature lands — `RentalApplicationChecklistService::deriveState()` is the
+one place that needs updating when it does.
 
 ### 3.5 Progress indicator
 
@@ -269,20 +292,29 @@ unasked would stop people approving applications.
 
 ## 6. Open questions for Johan
 
-1. Lease progress items: derived from the lease, or manual ticks? (§3.4)
-2. Should the section description be one box per section, or one notes box
-   for the whole checklist?
-
-Answered (2026-09-24): declining in `one_step` mode also skips
-authorisation — a decline is a single-person action either way, and goes
-through the identical `guardCanDecide()` gate as approve (§2.2).
+1. ~~Lease progress items: derived from the lease, or manual ticks?~~
+   **RESOLVED 2026-09-24 — derived where the system knows, manual tick
+   where it does not.** See §3.4's own build-time finding for the two
+   derived items (Deposit paid, First rent paid) that currently have no
+   real signal to derive from and what that means until lease payment
+   tracking exists.
+2. ~~Should the section description be one box per section, or one notes
+   box for the whole checklist?~~ **RESOLVED 2026-09-24 — one box per
+   section** (§3.2), Johan's own words: "each section has a desc where
+   agents can type in what they find."
+3. ~~Should declining in `one_step` mode also skip authorisation, or does a
+   decline always stay a single-person action today anyway?~~ **RESOLVED
+   2026-09-24 — yes, decline also skips.** A decline is a single-person
+   action either way, and goes through the identical `guardCanDecide()`
+   gate as approve (§2.2).
 
 ---
 
 ## 7. Known defect to fix while in this file
 
-`resources/views/corex/rental-applications/review.blade.php` lines ~1347 and
-~1400 carry two Alpine `:style` + static `style` clobber pairs (a docs-panel
-width toggle and a document-label font-size toggle). Same bug that cost four
-rounds on the inspections screen. Move the statics into CSS classes as part
-of this work.
+**FIXED, 2026-09-24.** `resources/views/corex/rental-applications/review.blade.php`
+lines ~1347 and ~1400 carried two Alpine `:style` + static `style` clobber
+pairs (a docs-panel width toggle and a document-label font-size toggle).
+Same bug that cost four rounds on the inspections screen. Statics moved
+into `.rr-docs-panel` / `.rr-cv-doc-label` CSS classes; `:style` now carries
+only the genuinely dynamic property on each element.

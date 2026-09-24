@@ -174,6 +174,11 @@
          documentChecklist: {{ Js::from($documentChecklist) }},
          documentTypeOptions: {{ Js::from($documentTypeOptions) }},
          reviewLocked: {{ Js::from($reviewLocked) }},
+         panelPreferences: {{ Js::from($panelPreferences) }},
+         panelPreferenceUrl: '{{ route('corex.rental-applications.review.panel-preference') }}',
+         checklistSections: {{ Js::from($checklistSections) }},
+         checklistItemUrlTemplate: '{{ route('corex.rental-applications.checklist.items.update', [$rentalApplication, '__ITEM_ID__']) }}',
+         checklistSectionUrlTemplate: '{{ route('corex.rental-applications.checklist.sections.update', [$rentalApplication, '__SECTION_ID__']) }}',
      })"
      @else
      x-data="rentalAuthorisationViewer({
@@ -196,6 +201,11 @@
          initialStatementPeriodFrom: {{ Js::from($assessment->statement_period_from?->format('Y-m-d')) }},
          initialStatementPeriodTo: {{ Js::from($assessment->statement_period_to?->format('Y-m-d')) }},
          captureStrikeUrlTemplate: '{{ route('corex.rental-applications.authorisation.capture-entries.strike', [$rentalApplication, '__MARK_UID__']) }}',
+         panelPreferences: {{ Js::from($panelPreferences) }},
+         panelPreferenceUrl: '{{ route('corex.rental-applications.review.panel-preference') }}',
+         checklistSections: {{ Js::from($checklistSections) }},
+         checklistItemUrlTemplate: '{{ route('corex.rental-applications.checklist.items.update', [$rentalApplication, '__ITEM_ID__']) }}',
+         checklistSectionUrlTemplate: '{{ route('corex.rental-applications.checklist.sections.update', [$rentalApplication, '__SECTION_ID__']) }}',
      })"
      @endif
      {{-- Capture-ledger rework, 2026-09-11 — the chip lives inside
@@ -492,8 +502,18 @@
                has nothing to negotiate for; every prior round's width fight
                was about fitting INPUT fields, and there are none left in
                this panel — capture happens on the document now. */
+            /* AT-430, 2026-09-24 — widened 196px -> 280px. The 196px width
+               was sized deliberately for a READ-ONLY tally with nothing to
+               negotiate for (see this rule's own original comment above,
+               still true of Finances); the Checklist section added
+               alongside it (state buttons + a note box per item) is
+               genuinely input-heavy and cannot function inside 196px.
+               Same "big boxes, not a wall of small text" instruction this
+               aside was already redesigned under once (Item 6, see the
+               .rental-review-aside markup's own comment) — sizing the box
+               to what it now actually holds. */
             .rental-review-aside  {
-                flex: 0 0 196px; width: 196px; align-self: stretch;
+                flex: 0 0 280px; width: 280px; align-self: stretch;
                 position: sticky; top: 72px;
                 height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px));
                 overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
@@ -523,6 +543,48 @@
            fit a 196px column — same scoped-override pattern already used
            by .dr2-distribute/.dr2-pipeline elsewhere in this codebase. */
         .rental-review-aside .corex-input { padding: 4px 6px; }
+
+        /* AT-430, 2026-09-24 — the docs-panel width toggle and the
+           document-label font-size toggle both used to carry a static
+           `style=` attribute ALONGSIDE their own `:style` binding — the
+           exact bug class flagged in this build's own tasking ("same bug
+           that cost four rounds on the inspections screen"): a static
+           style attribute and an Alpine :style binding on the SAME element
+           fight over the same attribute, and whichever one the browser
+           parses last wins, silently, with no error. Statics moved into
+           these two classes; :style now carries ONLY the genuinely dynamic
+           property on each element. */
+        .rr-docs-panel { border-right: 1px solid var(--border); background: var(--surface-2, #f9fafb); }
+        .rr-cv-doc-label { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* AT-430 §3.1 — the right-hand panel's own accordion (Finances,
+           Checklist). Plain disclosure pattern, no JS library: a header
+           button toggles an x-show'd body. */
+        .rr-accordion-section { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+        .rr-accordion-header {
+            width: 100%; display: flex; align-items: center; justify-content: space-between;
+            gap: 6px; padding: 8px 10px; background: var(--surface-2, #f9fafb);
+            font-size: 12px; font-weight: 600; color: var(--text-primary); text-align: left;
+        }
+        .rr-accordion-chevron { transition: transform 120ms ease; color: var(--text-muted); font-size: 10px; }
+        .rr-accordion-chevron-open { transform: rotate(90deg); }
+        .rr-accordion-body { padding: 10px; }
+        .rr-checklist-section-header {
+            display: flex; align-items: center; justify-content: space-between; gap: 6px;
+            padding: 6px 8px; background: var(--surface-2, #f9fafb); border-radius: 4px;
+            font-size: 11px; font-weight: 600; color: var(--text-primary); text-align: left; width: 100%;
+        }
+        .rr-checklist-item { padding: 6px 2px; border-bottom: 1px solid var(--border); }
+        .rr-checklist-item:last-child { border-bottom: none; }
+        .rr-checklist-item-name { font-size: 12px; color: var(--text-primary); }
+        .rr-checklist-item-help { font-size: 10px; color: var(--text-muted); }
+        .rr-checklist-state-btn {
+            font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border);
+            background: transparent; color: var(--text-secondary);
+        }
+        .rr-checklist-state-btn-active-done { background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669); border-color: var(--ds-emerald, #059669); }
+        .rr-checklist-state-btn-active-na { background: var(--surface-2, #f9fafb); color: var(--text-muted); border-color: var(--text-muted); }
+        .rr-checklist-derived-badge { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb); }
 
         /* FIX (2026-09-14, Johan live on QA1) — per-document Save button was
            scrolling off with the rest of the document, exactly the same
@@ -1344,9 +1406,8 @@
                          correction: "expanded = document gets narrower.
                          collapsed = document gets the space back. nothing
                          ever sits on top of the document." --}}
-                    <div class="flex-shrink-0 h-full overflow-y-auto"
-                         :style="{ width: (docsPanelExpanded ? '220px' : '44px'), transition: 'width 150ms ease' }"
-                         style="border-right: 1px solid var(--border); background: var(--surface-2, #f9fafb);">
+                    <div class="flex-shrink-0 h-full overflow-y-auto rr-docs-panel"
+                         :style="{ width: (docsPanelExpanded ? '220px' : '44px'), transition: 'width 150ms ease' }">
                         <template x-if="!docsPanelExpanded">
                             <div class="h-full flex flex-col items-center gap-1.5 py-2">
                                 {{-- BUG FIX, 2026-09-12 — Johan, live: "clicking
@@ -1397,7 +1458,7 @@
                                                 <span style="position: absolute; top: -4px; right: -4px; color: #fff; background: var(--ds-blue, #2563eb); border-radius: 9999px; min-width: 14px; height: 14px; padding: 0 2px; font-size: 9px; font-weight: 800; line-height: 14px; text-align: center;" x-text="d.mark_count"></span>
                                             </template>
                                         </button>
-                                        <p class="text-center leading-tight mt-0.5" style="color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :style="{ fontSize: cvDocLabelFontSizePx + 'px' }" :title="d.label" x-text="d.label"></p>
+                                        <p class="text-center leading-tight mt-0.5 rr-cv-doc-label" :style="{ fontSize: cvDocLabelFontSizePx + 'px' }" :title="d.label" x-text="d.label"></p>
                                     </div>
                                 </template>
                             </div>
@@ -1557,17 +1618,28 @@
              this aside's own pre-existing "Qualifies for up to" box already
              use. This is "put big boxes on there" read literally: boxes
              sized to what they actually hold, not a wall of small text. --}}
+        {{-- AT-430 §3.1 — the panel becomes a set of collapsible sections
+             (accordion): Finances (exactly what was here before, content
+             unchanged, now inside a collapsible section) and Checklist
+             (new, below). Open/collapsed remembered per user per section
+             via rentalChecklistPanel()'s togglePanel()/isPanelOpen() —
+             default Finances open, Checklist open (§3.1). --}}
         <div class="rental-review-aside">
-            <div class="flex items-center gap-1.5 mb-2">
-                <h2 class="text-sm font-semibold" style="color: var(--text-primary);">{{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}</h2>
-                @if($viewerRole === 'agent')
-                    <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
-                          title="You type these — nothing here is pre-filled from the application, and nothing here is sent to the applicant or shown anywhere else.">?</span>
-                @else
-                    <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;"
-                          title="Captured by the agent. You can add your own lines. If you disagree with a figure, strike it out — that opens a box to add the correct one right there. The struck line stays visible with what replaced it, never edited in place.">?</span>
-                @endif
-            </div>
+        <div class="rr-accordion-section">
+            <button type="button" class="rr-accordion-header" @click="togglePanel('finances', true)">
+                <span class="flex items-center gap-1.5">
+                    {{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}
+                    @if($viewerRole === 'agent')
+                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
+                              title="You type these — nothing here is pre-filled from the application, and nothing here is sent to the applicant or shown anywhere else.">?</span>
+                    @else
+                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
+                              title="Captured by the agent. You can add your own lines. If you disagree with a figure, strike it out — that opens a box to add the correct one right there. The struck line stays visible with what replaced it, never edited in place.">?</span>
+                    @endif
+                </span>
+                <span class="rr-accordion-chevron" :class="{ 'rr-accordion-chevron-open': isPanelOpen('finances', true) }">&rsaquo;</span>
+            </button>
+            <div class="rr-accordion-body" x-show="isPanelOpen('finances', true)" x-cloak>
 
             {{-- ROUND 6, 2026-09-11 — status banners that used to live inside
                  the ACTIONS card (bottom of the old right-hand column) moved
@@ -1845,6 +1917,72 @@
                 <p class="text-sm font-bold flex items-center justify-between mt-1" style="color: var(--text-primary);"><span>Net monthly</span><span class="rr-ledger-amount" x-text="formatR(netMonthly())"></span></p>
                 <p class="text-[11px] mt-1" style="color: var(--ds-crimson, #dc2626);" x-show="ledgerActionError" x-text="ledgerActionError"></p>
             </div>
+
+            </div>
+        </div>
+        {{-- END Finances accordion section. --}}
+
+        {{-- AT-430 §3 — Checklist accordion section. Same panel for agent
+             and authoriser (§3.1: "there is no separate authoriser view").
+             Header shows the OVERALL done/total across every section
+             (§3.5: "what makes the panel useful at a glance to an
+             authoriser who did not do the work"). An agency that has
+             archived every section renders nothing here at all. --}}
+        <template x-if="checklistSections.length > 0">
+            <div class="rr-accordion-section">
+                <button type="button" class="rr-accordion-header" @click="togglePanel('checklist', true)">
+                    <span>Checklist <span class="text-[10px] font-normal" style="color: var(--text-muted);" x-text="'(' + checklistOverall() + ')'"></span></span>
+                    <span class="rr-accordion-chevron" :class="{ 'rr-accordion-chevron-open': isPanelOpen('checklist', true) }">&rsaquo;</span>
+                </button>
+                <div class="rr-accordion-body" x-show="isPanelOpen('checklist', true)" x-cloak>
+                    <template x-for="section in checklistSections" :key="section.id">
+                        <div class="mb-2">
+                            <button type="button" class="rr-checklist-section-header" @click="toggleChecklistSection(section.id)">
+                                <span x-text="section.name"></span>
+                                <span class="flex items-center gap-1">
+                                    <span class="text-[10px] font-normal" style="color: var(--text-muted);" x-text="sectionProgress(section)"></span>
+                                    <span class="rr-accordion-chevron" :class="{ 'rr-accordion-chevron-open': isPanelOpen('checklist_section_' + section.id, false) }">&rsaquo;</span>
+                                </span>
+                            </button>
+                            <div x-show="isPanelOpen('checklist_section_' + section.id, false)" x-cloak class="mt-1 px-1">
+                                {{-- §3.2 — "each section has a desc where agents can type in what they find." One box per section, on the application, not the template. --}}
+                                <textarea class="corex-input text-xs w-full mb-1.5" rows="2" placeholder="Notes for this section…"
+                                          x-model="section.description" @change="saveSectionDescription(section)" :disabled="reviewLocked"></textarea>
+                                <template x-for="item in section.items" :key="item.id">
+                                    <div class="rr-checklist-item">
+                                        <div class="flex items-start justify-between gap-1">
+                                            <p class="rr-checklist-item-name" x-text="item.name"></p>
+                                            <span class="rr-checklist-derived-badge flex-shrink-0" x-show="item.is_derived" title="Ticks itself off the lease — cannot be set by hand.">Derived</span>
+                                        </div>
+                                        <p class="rr-checklist-item-help" x-show="item.help_text" x-text="item.help_text"></p>
+                                        <template x-if="!item.is_derived">
+                                            <div>
+                                                <div class="flex gap-1 mt-1">
+                                                    <button type="button" class="rr-checklist-state-btn" :class="{ 'rr-checklist-state-btn-active-done': item.state === 'done' }" :disabled="reviewLocked" @click="setItemState(item, item.state === 'done' ? 'not_started' : 'done')">Done</button>
+                                                    <button type="button" class="rr-checklist-state-btn" :class="{ 'rr-checklist-state-btn-active-na': item.state === 'not_applicable' }" :disabled="reviewLocked" @click="setItemState(item, item.state === 'not_applicable' ? 'not_started' : 'not_applicable')">N/A</button>
+                                                </div>
+                                                {{-- §3.2 — a free-text note per item; §3.3's note_required is enforced server-side too (setItemState()/updateChecklistItem()), this is just always-visible for a required item so the box is never hidden behind a rejected click. noteOpen is a client-only display flag — never sent to the server, never confused with whether a note VALUE exists. --}}
+                                                <template x-if="item.note_required || item.note || item.noteOpen">
+                                                    <input type="text" class="corex-input text-xs w-full mt-1" placeholder="Note" x-model="item.note" @change="saveItemNote(item)" :disabled="reviewLocked">
+                                                </template>
+                                                <template x-if="!item.note_required && !item.note && !item.noteOpen">
+                                                    <button type="button" class="text-[10px] mt-1" style="color: var(--ds-blue, #2563eb);" @click="item.noteOpen = true" :disabled="reviewLocked">+ Add note</button>
+                                                </template>
+                                            </div>
+                                        </template>
+                                        <template x-if="item.is_derived">
+                                            <p class="text-[10px] mt-1" :style="{ color: item.state === 'done' ? 'var(--ds-emerald, #059669)' : 'var(--text-muted)' }" x-text="(item.state === 'done' ? '✓ ' : '— ') + (item.note || 'Derived from the lease')"></p>
+                                        </template>
+                                        <p class="text-[10px] mt-0.5" style="color: var(--ds-red, #dc2626);" x-show="item.error" x-text="item.error"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </template>
+        {{-- END Checklist accordion section. --}}
 
             {{-- Actions. --}}
             <div class="pt-2" style="border-top: 1px solid var(--border);">
@@ -2825,7 +2963,144 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
     };
 }
 
-function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, documentTypeOptions, reviewLocked }) {
+// AT-430 §3 — the right-hand panel's Checklist section (and the
+// Finances/Checklist open-collapsed toggle that sits above it). Shared by
+// rentalReview() (agent) and rentalAuthorisationViewer() (authoriser) via
+// the same spread convention as rentalDocumentHighlighter()/
+// rentalCaptureLedger() above — "same panel, same data — there is no
+// separate authoriser view" (§3.1).
+function rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, reviewLocked } = {}) {
+    return {
+        panelState: Object.assign({ finances: true, checklist: true }, panelPreferences || {}),
+        checklistSections: (checklistSections || []).map(s => ({ ...s, items: (s.items || []).map(i => ({ ...i, error: '', noteOpen: false })) })),
+        isPanelOpen(key, defaultOpen = false) {
+            return Object.prototype.hasOwnProperty.call(this.panelState, key) ? !!this.panelState[key] : defaultOpen;
+        },
+        async togglePanel(key, defaultOpen = false) {
+            const next = !this.isPanelOpen(key, defaultOpen);
+            this.panelState[key] = next;
+            try {
+                await fetch(this.panelPreferenceUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ panel_key: key, open: next }),
+                });
+            } catch (e) {
+                // Best-effort persistence — a failed save just means this
+                // toggle reverts to its old default next reload, never a
+                // blocking error for what is otherwise a pure UI action.
+            }
+        },
+        toggleChecklistSection(sectionId) {
+            this.togglePanel('checklist_section_' + sectionId, false);
+        },
+        /** §3.5 — done/total excluding not_applicable. */
+        sectionProgress(section) {
+            const countable = section.items.filter(i => i.state !== 'not_applicable');
+            const done = countable.filter(i => i.state === 'done').length;
+            return done + '/' + countable.length;
+        },
+        checklistOverall() {
+            let done = 0, total = 0;
+            this.checklistSections.forEach(s => {
+                s.items.forEach(i => {
+                    if (i.state === 'not_applicable') return;
+                    total++;
+                    if (i.state === 'done') done++;
+                });
+            });
+            return done + '/' + total;
+        },
+        /**
+         * Derived items (Part D) never reach this method — the panel never
+         * renders a state control for one (see the Blade's own
+         * `x-if="!item.is_derived"` guard), and the server independently
+         * refuses a write for one regardless (RentalApplicationReviewController::
+         * updateChecklistItem()) — defence in depth, not a single point of trust.
+         */
+        async setItemState(item, newState) {
+            if (this.reviewLocked || item.is_derived) return;
+            if (newState === 'done' && item.note_required && !(item.note || '').trim()) {
+                item.error = 'Add a note before marking this item done.';
+                return;
+            }
+            const previousState = item.state;
+            item.state = newState;
+            item.error = '';
+            try {
+                const res = await fetch(this.checklistItemUrlTemplate.replace('__ITEM_ID__', encodeURIComponent(item.id)), {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ state: newState, note: item.note || null }),
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    item.error = body.error || 'Could not save this item.';
+                    item.state = previousState;
+                }
+            } catch (e) {
+                item.error = 'Network error — this item was not saved.';
+                item.state = previousState;
+            }
+        },
+        async saveItemNote(item) {
+            if (this.reviewLocked || item.is_derived) return;
+            try {
+                const res = await fetch(this.checklistItemUrlTemplate.replace('__ITEM_ID__', encodeURIComponent(item.id)), {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ state: item.state, note: item.note || null }),
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    item.error = body.error || 'Could not save this note.';
+                    return;
+                }
+                item.error = '';
+            } catch (e) {
+                item.error = 'Network error — this note was not saved.';
+            }
+        },
+        async saveSectionDescription(section) {
+            if (this.reviewLocked) return;
+            try {
+                await fetch(this.checklistSectionUrlTemplate.replace('__SECTION_ID__', encodeURIComponent(section.id)), {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ description: section.description || null }),
+                });
+            } catch (e) {
+                // Best-effort — same "don't block the screen over a note" call as the panel-preference toggle above.
+            }
+        },
+    };
+}
+
+function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, documentTypeOptions, reviewLocked, panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate }) {
     return {
         // 2026-09-12 — Johan-approved read-only lock while the application
         // is with the authoriser (isPendingAuthorisation()). Set once, from
@@ -2847,6 +3122,10 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         // tally logic, one copy. See its own docblock for the full
         // reasoning (rentalCaptureLedger(), defined further below).
         ...rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate }),
+        // AT-430 §3 — the checklist half of this same panel. Spread rather
+        // than a nested x-data, same reasoning as the two factories above:
+        // one shared scope, no cross-component reach-through needed.
+        ...rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, reviewLocked }),
 
         // 2026-09-08 — Johan: "clicking back to application shows a changes
         // may be lost popup but there's no save button visible anywhere." No
@@ -3710,7 +3989,7 @@ function rentalReviewPropertyLink({ searchUrl, linkUrl, currentLabel }) {
     };
 }
 
-function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, initialCaptureEntries, initialStatementMonths, initialStatementPeriodFrom, initialStatementPeriodTo, captureStrikeUrlTemplate }) {
+function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, initialCaptureEntries, initialStatementMonths, initialStatementPeriodFrom, initialStatementPeriodTo, captureStrikeUrlTemplate, panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, reviewLocked }) {
     return {
         // Shared highlight/note viewer — see partials/document-highlighter-script.blade.php.
         ...rentalDocumentHighlighter({ initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters }),
@@ -3719,6 +3998,10 @@ function rentalAuthorisationViewer({ initialMarkedUpDocIds, currentUserId, curre
         // factory, same tally, read-only either way (no edit UI in the new
         // panel for anyone — capture happens on the document itself).
         ...rentalCaptureLedger({ initialCaptureEntries, captureStrikeUrlTemplate }),
+        // AT-430 §3.1 — "same panel, same data — there is no separate
+        // authoriser view." The authoriser CAN work the checklist (§3.3
+        // names no role restriction), same factory as the agent's own.
+        ...rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, reviewLocked }),
         // statementMonths has no editable UI on the authoriser's side (the
         // dates are the agent's own field, read-only here) — just the
         // number needed for monthlyIncome()/netMonthly() to compute.

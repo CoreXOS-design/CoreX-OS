@@ -489,11 +489,35 @@ class RentalApplicationReviewController extends Controller
             ? RentalApplicationDeclineReasonTemplate::activeFor($agencyId)
             : collect();
 
+        // AT-430 §3 — the checklist half of the right-hand panel. Derived
+        // items (Part D) are recomputed against the current lease on every
+        // load, never cached stale between visits.
+        \App\Services\RentalApplications\RentalApplicationChecklistService::syncDerivedStates($rentalApplication);
+        $checklistSections = \App\Models\RentalApplicationChecklistSection::where('rental_application_id', $rentalApplication->id)
+            ->with('items')
+            ->orderBy('sort_order')->orderBy('id')
+            ->get()
+            ->map(fn ($section) => [
+                'id' => $section->id,
+                'name' => $section->name,
+                'description' => $section->description,
+                'items' => $section->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'help_text' => $item->help_text,
+                    'note_required' => (bool) $item->note_required,
+                    'is_derived' => (bool) $item->is_derived,
+                    'state' => $item->state,
+                    'note' => $item->note,
+                ])->values(),
+            ])->values();
+        $panelPreferences = \App\Models\RentalReviewPanelPreference::stateFor($request->user()->id);
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
             'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries',
-            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'declineReasonTemplates'
+            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'declineReasonTemplates', 'checklistSections', 'panelPreferences'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -1310,6 +1334,105 @@ class RentalApplicationReviewController extends Controller
             'statement_months' => $assessment->statement_months,
             'saved_at' => $assessment->updated_at?->toIso8601String(),
         ]);
+    }
+
+    /**
+     * AT-430 §3.2 — Johan's one free-text box PER SECTION ("each section
+     * has a desc where agents can type in what they find"). Same
+     * generation-conflict/locked-screen guards as saveAssessment() above —
+     * this is a review-screen autosave field, not a settings edit.
+     */
+    public function updateChecklistSectionDescription(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistSection $checklistSection)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        abort_unless((int) $checklistSection->rental_application_id === (int) $rentalApplication->id, 404);
+
+        if ($rentalApplication->isPendingAuthorisation()) {
+            return response()->json([
+                'error' => 'This application is with the authoriser for a decision — the review screen is read-only until it comes back to you.',
+            ], 423);
+        }
+
+        $validated = $request->validate([
+            'description' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        $checklistSection->update([
+            'description' => ($validated['description'] ?? '') === '' ? null : $validated['description'],
+        ]);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * AT-430 §3.2 — a single checklist item's state/note. Refuses a derived
+     * item outright (Part D, Johan's ruling: "do NOT let an agent set them
+     * by hand" — those three tick themselves off the lease via
+     * RentalApplicationChecklistService::syncDerivedStates(), called from
+     * show() on every page load). §3.3's note_required flag is enforced
+     * here, server-side, not just as a UI hint.
+     */
+    public function updateChecklistItem(Request $request, RentalApplication $rentalApplication, \App\Models\RentalApplicationChecklistItem $checklistItem)
+    {
+        $this->guardRentalApplication($rentalApplication);
+        abort_unless(
+            (int) $checklistItem->section?->rental_application_id === (int) $rentalApplication->id,
+            404,
+        );
+
+        if ($rentalApplication->isPendingAuthorisation()) {
+            return response()->json([
+                'error' => 'This application is with the authoriser for a decision — the review screen is read-only until it comes back to you.',
+            ], 423);
+        }
+
+        if ($checklistItem->is_derived) {
+            return response()->json([
+                'error' => 'This item is derived from the lease and cannot be set by hand.',
+            ], 422);
+        }
+
+        $validated = $request->validate([
+            'state' => ['required', 'string', Rule::in(\App\Models\RentalApplicationChecklistItem::STATES)],
+            'note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $note = ($validated['note'] ?? '') === '' ? null : $validated['note'];
+
+        if ($validated['state'] === \App\Models\RentalApplicationChecklistItem::STATE_DONE && $checklistItem->note_required && $note === null) {
+            return response()->json([
+                'error' => 'Add a note before marking this item done.',
+            ], 422);
+        }
+
+        $checklistItem->update([
+            'state' => $validated['state'],
+            'note' => $note,
+            'set_by_user_id' => $request->user()->id,
+            'set_at' => now(),
+        ]);
+
+        return response()->json(['ok' => true, 'state' => $checklistItem->state]);
+    }
+
+    /**
+     * AT-430 §3.1 — "Open/collapsed state is remembered per user per
+     * section." panel_key is either 'finances'/'checklist' (the two
+     * top-level sections) or 'checklist_section_{id}' (a checklist
+     * sub-section) — validated as a bare word/underscore/digit string,
+     * never trusted as a literal key without that shape check, since it
+     * writes into a JSON map with no further validation of its content.
+     */
+    public function updatePanelPreference(Request $request)
+    {
+        $validated = $request->validate([
+            'panel_key' => ['required', 'string', 'max:60', 'regex:/^[a-z0-9_]+$/'],
+            'open' => ['required', 'boolean'],
+        ]);
+
+        \App\Models\RentalReviewPanelPreference::setFor($request->user()->id, $validated['panel_key'], $request->boolean('open'));
+
+        return response()->json(['ok' => true]);
     }
 
     /**

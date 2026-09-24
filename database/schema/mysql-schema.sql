@@ -12227,6 +12227,59 @@ CREATE TABLE `rental_application_checklist_configs` (
   CONSTRAINT `rental_application_checklist_configs_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_checklist_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_checklist_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `application_section_id` bigint unsigned NOT NULL,
+  `template_item_id` bigint unsigned DEFAULT NULL,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `help_text` text COLLATE utf8mb4_unicode_ci,
+  `note_required` tinyint(1) NOT NULL DEFAULT '0',
+  `is_derived` tinyint(1) NOT NULL DEFAULT '0',
+  `derived_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `state` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'not_started',
+  `note` text COLLATE utf8mb4_unicode_ci,
+  `set_by_user_id` bigint unsigned DEFAULT NULL,
+  `set_at` timestamp NULL DEFAULT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_application_checklist_items_template_item_id_foreign` (`template_item_id`),
+  KEY `rental_application_checklist_items_set_by_user_id_foreign` (`set_by_user_id`),
+  KEY `raci_section_sort_idx` (`application_section_id`,`sort_order`),
+  KEY `raci_agency_derived_idx` (`agency_id`,`derived_key`),
+  CONSTRAINT `raci_application_section_fk` FOREIGN KEY (`application_section_id`) REFERENCES `rental_application_checklist_sections` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_application_checklist_items_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_application_checklist_items_set_by_user_id_foreign` FOREIGN KEY (`set_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_application_checklist_items_template_item_id_foreign` FOREIGN KEY (`template_item_id`) REFERENCES `rental_checklist_template_items` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_application_checklist_sections`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_application_checklist_sections` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `rental_application_id` bigint unsigned NOT NULL,
+  `template_section_id` bigint unsigned DEFAULT NULL,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `description` text COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_application_checklist_sections_agency_id_foreign` (`agency_id`),
+  KEY `racs_template_section_fk` (`template_section_id`),
+  KEY `racs_application_sort_idx` (`rental_application_id`,`sort_order`),
+  CONSTRAINT `racs_application_fk` FOREIGN KEY (`rental_application_id`) REFERENCES `rental_applications` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `racs_template_section_fk` FOREIGN KEY (`template_section_id`) REFERENCES `rental_checklist_template_sections` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_application_checklist_sections_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_application_custom_fields`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -12549,6 +12602,7 @@ CREATE TABLE `rental_application_qualifying_settings` (
   `autosave_request_rate_limit_max` int unsigned DEFAULT NULL,
   `autosave_request_rate_limit_window_minutes` smallint unsigned DEFAULT NULL,
   `require_fica_before_authorisation` tinyint(1) DEFAULT NULL,
+  `require_checklist_complete` tinyint(1) DEFAULT NULL,
   `return_gate_method` varchar(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `return_gate_attempt_max` tinyint unsigned DEFAULT NULL,
   `return_gate_attempt_window_minutes` smallint unsigned DEFAULT NULL,
@@ -12734,6 +12788,51 @@ CREATE TABLE `rental_approvals` (
   CONSTRAINT `rental_approvals_quote_at_decision_fk` FOREIGN KEY (`quote_id_at_decision`) REFERENCES `rental_work_order_quotes` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_approvals_recorded_by_user_id_foreign` FOREIGN KEY (`recorded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_approvals_work_order_fk` FOREIGN KEY (`rental_work_order_id`) REFERENCES `rental_work_orders` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_checklist_template_items`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_checklist_template_items` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `template_section_id` bigint unsigned NOT NULL,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `help_text` text COLLATE utf8mb4_unicode_ci,
+  `note_required` tinyint(1) NOT NULL DEFAULT '0',
+  `is_derived` tinyint(1) NOT NULL DEFAULT '0',
+  `derived_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_checklist_template_items_created_by_user_id_foreign` (`created_by_user_id`),
+  KEY `rcti_section_sort_idx` (`template_section_id`,`sort_order`),
+  KEY `rcti_agency_derived_idx` (`agency_id`,`derived_key`),
+  CONSTRAINT `rental_checklist_template_items_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_checklist_template_items_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `rental_checklist_template_items_template_section_id_foreign` FOREIGN KEY (`template_section_id`) REFERENCES `rental_checklist_template_sections` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_checklist_template_sections`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_checklist_template_sections` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `sort_order` int unsigned NOT NULL DEFAULT '0',
+  `created_by_user_id` bigint unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `rental_checklist_template_sections_created_by_user_id_foreign` (`created_by_user_id`),
+  KEY `rental_checklist_template_sections_agency_id_sort_order_index` (`agency_id`,`sort_order`),
+  CONSTRAINT `rental_checklist_template_sections_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `rental_checklist_template_sections_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_document_types`;
@@ -13581,6 +13680,20 @@ CREATE TABLE `rental_reminder_settings` (
   PRIMARY KEY (`id`),
   KEY `rental_reminder_settings_updated_by_foreign` (`updated_by`),
   CONSTRAINT `rental_reminder_settings_updated_by_foreign` FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `rental_review_panel_preferences`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `rental_review_panel_preferences` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` bigint unsigned NOT NULL,
+  `panel_state` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `rental_review_panel_preferences_user_id_unique` (`user_id`),
+  CONSTRAINT `rental_review_panel_preferences_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `rental_work_order_photos`;

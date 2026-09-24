@@ -334,6 +334,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\AgencyCreated::class,
             \App\Listeners\Onboarding\SeedDefaultRentalApplicationDeclineReasonTemplates::class,
         );
+        // AT-430, 2026-09-24 — same signal, same established mechanism, one
+        // more independent reaction: seeds Sherry's default checklist
+        // template (sections + items) for a brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalApplicationChecklistTemplate::class,
+        );
         Event::listen(
             \App\Events\Contact\ContactTestimonialSubmitted::class,
             \App\Listeners\Contacts\NotifyAgentOfClientTestimonial::class,

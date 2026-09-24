@@ -356,9 +356,40 @@ class RentalApplicationAuthorisationController extends Controller
         // from his 21-item authorisation queue.
         $fieldConfig = $rentalApplication->displayFieldConfig();
 
+        // AT-430 §3 — same class of gap this file already hit once for
+        // $fieldConfig above: the checklist panel is visible to BOTH the
+        // agent and the authoriser (spec §3.1, "there is no separate
+        // authoriser view") and the shared Blade template references these
+        // unconditionally in both Alpine components — cc6's own build only
+        // wired them into RentalApplicationReviewController::show(), so an
+        // authoriser opening an application would 500 on an undefined
+        // variable exactly like $fieldConfig did before. Mirrors that
+        // controller's block verbatim.
+        \App\Services\RentalApplications\RentalApplicationChecklistService::syncDerivedStates($rentalApplication);
+        $checklistSections = \App\Models\RentalApplicationChecklistSection::where('rental_application_id', $rentalApplication->id)
+            ->with('items')
+            ->orderBy('sort_order')->orderBy('id')
+            ->get()
+            ->map(fn ($section) => [
+                'id' => $section->id,
+                'name' => $section->name,
+                'description' => $section->description,
+                'items' => $section->items->map(fn ($item) => [
+                    'id' => $item->id,
+                    'name' => $item->name,
+                    'help_text' => $item->help_text,
+                    'note_required' => (bool) $item->note_required,
+                    'is_derived' => (bool) $item->is_derived,
+                    'state' => $item->state,
+                    'note' => $item->note,
+                ])->values(),
+            ])->values();
+        $panelPreferences = \App\Models\RentalReviewPanelPreference::stateFor($request->user()->id);
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'documents', 'history', 'auditLog', 'auditLogTotal', 'canOverride', 'alreadyDecided',
-            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries', 'declineReasonTemplates', 'fieldConfig'
+            'blockedBySelfApproval', 'highlighters', 'viewerRole', 'captureEntries', 'declineReasonTemplates', 'fieldConfig',
+            'checklistSections', 'panelPreferences'
         ));
     }
 
