@@ -18,6 +18,7 @@ use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplicationStatusHistory;
 use App\Models\User;
 use App\Services\RentalApplications\RentalApplicationAuditService;
+use App\Services\RentalApplications\RentalApplicationChecklistService;
 use App\Services\RentalApplications\RentalApplicationNotifier;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -400,6 +401,27 @@ class RentalApplicationAuthorisationController extends Controller
         RentalApplicationNotifier $notifier,
     ) {
         $decision = $this->guardCanDecide($rentalApplication);
+
+        // AT-430 §3.6 — Johan: "the checklist does not block approval by
+        // default." Off (default) means nothing here changes at all. On
+        // means THIS action — approve only, never decline (§3.6: declining
+        // isn't a confidence claim the checklist needs to back up) — is
+        // blocked with a clear, named list of what's outstanding, never a
+        // bare "checklist incomplete." Applies identically whether reached
+        // via the two-step authoriser queue or the one-step direct-approve
+        // path (§2.2): same guardCanDecide() gate, same approve() body, so
+        // this can never branch on approval_mode. syncDerivedStates() is
+        // called explicitly here (not assumed already-fresh from a prior
+        // page load) so a derived lease-progress item can never read stale
+        // — cc6's own guidance on RentalApplicationChecklistService's
+        // ownership boundary.
+        RentalApplicationChecklistService::syncDerivedStates($rentalApplication);
+        if (RentalApplicationQualifyingSetting::requireChecklistCompleteFor((int) $rentalApplication->agency_id)
+            && ! RentalApplicationChecklistService::isCompleteFor($rentalApplication)) {
+            $outstanding = RentalApplicationChecklistService::outstandingItemNames($rentalApplication);
+            abort(422, 'Complete the application checklist before approving — still outstanding: '
+                . implode(', ', $outstanding) . '.');
+        }
 
         // RA-02 (cc5 re-test, Round 8) — "the screen where an authoriser
         // APPROVES a tenant still rejects a comma in the rand amount."

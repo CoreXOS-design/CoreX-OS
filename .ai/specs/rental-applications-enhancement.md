@@ -260,13 +260,46 @@ Each section header shows `done / total` (excluding not-applicable items),
 and the Checklist panel header shows the overall count. This is what makes
 the panel useful at a glance to an authoriser who did not do the work.
 
-### 3.6 Checklist and approval
+### 3.6 Checklist and approval — GATE WIRED 2026-09-24
 
-The checklist does **not** block approval by default. A further setting —
-`applications.require_checklist_complete`, default off — can make an
-incomplete checklist block the approve action. Off by default because
-Sherry's checklist is a working aid, not a gate, and turning it into a gate
-unasked would stop people approving applications.
+The checklist does **not** block approval by default. A setting —
+`RentalApplicationQualifyingSetting.require_checklist_complete` (default
+off, `requireChecklistCompleteFor($agencyId)`) — can make an incomplete
+checklist block the approve action. Off by default because Sherry's
+checklist is a working aid, not a gate, and turning it into a gate unasked
+would stop people approving applications.
+
+Wired into `RentalApplicationAuthorisationController::approve()`, right
+after `guardCanDecide()` and before any write: when the setting is on AND
+`RentalApplicationChecklistService::isCompleteFor($rentalApplication)` is
+false, the action aborts (422) naming every outstanding item by name
+(`RentalApplicationChecklistService::outstandingItemNames()`) — never a
+bare "checklist incomplete." `syncDerivedStates()` is called explicitly at
+this point too, not assumed fresh from a prior page load, so a derived
+lease-progress item can never be checked stale.
+
+**Approve only, never decline** — declining isn't a confidence claim the
+checklist needs to back up, so `decline()` is untouched.
+
+**Applies identically to one-step and two-step approval** — the check sits
+inside `approve()` itself, which both paths call unchanged (§2.2), so it
+can never branch on `approval_mode`. Verified directly: incomplete +
+required blocks in both modes with the same named-outstanding-items
+message; off leaves both modes byte-identical to before this setting
+existed.
+
+- Settings screen: "Application Checklist Gate" section, checkbox "Require
+  the application checklist to be complete before approving," default
+  unchecked — `RentalApplicationSettingsController::updateRequireChecklistComplete()`,
+  route `corex.settings.rental-applications.require-checklist-complete`.
+- Onboarding Setup Wizard (`config/agency-onboarding-copy.php`, `leases`
+  step, CLAUDE.md non-negotiable #10a): `approval_mode` and
+  `require_checklist_complete` added as scalar controls (own saver each,
+  wired into that step's `savers`); the checklist TEMPLATE itself
+  (sections/items CRUD, array-shaped) is a `links` entry to
+  `corex.settings.rental-applications.checklist.index`, same carve-out as
+  the existing "Rental application settings"/"Rental inspection settings"
+  links.
 
 ---
 

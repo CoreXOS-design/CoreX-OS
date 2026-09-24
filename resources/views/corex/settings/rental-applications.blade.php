@@ -414,6 +414,29 @@
         </form>
     </div>
 
+    {{-- AT-430 §3.6 — Johan: "the checklist does not block approval by
+         default." Off by default: Sherry's checklist is a working aid, not
+         a gate, until an agency deliberately turns it into one. See
+         "Application checklist" in Settings for the checklist itself. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Application Checklist Gate</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            The application checklist (Settings → Application checklist) is a working aid, not a
+            requirement, unless you turn this on.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.require-checklist-complete') }}" class="flex items-center gap-3">
+            @csrf
+            <input type="hidden" name="require_checklist_complete" value="0">
+            <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                <input type="checkbox" name="require_checklist_complete" value="1"
+                       @checked(old('require_checklist_complete', $requireChecklistComplete))>
+                Require the application checklist to be complete before approving
+            </label>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{--
         Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
         ruled: every field on the applicant form gets its own compulsory

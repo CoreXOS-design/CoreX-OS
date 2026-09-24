@@ -93,6 +93,9 @@ class RentalApplicationSettingsController extends Controller
         // own docblock for the full reasoning.
         $approvalMode = RentalApplicationQualifyingSetting::approvalModeFor($agencyId);
 
+        // AT-430 §3.6 — whether an incomplete checklist blocks approval.
+        $requireChecklistComplete = RentalApplicationQualifyingSetting::requireChecklistCompleteFor($agencyId);
+
         // Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
         // ruled: every field on the applicant form gets its own compulsory
         // tick, no locked set — "we provide the system, they set it up the
@@ -271,7 +274,7 @@ class RentalApplicationSettingsController extends Controller
             ->get();
 
         return view('corex.settings.rental-applications', compact(
-            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'approvalMode', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName', 'tenantedLabel'
+            'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'approvalMode', 'requireChecklistComplete', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName', 'tenantedLabel'
         ));
     }
 
@@ -667,6 +670,33 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Application approval setting saved.');
+    }
+
+    /**
+     * AT-430 §3.6 — Johan: "the checklist does not block approval by
+     * default." Off (default) means the checklist stays a working aid;
+     * on means an incomplete checklist blocks the approve action (see
+     * RentalApplicationAuthorisationController::approve()). Same
+     * has()-guarded checkbox pattern as updateRequireFicaBeforeAuthorisation()
+     * above — this form only ever renders the one field, so has() on it is
+     * exactly "was this form submitted."
+     */
+    public function updateRequireChecklistComplete(Request $request)
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('require_checklist_complete')) {
+            return redirect()->route('corex.settings.rental-applications.edit')
+                ->withErrors(['require_checklist_complete' => 'That did not save — please try again.']);
+        }
+
+        RentalApplicationQualifyingSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['require_checklist_complete' => $request->boolean('require_checklist_complete')],
+        );
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Checklist-before-approval setting saved.');
     }
 
     /**

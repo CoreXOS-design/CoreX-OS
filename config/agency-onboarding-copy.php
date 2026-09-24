@@ -380,6 +380,13 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireFicaBeforeAuthorisation'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateDocumentUploadsOpenAfterApproval'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateReturnGate'],
+            // AT-430 — one-step approval + the checklist-before-approval gate.
+            // approval_mode is a required radio, always rendered/posted as
+            // part of THIS step's own controls (never a subset-post risk);
+            // require_checklist_complete is has()-guarded like every other
+            // toggle above.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateApprovalMode'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireChecklistComplete'],
         ],
         'controls' => [
             ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
@@ -446,6 +453,22 @@ return [
              'label' => 'How a returning applicant proves who they are',
              'explain' => 'When someone reopens an application link they already started, CoreX asks for one of these before showing their saved answers.',
              'affects' => 'What a returning applicant is asked for before CoreX lets them back into their own in-progress application.'],
+            // AT-430 Part A, 2026-09-24 — Johan, via Sherry (single-person
+            // Cape Town agency): today's flow always hands an application to
+            // a SECOND person for authorisation, which is a screen a
+            // one-person agency sends to itself.
+            ['key' => 'approval_mode', 'source' => 'rental_application', 'type' => 'select', 'default' => 'two_step',
+             'options' => ['two_step' => 'Two step — agent submits, authoriser approves', 'one_step' => 'One step — the agent approves directly'],
+             'label' => 'Application approval',
+             'explain' => 'Two step keeps the existing hand-off to a second authoriser. One step lets an agent who is already configured as a Reviewer or Override user approve or decline an application directly, without a separate hand-off — for agencies where the same person handles and decides applications.',
+             'affects' => 'Whether the review screen shows "Submit for approval" (two step) or "Approve application"/"Decline application" directly (one step) to an agent who is also a configured Reviewer or Override user. Someone who is neither still always sees "Submit for approval".'],
+            // AT-430 §3.6 — Johan: "the checklist does not block approval by
+            // default." Off (default): the checklist (link below) stays a
+            // working aid.
+            ['key' => 'require_checklist_complete', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Require the application checklist to be complete before approving',
+             'explain' => 'CoreX can block approving a rental application until every item on its checklist is ticked done or marked not applicable.',
+             'affects' => 'Whether approving an application is blocked while checklist items are still outstanding, or the checklist stays an optional working aid.'],
         ],
         // Fine-tuning an agency does once they are live and know what they want —
         // custom labels, help text, field order, and the full custom-field editor
@@ -464,6 +487,14 @@ return [
             ['route' => 'corex.settings.rental-inspections.edit',
              'label' => 'Rental inspection settings',
              'explain' => 'Which property features count as inspection items, and each room type\'s default checklist items, are set here, any time after setup.'],
+            // AT-430 §3.3 — the checklist TEMPLATE (sections + items) is
+            // array-shaped CRUD, same carve-out as the two links above: link
+            // out, never silently absent. Every agency gets the default
+            // template (from Sherry's own paper checklist) automatically;
+            // this is only where they customise it.
+            ['route' => 'corex.settings.rental-applications.checklist.index',
+             'label' => 'Application checklist',
+             'explain' => 'The sections and items your team ticks off while vetting a rental application (documents, TPN, FICA, lease progress) start from a sensible default and can be renamed, reordered, or archived here, any time after setup.'],
         ],
     ],
 

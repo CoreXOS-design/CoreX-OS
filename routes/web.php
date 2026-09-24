@@ -2926,6 +2926,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // AT-430 Part A, 2026-09-24 — one-step approval for single-person agencies.
     Route::post('/settings/rental-applications/approval-mode', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateApprovalMode'])
         ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.approval-mode');
+    // AT-430 §3.6 — whether an incomplete checklist blocks approval.
+    Route::post('/settings/rental-applications/require-checklist-complete', [\App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'updateRequireChecklistComplete'])
+        ->middleware(['permission:rental_applications.manage_settings', 'agency.required'])->name('corex.settings.rental-applications.require-checklist-complete');
     // Submission hard floor, AT-392 round 5, 2026-09-13 — every applicant
     // form field's compulsory tick, and the agency-configurable marital
     // status option list (Ruling 1) that drives the spouse-fields group.
