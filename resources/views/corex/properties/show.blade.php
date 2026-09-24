@@ -1414,6 +1414,7 @@
                 ['key'=>'gallery',   'label'=>'Gallery'],
                 ['key'=>'rental',    'label'=>'Rental'],
                 ['key'=>'inspections', 'label'=>'Inspections'],
+                ['key'=>'inventory', 'label'=>'Inventory'],
                 ['key'=>'contacts',  'label'=>'Contacts'],
                 ['key'=>'notes',     'label'=>'Notes'],
                 ['key'=>'history',   'label'=>'History'],
@@ -1425,6 +1426,14 @@
                 @continue
             @endif
             @if($tab['key'] === 'inspections' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
+                @continue
+            @endif
+            {{-- .ai/specs/rental-inventory.md §0a — Johan, 2026-09-22: "it
+                 should be on properties, not only rental properties.
+                 inspections are rentals only, not sales." Unlike Inspections
+                 above, never gated on listing_type — every settled property
+                 gets this tab, sale or rental alike. --}}
+            @if($tab['key'] === 'inventory' && $isNew)
                 @continue
             @endif
             {{-- AT-402 — a SETTLED (not new, not type-change-pending) sale
@@ -1871,17 +1880,6 @@
                             @endforeach
                         </div>
                     </div>
-                @endif
-
-                {{-- .ai/specs/rental-inventory.md §0b — Johan, 2026-09-22: "it
-                     lives on a property... selecting inventory from the
-                     property we already know which property its for." One
-                     link, straight into the room-based capture surface — sale
-                     or rental, listing type never gates it. This is the ONLY
-                     entry point into Inventory; the old related-inventories
-                     panel (and its standalone list/create screens) are gone. --}}
-                @if(!$isNew)
-                    @include('corex.rental-inventories.partials._related-inventories', ['property' => $property])
                 @endif
             </div>
         </div>
@@ -5527,15 +5525,21 @@
                 </div>
             </template>
 
-            {{-- Add section --}}
+            {{-- Add photo section — this creates a named photo-gallery folder,
+                 not an inspection. Renamed 2026-09-24 per Johan: the old
+                 "Add section" label was mistaken for an inspection control,
+                 leading to two empty photo sections ("Ad Hoc inspection",
+                 "test inspection") on property 5792. Label only — the
+                 route/action (rental-images.save, action add_section) and
+                 the resulting photo-gallery-folder behaviour are unchanged. --}}
             <button type="button" @click="openAdd()" :disabled="busy"
                     class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white"
                     style="background:var(--brand-button,#0ea5e9);">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                Add section
+                Add photo section
             </button>
 
-            {{-- Add / Rename section modal (CoreX-styled — replaces the native browser prompt) --}}
+            {{-- Add / Rename photo section modal (CoreX-styled — replaces the native browser prompt) --}}
             <div x-show="modal.open" x-cloak
                  class="fixed inset-0 z-[9999] flex items-center justify-center p-4"
                  @keydown.escape.window="closeModal()">
@@ -5544,14 +5548,14 @@
                      style="background:var(--surface); border:1px solid var(--border);" @click.stop>
                     <div class="px-5 py-3 flex items-center justify-between" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                         <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);"
-                            x-text="modal.mode === 'rename' ? 'Rename Section' : 'New Section'"></h3>
+                            x-text="modal.mode === 'rename' ? 'Rename Photo Section' : 'New Photo Section'"></h3>
                         <button type="button" @click="closeModal()" class="p-1 rounded-md hover:opacity-70" style="color:var(--text-muted);">
                             <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
                         </button>
                     </div>
                     <form @submit.prevent="submitModal()">
                         <div class="px-5 py-4 space-y-2">
-                            <label class="prop-label">Section name</label>
+                            <label class="prop-label">Photo section name</label>
                             <input type="text" x-model="modal.name" x-ref="modalInput" maxlength="120"
                                    placeholder="e.g. Garden handover" class="prop-input w-full">
                         </div>
@@ -5562,7 +5566,7 @@
                             <button type="submit" :disabled="busy || !modal.name.trim()"
                                     class="px-4 py-2 rounded-md text-sm font-semibold text-white"
                                     style="background:var(--brand-button,#0ea5e9);"
-                                    x-text="modal.mode === 'rename' ? 'Rename' : 'Add section'"></button>
+                                    x-text="modal.mode === 'rename' ? 'Rename' : 'Add photo section'"></button>
                         </div>
                     </form>
                 </div>
@@ -7737,6 +7741,20 @@
             };
         }
         </script>
+        @endif
+
+        {{-- ── INVENTORY TAB ─────────────────────────────────────────────────── --}}
+        {{-- .ai/specs/rental-inventory.md §0b — moved out of the bottom of the
+             Overview tab into its own tab, immediately after Inspections, so
+             the agent no longer has to scroll past the map/Surveyor
+             General/Key Dates/Tenant blocks to find it. Same single link,
+             same partial, same target route — only its location on the page
+             changed. Never gated on listing_type (§0a) — sale properties get
+             this tab too. --}}
+        @if(!$isNew)
+        <div x-show="activeTab === 'inventory'" x-cloak class="p-6 space-y-6">
+            @include('corex.rental-inventories.partials._related-inventories', ['property' => $property])
+        </div>
         @endif
 
         {{-- ── CONTACTS TAB ─────────────────────────────────────────────────── --}}

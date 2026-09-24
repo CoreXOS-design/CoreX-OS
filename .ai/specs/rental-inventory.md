@@ -8,7 +8,10 @@ item about a sale property's missing Lease is still open, see §0b's own restate
 (§8) is unaffected by either pass and remains as built 2026-10-01 — cc5's recommendations, Johan's
 approval, all four open questions resolved as stated. §4a's photo-machinery adoption (shared uploader,
 gallery-sized fixed-frame layout) landed 2026-09-22 (cc4) — see §4a for exactly what was and wasn't
-adopted.
+adopted. §0d (2026-09-24) moved the property's entry point again — off the bottom of the Overview
+tab (where §0a/§0b left it) into its own "Inventory" tab, immediately after Inspections. §0a/§0b's
+"still on the Overview tab" statements are historical (accurate at the time they were written), not
+current — §0d supersedes the tab location only, nothing else in either section changed.
 
 ---
 
@@ -240,6 +243,37 @@ inside). No new test was added — this pass changes only the layout classes/cop
 surface, not its behaviour; the existing suite already proves the behaviour is intact. No browser
 harness, no local dev server, no seeded preview fixture was left behind. The real-browser proof is
 Johan's own pass against the deployed QA1 URL once cc1 lands this.
+
+---
+
+## 0d. Tab placement — moved off Overview into its own "Inventory" tab (2026-09-24)
+
+Johan, days before this pass, on why he couldn't find Inventory at all: *"where is the inventory now?
+dont seem to see it on a property."* §0a/§0b's fix put the single Inventory link at the very bottom of
+the property's Overview tab — below the map, the Surveyor General block, Key Dates, and Tenant. That
+placement was never flagged as a reachability problem in either section, and it was one: the link was
+real and worked, but an agent had to scroll past four other blocks on the busiest tab on the page to
+find it, which is exactly the "can't find it" experience Johan reported.
+
+**What changed:** the one-line `_related-inventories` include (unchanged content, unchanged target
+route — `GET /corex/properties/{property}/inventory`) moved out of the Overview tab entirely into its
+own **Inventory** tab in the tab bar, positioned immediately after **Inspections**
+(`resources/views/corex/properties/show.blade.php`). The Overview tab no longer renders it at all —
+one entry point, moved, not duplicated.
+
+**Gating — deliberately NOT copied from Inspections.** The Inventory tab button is skipped only when
+`$isNew` (same as the old Overview inclusion's own guard) — it is never gated on `listing_type`. This
+was a live conflict during this pass: the instruction that opened this task said to match Inspections'
+own rule (`$isNew || listing_type !== 'rental'`) exactly, which would have hidden the tab — and the
+feature — from every sale property, directly reversing §0a's own explicit correction (Johan: *"inventory
+was specifically specced not only for rentals. sales will also need it... inspections are rentals only,
+not sales."*). Flagged and ruled on before writing any code: the spec's existing rental-vs-sale
+correction wins. Inspections stays rental-only; Inventory does not; the two tabs sit next to each other
+in the bar but are gated by two different rules on purpose.
+
+**7.1's table (below) is updated to reflect this** — the Property row now reads "Inventory tab" rather
+than "Overview tab." Nothing else in §7.1 changed: Lease, Rental inspection, and Contact reachability
+are unaffected by this pass.
 
 ---
 
@@ -627,7 +661,7 @@ which was always read-only:
 
 | Screen | What it shows | Why |
 |---|---|---|
-| Property (Overview tab, every listing type) | One "Inventory" link → the room-based capture surface (`GET /corex/properties/{property}/inventory`) | The sole entry point (§0b) — resolves/starts the record transparently, no picker |
+| Property (its own **Inventory** tab, immediately after Inspections, every listing type — moved off Overview by §0d, 2026-09-24) | One "Inventory" link → the room-based capture surface (`GET /corex/properties/{property}/inventory`) | The sole entry point (§0b) — resolves/starts the record transparently, no picker |
 | Lease | Same one-line link, same shared partial | One lease, one obvious property to open Inventory from |
 | Rental inspection | Same one-line link, same shared partial | Same property/lease as the inspection; inspections stay rentals-only, so this never implies a sale-property inspection |
 | Contact (tenant) | Read-only list across every lease this contact is a tenant on — unchanged by §0b | A contact can be tenant on more than one lease/property; there is no single property to link into from here, so it stays a reference list, never a creation entry point |
