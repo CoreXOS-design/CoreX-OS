@@ -14,6 +14,7 @@ use App\Models\RentalApplicationDeclineEmailSetting;
 use App\Models\RentalApplicationDocumentValidityWindow;
 use App\Models\RentalApplicationExpenseItem;
 use App\Models\RentalApplicationIncomeItem;
+use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalApplicationStatusHistory;
 use App\Models\User;
 use App\Services\RentalApplications\RentalApplicationAuditService;
@@ -128,7 +129,22 @@ class RentalApplicationAuthorisationController extends Controller
             return ['tier' => 'co', 'is_override' => true];
         }
 
-        abort_unless($rentalApplication->isPendingAuthorisation(), 422, 'This application is not currently awaiting authorisation.');
+        // AT-430 Part A, 2026-09-24 — one-step approval. Johan, via Sherry
+        // (single-person Cape Town agency): "the same person handles and
+        // approves applications" — the hand-off (isPendingAuthorisation())
+        // is skipped entirely, not faked, so a one-step agency never writes
+        // a pending_authorisation-equivalent row it immediately overwrites.
+        // The RO/CO tier check above already establishes this user could
+        // have approved anyway (see this setting's own docblock on
+        // RentalApplicationQualifyingSetting::DEFAULT_APPROVAL_MODE) — this
+        // only widens WHEN they may decide, mirroring the exact same
+        // pre-hand-off statuses RentalApplicationReviewController::
+        // submitForApproval() itself accepts. Nothing below this gate
+        // (approve()/decline() themselves) branches on the mode.
+        $oneStepEligible = RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id) === 'one_step'
+            && in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true);
+
+        abort_unless($rentalApplication->isPendingAuthorisation() || $oneStepEligible, 422, 'This application is not currently awaiting authorisation.');
 
         return ['tier' => $isCO ? 'co' : 'ro', 'is_override' => false];
     }
@@ -409,6 +425,10 @@ class RentalApplicationAuthorisationController extends Controller
             reason: $validated['reason'] ?? null,
             oldValues: ['status' => $fromStatus, 'approved_rental_amount' => $oldAmount, 'approved_deposit_amount' => $oldDepositAmount],
             newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount'], 'approved_deposit_amount' => $validated['approved_deposit_amount'] ?? null, 'approved_subject_to_fica' => $isSubjectToFica],
+            // AT-430 Part A — the mode IN EFFECT AT THE TIME OF THIS DECISION,
+            // read fresh and stored immutably on this row, so a later mode
+            // change never makes this history unreadable.
+            metadata: ['approval_mode' => RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id)],
             humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to approve' : 'Approved')
                 . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})"
                 . (($validated['approved_deposit_amount'] ?? null) !== null ? ", deposit R" . number_format((float) $validated['approved_deposit_amount'], 2) : '')
@@ -515,6 +535,8 @@ class RentalApplicationAuthorisationController extends Controller
             reason: $validated['reason'] ?? null,
             newValues: ['status' => 'declined', 'decline_reason_template_id' => $template->id, 'decline_reason_template' => $template->reason],
             oldValues: ['status' => $fromStatus],
+            // AT-430 Part A — see approve()'s own comment on this same field.
+            metadata: ['approval_mode' => RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id)],
             humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to decline' : 'Declined')
                 . " ({$decision['tier']}), reason template: {$template->reason}",
         );

@@ -1,7 +1,7 @@
 # Spec — Rental Applications Enhancement (AT-430)
 
-Status: SPECCED, NOT SCHEDULED. Do not start until rental inspections and
-rental inventory are signed off by Johan.
+Status: Part A (one-step approval) BUILT 2026-09-24 — see §2. Part B
+(checklist panel) still SPECCED, NOT SCHEDULED at time of Part A's build.
 
 Source: Johan, 23 Sep 2026, after Sherry (Cape Town, single-person agency)
 shared her paper application checklist. Two separate asks in one ticket
@@ -26,54 +26,105 @@ default, existing behaviour unchanged for agencies that change nothing.
 
 ---
 
-## 2. Part A — One-step approval
+## 2. Part A — One-step approval — BUILT 2026-09-24
+
+Built against the real mechanism, not the placeholder names above — this
+module has no `rental_applications.approve` permission key and no
+`pending_authorisation` status value. Access to decide an application is
+agency-configured **RO/CO tier membership**
+(`User::isRentalApplicationRO()`/`isRentalApplicationCO()`, backed by
+`agencies.rental_application_ro_user_ids`/`rental_application_co_user_ids` —
+see `RentalApplicationSettingsController::updateRO()`/`updateCO()`), and
+"awaiting authorisation" is `status === 'under_assessment' &&
+submitted_for_approval_at !== null` (`RentalApplication::isPendingAuthorisation()`),
+not a status enum value. Both read straight onto this feature: "holds the
+`approve` permission" = "is RO or CO for the agency"; "skip the
+`pending_authorisation` status" = "never set `submitted_for_approval_at`
+for this decision at all."
 
 ### 2.1 Setting
 
-New agency setting, on the rental applications settings screen:
+New column on the existing per-agency settings model
+(`RentalApplicationQualifyingSetting.approval_mode`, migration
+`2026_09_24_090000_add_approval_mode_to_rental_application_qualifying_settings.php`,
+same one-migration-per-setting convention as every other setting on this
+model) — nullable, no DB default, resolved via
+`RentalApplicationQualifyingSetting::approvalModeFor($agencyId)` the same
+way `returnGateMethodFor()`/`requireFicaBeforeAuthorisationFor()` already
+work, so an agency that has never opened the settings screen reads as
+`two_step`.
 
-- `applications.approval_mode` — enum, `two_step` (default) | `one_step`
-- Label: **Application approval**
-- Options:
-  - *Two step — agent submits, authoriser approves* (default)
-  - *One step — the agent approves directly*
-- Help text: "Use one step if the same person handles and approves
-  applications. Turn it on for single-person agencies."
+- `approval_mode` — string, `two_step` (default) | `one_step`
+  (`RentalApplicationQualifyingSetting::APPROVAL_MODES`)
+- On the rental applications settings screen, labelled **Application
+  approval**, two radio options with the exact copy in this spec's original
+  §2.1 — `RentalApplicationSettingsController::updateApprovalMode()`, route
+  `corex.settings.rental-applications.approval-mode`.
 
-Default is `two_step` for every existing and new agency. No agency's
-behaviour changes on deploy.
+Default is `two_step` for every existing and new agency (no row = default).
+No agency's behaviour changes on deploy.
 
 ### 2.2 Behaviour when `one_step`
 
-- The "Send for authorisation" action is replaced by **Approve application**
-  (and **Decline application**), in the same position on the screen.
-- Approving writes the same approval record as today: same status, same
-  timestamp, same `approved_by` (the acting user), same downstream effects —
-  lease creation, rent prefill on the property, notifications. Nothing
-  downstream of approval may branch on the mode.
-- The intermediate `pending_authorisation` status is skipped, not faked. The
-  application goes from its pre-submit status straight to approved/declined.
-  Do not write a `pending_authorisation` row and immediately overwrite it —
-  the audit trail must read as one action, because it was one.
-- The audit log records the mode in effect at the time of the decision, so a
-  later mode change does not make history unreadable.
+- On the AGENT's own review screen (`RentalApplicationReviewController::show()`),
+  when the agency is `one_step` AND the acting user is RO or CO for that
+  agency AND is not blocked by the self-approval guard
+  (`guardNotSelfApproving()` — a self-created application still needs an
+  override-tier decider, exactly as in `two_step`), "Submit for approval" is
+  replaced, in the same position, by **Approve application** and **Decline
+  application**. Computed server-side as `$canApproveDirectly`; a user who
+  is not RO/CO sees "Submit for approval" regardless of the agency's
+  setting — the mode collapses the flow only for users who could have
+  decided anyway.
+- Both buttons post to the SAME `corex.rental-applications.authorisation.approve`/
+  `.decline` routes and controller methods (`RentalApplicationAuthorisationController`)
+  the authoriser's own screen uses — approve()/decline() themselves are
+  byte-for-byte unchanged: same status, same timestamp, same `approved_by`,
+  same audit/status-history writes, same `RentalApplicationApproved`/
+  `RentalApplicationDeclined` events and listeners. The only change is the
+  GATE that decides who may call them
+  (`RentalApplicationAuthorisationController::guardCanDecide()`): it now
+  also accepts a `one_step`-eligible RO/CO user on a pre-decision status,
+  not only `isPendingAuthorisation()`.
+- Lease creation, rent prefill and the applicant-facing approval email are
+  NOT triggered by `approve()` in either mode — they were already a
+  separate, manual, agent-triggered step
+  (`RentalApplicationController::linkTenantProperty()`,
+  `RentalApplicationReviewController::send()`), gated only on
+  `status === 'approved'`. Unaffected by this feature either way — this
+  spec's original text overstated what `approve()` itself does.
+- `submitted_for_approval_at` is never set for a one-step decision — the
+  hand-off marker is skipped, not faked. The application's status goes
+  straight from its real pre-submit status (`returned`, `under_assessment`
+  without the marker, etc.) to `approved`/`declined` in the SAME
+  `RentalApplicationStatusHistory` row `approve()`/`decline()` always wrote —
+  one action, one row.
+- The audit log (`RentalApplicationAuditLog`, written by
+  `RentalApplicationAuditService`) now always carries
+  `metadata.approval_mode` — the mode read fresh at the moment of decision,
+  for BOTH modes — so a later mode change never makes past history
+  ambiguous.
 
 ### 2.3 Permissions
 
-- One-step approval still requires the `rental_applications.approve`
-  permission. The setting removes a *step*, not a *check*. An agent without
-  approve rights in a `one_step` agency sees "Send for authorisation" as
-  today — i.e. the mode collapses the flow only for users who could have
-  approved anyway.
-- This means a one-person agency works because that person holds both
-  permissions, not because the permission was dropped.
+- One-step approval still requires RO or CO tier membership for the agency
+  — the real-world equivalent of "holds the approve permission" in this
+  module (§2, above). The setting removes a *step*, not a *check*: an agent
+  without RO/CO tier in a `one_step` agency sees "Submit for approval" as
+  today.
+- A one-person agency works because that person is configured as both RO
+  and CO for their own agency (Settings → Rental Applications → Reviewers/
+  Override), not because a check was dropped.
 
 ### 2.4 Switching mode mid-stream
 
-- Applications already sitting in `pending_authorisation` when an agency
-  switches to `one_step` stay valid and are approved from that queue as
-  today. The mode affects new submissions only.
-- Switching from `one_step` back to `two_step` affects new submissions only.
+- Applications already awaiting authorisation
+  (`isPendingAuthorisation()` true) when an agency switches to `one_step`
+  stay valid and are approved from that queue exactly as today —
+  `guardCanDecide()` accepts `isPendingAuthorisation()` unconditionally,
+  regardless of the current mode.
+- Switching either direction affects new decisions only; nothing is
+  backfilled or reinterpreted on existing rows.
 
 ---
 
@@ -221,8 +272,10 @@ unasked would stop people approving applications.
 1. Lease progress items: derived from the lease, or manual ticks? (§3.4)
 2. Should the section description be one box per section, or one notes box
    for the whole checklist?
-3. Should declining in `one_step` mode also skip authorisation, or does a
-   decline always stay a single-person action today anyway?
+
+Answered (2026-09-24): declining in `one_step` mode also skips
+authorisation — a decline is a single-person action either way, and goes
+through the identical `guardCanDecide()` gate as approve (§2.2).
 
 ---
 

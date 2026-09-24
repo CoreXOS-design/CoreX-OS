@@ -1891,7 +1891,20 @@
                         <button type="button" data-qa="send-back-to-applicant-open" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
                     @endif
                     @unless(in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true) || $isPendingAuthorisation)
-                        <button type="button" data-qa="submit-for-approval" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                        @if($canApproveDirectly)
+                            {{-- AT-430 Part A, 2026-09-24 — one-step approval:
+                                 "Submit for approval" is REPLACED, in the same
+                                 position, when the agency is one_step and this
+                                 user already holds RO/CO tier. Posts to the
+                                 SAME authorisation approve/decline endpoints an
+                                 authoriser uses — guardCanDecide() is the real
+                                 gate; this button only ever renders when the
+                                 server will actually accept it. --}}
+                            <button type="button" data-qa="approve-application-open" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true; approveConfirming = false">Approve application</button>
+                            <button type="button" data-qa="decline-application-open" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline application</button>
+                        @else
+                            <button type="button" data-qa="submit-for-approval" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                        @endif
                     @endunless
                     @if($rentalApplication->generations->count() > 1)
                         <button type="button" class="text-[11px] underline w-full text-left" style="color: var(--ds-blue, #2563eb);" @click="submissionHistoryOpen = true">Submission history</button>
@@ -2019,6 +2032,85 @@
                         <div class="flex justify-end">
                             <button type="button" class="corex-btn-outline text-xs" @click="submissionHistoryOpen = false">Close</button>
                         </div>
+                    </div>
+                </div>
+            @endif
+
+            @if($canApproveDirectly)
+                {{-- AT-430 Part A, 2026-09-24 — one-step approval. Same
+                     fields, same form/action/CSRF as the authoriser's own
+                     Approve modal below (this one-person agency flow posts
+                     to the exact same corex.rental-applications.authorisation.approve
+                     endpoint) — there is no "always a first decision" override
+                     path here, since $canApproveDirectly only renders while
+                     the application is still pre-decision. --}}
+                <div x-show="approveModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
+                    <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="approveModalOpen = false; approveConfirming = false">
+                        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Approve application</h3>
+                        @if($rentalApplication->ficaOutstanding())
+                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
+                                FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                            </p>
+                        @endif
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
+                        <input type="text" inputmode="decimal" x-model="approveAmount" :disabled="approveConfirming" class="corex-input text-sm w-full mb-2" placeholder="0.00">
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Deposit (optional)</label>
+                        <input type="text" inputmode="decimal" x-model="approveDepositAmount" :disabled="approveConfirming" class="corex-input text-sm w-full mb-2" placeholder="0.00">
+                        <textarea x-model="approveReason" rows="2" :disabled="approveConfirming" class="corex-input text-xs w-full mb-3" placeholder="Notes (optional)"></textarea>
+                        <template x-if="approveConfirming">
+                            <div class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                                <p class="font-semibold" x-text="'Approve this tenant for R' + Number(approveAmount || 0).toLocaleString('en-ZA', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + '?'"></p>
+                            </div>
+                        </template>
+                        <form method="POST" action="{{ route('corex.rental-applications.authorisation.approve', $rentalApplication) }}"
+                              @submit="window.__raSuppressUnloadGuard = true; $refs.agentApproveAmountField.value = approveAmount; $refs.agentApproveDepositAmountField.value = approveDepositAmount; $refs.agentApproveReasonField.value = approveReason">
+                            @csrf
+                            <input type="hidden" name="approved_rental_amount" x-ref="agentApproveAmountField">
+                            <input type="hidden" name="approved_deposit_amount" x-ref="agentApproveDepositAmountField">
+                            <input type="hidden" name="reason" x-ref="agentApproveReasonField">
+                            <div class="flex justify-end gap-2">
+                                <template x-if="!approveConfirming">
+                                    <button type="button" class="corex-btn-outline text-xs" @click="approveModalOpen = false">Cancel</button>
+                                </template>
+                                <template x-if="approveConfirming">
+                                    <button type="button" class="corex-btn-outline text-xs" @click="approveConfirming = false">Go back</button>
+                                </template>
+                                <template x-if="!approveConfirming">
+                                    <button type="button" data-qa="approve-application-continue" class="corex-btn-primary text-xs" :disabled="!approveAmount"
+                                            :title="!approveAmount ? 'Enter a monthly amount first.' : null" @click="approveConfirming = true">Approve</button>
+                                </template>
+                                <template x-if="approveConfirming">
+                                    <button type="submit" data-qa="approve-application-confirm" class="corex-btn-primary text-xs">Yes, approve</button>
+                                </template>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div x-show="declineModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="declineModalOpen = false">
+                    <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="declineModalOpen = false">
+                        <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Decline application</h3>
+                        <p class="text-xs mb-2" style="color: var(--text-secondary);">{{ $headerContactName }}{{ $propertyLabel ? ' — ' . $propertyLabel : '' }}</p>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Reason to give the applicant</label>
+                        <select x-model="declineReasonTemplateId" class="corex-input text-xs w-full mb-3" required>
+                            <option value="">Choose a reason…</option>
+                            @foreach($declineReasonTemplates ?? [] as $template)
+                                <option value="{{ $template->id }}" title="{{ $template->reason }}">{{ \Illuminate\Support\Str::limit($template->reason, 60) }}</option>
+                            @endforeach
+                        </select>
+                        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Note (for the record)</label>
+                        <textarea x-model="declineReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="Reason for decline (required)"></textarea>
+                        <form method="POST" action="{{ route('corex.rental-applications.authorisation.decline', $rentalApplication) }}"
+                              @submit="window.__raSuppressUnloadGuard = true; $refs.agentDeclineReasonField.value = declineReason; $refs.agentDeclineReasonTemplateIdField.value = declineReasonTemplateId">
+                            @csrf
+                            <input type="hidden" name="reason" x-ref="agentDeclineReasonField">
+                            <input type="hidden" name="decline_reason_template_id" x-ref="agentDeclineReasonTemplateIdField">
+                            <div class="flex justify-end gap-2">
+                                <button type="button" class="corex-btn-outline text-xs" @click="declineModalOpen = false">Cancel</button>
+                                <button type="submit" data-qa="decline-application-confirm" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" :disabled="!declineReason.trim() || !declineReasonTemplateId"
+                                        :title="!declineReasonTemplateId && !declineReason.trim() ? 'Choose a reason for the applicant and add a note first.' : (!declineReasonTemplateId ? 'Choose a reason for the applicant first.' : (!declineReason.trim() ? 'Add a note first.' : null))">Decline</button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             @endif
@@ -2905,6 +2997,18 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         submittingForApproval: false,
         agentActionStatus: '',
         agentActionError: false,
+        // AT-430 Part A, 2026-09-24 — one-step approval. Same field names as
+        // rentalAuthorisationViewer()'s own decision-panel fields (see that
+        // factory's own comment) — this agent screen posts to the exact
+        // same approve/decline endpoints when $canApproveDirectly.
+        approveModalOpen: false,
+        approveAmount: '',
+        approveDepositAmount: '',
+        approveReason: '',
+        approveConfirming: false,
+        declineModalOpen: false,
+        declineReason: '',
+        declineReasonTemplateId: '',
         // Reopen/resubmit, 2026-09-08 — expectedGeneration is bootstrapped
         // from the generation this page actually rendered; sent back on
         // every write the applicant's own resubmit could invalidate, so a

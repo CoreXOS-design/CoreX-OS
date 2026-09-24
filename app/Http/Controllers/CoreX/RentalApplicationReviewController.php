@@ -11,6 +11,7 @@ use App\Models\Document;
 use App\Models\DocumentType;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationAssessment;
+use App\Models\RentalApplicationDeclineReasonTemplate;
 use App\Models\RentalApplicationDocumentHighlight;
 use App\Models\RentalApplicationDocumentMark;
 use App\Models\RentalApplicationDocumentRequirement;
@@ -462,11 +463,37 @@ class RentalApplicationReviewController extends Controller
         // here — see that method's own docblock for the three-way rule.
         $fieldConfig = $rentalApplication->displayFieldConfig();
 
+        // AT-430 Part A, 2026-09-24 — one-step approval. Johan, via Sherry
+        // (single-person Cape Town agency): "the same person handles and
+        // approves applications." $canApproveDirectly replaces "Submit for
+        // approval" with "Approve application"/"Decline application" IN THE
+        // SAME POSITION — it removes a STEP, never a CHECK: an agent without
+        // RO/CO tier sees "Submit for approval" here regardless of the
+        // agency's setting, exactly as today (mirrors guardNotSelfApproving()
+        // and guardCanDecide()'s own gates on the real decision endpoints —
+        // this is read-only, purely so the button matches what the server
+        // will actually accept; the server checks are what actually decide).
+        $user = $request->user();
+        $selfCreatedBlocked = (int) $rentalApplication->created_by_user_id === (int) $user->id
+            && ! $user->isRentalApplicationOverrideTier($agencyId);
+        $showSubmitOrApprove = ! in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true)
+            && ! $rentalApplication->isPendingAuthorisation();
+        $canApproveDirectly = $showSubmitOrApprove
+            && RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step'
+            && $user->isRentalApplicationAuthoriser($agencyId)
+            && ! $selfCreatedBlocked;
+        // Only needed to populate the Decline modal's reason picker when the
+        // one-step buttons can actually render — same source the authoriser
+        // screen's own Decline modal already reads from.
+        $declineReasonTemplates = $canApproveDirectly
+            ? RentalApplicationDeclineReasonTemplate::activeFor($agencyId)
+            : collect();
+
         return view('corex.rental-applications.review', compact(
             'rentalApplication', 'assessment', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
             'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries',
-            'documentTypeOptions', 'fieldConfig'
+            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'declineReasonTemplates'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 

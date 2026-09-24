@@ -230,6 +230,22 @@ class RentalApplicationQualifyingSetting extends Model
     public const DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION = false;
 
     /**
+     * AT-430 Part A, 2026-09-24 — Johan, via Sherry (single-person Cape Town
+     * agency): today an application is reviewed, then sent for authorisation
+     * to a SECOND person who approves it — correct for Home Finders Coastal
+     * (agents + principal), wrong for a one-person agency, where the hand-off
+     * is a screen she sends to herself. `one_step` lets an agent who already
+     * holds RO/CO tier approve/decline directly on the review screen,
+     * skipping the `submitted_for_approval_at` hand-off entirely — it
+     * removes a STEP, never a CHECK: a user without RO/CO tier still sees
+     * "Submit for approval" regardless of this setting (see
+     * RentalApplicationAuthorisationController::guardCanDecide()).
+     */
+    public const DEFAULT_APPROVAL_MODE = 'two_step';
+
+    public const APPROVAL_MODES = ['two_step', 'one_step'];
+
+    /**
      * Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
      * not gated but if the applicant submits... after initial submission
      * we can gate on ID." Default is the applicant's own ID number
@@ -323,7 +339,7 @@ class RentalApplicationQualifyingSetting extends Model
         'pdf_rate_limit_max', 'pdf_rate_limit_window_minutes',
         'document_view_rate_limit_max', 'document_view_rate_limit_window_minutes',
         'autosave_request_rate_limit_max', 'autosave_request_rate_limit_window_minutes',
-        'require_fica_before_authorisation',
+        'require_fica_before_authorisation', 'approval_mode',
         'return_gate_method', 'return_gate_attempt_max', 'return_gate_attempt_window_minutes',
         'identity_gate_enabled', 'identity_gate_otp_length', 'identity_gate_otp_expiry_minutes',
         'identity_gate_attempt_max', 'identity_gate_attempt_window_minutes', 'identity_gate_resend_cooldown_seconds',
@@ -653,6 +669,19 @@ class RentalApplicationQualifyingSetting extends Model
         return $row && $row->require_fica_before_authorisation !== null
             ? (bool) $row->require_fica_before_authorisation
             : self::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION;
+    }
+
+    public static function approvalModeFor(?int $agencyId): string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_APPROVAL_MODE;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->approval_mode !== null && in_array($row->approval_mode, self::APPROVAL_MODES, true)
+            ? $row->approval_mode
+            : self::DEFAULT_APPROVAL_MODE;
     }
 
     public static function returnGateMethodFor(?int $agencyId): string

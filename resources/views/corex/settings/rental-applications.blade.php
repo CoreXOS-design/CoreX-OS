@@ -383,6 +383,37 @@
         </form>
     </div>
 
+    {{-- AT-430 Part A, 2026-09-24 — Johan, via Sherry (single-person Cape
+         Town agency): today's flow always hands an application to a SECOND
+         person for authorisation. For a one-person agency that hand-off is
+         a screen she sends to herself. One step still requires the same
+         RO/CO tier as today (Settings → Reviewers/Override below) — this
+         setting removes a STEP, never a CHECK. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Application Approval</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            Use one step if the same person handles and approves applications. Turn it on for
+            single-person agencies.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.approval-mode') }}">
+            @csrf
+            <div class="space-y-2 mb-3">
+                <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                    <input type="radio" name="approval_mode" value="two_step" class="mt-0.5"
+                           @checked(old('approval_mode', $approvalMode) === 'two_step')>
+                    <span><strong>Two step</strong> — agent submits, authoriser approves.</span>
+                </label>
+                <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                    <input type="radio" name="approval_mode" value="one_step" class="mt-0.5"
+                           @checked(old('approval_mode', $approvalMode) === 'one_step')>
+                    <span><strong>One step</strong> — the agent approves directly.</span>
+                </label>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{--
         Submission hard floor, AT-392 round 5, 2026-09-13 — Johan, twice
         ruled: every field on the applicant form gets its own compulsory
