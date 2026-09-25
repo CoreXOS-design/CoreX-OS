@@ -5026,17 +5026,53 @@
                  alignment-is-automatic reasoning), never resorted or
                  filtered differently between them. --}}
                 <div class="prop-section">
-                    <button type="button" class="prop-section-toggle" @click="toggle('inspection')">
-                        <h3 class="prop-section-heading">
-                            <span class="prop-section-heading-text">Inspection</span>
-                            {{-- Same "never the coerced literal undefined" fix
-                                 as the pre-chain version (2026-09-22) — a
-                                 ternary that returns a real empty string. --}}
-                            <span x-show="chainTail" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                  x-text="chainTail ? ((chainTail.type === 'out' ? 'Out' : (chainTail.type === 'in' ? 'In' : 'Routine')) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
-                        </h3>
-                        <svg class="prop-section-chevron" :class="open['inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
-                    </button>
+                    <div class="flex items-center flex-wrap" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                        <button type="button" class="prop-section-toggle" @click="toggle('inspection')" style="border-bottom:0; width:auto; flex:1 1 auto; min-width:0;">
+                            <h3 class="prop-section-heading">
+                                <span class="prop-section-heading-text">Inspection</span>
+                                {{-- Same "never the coerced literal undefined" fix
+                                     as the pre-chain version (2026-09-22) — a
+                                     ternary that returns a real empty string. --}}
+                                <span x-show="chainTail" class="ml-2 text-xs" style="color:var(--text-muted);"
+                                      x-text="chainTail ? ((chainTail.type === 'out' ? 'Out' : (chainTail.type === 'in' ? 'In' : 'Routine')) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
+                            </h3>
+                            <svg class="prop-section-chevron" :class="open['inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+                        </button>
+                        {{-- Johan's ruling, 2026-09-25 — moved here from the very
+                             bottom of the section (below every room, OVERALL
+                             NOTES, the signature rows, and Complete). Functionally
+                             present there, practically invisible: an agent
+                             finishing an inspection had to scroll past the whole
+                             form to find out they could start the next one, which
+                             is why he asked for a "next inspection" button that
+                             already existed. Chain logic, type options and Start
+                             behaviour are unchanged — only the position moved, out
+                             of the collapsible body and into the always-visible
+                             header row, beside the type/status text above. The
+                             helper sentence moves into a title attribute (native
+                             tooltip) instead of a paragraph, so it costs no
+                             vertical space on a working screen. chainTail, by
+                             construction (chainTailFor()'s own
+                             whereDoesntHave('nextInChain')), never already has a
+                             successor — no extra check needed for when to offer
+                             this. In is never offered here: it can only ever be
+                             the chain's first link (RentalInspection::startNext()'s
+                             own guard). --}}
+                        @permission('rental_inspections.create')
+                            <div x-show="chainTail" x-cloak class="flex items-center gap-2 flex-wrap pr-3 py-1.5">
+                                <span x-show="nextError" x-cloak class="text-xs" style="color:#ef4444;" x-text="nextError"></span>
+                                <span class="text-xs font-semibold" style="color:var(--text-secondary);"
+                                      title="Compares against this inspection's own recorded condition, room by room.">Next inspection:</span>
+                                <select x-model="nextType" class="prop-input text-xs" style="max-width:11rem;">
+                                    <option value="ad_hoc">Routine (mid-tenancy)</option>
+                                    <option value="out">Out</option>
+                                </select>
+                                <button type="button" :disabled="nextBusy" @click="nextInspection(nextType)"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
+                                        x-text="nextBusy ? 'Starting…' : 'Start'"></button>
+                            </div>
+                        @endpermission
+                    </div>
                     <div x-show="open['inspection']" x-collapse class="prop-section-body space-y-3">
                         {{-- §6 of the approved proposal — nothing started yet
                              for this property at all. The ONLY case that
@@ -5089,30 +5125,6 @@
                                 <div x-show="chainTail.status === 'completed'">
                                     @include('corex.properties.partials.rental-inspection-recording', ['section' => 'in', 'sectionJs' => 'tailSection()', 'predecessorJs' => 'chainPredecessor', 'tailReadOnly' => true])
                                 </div>
-
-                                {{-- Johan's ruling, 2026-09-23 — "Next inspection".
-                                     chainTail, by construction (chainTailFor()'s own
-                                     whereDoesntHave('nextInChain')), never already
-                                     has a successor — no extra check needed for
-                                     when to offer this. In is never offered here:
-                                     it can only ever be the chain's first link
-                                     (RentalInspection::startNext()'s own guard). --}}
-                                @permission('rental_inspections.create')
-                                    <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);">
-                                        <div x-show="nextError" x-cloak class="text-xs mb-2" style="color:#ef4444;" x-text="nextError"></div>
-                                        <div class="flex items-center gap-2 flex-wrap">
-                                            <span class="text-xs font-semibold" style="color:var(--text-secondary);">Next inspection:</span>
-                                            <select x-model="nextType" class="prop-input text-xs" style="max-width:11rem;">
-                                                <option value="ad_hoc">Routine (mid-tenancy)</option>
-                                                <option value="out">Out</option>
-                                            </select>
-                                            <button type="button" :disabled="nextBusy" @click="nextInspection(nextType)"
-                                                    class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
-                                                    x-text="nextBusy ? 'Starting…' : 'Start'"></button>
-                                            <span class="text-xs" style="color:var(--text-muted);">Compares against this inspection's own recorded condition, room by room.</span>
-                                        </div>
-                                    </div>
-                                @endpermission
 
                                 {{-- .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 —
                                      Johan's own reason for the whole feature: "geyser in
@@ -5525,19 +5537,21 @@
                 </div>
             </template>
 
-            {{-- Add photo section — this creates a named photo-gallery folder,
-                 not an inspection. Renamed 2026-09-24 per Johan: the old
-                 "Add section" label was mistaken for an inspection control,
-                 leading to two empty photo sections ("Ad Hoc inspection",
-                 "test inspection") on property 5792. Label only — the
-                 route/action (rental-images.save, action add_section) and
-                 the resulting photo-gallery-folder behaviour are unchanged. --}}
-            <button type="button" @click="openAdd()" :disabled="busy"
-                    class="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white"
-                    style="background:var(--brand-button,#0ea5e9);">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-                Add photo section
-            </button>
+            {{-- "Add photo section" entry-point button removed 2026-09-25 per
+                 Johan: redundant on this tab. It created a named photo-gallery
+                 folder, not an inspection — the rename yesterday from "+ Add
+                 section" to "Add photo section" didn't fix that confusion,
+                 it just relabelled it (see the two empty accidental sections
+                 already on property 5792: "Ad Hoc inspection (0)" and "test
+                 inspection (0)"). The underlying feature (rental-images.save,
+                 action add_section, App\Http\Controllers\CoreX\
+                 PropertyController::saveRentalImagesMeta()) is NOT removed —
+                 only this entry point. The modal directly below is shared
+                 with Rename (openRename(), used by the "Rename" button on
+                 each existing custom section in rental-section-body.blade.php)
+                 so it stays; openAdd() and submitModal()'s add_section branch
+                 are now unreachable from this UI but left in place rather than
+                 stripped, since nothing else in this task asked for that. --}}
 
             {{-- Add / Rename photo section modal (CoreX-styled — replaces the native browser prompt) --}}
             <div x-show="modal.open" x-cloak

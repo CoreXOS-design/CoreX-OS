@@ -2947,6 +2947,78 @@ in a browser, which this verification pass deliberately did not do.
 
 ---
 
+## 20.19 "Next inspection" moved to the section header; "Add photo section" entry point removed (2026-09-25)
+
+Two changes from Johan browser-testing the deployed Inspections tab directly.
+
+**Change 1 — "Next inspection" moved from the bottom of the section to its header.** Johan: "after an in
+inspection how do we do another inspection - ad hoc, out etc? should we not have a next inspection or new
+inspection button?" The control (§20's own Johan's-ruling-2026-09-23 "Next inspection" block) already
+existed and its chain logic/type options/Start behaviour were correct — the problem was purely position:
+it sat at the very bottom of the section, below every room, OVERALL NOTES, the three signature rows and
+the Complete button. Functionally present, practically invisible.
+
+Moved into the section's own header row (the `<div class="prop-section">` wrapper for `toggle('inspection')`),
+always visible regardless of `open['inspection']`, beside the existing type/status text
+(`chainTail.type + ' — ' + chainTail.status + ' · recorded/total'`, e.g. "Out — awaiting signature · 5/28").
+The header row that used to be a single `<button class="prop-section-toggle">` spanning full width is now a
+flex wrapper div (`background:var(--surface-2); border-bottom:1px solid var(--border)` — moved off the
+button and onto the wrapper) containing two siblings: the toggle button (`flex:1 1 auto`, its own
+`border-bottom:0` so only the wrapper draws it) and the Next-inspection control, gated the same as before by
+`@permission('rental_inspections.create')` and `x-show="chainTail"`. Siblings, not nested — a `<select>`/
+`<button>` cannot legally sit inside another `<button>`, which the old accordion-toggle button was. The
+helper sentence ("Compares against this inspection's own recorded condition, room by room.") moved from a
+trailing `<span>` under the row into a `title` attribute (native tooltip) on the "Next inspection:" label, so
+it costs no vertical space in the header. No change to `nextType`/`nextBusy`/`nextError`/`nextInspection()` —
+same Alpine state, same call, only the markup's position moved.
+
+**Change 2 — "Add photo section" entry-point button removed from the Inspections tab.** Johan: "the add
+photo section is redundant." This was the button (renamed 2026-09-24 per §20.18's sibling note, from
+"+ Add section") that called `openAdd()` → `rental-images.save` with `action: 'add_section'`, creating a
+named custom photo-gallery folder (`data.custom[]`) — not an inspection. Removed the button and its
+explanatory comment only.
+
+**What was NOT removed, and why:** the "Add / Rename photo section" modal (`x-show="modal.open"`) directly
+below the removed button is shared — `openRename(customId)` (called from the "Rename" button on each
+existing custom section in `rental-section-body.blade.php`) opens the same modal in `mode: 'rename'`.
+Deleting the modal would have broken Rename, which Johan did not ask to remove and which is still a live,
+needed way to manage existing custom sections. The modal, `openAdd()`, and `submitModal()`'s `add_section`
+branch stay in place; `openAdd()` is simply never called from any UI now, so that branch is unreachable but
+harmless dead code rather than stripped — stripping it was judged out of this task's exact scope (BUILD
+STANDARD rule 6, no silent extras).
+
+**Where else `add_section` is reachable — investigated and reported, not changed:** grepped the whole repo.
+The web route `POST rental-images.save` → `PropertyController::saveRentalImagesMeta()` still accepts
+`action: 'add_section'` (unchanged, per Johan's explicit instruction not to touch the route/controller/
+underlying feature). The ONLY web-UI caller of `openAdd()` anywhere in this codebase was the removed button —
+confirmed by grep across `resources/views/`; three unrelated `openAdd()` functions exist in other,
+completely separate Alpine components (`dr2/_supplier-work-orders.blade.php`, `tools/pdf_splitter_review.blade.php`,
+`communications/triage/index.blade.php`) — different modules, different meaning, not this feature. The
+mobile API (`MobileRentalImagesController::save()`, `POST /api/v1/mobile/properties/{property}/rental-images/save`)
+also accepts `action: 'add_section'` in its validation rules — that action is reachable from the mobile app
+if the native app (source not in this repo) calls it; this spec cannot confirm or rule that out from here.
+**Conclusion for Johan: the Inspections tab's button was the only web entry point; whether the native mobile
+app itself exposes an "add section" affordance is unverifiable from this repository and needs an answer from
+whoever owns that app's source.**
+
+**The two accidental sections on property 5792 — still render.** "Ad Hoc inspection (0)" and "test
+inspection (0)" are rows in `data.custom[]` (real `rental_inspection_sections`-style rows created through
+the old button before its 2026-09-24 rename). The custom-sections list
+(`<template x-for="sec in data.custom">`) is not gated by the Add button at all — it renders every existing
+`data.custom` entry unconditionally. Removing the entry point does nothing to remove data that already
+exists: **both empty rows still render on the Inspections tab today**, exactly the confusion the 2026-09-24
+rename was meant to end, now just without a way to create a third one. Per the no-hard-delete rule and
+Johan's own instruction this round, they were left untouched — his call whether to rename, archive, or
+merge them.
+
+### 20.19.1 Files touched this round
+
+- `resources/views/corex/properties/show.blade.php` — Inspection section header restructured (Next
+  inspection control moved in, old bottom-of-section copy removed); "Add photo section" button removed
+  (modal, `openAdd()`, `openRename()`, `submitModal()` all left unchanged)
+
+---
+
 ## 21. Add an item to an EXISTING room (2026-09-22, cc1) — there was no way to do this at all
 
 Johan, verbatim, looking at property 4862's Inspection Items panel: *"I want to add lets say bic to
