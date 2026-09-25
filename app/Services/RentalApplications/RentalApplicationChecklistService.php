@@ -162,6 +162,7 @@ class RentalApplicationChecklistService
                         'name' => $templateItem->name,
                         'help_text' => $templateItem->help_text,
                         'note_required' => $templateItem->note_required,
+                        'document_required' => $templateItem->document_required,
                         'is_derived' => $templateItem->is_derived,
                         'derived_key' => $templateItem->derived_key,
                         'state' => RentalApplicationChecklistItem::STATE_NOT_STARTED,

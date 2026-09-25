@@ -203,8 +203,9 @@ New settings screen: **Application checklist**.
 
 - Agency admins create, rename, reorder and archive sections and items.
 - Items are archived, never hard-deleted (standing rule).
-- Each item has: name, optional help text, and a flag for whether a note is
-  required before the item can be marked done.
+- Each item has: name, optional help text, a flag for whether a note is
+  required before the item can be marked done, and (§3.7) a flag for whether
+  a document is required before the item can be marked done.
 - An agency that configures nothing gets the default template below and can
   edit it. Agencies that want no checklist can archive every section; the
   Checklist panel section then does not render.
@@ -322,6 +323,87 @@ existed.
   `corex.settings.rental-applications.checklist.index`, same carve-out as
   the existing "Rental application settings"/"Rental inspection settings"
   links.
+
+### 3.7 Attachments on a checklist item — BUILT 2026-09-25
+
+Johan, verbatim: *"on the checklist - we need a way to attach like the tpn
+docs. I log into tpn do the verifications and download the results. then I
+can attach whilst on the tpn verification."* Turns the checklist from a
+tick-list into evidence an attorney could be handed.
+
+**One document store, two views.** No second document table. An attachment
+is a normal row in the SAME `documents` table every other Supporting
+Document on this application already lives in
+(`source_type='rental_application'`, `source_id`=the application) — it
+additionally carries `documents.checklist_item_id`, a nullable tag column
+(same convention as `custom_field_key`, added for the custom-field file
+slot). Unlike `custom_field_key`, a checklist-tagged document is **not**
+excluded from the generic Supporting Documents list — `RentalApplication::
+documents()` is unfiltered by this column, so the same row genuinely renders
+in both places from one write.
+
+**Attach where you are.** The checklist item row itself is a drop target
+(`@dragover`/`@drop` on the item's own attach zone) alongside a "+ Attach"
+file picker — no navigating to a documents tab and back. Agent-only, same
+rule Johan already gave for the generic Supporting Documents upload
+("agent should in any case be able to add docs... Agent-only") — an
+authoriser sees the same attachment list read-only, never the upload/
+remove control, per §3.1's "no separate authoriser view" for the panel
+itself but not for who may add evidence to someone else's application.
+
+**Attaching ticks the item.** `uploadChecklistItemDocument()` files the
+document(s), then attempts the same Done transition a manual click would —
+through one shared gate, `checklistDoneGate()`, so a Done set by hand and a
+Done set by attaching can never disagree about what "done" requires. If the
+item also has `note_required` and no note yet, the file still attaches but
+the item is NOT silently ticked — exactly what a manual Done click would do
+today. Removing a file never unticks the item automatically — "he can still
+untick if it was the wrong file" is a separate, manual action.
+
+**Multiple files per item.** Shown as a small list on the item — filename,
+a Remove control. Remove is a plain `SoftDeletes` archive (never a hard
+delete, standing rule), with a "Removed (n)" disclosure per item to
+restore one — full CRUD floor (attach / list / remove / restore).
+
+**Template flag: `document_required`.** Mirrors `note_required` exactly —
+same boolean shape, same default `false`, same settings-screen checkbox,
+same enforcement point (`checklistDoneGate()`, both the manual-click and
+attach-triggered paths): an item with `document_required` set cannot reach
+Done with zero non-archived attachments. Copied from template to
+application snapshot at snapshot time, same as `note_required`. The
+2026-09-24 default template (§3.4) ships with `document_required` off for
+every item — nothing was silently turned on for TPN by this change; that is
+an agency's own call on the settings screen.
+
+**Document type.** Investigated `documentTypeOptions` (every active
+`document_types` row — `RentalApplicationReviewController::show()`) against
+every migration that seeds that table: bank_statement, tax_clearance,
+company_registration, trust_deed, payslip, financial_statements, ids, por,
+coc_request, proforma_invoice, and the generic CMA/market set all exist;
+**no TPN entry existed**. Added `tpn_report` / "TPN Report" (migration
+`2026_10_03_200600_add_tpn_document_type.php`, same idempotent
+insert-if-absent pattern as the existing rental-application/FICA seeds) so
+a TPN document — attached via this feature or classified by hand through
+the existing retype/splitter flow — has a proper home instead of landing as
+"Other". The checklist-item upload itself does **not** auto-assign this (or
+any) document type — it follows the generic Supporting Documents upload's
+own convention exactly (`uploadDocument()` leaves `document_type_id` unset
+at upload time; classification happens later via the existing
+retype/file-direct flow already on this screen). Auto-inferring a document
+type from an agency-editable item name was considered and rejected as
+guessing beyond what was asked.
+
+**Files:** migrations `2026_10_03_200600` (TPN type) through `200900`
+(document_required on both checklist-item tables) plus
+`2026_10_03_200700` (`checklist_item_id` on `documents`);
+`RentalApplicationChecklistItem::documents()` /`Document::checklistItem()`
+relations; `RentalApplicationReviewController::uploadChecklistItemDocument()`
+/ `removeChecklistItemDocument()` / `restoreChecklistItemDocument()` /
+`checklistDoneGate()`; mirrored read-only in
+`RentalApplicationAuthorisationController::show()`;
+`RentalApplicationChecklistTemplateController::storeItem()`/`updateItem()`
+for the settings-screen flag; `review.blade.php`'s checklist item row and
+`rentalChecklistPanel()`.
 
 ---
 

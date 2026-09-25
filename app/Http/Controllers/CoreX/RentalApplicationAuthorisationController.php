@@ -376,7 +376,9 @@ class RentalApplicationAuthorisationController extends Controller
         \App\Services\RentalApplications\RentalApplicationChecklistService::ensureSnapshotFor($rentalApplication);
         \App\Services\RentalApplications\RentalApplicationChecklistService::syncDerivedStates($rentalApplication);
         $checklistSections = \App\Models\RentalApplicationChecklistSection::where('rental_application_id', $rentalApplication->id)
-            ->with('items')
+            ->with(['items.documents' => function ($q) {
+                $q->withTrashed()->orderBy('created_at');
+            }])
             ->orderBy('sort_order')->orderBy('id')
             ->get()
             ->map(fn ($section) => [
@@ -388,9 +390,25 @@ class RentalApplicationAuthorisationController extends Controller
                     'name' => $item->name,
                     'help_text' => $item->help_text,
                     'note_required' => (bool) $item->note_required,
+                    'document_required' => (bool) $item->document_required,
                     'is_derived' => (bool) $item->is_derived,
                     'state' => $item->state,
                     'note' => $item->note,
+                    // AT-430 Part E — the authoriser sees the SAME attachment
+                    // list the agent does (§3.1: "no separate authoriser
+                    // view"), read-only: no upload/remove URL template is
+                    // ever wired into rentalAuthorisationViewer(), so there
+                    // is nothing here for an authoriser's browser to act on
+                    // even though the same view_url is present (viewing an
+                    // already-filed document is not a scoping concern —
+                    // guardDocumentBelongsToApplication() covers it same as
+                    // every other document on this screen).
+                    'attachments' => $item->documents->whereNull('deleted_at')->map(fn (Document $d) => [
+                        'id' => $d->id,
+                        'name' => $d->original_name,
+                        'view_url' => route('corex.rental-applications.authorisation.documents.view', [$rentalApplication, $d]),
+                    ])->values(),
+                    'removed_attachments' => [],
                 ])->values(),
             ])->values();
         $panelPreferences = \App\Models\RentalReviewPanelPreference::stateFor($request->user()->id);

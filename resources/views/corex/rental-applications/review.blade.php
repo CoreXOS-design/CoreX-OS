@@ -179,6 +179,7 @@
          checklistSections: {{ Js::from($checklistSections) }},
          checklistItemUrlTemplate: '{{ route('corex.rental-applications.checklist.items.update', [$rentalApplication, '__ITEM_ID__']) }}',
          checklistSectionUrlTemplate: '{{ route('corex.rental-applications.checklist.sections.update', [$rentalApplication, '__SECTION_ID__']) }}',
+         checklistItemDocumentUploadUrlTemplate: '{{ route('corex.rental-applications.checklist.items.documents.store', [$rentalApplication, '__ITEM_ID__']) }}',
      })"
      @else
      x-data="rentalAuthorisationViewer({
@@ -585,6 +586,10 @@
         .rr-checklist-state-btn-active-done { background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669); border-color: var(--ds-emerald, #059669); }
         .rr-checklist-state-btn-active-na { background: var(--surface-2, #f9fafb); color: var(--text-muted); border-color: var(--text-muted); }
         .rr-checklist-derived-badge { font-size: 9px; padding: 1px 4px; border-radius: 3px; background: var(--ds-blue-soft, #eff6ff); color: var(--ds-blue, #2563eb); }
+        /* AT-430 Part E — the checklist item's own drop target (design point 2: "the item row is ALSO a drop target"). */
+        .rr-checklist-attach-zone { border: 1px dashed var(--border); border-radius: 4px; padding: 4px 6px; }
+        .rr-checklist-attach-zone-over { border-color: var(--ds-blue, #2563eb); background: var(--ds-blue-soft, #eff6ff); }
+        .rr-checklist-attachment-name { font-size: 10px; color: var(--text-secondary); text-decoration: underline; }
 
         /* FIX (2026-09-14, Johan live on QA1) — per-document Save button was
            scrolling off with the rest of the document, exactly the same
@@ -1968,6 +1973,73 @@
                                                 <template x-if="!item.note_required && !item.note && !item.noteOpen">
                                                     <button type="button" class="text-[10px] mt-1" style="color: var(--ds-blue, #2563eb);" @click="item.noteOpen = true" :disabled="reviewLocked">+ Add note</button>
                                                 </template>
+                                                {{-- AT-430 Part E — the TPN-doc paperclip. Johan: "I log into tpn do
+                                                     the verifications and download the results. then I can attach
+                                                     whilst on the tpn verification." The row itself is the drop
+                                                     target (design point 2) — dragOver only flips true/false, read
+                                                     through :class, never :style, so this stays clear of the
+                                                     Vue-proxy trap this file already hit once today on a DIFFERENT
+                                                     lazily-added key (panelState's checklist_section_N) — attachments/
+                                                     dragOver/uploading are seeded on every item at construction
+                                                     time (rentalChecklistPanel()'s own map), never added later, so
+                                                     that trap does not apply here, but :class over :style is the
+                                                     safer habit regardless. --}}
+                                                @if($viewerRole === 'agent')
+                                                    {{-- Agent-only, same rule Johan already gave for the generic
+                                                         Supporting Documents upload above ("agent should in any
+                                                         case be able to add docs... Agent-only") — an authoriser
+                                                         adding evidence to someone else's application isn't part
+                                                         of what this feature is for. The drag/drop handlers live
+                                                         ONLY inside this @if, not on a shared element both roles
+                                                         render — checklistItemDocumentUploadUrlTemplate is never
+                                                         passed into rentalAuthorisationViewer() at all, so a drop
+                                                         handler reachable from the authoriser's screen would throw
+                                                         on a missing URL template the moment it fired. --}}
+                                                    <div class="rr-checklist-attach-zone mt-1" :class="{ 'rr-checklist-attach-zone-over': item.dragOver }"
+                                                         @dragover.prevent="onChecklistItemDragEnter(item)"
+                                                         @dragleave.prevent="onChecklistItemDragLeave(item)"
+                                                         @drop.prevent="onChecklistItemDrop(item, $event)">
+                                                        <template x-if="item.attachments.length > 0">
+                                                            <div class="space-y-0.5 mb-1">
+                                                                <template x-for="doc in item.attachments" :key="doc.id">
+                                                                    <div class="flex items-center justify-between gap-1">
+                                                                        <a :href="doc.view_url" target="_blank" class="rr-checklist-attachment-name truncate" x-text="doc.name"></a>
+                                                                        <button type="button" class="text-[10px] flex-shrink-0" style="color: var(--ds-red, #dc2626);" :disabled="reviewLocked" @click="removeChecklistItemDocument(item, doc)">Remove</button>
+                                                                    </div>
+                                                                </template>
+                                                            </div>
+                                                        </template>
+                                                        <label class="text-[10px] cursor-pointer" style="color: var(--ds-blue, #2563eb);">
+                                                            <span x-show="!item.uploading">+ Attach</span>
+                                                            <span x-show="item.uploading">Attaching…</span>
+                                                            <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" class="hidden" :disabled="reviewLocked || item.uploading" @change="onChecklistItemFilesPicked(item, $event.target.files); $event.target.value = ''">
+                                                        </label>
+                                                        <span class="text-[10px]" style="color: var(--text-muted);"> or drop a file here</span>
+                                                        <p class="text-[10px] mt-0.5" style="color: var(--ds-red, #dc2626);" x-show="item.attachError" x-text="item.attachError"></p>
+                                                        <template x-if="item.removedAttachments.length > 0">
+                                                            <div class="mt-1">
+                                                                <button type="button" class="text-[10px]" style="color: var(--text-muted);" @click="item.removedOpen = !item.removedOpen" x-text="'Removed (' + item.removedAttachments.length + ')'"></button>
+                                                                <div x-show="item.removedOpen" x-cloak class="mt-0.5 space-y-0.5">
+                                                                    <template x-for="doc in item.removedAttachments" :key="doc.id">
+                                                                        <div class="flex items-center justify-between gap-1">
+                                                                            <span class="rr-checklist-attachment-name truncate" style="color: var(--text-muted);" x-text="doc.name"></span>
+                                                                            <button type="button" class="text-[10px] flex-shrink-0" style="color: var(--ds-blue, #2563eb);" :disabled="reviewLocked" @click="restoreChecklistItemDocument(item, doc)">Restore</button>
+                                                                        </div>
+                                                                    </template>
+                                                                </div>
+                                                            </div>
+                                                        </template>
+                                                    </div>
+                                                @else
+                                                    {{-- Authoriser — read-only mirror of the same attachment list, no upload/remove control. --}}
+                                                    <template x-if="item.attachments.length > 0">
+                                                        <div class="space-y-0.5 mt-1">
+                                                            <template x-for="doc in item.attachments" :key="doc.id">
+                                                                <a :href="doc.view_url" target="_blank" class="rr-checklist-attachment-name truncate block" x-text="doc.name"></a>
+                                                            </template>
+                                                        </div>
+                                                    </template>
+                                                @endif
                                             </div>
                                         </template>
                                         <template x-if="item.is_derived">
@@ -2969,10 +3041,11 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
 // the same spread convention as rentalDocumentHighlighter()/
 // rentalCaptureLedger() above — "same panel, same data — there is no
 // separate authoriser view" (§3.1).
-function rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, reviewLocked } = {}) {
+function rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, checklistItemDocumentUploadUrlTemplate, reviewLocked } = {}) {
     return {
         panelState: Object.assign({ finances: true, checklist: true }, panelPreferences || {}),
-        checklistSections: (checklistSections || []).map(s => ({ ...s, items: (s.items || []).map(i => ({ ...i, error: '', noteOpen: false })) })),
+        checklistSections: (checklistSections || []).map(s => ({ ...s, items: (s.items || []).map(i => ({ ...i, error: '', noteOpen: false, attachments: i.attachments || [], removedAttachments: i.removed_attachments || [], attachError: '', uploading: false, dragOver: false, removedOpen: false })) })),
+        checklistItemDocumentUploadUrlTemplate,
         // 2026-09-25, Johan's own catch — these three were destructured out
         // of this factory's own argument but never put back on the returned
         // object, so every this.panelPreferenceUrl/checklistItemUrlTemplate/
@@ -3127,10 +3200,110 @@ function rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistS
                 // Best-effort — same "don't block the screen over a note" call as the panel-preference toggle above.
             }
         },
+        /**
+         * AT-430 Part E — "attach where you are": the paperclip AND the
+         * drop target both land here. Reload-on-success rather than
+         * hand-patching panelState/checklistSections — the exact same
+         * choice this file already made for every other document-mutating
+         * action (agentDocumentUploadReview(), attachExistingDocument()
+         * below) — so the item's Done state, the section's done/total, and
+         * the Checklist header's overall count all come from one server
+         * render, never a second, hand-maintained copy that could drift
+         * from it.
+         */
+        async uploadChecklistItemFiles(item, fileList) {
+            if (this.reviewLocked || item.is_derived) return;
+            const files = Array.from(fileList || []);
+            if (!files.length) return;
+            item.uploading = true;
+            item.attachError = '';
+            const formData = new FormData();
+            files.forEach(file => formData.append('files[]', file));
+            try {
+                const res = await fetch(this.checklistItemDocumentUploadUrlTemplate.replace('__ITEM_ID__', encodeURIComponent(item.id)), {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                    body: formData,
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    item.attachError = data.error || 'Could not attach this file.';
+                    item.uploading = false;
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                item.attachError = 'Network error — this file was not attached.';
+                item.uploading = false;
+            }
+        },
+        onChecklistItemFilesPicked(item, fileList) {
+            this.uploadChecklistItemFiles(item, fileList);
+        },
+        onChecklistItemDragEnter(item) {
+            if (this.reviewLocked || item.is_derived) return;
+            item.dragOver = true;
+        },
+        onChecklistItemDragLeave(item) {
+            item.dragOver = false;
+        },
+        onChecklistItemDrop(item, event) {
+            item.dragOver = false;
+            this.uploadChecklistItemFiles(item, event.dataTransfer.files);
+        },
+        async removeChecklistItemDocument(item, doc) {
+            if (this.reviewLocked) return;
+            try {
+                const res = await fetch(doc.remove_url, {
+                    method: 'DELETE',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    item.attachError = data.error || 'Could not remove this file.';
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                item.attachError = 'Network error — this file was not removed.';
+            }
+        },
+        async restoreChecklistItemDocument(item, doc) {
+            if (this.reviewLocked) return;
+            try {
+                const res = await fetch(doc.restore_url, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    credentials: 'same-origin',
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    item.attachError = data.error || 'Could not restore this file.';
+                    return;
+                }
+                window.location.reload();
+            } catch (e) {
+                item.attachError = 'Network error — this file was not restored.';
+            }
+        },
     };
 }
 
-function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, documentTypeOptions, reviewLocked, panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate }) {
+function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCreateUrl, captureStrikeUrlTemplate, initialSavedAt, initialMarkedUpDocIds, currentUserId, currentUserName, currentUserRole, highlighters, requestMoreInfoUrl, submitForApprovalUrl, reopenUrl, expectedGeneration, canReopenNow, documentChecklist, documentTypeOptions, reviewLocked, panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, checklistItemDocumentUploadUrlTemplate }) {
     return {
         // 2026-09-12 — Johan-approved read-only lock while the application
         // is with the authoriser (isPendingAuthorisation()). Set once, from
@@ -3155,7 +3328,7 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
         // AT-430 §3 — the checklist half of this same panel. Spread rather
         // than a nested x-data, same reasoning as the two factories above:
         // one shared scope, no cross-component reach-through needed.
-        ...rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, reviewLocked }),
+        ...rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistSections, checklistItemUrlTemplate, checklistSectionUrlTemplate, checklistItemDocumentUploadUrlTemplate, reviewLocked }),
 
         // 2026-09-08 — Johan: "clicking back to application shows a changes
         // may be lost popup but there's no save button visible anywhere." No
