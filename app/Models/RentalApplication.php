@@ -971,6 +971,7 @@ class RentalApplication extends Model
 
     protected $casts = [
         'token_expires_at' => 'datetime',
+        'checklist_snapshotted_at' => 'datetime',
         'submitted_at' => 'datetime',
         'identity_verified_at' => 'datetime',
         'identity_gate_unreachable' => 'boolean',

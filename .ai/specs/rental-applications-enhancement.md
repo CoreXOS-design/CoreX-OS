@@ -171,9 +171,12 @@ Three levels:
     showed, what the reference said)
   - who set it and when
 - **Checklist template** — the agency's configured set of sections and
-  items. Applications take a snapshot of the template at creation, so
-  editing the template later does not rewrite applications already in
-  flight.
+  items. An application's checklist is a snapshot of the template, taken
+  at creation OR, if none exists yet, lazily on first view of its review
+  screen — editing the template later must never rewrite an application
+  already in flight, and this amendment (2026-09-25) exists because every
+  application created before the lazy path shipped would otherwise never
+  get one: do not "simplify" this back to creation-only.
 
 ### 3.3 Settings screen
 

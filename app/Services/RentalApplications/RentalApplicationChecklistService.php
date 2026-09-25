@@ -117,10 +117,21 @@ class RentalApplicationChecklistService
 
     /**
      * AT-430 §3.2 — copies the agency's current, non-archived template onto
-     * a new application. Seeds the default template first if this agency
-     * has never configured one (covers an agency that existed before this
+     * an application. Seeds the default template first if this agency has
+     * never configured one (covers an agency that existed before this
      * feature shipped and whose AgencyCreated listener therefore never
      * fired for it).
+     *
+     * Called from two places: RentalApplicationController's create flow
+     * (a brand new row nobody else can reach yet — no locking needed) and
+     * ensureSnapshotFor() below (an existing application, lockForUpdate()-
+     * guarded by the caller). Either way, `checklist_snapshotted_at` is set
+     * in the SAME transaction as the section/item inserts — including when
+     * the template has zero non-archived sections and nothing gets copied
+     * (§5) — so the marker and the rows it describes can never disagree,
+     * and a later ensureSnapshotFor() call on this same application (e.g.
+     * its first review-screen view, moments after creation) sees the
+     * timestamp already set and never runs this a second time.
      */
     public static function snapshotFor(RentalApplication $application): void
     {
@@ -158,6 +169,67 @@ class RentalApplicationChecklistService
                     ]);
                 }
             }
+
+            $application->forceFill(['checklist_snapshotted_at' => now()])->save();
+        });
+    }
+
+    /**
+     * AT-430 §3.2 amendment, 2026-09-25 — the spec only ever described
+     * snapshotting at creation, so every application that already existed
+     * when this feature shipped got no snapshot and no path was ever wired
+     * to give it one: opening its review screen showed zero checklist
+     * sections, indistinguishable in the UI from an agency that has
+     * deliberately archived every one of its template sections (§5). This
+     * is the lazy fallback both review-screen controllers now call before
+     * reading checklistSections — RentalApplicationReviewController::show()
+     * and RentalApplicationAuthorisationController::show() (the shared
+     * Blade template renders identically for both viewer roles per §3.1,
+     * so both call sites need it — missing the second one is the exact gap
+     * that shipped once before on a different variable in this same pair
+     * of controllers).
+     *
+     * Never overwrites — snapshotFor()'s whole point, unchanged: if this
+     * application has already been snapshotted (rows exist OR the attempt
+     * already ran and found nothing to copy), this is a no-op.
+     *
+     * Race safety: `rental_applications.checklist_snapshotted_at` is the
+     * durable claim, checked inside a lockForUpdate() transaction — the
+     * exact "lock the row, re-check inside the lock, act" pattern already
+     * proven in this codebase for an analogous problem
+     * (LeaseActivationService::activate()). Two tabs opening the same
+     * application concurrently serialize on that row lock: whichever
+     * request's transaction acquires it first calls snapshotFor(), which
+     * sets the timestamp and (if the template had sections) the snapshot
+     * rows together in ONE inner transaction (a nested transaction becomes
+     * a savepoint — still atomic with this outer one); the second
+     * request's lockForUpdate() then blocks until the first commits, sees
+     * the timestamp already set, and returns without calling snapshotFor()
+     * at all. Because the marker and the rows always commit or roll back
+     * together (inside snapshotFor() itself, not here), there is no window
+     * where a crash mid-request leaves the timestamp set with no snapshot
+     * attempt having actually run.
+     *
+     * This timestamp is also the answer to "which empty state is this" —
+     * see the migration's own docblock. A null timestamp means "never
+     * attempted, still eligible for the lazy snapshot below." A non-null
+     * timestamp with zero RentalApplicationChecklistSection rows means
+     * "attempted, the agency's current template had nothing non-archived
+     * to copy" — genuinely different facts that used to collapse into the
+     * same zero-rows observation with nothing on the model to tell them
+     * apart.
+     */
+    public static function ensureSnapshotFor(RentalApplication $application): void
+    {
+        DB::transaction(function () use ($application) {
+            /** @var RentalApplication $locked */
+            $locked = RentalApplication::whereKey($application->id)->lockForUpdate()->firstOrFail();
+
+            if ($locked->checklist_snapshotted_at !== null) {
+                return;
+            }
+
+            self::snapshotFor($locked);
         });
     }
 
