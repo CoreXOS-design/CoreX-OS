@@ -489,6 +489,12 @@ class RentalApplicationReviewController extends Controller
             ? RentalApplicationDeclineReasonTemplate::activeFor($agencyId)
             : collect();
 
+        // AT-430 §3.2 amendment, 2026-09-25 — an application that existed
+        // before this feature shipped has no checklist snapshot yet;
+        // create it now, from the agency's current template, before
+        // reading checklistSections below. No-op if one already exists.
+        \App\Services\RentalApplications\RentalApplicationChecklistService::ensureSnapshotFor($rentalApplication);
+
         // AT-430 §3 — the checklist half of the right-hand panel. Derived
         // items (Part D) are recomputed against the current lease on every
         // load, never cached stale between visits.

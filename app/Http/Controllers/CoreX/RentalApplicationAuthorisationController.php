@@ -366,6 +366,14 @@ class RentalApplicationAuthorisationController extends Controller
         // authoriser opening an application would 500 on an undefined
         // variable exactly like $fieldConfig did before. Mirrors that
         // controller's block verbatim.
+        //
+        // AT-430 §3.2 amendment, 2026-09-25 — same reasoning again, same
+        // pair of controllers: ensureSnapshotFor() lazily backfills an
+        // application that predates this feature. Missing it here would
+        // have reproduced the exact $fieldConfig-class gap a third time —
+        // an authoriser seeing no checklist for an application the agent's
+        // own screen had already backfilled one for.
+        \App\Services\RentalApplications\RentalApplicationChecklistService::ensureSnapshotFor($rentalApplication);
         \App\Services\RentalApplications\RentalApplicationChecklistService::syncDerivedStates($rentalApplication);
         $checklistSections = \App\Models\RentalApplicationChecklistSection::where('rental_application_id', $rentalApplication->id)
             ->with('items')
