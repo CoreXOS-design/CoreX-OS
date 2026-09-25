@@ -22,16 +22,37 @@
 # through unconditionally before truncating anything else — see each
 # step's own comment for which.)
 #
-#   Flags:  --force-build   always run npm ci && npm run build, regardless
-#                            of marker/diff detection.
+# A DEPLOY STEP DECIDES WHETHER TO RUN BY COMPARING AGAINST WHAT WAS LAST
+# ACTUALLY DONE — NEVER BY WHETHER GIT'S HEAD MOVED. (2026-09-25.) Whether
+# `git pull --ff-only` moved OLDHEAD to a different NEWHEAD says nothing
+# about whether the commit being deployed was already built/installed —
+# a commit can arrive resident-but-unbuilt (fast-forwarded by an earlier
+# step, pushed straight from a worktree) just as easily as it arrives via
+# this pull. Any step whose correctness depends on file content (a
+# compiled asset bundle, an installed vendor tree — anything this script
+# does not simply re-run unconditionally every time because doing so is
+# cheap and idempotent) records what it last did in a marker file
+# (`public/build/BUILT_FROM`, `vendor/BUILT_FROM`) and compares that marker
+# against current HEAD, not against this run's OLDHEAD/NEWHEAD. Do not
+# reintroduce an OLDHEAD-vs-NEWHEAD-only gate on a new step — it is exactly
+# the bug this comment exists to stop.
+#
+#   Flags:  --force-build      always run npm ci && npm run build,
+#                               regardless of marker/diff detection.
+#           --force-composer   always run composer install, regardless of
+#                               marker/diff detection.
 #
 set -uo pipefail
 
 FORCE_BUILD=0
+FORCE_COMPOSER=0
 for arg in "$@"; do
     case "$arg" in
         --force-build)
             FORCE_BUILD=1
+            ;;
+        --force-composer)
+            FORCE_COMPOSER=1
             ;;
     esac
 done
@@ -154,8 +175,37 @@ else
     echo "   marker $BUILD_MARKER matches HEAD ($NEWHEAD) — skip npm build"
 fi
 
-echo "-- 3. composer install ONLY if composer.lock changed --"
-if [ "$OLDHEAD" != "$NEWHEAD" ] && git diff --name-only "$OLDHEAD" "$NEWHEAD" | grep -q '^composer\.lock'; then
+echo "-- 3. composer install if composer.lock changed OR the vendor marker doesn't match HEAD --"
+# 2026-09-25 — same disease as step 2's old frontend-build gate: this used
+# to decide "does vendor/ need reinstalling" purely from OLDHEAD→NEWHEAD
+# movement across THIS pull. When the commit being deployed was already
+# resident locally before this script ran, OLDHEAD==NEWHEAD, the diff was
+# empty, and composer install was silently skipped even if composer.lock
+# had genuinely changed relative to what vendor/ was last installed from.
+# `vendor/BUILT_FROM` now records the commit the last successful
+# `composer install` actually ran against; a mismatch against HEAD forces
+# a reinstall independent of this pull's head movement, same as step 2.
+COMPOSER_MARKER="vendor/BUILT_FROM"
+COMPOSER_MARKER_HEAD="$(cat "$COMPOSER_MARKER" 2>/dev/null || true)"
+
+NEED_COMPOSER=0
+COMPOSER_REASON=""
+if [ "$FORCE_COMPOSER" = "1" ]; then
+    NEED_COMPOSER=1
+    COMPOSER_REASON="--force-composer passed"
+elif [ "$OLDHEAD" != "$NEWHEAD" ] && git diff --name-only "$OLDHEAD" "$NEWHEAD" | grep -q '^composer\.lock'; then
+    NEED_COMPOSER=1
+    COMPOSER_REASON="composer.lock changed between $OLDHEAD and $NEWHEAD"
+elif [ -z "$COMPOSER_MARKER_HEAD" ]; then
+    NEED_COMPOSER=1
+    COMPOSER_REASON="no composer marker at $COMPOSER_MARKER — cannot prove vendor/ matches HEAD"
+elif [ "$COMPOSER_MARKER_HEAD" != "$NEWHEAD" ]; then
+    NEED_COMPOSER=1
+    COMPOSER_REASON="composer marker ($COMPOSER_MARKER_HEAD) does not match HEAD ($NEWHEAD)"
+fi
+
+if [ "$NEED_COMPOSER" = "1" ]; then
+    echo "   composer install needed: $COMPOSER_REASON"
     COMPOSER_OUT="$(composer install --no-dev --no-interaction --prefer-dist 2>&1)"
     COMPOSER_STATUS=$?
     if [ $COMPOSER_STATUS -ne 0 ]; then
@@ -164,8 +214,10 @@ if [ "$OLDHEAD" != "$NEWHEAD" ] && git diff --name-only "$OLDHEAD" "$NEWHEAD" | 
         exit 1
     fi
     echo "$COMPOSER_OUT" | tail -3
+    echo "$NEWHEAD" > "$COMPOSER_MARKER"
+    echo "   wrote $COMPOSER_MARKER = $NEWHEAD"
 else
-    echo "   composer.lock unchanged → skip"
+    echo "   marker $COMPOSER_MARKER matches HEAD ($NEWHEAD) — skip composer install"
 fi
 
 echo "-- 4. migrate (idempotent) --"
