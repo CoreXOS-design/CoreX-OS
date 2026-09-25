@@ -2973,8 +2973,38 @@ function rentalChecklistPanel({ panelPreferences, panelPreferenceUrl, checklistS
     return {
         panelState: Object.assign({ finances: true, checklist: true }, panelPreferences || {}),
         checklistSections: (checklistSections || []).map(s => ({ ...s, items: (s.items || []).map(i => ({ ...i, error: '', noteOpen: false })) })),
+        // 2026-09-25, Johan's own catch — these three were destructured out
+        // of this factory's own argument but never put back on the returned
+        // object, so every this.panelPreferenceUrl/checklistItemUrlTemplate/
+        // checklistSectionUrlTemplate read below resolved to undefined:
+        // togglePanel() posted to ".../undefined" (404, silently swallowed by
+        // its own best-effort catch), and setItemState()/saveSectionDescription()
+        // did the same — ticking Done/N/A or typing a section note optimistically
+        // updated the screen but never reached the server either. Same missing-
+        // property bug, same function, all four instances of it fixed together.
+        panelPreferenceUrl,
+        checklistItemUrlTemplate,
+        checklistSectionUrlTemplate,
+        // 2026-09-25, Johan — a lazily-created key (every checklist_section_N
+        // one, added the first time its section is ever toggled) never got
+        // watched: Alpine's reactivity is Vue's own Proxy engine
+        // (alpinejs/src/index.js imports straight from @vue/reactivity), and
+        // Object.prototype.hasOwnProperty.call(this.panelState, key) resolves
+        // via the Proxy's [[GetOwnProperty]] trap, which Vue's handler never
+        // defines — no track() call fires, so the x-show effect that only
+        // ever called this via the ternary's untaken branch (the key didn't
+        // exist yet on first render) never subscribed to it. Read the value
+        // straight through the proxy instead — @vue/reactivity's get() trap
+        // calls track() unconditionally, for a genuinely absent key too, and
+        // its trigger() on "add" notifies exactly that per-key dependency —
+        // confirmed directly against the vendored @vue/reactivity source in
+        // this app, not assumed. No hasOwnProperty/Object.keys/`in` may ever
+        // stand between an Alpine binding and the state it reads — that gap
+        // is why "Finances"/"Checklist" (pre-seeded keys, tracked from the
+        // very first render) always worked while every section never did.
         isPanelOpen(key, defaultOpen = false) {
-            return Object.prototype.hasOwnProperty.call(this.panelState, key) ? !!this.panelState[key] : defaultOpen;
+            const value = this.panelState[key];
+            return value === undefined ? defaultOpen : !!value;
         },
         async togglePanel(key, defaultOpen = false) {
             const next = !this.isPanelOpen(key, defaultOpen);

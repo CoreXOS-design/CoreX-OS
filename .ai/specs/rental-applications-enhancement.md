@@ -144,16 +144,35 @@ components). See the build report for file list and verification detail.
 The right-hand panel on the application review screen becomes a set of
 collapsible sections (accordion), not one flat block:
 
-1. **Finances** — exactly what is there today. Unchanged content, now inside
-   a section that can be collapsed.
+1. **Affordability Assessment** — exactly what is there today (this spec
+   originally called it "Finances"; the build correctly kept the screen's
+   real, pre-existing name rather than renaming it to match the spec —
+   Johan, 2026-09-25). Unchanged content, now inside a section that can be
+   collapsed. Labelled "Affordability Assessment" for the agent viewer and
+   "Agent's Assessment" for the authoriser viewer — same panel, same
+   underlying `finances` state key either way.
 2. **Checklist** — new. One or more agency-configured checklist sections.
 
 Open/collapsed state is remembered per user per section. Default on first
-load: Finances open, Checklist open, everything else collapsed.
+load: Affordability Assessment open, Checklist open, everything else
+collapsed.
 
 The panel is visible to both the agent and the authoriser, and in `one_step`
 mode to the single approving user. Same panel, same data — there is no
 separate "authoriser view".
+
+**Trap, 2026-09-25 — do not reintroduce.** `rentalChecklistPanel()`'s
+`panelState` object starts with only two keys (`finances`, `checklist`);
+every `checklist_section_<id>` key is added lazily, the first time that
+section is ever opened. Alpine 3's reactivity is Vue's own Proxy engine
+verbatim (`@vue/reactivity`) — `Object.prototype.hasOwnProperty.call(...)`
+resolves via the Proxy's `[[GetOwnProperty]]`, a trap Vue's handler never
+defines, so it establishes no dependency; an `x-show`/`x-if` gated on a key
+that didn't exist on first render will never update once that key is added.
+Read reactive state with a plain property access (`obj[key]`, compared
+against `undefined`) — never `hasOwnProperty`, and never anything else that
+doesn't go through the Proxy's `get`/`has`/`ownKeys` traps — for any key
+that might not exist yet when the component first initialises.
 
 ### 3.2 Checklist model
 
