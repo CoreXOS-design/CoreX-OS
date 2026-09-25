@@ -22,7 +22,19 @@
 # through unconditionally before truncating anything else — see each
 # step's own comment for which.)
 #
+#   Flags:  --force-build   always run npm ci && npm run build, regardless
+#                            of marker/diff detection.
+#
 set -uo pipefail
+
+FORCE_BUILD=0
+for arg in "$@"; do
+    case "$arg" in
+        --force-build)
+            FORCE_BUILD=1
+            ;;
+    esac
+done
 
 APP_DIR="/corex-qa1"
 BRANCH="QA1"
@@ -65,16 +77,55 @@ if [ "$OLDHEAD" = "$NEWHEAD" ]; then
     echo "   (no new commits — running deploy steps anyway to activate current code)"
 fi
 
-echo "-- 2. frontend build ONLY if assets changed (qa1 serves built assets) --"
+echo "-- 2. frontend build if assets changed OR the build marker doesn't match HEAD --"
 # Any .blade.php counts as a frontend change too, not just resources/js|css —
 # Tailwind's classes come from scanning Blade templates for class-name
 # strings, not from resources/css source, so a Blade-only change introducing
 # a class nobody has used before is invisible to this trigger otherwise: the
 # class silently never enters the compiled bundle (found 2026-09-22, cc2's
 # rental-inspections compare-view sm:block fix).
-if [ "$OLDHEAD" != "$NEWHEAD" ] && git diff --name-only "$OLDHEAD" "$NEWHEAD" \
+#
+# 2026-09-25 — this used to decide "did the frontend change" ONLY from
+# OLDHEAD→NEWHEAD git movement across THIS pull. When NEWHEAD was already
+# resident locally before this script ran (fast-forwarded by an earlier
+# step, or pushed straight into place from a worktree), OLDHEAD equals
+# NEWHEAD, the diff below is empty, and the script concluded nothing had
+# changed and skipped the build — while reporting success. The deployed
+# CSS/JS then stayed stale. Proved wrong on 2026-09-24: a manual
+# `npm run build` produced a different CSS hash (app-C3azoaVu.css vs
+# app-0Lc-6vB9.css) than what was actually being served — real content had
+# never reached the browser. Worked around by hand three separate times.
+#
+# Fix: stop trusting git head movement as a proxy for "was this built".
+# `public/build/BUILT_FROM` records the exact commit the LAST successful
+# build actually ran against. A build now also runs whenever that marker
+# is missing or doesn't match the commit being deployed — independent of
+# whether this particular pull moved HEAD at all. The original diff check
+# is kept as-is (do not remove it): either signal alone is enough to
+# trigger a build; only skip when the marker is present and matches HEAD.
+BUILD_MARKER="public/build/BUILT_FROM"
+MARKER_HEAD="$(cat "$BUILD_MARKER" 2>/dev/null || true)"
+
+NEED_BUILD=0
+BUILD_REASON=""
+if [ "$FORCE_BUILD" = "1" ]; then
+    NEED_BUILD=1
+    BUILD_REASON="--force-build passed"
+elif [ "$OLDHEAD" != "$NEWHEAD" ] && git diff --name-only "$OLDHEAD" "$NEWHEAD" \
      | grep -qE '^(resources/js/|resources/css/|vite\.config|package(-lock)?\.json|tailwind\.config)|\.blade\.php$'; then
-    echo "   frontend changed → npm ci && npm run build"
+    NEED_BUILD=1
+    BUILD_REASON="frontend-relevant files changed between $OLDHEAD and $NEWHEAD"
+elif [ -z "$MARKER_HEAD" ]; then
+    NEED_BUILD=1
+    BUILD_REASON="no build marker at $BUILD_MARKER — cannot prove the current bundle matches HEAD"
+elif [ "$MARKER_HEAD" != "$NEWHEAD" ]; then
+    NEED_BUILD=1
+    BUILD_REASON="build marker ($MARKER_HEAD) does not match HEAD ($NEWHEAD)"
+fi
+
+if [ "$NEED_BUILD" = "1" ]; then
+    echo "   build needed: $BUILD_REASON"
+    echo "   → npm ci && npm run build"
     # 2026-09-22 — neither call checked its own exit status before; a
     # failed install or build just printed truncated output and the script
     # sailed on to migrate/caches/restart as if the bundle were current.
@@ -96,8 +147,11 @@ if [ "$OLDHEAD" != "$NEWHEAD" ] && git diff --name-only "$OLDHEAD" "$NEWHEAD" \
         exit 1
     fi
     echo "$NPM_BUILD_OUT" | tail -5
+
+    echo "$NEWHEAD" > "$BUILD_MARKER"
+    echo "   wrote $BUILD_MARKER = $NEWHEAD"
 else
-    echo "   no frontend changes → skip npm build"
+    echo "   marker $BUILD_MARKER matches HEAD ($NEWHEAD) — skip npm build"
 fi
 
 echo "-- 3. composer install ONLY if composer.lock changed --"
