@@ -597,21 +597,40 @@
                     <span x-text="submitting ? 'Working…' : 'Split &amp; File to Applicant'"></span>
                 </button>
             @else
-            <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
-                    :disabled="submitting || hasMissing || !property"
-                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first, or use \'Link to Contact\' instead')">
-                <span x-text="submitting ? 'Working…' : 'Link'"></span>
-            </button>
+            {{-- Johan, 2026-09-20 — the two buttons are two doors, and only one
+                 of them can ever be walked through: "Link" needs a property,
+                 "Link to Contact" needs an anchor contact, and picking either
+                 one clears the other (pickProp/pickAnchorContact). Leaving the
+                 inapplicable one on screen greyed out was a trap — an agent who
+                 had picked a property and ticked per-page contacts read the word
+                 "contact" on a dead button and concluded the screen was broken,
+                 while its tooltip told them to "pick a contact above first" when
+                 the anchor-contact picker is hidden (x-if="!property") and there
+                 was nothing above to pick. The applicable button is now the only
+                 one rendered; with neither picked BOTH show (disabled), so both
+                 doors stay discoverable. x-if, not x-show, so the button is
+                 genuinely ABSENT from the DOM — the tour engine filters its
+                 steps with document.querySelector(s.element), so a merely
+                 display:none anchor would leave it highlighting nothing. --}}
+            <template x-if="!anchorContact">
+                <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link') }}" data-tour="spr-link"
+                        :disabled="submitting || hasMissing || !property"
+                        :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (property ? 'File every page (across all files above) to its destination(s) and assigned contact(s)' : 'Pick a property first, or use \'Link to Contact\' instead')">
+                    <span x-text="submitting ? 'Working…' : 'Link'"></span>
+                </button>
+            </template>
             {{-- AT-392 — Johan: "the splitter works on a linked property...
                  the linked contact... should be used on the splitter."
                  A genuine second door, not a fallback hidden behind the
                  property-required one above — visible and usable the moment
                  a contact is picked, with no property involved at all. --}}
-            <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link_to_contact') }}" data-tour="spr-link-contact"
-                    :disabled="submitting || hasMissing || !anchorContact"
-                    :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (anchorContact ? 'File every page (across all files above) to this contact' : 'Pick a contact above first')">
-                <span x-text="submitting ? 'Working…' : 'Link to Contact'"></span>
-            </button>
+            <template x-if="!property">
+                <button type="submit" class="btn-gen" formaction="{{ route('tools.pdf_splitter.link_to_contact') }}" data-tour="spr-link-contact"
+                        :disabled="submitting || hasMissing || !anchorContact"
+                        :title="hasMissing ? 'A file in this batch could not be loaded — re-upload the whole batch' : (anchorContact ? 'File every page (across all files above) to this contact' : 'Pick a contact above first')">
+                    <span x-text="submitting ? 'Working…' : 'Link to Contact'"></span>
+                </button>
+            </template>
             @endif
             <button type="submit" class="btn-gen secondary" formaction="{{ route('tools.pdf_splitter.confirm') }}" data-tour="spr-zip"
                     :disabled="submitting || hasMissing"
