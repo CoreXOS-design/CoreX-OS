@@ -4157,3 +4157,122 @@ stated here plainly rather than claimed as passing. Its named replacements
 since this round does not deploy (Johan's explicit instruction; cc5 lands and verifies in a real browser
 next), running them now would only check the pre-existing QA1 page, not this commit's own changes, so they
 were not run. No live-browser verification was performed this round — that is cc5's step, not this one's.
+
+---
+
+### 24.11 The compare viewer does not reflect pairing — investigation and approach only, NOT YET BUILT
+
+**Status: investigation and design only. `show.blade.php` has not been touched.** Sequenced behind cc3's
+concurrent photo-notes Blade pass in the same file, per Johan's explicit instruction — this section is
+written so the change is ready to make the moment cc3 is out and Johan releases the file, not worked out
+live while racing another lane's edits.
+
+Two prior fixes today (§24.10's original interleave, then the follow-up in commit `5e8d3e22b`) covered the
+recording screen's own two-block strip. Neither touched the SEPARATE full-screen compare viewer
+(`compareViewer.*`, §20.17) — confirmed by reading, not assumed: `compareViewerCarouselPhotos()`
+(`show.blade.php:6113-6115`) still reads straight through `compareViewerPhotosForSide()`
+(`:6105-6111`, unchanged since §20.17.3, 2026-09-24), which is a raw per-side photo array with no reference
+anywhere to `photoMatches`/`groupForPhoto`. The viewer's "click a photo, its match loads on the other side"
+mechanic (`compareViewerSelectCarouselPhoto()` `:6127-6140`, `openCompareViewer()` `:6063-6089`, both via
+`compareViewerGroupSideMembers()` `:6145-6149`) already IS pairing-aware and already works — that part of
+"pairing" was built in §20.16/§20.17 and needs no change. What's missing is narrower and specific: the
+PASSIVE order of each side's own carousel/thumbnail rail — what an agent sees scrolling through it, or
+opening the viewer cold — has never reflected pairing at all.
+
+#### What the viewer builds its list from today
+
+`compareViewerPhotosForSide(side)` (`:6105-6111`): resolves `insp` (`chainPredecessor` for left,
+`chainTail` for right), then reads `roomPhotosForInspection(insp, roomId)` when `compareViewer.kind ===
+'room'`, or `conditionForInspection(insp, itemId).photos` when `kind === 'item'` — filtered only for a
+present `storage_path`. Room-kind and item-kind are two different underlying arrays, but the function
+already abstracts that distinction away for every caller. `compareViewerCarouselPhotos(side)`
+(`:6113-6115`) is a one-line pass-through, gated only on `compareViewer.open`.
+
+#### Where pairing data would come from
+
+Exactly what the strip already uses: `this.photoMatches` (the array of group payloads, already loaded —
+`config.inspectionData.photo_matches`, refreshed on every `refreshInspectionData()` call) and
+`this.groupForPhoto(photoId)` (`:5807` at the time of writing — a plain lookup, already used by
+the viewer's OWN existing click-loads-partner mechanic via `compareViewerGroupSideMembers()`). No new data
+plumbing is needed — the viewer already has everything the strip has.
+
+#### The carousel index / selection state — traced, not assumed a risk
+
+`compareViewer.leftPhotoId`/`rightPhotoId` are PHOTO IDs, never array positions (`compareViewer[side +
+'PhotoId'] = photo.id`, `compareViewerCurrentPhoto()`/`compareViewerPhotoById()` both resolve by `.find(p
+=> p.id === id)`). Reordering the array a photo lives in does not invalidate which photo is selected — the
+same photo object is still found by id regardless of where it now sits. The "N of M" position label
+(`:5318`, `:5439`) is computed fresh every render via `.findIndex()`, never cached, so it updates correctly
+on its own when order changes. `compareViewer.step.left`/`.right` (the "1 of 5" stepper) is a SEPARATE
+index into `compareViewerCandidatesFor(side)` — a matched GROUP's own members on one side, an entirely
+different array from the carousel/rail list — reordering the rail does not touch it. Conclusion: there is
+no stale-index risk from reordering the carousel array. The one deliberate, desirable side effect: if an
+agent matches or unmatches a photo from inside the open viewer (`compareViewerMatch()`), `this.photoMatches`
+changes reactively and the rail re-sorts itself immediately — the newly-paired photo jumping toward the
+front of both rails is correct behaviour, not a bug to guard against.
+
+#### Proposed approach
+
+1. **Extract the existing (already fixed, already verified) row-building algorithm out of `pairedStripRows()`
+   into a two-argument, data-only function** — `pairedRows(predPhotos, tailPhotos)` — that takes two
+   already-resolved photo arrays and returns `{predecessorPhoto, tailPhoto, index}[]`: matched-group rows
+   first (sorted by group id, same "insertion order" choice §24.9 already recorded), then every remaining
+   photo on either side, interleaved one-pred/one-tail so neither side is ever starved — the exact logic
+   `5e8d3e22b` proved correct for the strip, just no longer hard-coded to read `itemPhotosForInspection`/
+   `itemPhotosFor` itself.
+2. **`pairedStripRows(item)` becomes a thin wrapper**: `this.pairedRows(this.itemPhotosForInspection(this.chainPredecessor,
+   item.id), this.itemPhotosFor(this.tailSection(), item))`. No behaviour change for the strip — same
+   algorithm, same inputs, just called through the extracted core.
+3. **A new `compareViewerPairedRows()`**: `this.pairedRows(this.compareViewerPhotosForSide('left'),
+   this.compareViewerPhotosForSide('right'))`. Because `compareViewerPhotosForSide()` already branches on
+   `kind` internally, this covers room-kind AND item-kind for free — `pairedRows()` itself only ever looks
+   at `photo.id` and group membership, it has no idea whether the photos came from a room or an item.
+   (Room-level pairs already exist today via the viewer's own pre-existing click-to-match action or
+   auto-pair's room-level key — §24.9's `(property_room_id, null)` case — even though drag-to-pair itself
+   is item-only per Johan's ruling §24.9. The viewer reflecting a pair is a separate concern from what can
+   CREATE one.)
+4. **`compareViewerCarouselPhotos(side)` is redefined in terms of it**, keeping its exact existing
+   signature and return shape (an array of photo objects) so every template binding that already consumes
+   it — the "N of M" label, both thumbnail rails, the single-mode carousel — needs no change at all:
+   ```
+   compareViewerCarouselPhotos(side) {
+       if (!this.compareViewer.open) return [];
+       return this.compareViewerPairedRows()
+           .map(r => side === 'left' ? r.predecessorPhoto : r.tailPhoto)
+           .filter(Boolean);
+   }
+   ```
+   Filtering out the null half of each row is enough — the viewer's two rails are independent scrollable
+   lists, not a fixed two-column grid like the strip, so there is no "NO MATCH" placeholder tile to invent
+   here; a side's own unmatched photos simply follow its own matched ones, in its own rail. "Labelled with
+   the side it came from" (the spec's own wording) is already satisfied structurally — each rail sits
+   under its own pane, already headed "IN"/"CURRENT" (§20.17.3) — not something this change needs to add.
+5. **`openCompareViewer(photo, insp)` is untouched** — its signature, its behaviour, and every line inside
+   it stay exactly as they are. This satisfies the settled contract by construction, not by care taken
+   around it: nothing above calls or modifies it.
+
+**Proof the "nothing paired yet" case degrades to today's exact behaviour, not an empty or reordered
+carousel:** with zero relevant groups, `pairedRows(pred, tail)` produces only the interleave step —
+`unmatchedPred` is the FULL `pred` array (nothing was ever added to `usedPred`) and `unmatchedTail` is the
+full `tail` array, walked in their own original order and merely alternated pred-row/tail-row/pred-row/....
+Mapping `compareViewerCarouselPhotos('left')` back out and filtering nulls recovers `pred` in its exact
+original order — every OTHER row in the interleave is a tail-only row contributing `null` to the
+predecessor side, filtered away. Same for the right side. **This is a provable no-op on the common,
+fresh-inspection case, not merely an expectation** — the fresh, nothing-paired screen looks identical to
+today's.
+
+**Secondary, NOT decided here — flagged for Johan, not silently folded in:** `compareViewerSelectItem()`
+(`:6291-6313`, switching room/item tabs inside an already-open viewer) currently defaults the left/right
+selection to `compareViewerPhotosForSide(side)[0]` — array position, not pairing order. Swapping that one
+read to `compareViewerCarouselPhotos(side)[0]` would make the tab-switch default consistent with the new
+rail order (land on the first PAIR when one exists, rather than an arbitrary upload-order photo) — a small,
+low-risk, one-line change, but it is an addition to what was asked for ("order the carousel"), not required
+by it, so it is named here rather than made without asking.
+
+**Files this will touch when built:** `resources/views/corex/properties/show.blade.php` only — the
+extraction described above, entirely inside the existing `rentalImages()` script block. No other file.
+Estimated surface: the existing ~23-line `pairedStripRows()` body moves into a new `pairedRows(predPhotos,
+tailPhotos)`, both wrapper functions become one-line calls into it, `compareViewerCarouselPhotos()` gains a
+`compareViewerPairedRows()` companion. No template (`.blade.php` markup) changes are needed anywhere in
+this round — every consumer of `compareViewerCarouselPhotos()` already expects exactly the shape it will
+keep returning.
