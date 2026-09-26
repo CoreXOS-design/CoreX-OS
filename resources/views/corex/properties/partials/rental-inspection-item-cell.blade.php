@@ -86,59 +86,86 @@
 
     <div style="display:flex; align-items:stretch; flex:1; min-width:0;">
         <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
-            <div style="position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0;">
+            {{-- AT-433 Part A, 2026-09-26 — photo strip. Tiles come from
+                 stripTilesForInspection()/stripTilesFor() in show.blade.php,
+                 each { index, photo }: photo null means "shorter side"
+                 (renders the NO MATCH placeholder below), and both cells
+                 read the SAME shared count (stripPairCount()) so slot N is
+                 always slot N on both sides — the point of this screen.
+                 Pairing is POSITIONAL ONLY right now (tile.index is plain
+                 array position, not a real photo-match id) — see the
+                 stripPairCount() docblock in show.blade.php for exactly
+                 where Part B's real pair id replaces it, including the two
+                 :key bindings and the two x-text badges below. --}}
+            <div class="rir-strip-row">
+{{-- FIX, 2026-09-26 — the first draft of this block nested two sibling
+     <template x-if> tags (photo / NO MATCH) inside this <template x-for>.
+     x-for requires exactly ONE root element per iteration to clone, same
+     as x-if's own single-root rule above it — two sibling <template>
+     children broke that and rendered nothing. Fixed to one root
+     <div>/<button> per iteration, with x-show (not nested x-if) toggling
+     the photo-vs-placeholder content inside it. --}}
 @if($readOnly)
-                <template x-for="photo in itemPhotosForInspection({{ $inspectionJs }}, item.id)" :key="photo.id">
-                    <div class="relative rounded-md rir-item-photo-tile">
-                        {{-- Johan, 2026-09-23 — the standalone Compare
-                             section is being removed (cc2); comparison now
-                             lives entirely in cc2's photo-comparison modal,
-                             opened the SAME way from either cell. No
-                             separate single-photo viewer here — clicking
-                             either side's thumbnail opens the one shared
-                             comparison modal for this item (cc2 owns
-                             openCompareViewer() and everything it reads,
-                             untouched by this file). openCompareViewer(photo,
-                             insp) — on this (readOnly) branch $inspectionJs
-                             IS the inspection object already (chainPredecessor
-                             by default, see this file's own docblock), so it
-                             is passed straight through as insp. --}}
-                        <img :src="photo.storage_path" style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
-                             @click="openCompareViewer(photo, {{ $inspectionJs }})" alt="">
+                <template x-for="tile in stripTilesForInspection({{ $inspectionJs }}, item).slice(0, stripVisibleCount(item))" :key="tile.index">
+                    <div class="relative rounded-md rir-strip-tile" :class="tile.photo ? '' : 'rir-strip-nomatch'">
+                        <span class="rir-strip-badge" x-text="tile.index + 1"></span>
+                        {{-- openCompareViewer(photo, insp) — on this
+                             (readOnly) branch $inspectionJs IS the
+                             inspection object already (chainPredecessor
+                             by default, see this file's own docblock),
+                             so it is passed straight through as insp. --}}
+                        <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
+                             style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
+                             @click="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})" alt="">
+                        <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
                     </div>
                 </template>
 @else
-                <template x-for="photo in itemPhotosFor({{ $inspectionJs }}, item)" :key="photo.id">
-                    <div class="relative rounded-md rir-item-photo-tile"
-                         :style="photoUploader({{ $inspectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
-                        {{-- openCompareViewer(photo, insp) — on THIS (live)
-                             branch $inspectionJs is a section-type expression
-                             ('tailSection()' per this file's own docblock),
-                             not an inspection object, so it cannot be passed
-                             as insp here. This branch only ever renders the
-                             chain's tail, so chainTail (the same root-level
-                             property cc2's own implementation already reads
-                             via this.chainTail) is the correct inspection
+                <template x-for="tile in stripTilesFor({{ $inspectionJs }}, item).slice(0, stripVisibleCount(item))" :key="tile.index">
+                    <div class="relative rounded-md rir-strip-tile" :class="tile.photo ? '' : 'rir-strip-nomatch'"
+                         :style="tile.photo && photoUploader({{ $inspectionJs }}).isSelected(tile.photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
+                        <span class="rir-strip-badge" x-text="tile.index + 1"></span>
+                        {{-- openCompareViewer(photo, insp) — on THIS
+                             (live) branch $inspectionJs is a section-type
+                             expression ('tailSection()' per this file's
+                             own docblock), not an inspection object, so it
+                             cannot be passed as insp here. This branch
+                             only ever renders the chain's tail, so
+                             chainTail (the same root-level property cc2's
+                             own implementation already reads via
+                             this.chainTail) is the correct inspection
                              object. --}}
-                        <img :src="photo.storage_path" style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
-                             @click="openCompareViewer(photo, chainTail)" alt="">
-                        <button type="button" @click.stop="photoUploader({{ $inspectionJs }}).toggleSelected(photo.id)"
-                                class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
-                                :style="photoUploader({{ $inspectionJs }}).isSelected(photo.id) ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:rgba(0,0,0,0.5); color:#fff;'"
+                        <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
+                             style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
+                             @click="tile.photo && openCompareViewer(tile.photo, chainTail)" alt="">
+                        <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
+                        <button type="button" x-show="tile.photo" @click.stop="photoUploader({{ $inspectionJs }}).toggleSelected(tile.photo.id)"
+                                class="absolute bottom-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                :style="tile.photo && photoUploader({{ $inspectionJs }}).isSelected(tile.photo.id) ? 'background:var(--brand-icon,#0ea5e9); color:#fff;' : 'background:rgba(0,0,0,0.5); color:#fff;'"
                                 title="Select">&check;</button>
-                        <button type="button" x-show="group.room" @click.stop="photoUploader({{ $inspectionJs }}).tagPhoto(photo.id, { property_room_id: group.room?.id })"
+                        <button type="button" x-show="tile.photo && group.room" @click.stop="photoUploader({{ $inspectionJs }}).tagPhoto(tile.photo.id, { property_room_id: group.room?.id })"
                                 class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                 style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to room">&uarr;</button>
-                        <button type="button" @click.stop="photoUploader({{ $inspectionJs }}).untagPhoto(photo.id)"
+                        <button type="button" x-show="tile.photo" @click.stop="photoUploader({{ $inspectionJs }}).untagPhoto(tile.photo.id)"
                                 class="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                 style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to untagged">&#8657;</button>
                     </div>
                 </template>
 @endif
+                {{-- Item 4, AT-433 Part A — beyond 4 slots, collapse the
+                     rest behind a count tile; clicking it (or the
+                     room-level control) expands every slot for this item
+                     on both sides. --}}
+                <template x-if="stripMoreCount(item) > 0">
+                    <button type="button" class="relative rounded-md rir-strip-tile rir-strip-more" @click="toggleItemStrip(item)"
+                            :title="'Show all ' + stripPairCount(item)">
+                        <span x-text="'+' + stripMoreCount(item)"></span>
+                    </button>
+                </template>
             </div>
 @unless($readOnly)
             <label class="rounded-md cursor-pointer rir-add-tile"
-                   :style="'left:min(' + (itemPhotosFor({{ $inspectionJs }}, item).length * 171) + 'px, calc(100% - 124px));' + ((obsField({{ $inspectionJs }}, item.id).photos || []).length
+                   :style="'left:min(' + ((stripVisibleCount(item) + (stripMoreCount(item) > 0 ? 1 : 0)) * 92) + 'px, calc(100% - 124px));' + ((obsField({{ $inspectionJs }}, item.id).photos || []).length
                         ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
                         : 'background:var(--surface-2); color:var(--text-secondary);')"
                    :title="(obsField({{ $inspectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">

@@ -98,6 +98,18 @@
     .rir-room-photo-tile { aspect-ratio:1/1; background:var(--surface-3); }
     .rir-marquee-rect { position:absolute; border:1px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); pointer-events:none; }
     .rir-tray-tile { position:relative; width:3rem; height:3rem; }
+    /* AT-433 Part A, 2026-09-26 — the comparison-row photo strip. A NEW
+       tile, not a resize of .rir-item-photo-tile above: that class is
+       still used for the tray/upload preview list elsewhere on this
+       screen, so it keeps its own 165x124 size. .rir-strip-row is the
+       horizontal scroller (always scrollable, never wraps — a narrow
+       viewport scrolls instead of silently clipping tiles). */
+    .rir-strip-row { position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0; }
+    .rir-strip-tile { display:inline-block; vertical-align:top; width:86px; height:64px; overflow:hidden; background:var(--surface-3); margin-right:6px; box-sizing:border-box; }
+    .rir-strip-badge { position:absolute; top:2px; left:2px; min-width:16px; height:16px; padding:0 3px; border-radius:8px; background:rgba(0,0,0,0.65); color:#fff; font-size:10px; font-weight:700; line-height:16px; text-align:center; z-index:1; pointer-events:none; }
+    .rir-strip-nomatch { display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px dashed var(--border); }
+    .rir-strip-nomatch-label { font-size:8px; font-weight:700; letter-spacing:0.02em; color:var(--text-muted); text-align:center; line-height:1.2; padding:0 4px; }
+    .rir-strip-more { display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary); font-size:0.75rem; font-weight:700; padding:0; margin-right:6px; cursor:pointer; }
     /* Add-tile, 2026-09-22 — a sibling of the overflow-x:auto scroller (never a
        descendant of it, so it can never scroll out of reach), absolutely
        positioned against the same position:relative wrapper the scroller
@@ -472,6 +484,20 @@
                                 <input type="file" accept="image/*" multiple class="hidden"
                                        @change="onRoomPhotosSelected({{ $sectionJs }}, group.room, $event.target.files); $event.target.value = null;">
                             </label>
+                        </template>
+                        {{-- AT-433 Part A, 2026-09-26 — one master switch for
+                             every item's own photo-strip collapse state in
+                             this room, both cells at once (the state is
+                             keyed by item id only, not by side — see
+                             toggleAllItemStrips()/toggleItemStrip() in
+                             show.blade.php). Only rendered on the editable
+                             (tail) side; the predecessor cell has no room
+                             header of its own to hang a control on, but it
+                             shares and reacts to the same state. --}}
+                        <template x-if="group.items.length">
+                            <button type="button" @click="toggleAllItemStrips(group)"
+                                    class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
+                                    x-text="allItemStripsOpenInRoom(group) ? 'Collapse photos' : 'Expand photos'"></button>
                         </template>
                         {{-- Item 5/7 fix, 2026-09-22 — these have zero effect
                              once the room has nothing left to fill; showing

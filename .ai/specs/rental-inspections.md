@@ -2947,6 +2947,109 @@ in a browser, which this verification pass deliberately did not do.
 
 ---
 
+## 20.20 AT-433 Part A — item-cell photos become horizontal strips (2026-09-26, cc)
+
+**Numbering note:** this branch was cut from `origin/QA1` at a point that does not yet include a §20.19
+authored on a separate, still-unmerged branch (`origin/cc-inspection-tab-header-controls-2026-09-25` —
+"Next inspection" moved to the section header; "Add photo section" removed). That number is already
+spoken for there, so this round is filed as §20.20 to avoid a collision when the two branches merge —
+whoever performs that merge should confirm no third branch has also claimed 20.20 in the meantime.
+
+Johan approved a mockup: each cell's photos in the item-level comparison row
+(`rental-inspection-item-cell.blade.php`, included twice per row by `rental-inspection-recording.blade.php`'s
+shared `rir-compare-row`/`rir-compare-cell` grid) become a fixed-size horizontal strip of small thumbnails
+instead of the previous 165x124 inline-block scroll strip. Layout only — no data model change, no change to
+`openCompareViewer(photo, insp)`'s two-argument contract, no change to recording/autosave logic. The room-level
+photo gallery (`.rir-room-photo-tile`) and the untagged tray (`.rir-tray-tile`) are untouched and keep their
+existing sizes — a new tile class was added rather than resizing either.
+
+**New CSS** (`rental-inspection-recording.blade.php`'s own `<style>` block, alongside the existing
+`.rir-item-photo-tile`/`.rir-room-photo-tile`/`.rir-tray-tile`): `.rir-strip-row` (the horizontal scroller —
+always `overflow-x:auto`, never wraps, so a strip too wide for its cell scrolls instead of silently clipping
+or pushing the page sideways), `.rir-strip-tile` (86x64, 6px gap, the new thumbnail), `.rir-strip-badge`
+(the pair-number badge), `.rir-strip-nomatch`/`.rir-strip-nomatch-label` (the gap placeholder), `.rir-strip-more`
+(the "+N" collapse tile).
+
+**Pairing is positional only — the seam Part B replaces.** `stripPairCount(item)` (show.blade.php, next to
+`isRoomOpen`) is `Math.max(predecessor's photo count, tail's photo count)` for that item; `_stripPad()` builds
+an array of `{ index, photo }` up to that count, `photo` null wherever a side has fewer photos than the other.
+Both cells call this with the SAME item, so slot N is always slot N on both sides — `tile.index` (0-based,
+badge shows `index + 1`) is a plain array position today, not a real photo-match id. **The exact swap point for
+Part B's real pair id:** the `index` field returned by `_stripPad()` in show.blade.php, plus the two
+`:key="tile.index"` bindings and the two `x-text="tile.index + 1"` badges in
+`rental-inspection-item-cell.blade.php` — replace `index` with the real pair/group id in those four places and
+nothing else in this round needs to change.
+
+**NO MATCH placeholder.** Wherever `tile.photo` is null (the shorter side, for that slot), a `.rir-strip-nomatch`
+tile renders in the same footprint, still carrying the position badge — a missing photo is visible, not silently
+absent.
+
+**Collapse beyond 4.** `stripVisibleCount(item)`/`stripMoreCount(item)` (show.blade.php) cap the rendered slots
+at 4 (real or NO MATCH) plus a `.rir-strip-more` "+N" tile when the shared pair count exceeds 4; the cap and the
+"+N" count are computed against the SAME shared paired count both cells read, not each side's own raw photo
+count, so collapsed and expanded states always show the identical number of slots on both sides — the same
+reasoning that keeps thumbnail N level with thumbnail N. Clicking "+N" (or the room-level control below) expands
+every slot for that item on both sides at once.
+
+**Per-item and room-level expand/collapse, remembered per user.** `itemStripExpanded` (show.blade.php) is keyed
+by `item.id` only — not by side — so one state drives both cells. `toggleItemStrip(item)` is the per-item
+control (the tile itself, or its own "+N" tile); `toggleAllItemStrips(group)`/`allItemStripsOpenInRoom(group)`
+is the new room-level master switch, added to the room heading's existing button cluster in
+`rental-inspection-recording.blade.php` (next to "All Good"/"Mark room N/A"), rendered only on the editable
+(tail) render pass — the predecessor cell has no room header of its own to hang a control on, but shares and
+reacts to the same state regardless of which side toggled it. **No per-user preference endpoint exists for this
+screen** — checked first: `roomOpenOverride`/`roomPhotosExpanded` (the screen's other two "remembered" UI
+states) are both plain in-memory Alpine objects, never persisted server-side. Rather than inventing a second
+persistence mechanism, this reuses the same client-only `localStorage` pattern the page's own sidebar collapse
+(`hfc.propSidebar.collapsed`) already uses, under the key `hfc.inspStripExpanded`, loaded in a new `init()` on
+`rentalImages()` (which had no `init()` before this round). This is browser-local, not a real per-account
+server-side preference — flagged here rather than silently treated as equivalent; building the latter is a
+separate decision if Johan wants the state to follow an agent across devices.
+
+**Found, not fixed — reported per scope lock, not touched:**
+- `RentalInspectionChainTest.php`'s `both comparison cells open the shared compare viewer on photo click` test
+  (line 581) asserts the rendered page contains the literal string
+  `openCompareViewer('item', 'item_' + item.id, null, item)` — a 4-argument call shape that has never matched
+  the actual, settled `openCompareViewer(photo, insp)` two-argument contract (§20.17.2) at any point in this
+  branch's history, confirmed by grepping the pre-edit `HEAD` copy of `rental-inspection-item-cell.blade.php`
+  (0 matches, same as after this round's edit). Pre-existing failure, unrelated to this round's diff — the
+  count this assertion checks was already 0 before this change and stays 0 after it.
+
+### 20.20.1 Sweeps run against every changed Blade file, per the four standing gotchas on this screen
+
+- Bound `:style` co-located with a static `style` attribute on the same tag: **0 found.**
+- A literal `"` inside a `//` comment inside a quoted Alpine attribute: **0 found** — every `//` comment
+  landed inside `show.blade.php`'s real `<script>` tag (not inside any `x-...="..."` attribute string), and
+  the two Blade partials use only `{{-- --}}` comments, never an inline `//` inside an attribute.
+- `<template x-if>`/`<template x-for>` wrapping multi-root content: **1 found and fixed during this round**
+  (not shipped) — the first draft nested two sibling `<template x-if>` tags (photo / NO MATCH) inside one
+  `<template x-for>` in `rental-inspection-item-cell.blade.php`; x-for needs exactly one root element per
+  iteration just like x-if does, and two sibling `<template>` children broke that. Rewritten to one root
+  `<div>`/`<button>` per iteration, with `x-show` (not nested `x-if`) toggling the photo-vs-placeholder
+  content inside it. 0 remaining after the fix.
+- `hasOwnProperty` on Alpine 3 reactive state: **0 found.**
+
+### 20.20.2 Files touched this round
+
+- `resources/views/corex/properties/partials/rental-inspection-item-cell.blade.php` — the photo-rendering
+  block (both the read-only/predecessor and live/tail branches) rewritten around `stripTilesForInspection()`/
+  `stripTilesFor()`; the existing select-checkbox control moved from top-left to bottom-left on the live cell
+  to make room for the new top-left pair badge (tag-to-room and untag stay top-right/bottom-right, unchanged)
+- `resources/views/corex/properties/partials/rental-inspection-recording.blade.php` — new `<style>` rules
+  (`.rir-strip-row`/`.rir-strip-tile`/`.rir-strip-badge`/`.rir-strip-nomatch`/`.rir-strip-nomatch-label`/
+  `.rir-strip-more`); the room heading's button cluster gained the "Expand photos"/"Collapse photos" toggle
+- `resources/views/corex/properties/show.blade.php` — `stripPairCount()`, `_stripPad()`,
+  `stripTilesForInspection()`, `stripTilesFor()`, `stripVisibleCount()`, `stripMoreCount()`,
+  `itemStripExpanded`, `isItemStripExpanded()`, `toggleItemStrip()`, `allItemStripsOpenInRoom()`,
+  `toggleAllItemStrips()`, `_persistStripExpanded()`, and a new `init()` on `rentalImages()`
+
+### 20.20.3 Not built this round (Part B, explicitly out of scope)
+
+Real pairing (matching left/right photos by their actual photo-match-group relationship rather than array
+position) and the pair-id-based badge/key described in §20.20.1's swap point above.
+
+---
+
 ## 21. Add an item to an EXISTING room (2026-09-22, cc1) — there was no way to do this at all
 
 Johan, verbatim, looking at property 4862's Inspection Items panel: *"I want to add lets say bic to
