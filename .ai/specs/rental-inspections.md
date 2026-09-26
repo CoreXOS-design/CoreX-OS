@@ -3655,14 +3655,14 @@ is, for example, computed only in a Blade view with no underlying queryable reco
 
 ## 24. AT-433 Part B — drag-to-pair, auto-pair proposal, viewer paired-first ordering
 
-**Status, 2026-09-26 (updated): the BACKEND is built and verified — migration, setting, auto-pair
-service, controller endpoint, route, and the Setup Wizard entry (§24.9). The Blade/JS layer (drag gesture,
-viewer paired-first ordering, "on first view" wiring) is still NOT built** — deliberately sequenced behind
-cc1's concurrent restyle of `rental-inspection-recording.blade.php`/`rental-inspection-item-cell.blade.php`
-(worktree `insp-photo-pairing-2026-09-26`'s sibling, `.../corex-worktrees/insp-photo-strips-2026-09-26`,
-Part A) — §24.6 identifies those same two files as this feature's own attachment point, so that markup
-pass waits for Part A to land on QA1 and this branch to rebase onto it. §24.1-24.8 below are the original
-investigation, kept as written; §24.9 records Johan's rulings and what was actually built against them.
+**Status, 2026-09-26 (updated again): BACKEND and BLADE/JS are both built.** Backend — migration, setting,
+auto-pair service, controller endpoint, route, Setup Wizard entry (§24.9). Blade/JS — real pair-based
+strip ordering (replacing Part A's positional stand-in), the drag gesture, the transient predecessor
+drop-target, the automatic first-view trigger plus the explicit "Auto-pair" button, and the staged-photo
+refusal (§24.10). Rebased onto QA1 `e22983c2b` (Part A landed and verified — a real upload survived a
+reload — plus the add-tile/strip-overlap fix) before any markup was touched, per Johan's explicit release.
+§24.1-24.8 below are the original investigation, kept as written; §24.9 records the backend rulings/build;
+§24.10 records the Blade/JS rulings/build.
 
 Johan's feature, verbatim in substance: two blocks side by side; drag a photo to pair it with its
 counterpart, or tag them to link them; the photo viewer shows the tagged pairs first, then the unmatched
@@ -4081,3 +4081,79 @@ was created for the PHPUnit run above, following the box's own sanctioned per-la
 convention (Standard −1a) — it was NOT dropped afterward (the shell command was blocked by this session's
 own tool-permission gate on both a raw `DROP DATABASE` and a Tinker-issued equivalent); it is empty and
 harmless but should be dropped by whoever next has that permission.
+
+---
+
+### 24.10 Blade/JS built, 2026-09-26, on top of Part A + the overlap fix (QA1 `e22983c2b`)
+
+Rebased onto QA1 after Johan confirmed Part A (photo strips) and `0ca4501fa` (kill the add-tile/strip
+overlap class, staged-photo pending tile) were both merged, deployed, and verified — a real upload
+survived a reload. Two things in that landed code changed what this section builds against, both handled
+below: `.rir-strip-row` is a real flex container (no absolutely-positioned drop-target sibling is ever
+added here — see each drag/drop binding's own comment); and a staged (picked, not yet uploaded) photo now
+renders as its own PENDING tile with no server id.
+
+**Real pairing replaces Part A's positional stand-in.** `stripTilesForInspection()`/`stripTilesFor()`
+(`show.blade.php`) previously zipped the predecessor/tail photo arrays by raw index — Part A's own
+docblock named this a deliberate stand-in for Part B. `pairedStripRows(item)` is now the ONE function
+deciding row order for BOTH cells: every matched group touching this item's own photo pool first (ordered
+by group id — the insertion-order choice already recorded in §24.9), each row spending one predecessor and
+one tail member so neither is reused by a later row; then whichever side has a photo nobody has claimed,
+"NO MATCH" on the other side. `item-cell.blade.php`'s own `:key="tile.index"`/`x-text="tile.index + 1"`
+bindings needed NO change — `index` is still a stable per-row position, just computed from real pairs now.
+
+**Drag-to-pair.** The tail (live) tile is the only ever drag source (`:draggable="!!tile.photo"`,
+`photoDraggedForPairing()`, which calls `photoUploader(section).dragStartSelection()` — the exact same
+function the untagged tray already uses for its own drag-onto-a-room gesture, per Johan's instruction not
+to build a second mechanism); the predecessor (read-only) tile is the only ever drop target
+(`pairDragOverTile()`/`pairDropOnPredecessor()`). Direction is fixed exactly as ruled — never reversed.
+
+**Transient drop target, no persistent affordance.** `pairDragActive` (set on drag start, cleared on drag
+end/drop) gates the predecessor tile's drop-target class (`.rir-strip-pair-eligible`/`.rir-strip-pair-over`,
+new CSS alongside `.rir-strip-row`'s own block) — a tile carries neither class at any time no drag is in
+flight. Neither `pairDragOverTile()` nor `pairDropOnPredecessor()` uses Alpine's `.prevent` modifier
+(which would call `preventDefault()` unconditionally on every dragover/drop, foreign drags included); both
+call it manually, only inside their own `pairDragActive` guard — an unrelated drag (the pre-existing,
+separate, explicitly out-of-scope desktop-file-onto-the-strip question Johan named this round) sees
+identical behaviour to before this feature existed.
+
+**Staged photo — refused, visibly.** The PENDING tile is also draggable (`dragStartSelection(event,
+null)` — the agent has no way to know in advance a drop will be refused, so the drag itself is not blocked)
+but carries no id; `pairDropOnPredecessor()` detects the id-less payload and sets the same `this.error`
+banner every other failure on this screen already uses ("This photo is still uploading — it can be paired
+once it has finished."), never a silent no-op.
+
+**Auto-pair, both triggers.** `maybeAutoPairPhotos()` (called from `init()` for a property whose chain
+already has both sides on first render, and again from `refreshInspectionData()` after starting an
+inspection or advancing the chain) runs the automatic, unambiguous-only pairing once per predecessor/tail
+pair — keyed on the pair's own two ids, not just "ran once this page load," so a genuinely new pair still
+gets its own run. The "Auto-pair" button (new toolbar row beside "Next inspection:", gated on both
+`chainTail` and `chainPredecessor`) calls the same `runAutoPair()` directly, bypassing that guard — its
+whole purpose is re-running after new photos are added, exactly as ruled. Both read `auto_pair_photos_enabled`
+from `RentalInspection::tabPayloadFor()`'s own flag (already threaded in §24.9); the button itself always
+works regardless of the setting.
+
+**Breaking a pair** — unchanged from §20.16/§24.9: `toggleCompareMatch()`'s existing DELETE path, soft
+delete only, never touched by this round.
+
+**Not built, named on purpose (per instruction, not an oversight):** file drops from the desktop onto the
+strip — pre-existing, separate, Johan's own question to raise elsewhere. Room-level drag-pairing — §24.9's
+own recorded gap (no predecessor-side room gallery exists yet). Manual reordering of an already-paired
+set — §24.9's own recorded gap (insertion order only).
+
+**Files touched:** `resources/views/corex/properties/show.blade.php` (URLs, state, the six new
+methods, the toolbar button, `pairedStripRows()` replacing `_stripPad()`, `init()`/
+`refreshInspectionData()` wiring); `resources/views/corex/properties/partials/rental-inspection-item-cell.blade.php`
+(drag/drop attributes on the three tile kinds); `resources/views/corex/properties/partials/rental-inspection-recording.blade.php`
+(two new CSS classes only). No other file changed.
+
+**Verification this round:** `php -l` clean on all three files. `php artisan view:cache` — compiles every
+Blade template in the app, including these three — clean (this is the real structural check for a Blade
+file; the STANDARDS.md incident this check guards against was exactly this class of defect, an unbalanced
+directive silently breaking a page). `dev-check.ps1` — confirmed via `.ai/STANDARDS.md` ("There is no
+`pwsh` on this box. It has never run here, for any build, ever") that it cannot run in this environment;
+stated here plainly rather than claimed as passing. Its named replacements
+(`fetch-authenticated-page.php` + `verify-alpine-render.mjs`) verify a DEPLOYED page's real rendered HTML —
+since this round does not deploy (Johan's explicit instruction; cc5 lands and verifies in a real browser
+next), running them now would only check the pre-existing QA1 page, not this commit's own changes, so they
+were not run. No live-browser verification was performed this round — that is cc5's step, not this one's.

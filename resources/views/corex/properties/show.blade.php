@@ -4711,6 +4711,11 @@
                     // call time (the id is not known until a match exists).
                     photoMatchesStore: '{{ route('corex.properties.rental-inspection-photo-matches.store', $property) }}',
                     photoMatchesBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspection-photo-matches') }}',
+                    // §24.5, AT-433 Part B — the same idempotent auto-pair
+                    // run, called both automatically on first view (once
+                    // chainPredecessor/chainTail are both present) and from
+                    // the explicit "Auto-pair" button.
+                    photoMatchesAutoPair: '{{ route('corex.properties.rental-inspection-photo-matches.auto-pair', $property) }}',
                     // Base for the inspection-scoped actions below — each one appends
                     // /{id}/... itself, since which inspection is current changes at
                     // runtime (a new one can be started without a page reload).
@@ -5059,6 +5064,21 @@
                              the chain's first link (RentalInspection::startNext()'s
                              own guard). --}}
                         @permission('rental_inspections.create')
+                            {{-- §24.5, AT-433 Part B — the explicit "Auto-pair"
+                                 button from Johan's approved mockup: re-runs
+                                 the same unambiguous-only matching that fires
+                                 automatically on first view, for whenever new
+                                 photos have been added since. Gated on BOTH
+                                 sides existing — auto-pair needs a predecessor
+                                 AND a tail to compare, same precondition
+                                 runAutoPair() itself checks. --}}
+                            <div x-show="chainTail && chainPredecessor" x-cloak class="flex items-center gap-2 flex-wrap pr-3 py-1.5">
+                                <button type="button" :disabled="autoPairBusy" @click="runAutoPair()"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                                        title="Link any obviously-matching photos between this inspection and its predecessor.">
+                                    <span x-text="autoPairBusy ? 'Pairing…' : 'Auto-pair'"></span>
+                                </button>
+                            </div>
                             <div x-show="chainTail" x-cloak class="flex items-center gap-2 flex-wrap pr-3 py-1.5">
                                 <span x-show="nextError" x-cloak class="text-xs" style="color:#ef4444;" x-text="nextError"></span>
                                 <span class="text-xs font-semibold" style="color:var(--text-secondary);"
@@ -5693,6 +5713,10 @@
                 // §20.16 — every match GROUP touching the current predecessor/
                 // tail pair (server-scoped — see RentalInspection::tabPayloadFor()).
                 photoMatches: config.inspectionData.photo_matches,
+                // §24.5/§24.7, AT-433 Part B — whether maybeAutoPairPhotos()
+                // (below) should call the auto-pair endpoint automatically;
+                // the explicit "Auto-pair" button always works regardless.
+                autoPairPhotosEnabled: config.inspectionData.auto_pair_photos_enabled,
                 // .ai/specs/rental-work-orders.md §3a.5/§6a, Stage 5 — read-only,
                 // never edited from here (a fault report is resolved from its
                 // own screen or the property tab, §6a's own instruction).
@@ -5730,6 +5754,17 @@
                 // `insp.photos` arrives already populated by tabPayloadFor()'s
                 // eager load — untagged (tray), room-tagged, or item-tagged.
                 dragOverRoom: null,
+                // §24.6, AT-433 Part B — a drag-to-pair is in progress
+                // (photoDraggedForPairing() below started it). Read by the
+                // predecessor (read-only) cell's tile to decide whether to
+                // render as a drop target AT ALL — Johan's ruling: "The cell
+                // gains a drop target ONLY while a drag is in progress — no
+                // persistent affordance, no hover state, nothing on that
+                // cell when the agent is not dragging." pairDragOverId is
+                // the finer "currently over THIS tile" highlight, cleared on
+                // dragleave/drop/dragend regardless of outcome.
+                pairDragActive: false,
+                pairDragOverId: null,
                 trayTagRoomChoice: '',
                 // R1, 2026-09-22 — room photos default to one row (Johan:
                 // "maybe show 1 row of photos, then expand to see more?"),
@@ -5820,6 +5855,121 @@
                     });
                     if (res.ok) {
                         this._applyGroupPatch(await res.json(), [leftPhoto.id, rightPhoto.id]);
+                    }
+                },
+
+                // §24.6, AT-433 Part B — drag a tail-side (current-inspection)
+                // photo onto its predecessor-side counterpart. Reuses
+                // photoUploader().dragStartSelection() exactly as it already
+                // exists for the untagged tray's drag-onto-a-room gesture
+                // (rental-inspection-recording.blade.php) rather than a
+                // second drag mechanism — same dataTransfer payload shape,
+                // same effectAllowed. Direction is fixed per Johan's own
+                // words ("drag it left onto the photo it matches"): only the
+                // tail tile is ever draggable; only the predecessor tile is
+                // ever a drop target. Never reversed.
+                photoDraggedForPairing(section, photoId, event) {
+                    this.photoUploader(section).dragStartSelection(event, photoId);
+                    this.pairDragActive = true;
+                },
+                photoDragEndForPairing() {
+                    this.pairDragActive = false;
+                    this.pairDragOverId = null;
+                },
+                // Called on the predecessor tile's OWN @dragover — never
+                // .prevent at the Alpine-directive level, because that would
+                // call preventDefault() on EVERY dragover regardless of
+                // whether it's our own pairing drag, silently enabling drop
+                // for an unrelated drag too (e.g. a desktop file dropped on
+                // this exact strip — a separate, pre-existing, explicitly
+                // out-of-scope question named on this same round). Only our
+                // own in-progress pairing drag (pairDragActive) ever calls
+                // preventDefault() here, so any other drag over this tile
+                // behaves exactly as it did before this feature existed.
+                pairDragOverTile(event, predecessorPhoto) {
+                    if (!predecessorPhoto || !this.pairDragActive) return;
+                    event.preventDefault();
+                    this.pairDragOverId = predecessorPhoto.id;
+                },
+                // Same non-.prevent discipline as pairDragOverTile() above —
+                // only calls preventDefault()/acts when it's genuinely our
+                // own pairing drag; anything else falls through untouched.
+                async pairDropOnPredecessor(event, predecessorPhoto) {
+                    if (!predecessorPhoto || !this.pairDragActive) return;
+                    event.preventDefault();
+                    this.pairDragActive = false;
+                    this.pairDragOverId = null;
+
+                    let ids = [];
+                    try { ids = JSON.parse(event.dataTransfer.getData('text/plain') || '[]'); } catch (e) {}
+                    if (!ids.length) return;
+
+                    // Johan's ruling, 2026-09-26 — a staged (picked, not yet
+                    // uploaded) photo has no server id yet
+                    // (dragStartSelection() was called with `null` for it,
+                    // see the staged tile's own dragstart in
+                    // rental-inspection-item-cell.blade.php); refused with
+                    // the reason VISIBLE, never silently ignored.
+                    if (ids.includes(null) || ids.includes(undefined)) {
+                        this.error = 'This photo is still uploading — it can be paired once it has finished.';
+                        return;
+                    }
+
+                    for (const photoId of ids) {
+                        if (photoId === predecessorPhoto.id) continue; // dropped a photo onto itself — no-op, not an error
+                        const res = await fetch(this.inspectionUrls.photoMatchesStore, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                            body: JSON.stringify({ photo_id: photoId, anchor_photo_id: predecessorPhoto.id }),
+                        });
+                        if (res.ok) {
+                            this._applyGroupPatch(await res.json(), [photoId, predecessorPhoto.id]);
+                        } else {
+                            const data = await res.json().catch(() => ({}));
+                            this.error = data.message || 'Could not pair those photos — please try again.';
+                        }
+                    }
+                },
+
+                // §24.5, AT-433 Part B — Johan's ruling: auto-pair runs
+                // automatically the first time an item's comparison is
+                // viewed (once chainPredecessor/chainTail both exist), and
+                // again from the explicit "Auto-pair" button (which calls
+                // runAutoPair() directly, bypassing the "already ran this
+                // pair" guard below — the button's whole purpose is
+                // re-running after new photos are added). Keyed on the
+                // predecessor/tail PAIR, not just "has it ever run this
+                // page load" — a genuinely new pair (Next inspection,
+                // without a full page reload) must get its own run.
+                _autoPairedForPair: null,
+                autoPairBusy: false,
+                async maybeAutoPairPhotos() {
+                    if (!this.autoPairPhotosEnabled) return;
+                    if (!this.chainPredecessor || !this.chainTail) return;
+                    const key = this.chainPredecessor.id + ':' + this.chainTail.id;
+                    if (this._autoPairedForPair === key) return;
+                    this._autoPairedForPair = key;
+                    await this.runAutoPair();
+                },
+                async runAutoPair() {
+                    if (!this.chainPredecessor || !this.chainTail) return;
+                    this.autoPairBusy = true;
+                    try {
+                        const res = await fetch(this.inspectionUrls.photoMatchesAutoPair, {
+                            method: 'POST',
+                            headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        });
+                        if (!res.ok) {
+                            const data = await res.json().catch(() => ({}));
+                            this.error = data.message || 'Auto-pair could not run — please try again.';
+                            return;
+                        }
+                        const data = await res.json();
+                        (data.groups || []).forEach(group => {
+                            this._applyGroupPatch(group, (group.members || []).map(m => m.photo_id));
+                        });
+                    } finally {
+                        this.autoPairBusy = false;
                     }
                 },
 
@@ -6675,6 +6825,8 @@
                     this.outInspectionRecorded = data.out_inspection_recorded;
                     this.conditionStates = data.condition_states;
                     this.photoMatches = data.photo_matches;
+                    this.autoPairPhotosEnabled = data.auto_pair_photos_enabled;
+                    this.maybeAutoPairPhotos();
                 },
 
                 // Latest observation recorded for this item WITHIN this inspection —
@@ -7084,35 +7236,64 @@
                     const items = this.activeItems();
                     return { recorded: items.filter(i => this.conditionFor(section, i.id)).length, total: items.length };
                 },
-                // AT-433 Part A, 2026-09-26 — the comparison row's photo
-                // strip (rental-inspection-item-cell.blade.php). Pairing is
-                // POSITIONAL ONLY: tile.index is left-photo-N matched
-                // against right-photo-N purely by array order, not by any
-                // real photo-match relationship — that's Part B. The swap
-                // point for a real pair id is _stripPad() below (the
-                // `index` field on each returned tile) plus the two
-                // :key="tile.index" bindings and the two
-                // x-text="tile.index + 1" badges in
-                // rental-inspection-item-cell.blade.php — replace `index`
-                // with the real pair/group id everywhere it appears in
-                // those four places and nothing else here needs to change.
+                // §24, AT-433 Part B — the comparison row's photo strip
+                // (rental-inspection-item-cell.blade.php), replacing Part
+                // A's POSITIONAL-only pairing (tile.index was plain array
+                // order, not a real match). pairedStripRows() is now the ONE
+                // place that decides row order for BOTH cells: every matched
+                // GROUP touching this item's own predecessor/tail photo pool
+                // first (ordered by group id — insertion order, .ai/specs/
+                // rental-inspections.md §24.9's own "sets the order" design
+                // call), each row spending its one predecessor member and
+                // one tail member so neither is reused by a later row; then
+                // whichever side has a photo nobody claimed, "NO MATCH" on
+                // the other side — same visual contract as before, just
+                // driven by the real link instead of shared array position.
+                // Both stripTilesForInspection()/stripTilesFor() below read
+                // the SAME array by index, so slot N is still the same
+                // physical row on both sides — item-cell.blade.php's own
+                // :key="tile.index"/x-text="tile.index + 1" bindings are
+                // UNCHANGED; `index` is still a stable per-row position, it
+                // is just computed from real pairs now, not from raw array
+                // order.
+                pairedStripRows(item) {
+                    const predPhotos = this.itemPhotosForInspection(this.chainPredecessor, item.id);
+                    const tailPhotos = this.itemPhotosFor(this.tailSection(), item);
+                    const predById = new Map(predPhotos.map(p => [p.id, p]));
+                    const tailById = new Map(tailPhotos.map(p => [p.id, p]));
+                    const usedPred = new Set();
+                    const usedTail = new Set();
+                    const rows = [];
+
+                    (this.photoMatches || []).slice().sort((a, b) => a.id - b.id).forEach(group => {
+                        const predMember = (group.members || []).find(m => predById.has(m.photo_id) && !usedPred.has(m.photo_id));
+                        const tailMember = (group.members || []).find(m => tailById.has(m.photo_id) && !usedTail.has(m.photo_id));
+                        const predPhoto = predMember ? predById.get(predMember.photo_id) : null;
+                        const tailPhoto = tailMember ? tailById.get(tailMember.photo_id) : null;
+                        if (!predPhoto && !tailPhoto) return; // this group has nothing to do with this item's own photo pool
+                        rows.push({ predecessorPhoto: predPhoto, tailPhoto: tailPhoto });
+                        if (predPhoto) usedPred.add(predPhoto.id);
+                        if (tailPhoto) usedTail.add(tailPhoto.id);
+                    });
+                    predPhotos.forEach(p => { if (!usedPred.has(p.id)) rows.push({ predecessorPhoto: p, tailPhoto: null }); });
+                    tailPhotos.forEach(p => { if (!usedTail.has(p.id)) rows.push({ predecessorPhoto: null, tailPhoto: p }); });
+
+                    return rows.map((row, index) => ({ ...row, index }));
+                },
                 stripPairCount(item) {
-                    const left = this.itemPhotosForInspection(this.chainPredecessor, item.id).length;
-                    const right = this.itemPhotosFor(this.tailSection(), item).length;
-                    return Math.max(left, right);
+                    return this.pairedStripRows(item).length;
                 },
-                _stripPad(photos, count) {
-                    const tiles = [];
-                    for (let i = 0; i < count; i++) tiles.push({ index: i, photo: photos[i] || null });
-                    return tiles;
-                },
-                // Read-only (predecessor) cell — insp is an inspection object.
+                // Read-only (predecessor) cell — insp is an inspection object
+                // (kept as a parameter for call-site compatibility with
+                // item-cell.blade.php's readOnly branch; pairedStripRows()
+                // itself always reads this.chainPredecessor directly, same
+                // as it always has via itemPhotosForInspection() elsewhere).
                 stripTilesForInspection(insp, item) {
-                    return this._stripPad(this.itemPhotosForInspection(insp, item.id), this.stripPairCount(item));
+                    return this.pairedStripRows(item).map(row => ({ index: row.index, photo: row.predecessorPhoto }));
                 },
                 // Live (tail) cell — section is the section-type string.
                 stripTilesFor(section, item) {
-                    return this._stripPad(this.itemPhotosFor(section, item), this.stripPairCount(item));
+                    return this.pairedStripRows(item).map(row => ({ index: row.index, photo: row.tailPhoto }));
                 },
                 // Collapsed shows at most 4 slots (real photo or NO MATCH
                 // placeholder) then a "+N" tile; expanded shows every slot,
@@ -7161,6 +7342,14 @@
                         const saved = JSON.parse(localStorage.getItem('hfc.inspStripExpanded') || '{}');
                         this.itemStripExpanded = (saved && typeof saved === 'object') ? saved : {};
                     } catch (e) {}
+                    // §24.5, AT-433 Part B — the property tab's own initial
+                    // server render already carries chainPredecessor/
+                    // chainTail (RentalInspection::tabPayloadFor()), so a
+                    // property that already has both when the page loads
+                    // must not wait for refreshInspectionData() (only called
+                    // from startInspection()/nextInspection()) to get its
+                    // first auto-pair run.
+                    this.maybeAutoPairPhotos();
                 },
                 // A room defaults OPEN while incomplete and COLLAPSED once
                 // every item in it is recorded (item 7) — but a manual
