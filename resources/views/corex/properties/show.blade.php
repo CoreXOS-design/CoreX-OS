@@ -7062,6 +7062,84 @@
                     const items = this.activeItems();
                     return { recorded: items.filter(i => this.conditionFor(section, i.id)).length, total: items.length };
                 },
+                // AT-433 Part A, 2026-09-26 — the comparison row's photo
+                // strip (rental-inspection-item-cell.blade.php). Pairing is
+                // POSITIONAL ONLY: tile.index is left-photo-N matched
+                // against right-photo-N purely by array order, not by any
+                // real photo-match relationship — that's Part B. The swap
+                // point for a real pair id is _stripPad() below (the
+                // `index` field on each returned tile) plus the two
+                // :key="tile.index" bindings and the two
+                // x-text="tile.index + 1" badges in
+                // rental-inspection-item-cell.blade.php — replace `index`
+                // with the real pair/group id everywhere it appears in
+                // those four places and nothing else here needs to change.
+                stripPairCount(item) {
+                    const left = this.itemPhotosForInspection(this.chainPredecessor, item.id).length;
+                    const right = this.itemPhotosFor(this.tailSection(), item).length;
+                    return Math.max(left, right);
+                },
+                _stripPad(photos, count) {
+                    const tiles = [];
+                    for (let i = 0; i < count; i++) tiles.push({ index: i, photo: photos[i] || null });
+                    return tiles;
+                },
+                // Read-only (predecessor) cell — insp is an inspection object.
+                stripTilesForInspection(insp, item) {
+                    return this._stripPad(this.itemPhotosForInspection(insp, item.id), this.stripPairCount(item));
+                },
+                // Live (tail) cell — section is the section-type string.
+                stripTilesFor(section, item) {
+                    return this._stripPad(this.itemPhotosFor(section, item), this.stripPairCount(item));
+                },
+                // Collapsed shows at most 4 slots (real photo or NO MATCH
+                // placeholder) then a "+N" tile; expanded shows every slot,
+                // scrolling rather than wrapping (rir-strip-row).
+                stripVisibleCount(item) {
+                    const total = this.stripPairCount(item);
+                    return this.isItemStripExpanded(item) ? total : Math.min(4, total);
+                },
+                stripMoreCount(item) {
+                    const total = this.stripPairCount(item);
+                    return this.isItemStripExpanded(item) ? 0 : Math.max(0, total - 4);
+                },
+                // Expand/collapse state is keyed by item id only (not by
+                // side), so toggling from either cell — or the room-level
+                // control below — moves both sides together, which is what
+                // keeps thumbnail N level with thumbnail N. No per-user
+                // preference endpoint exists for this screen (checked: only
+                // roomOpenOverride/roomPhotosExpanded below, both in-memory,
+                // neither persisted server-side) — reused the same
+                // client-only localStorage pattern this page's own sidebar
+                // collapse (hfc.propSidebar.collapsed) already uses, rather
+                // than inventing a second persistence mechanism.
+                itemStripExpanded: {},
+                isItemStripExpanded(item) { return !!this.itemStripExpanded[item.id]; },
+                toggleItemStrip(item) {
+                    this.itemStripExpanded[item.id] = !this.isItemStripExpanded(item);
+                    this._persistStripExpanded();
+                },
+                allItemStripsOpenInRoom(group) {
+                    return (group.items || []).length > 0 && (group.items || []).every(i => this.isItemStripExpanded(i));
+                },
+                toggleAllItemStrips(group) {
+                    const openingAll = !this.allItemStripsOpenInRoom(group);
+                    (group.items || []).forEach(i => { this.itemStripExpanded[i.id] = openingAll; });
+                    this._persistStripExpanded();
+                },
+                _persistStripExpanded() {
+                    try { localStorage.setItem('hfc.inspStripExpanded', JSON.stringify(this.itemStripExpanded)); } catch (e) {}
+                },
+                // Alpine calls init() once automatically on the component
+                // that owns this object — no other init() existed on
+                // rentalImages() before this, and no x-init is needed on
+                // its wrapping element.
+                init() {
+                    try {
+                        const saved = JSON.parse(localStorage.getItem('hfc.inspStripExpanded') || '{}');
+                        this.itemStripExpanded = (saved && typeof saved === 'object') ? saved : {};
+                    } catch (e) {}
+                },
                 // A room defaults OPEN while incomplete and COLLAPSED once
                 // every item in it is recorded (item 7) — but a manual
                 // toggle (click the heading) always wins over that computed
