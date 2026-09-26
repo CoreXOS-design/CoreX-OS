@@ -7278,8 +7278,32 @@
                         if (predPhoto) usedPred.add(predPhoto.id);
                         if (tailPhoto) usedTail.add(tailPhoto.id);
                     });
-                    predPhotos.forEach(p => { if (!usedPred.has(p.id)) rows.push({ predecessorPhoto: p, tailPhoto: null }); });
-                    tailPhotos.forEach(p => { if (!usedTail.has(p.id)) rows.push({ predecessorPhoto: null, tailPhoto: p }); });
+                    // FIX, 2026-09-26 (Johan, property found live on QA1) —
+                    // every remaining photo on EITHER side still gets its own
+                    // row (nothing is ever dropped — it never was), but the
+                    // PREVIOUS version pushed every unmatched predecessor row
+                    // BEFORE every unmatched tail row. That's fine in
+                    // isolation, but stripVisibleCount() below caps the
+                    // default (collapsed) view at the first 4 rows of
+                    // WHATEVER this array returns — so the moment an item has
+                    // little or nothing paired yet (the common case right
+                    // after an out-inspection starts, before any pairing has
+                    // happened), those first 4 rows were ALL predecessor-only
+                    // and every real tail photo — including one an agent had
+                    // literally just uploaded — sat behind "+N", collapsed
+                    // out of the default view entirely. Interleaving one
+                    // unmatched-predecessor row with one unmatched-tail row,
+                    // alternating, means neither side can be shut out of the
+                    // visible prefix by the other's count — pairing changes
+                    // ORDER and ALIGNMENT (Johan's own rule), never WHICH
+                    // photos a normal, unexpanded view can actually reach.
+                    const unmatchedPred = predPhotos.filter(p => !usedPred.has(p.id));
+                    const unmatchedTail = tailPhotos.filter(p => !usedTail.has(p.id));
+                    const maxUnmatched = Math.max(unmatchedPred.length, unmatchedTail.length);
+                    for (let i = 0; i < maxUnmatched; i++) {
+                        if (unmatchedPred[i]) rows.push({ predecessorPhoto: unmatchedPred[i], tailPhoto: null });
+                        if (unmatchedTail[i]) rows.push({ predecessorPhoto: null, tailPhoto: unmatchedTail[i] });
+                    }
 
                     return rows.map((row, index) => ({ ...row, index }));
                 },
