@@ -28,11 +28,12 @@ class RentalChecklistTemplateItem extends Model
 
     protected $fillable = [
         'agency_id', 'template_section_id', 'name', 'help_text',
-        'note_required', 'is_derived', 'derived_key', 'sort_order', 'created_by_user_id',
+        'note_required', 'document_required', 'is_derived', 'derived_key', 'sort_order', 'created_by_user_id',
     ];
 
     protected $casts = [
         'note_required' => 'boolean',
+        'document_required' => 'boolean',
         'is_derived' => 'boolean',
         'sort_order' => 'integer',
     ];

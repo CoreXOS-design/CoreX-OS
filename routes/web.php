@@ -3479,6 +3479,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // hand).
         Route::put('/{rentalApplication}/checklist/sections/{checklistSection}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateChecklistSectionDescription'])->name('corex.rental-applications.checklist.sections.update');
         Route::put('/{rentalApplication}/checklist/items/{checklistItem}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'updateChecklistItem'])->name('corex.rental-applications.checklist.items.update');
+        // AT-430 Part E — checklist-item attachments (the TPN-doc paperclip).
+        // Same permission as the generic Supporting Documents upload above
+        // (corex.rental-applications.documents.upload) — "follow the
+        // existing Supporting Documents rules exactly," not a new gate.
+        Route::post('/{rentalApplication}/checklist/items/{checklistItem}/documents', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'uploadChecklistItemDocument'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.checklist.items.documents.store');
+        Route::delete('/{rentalApplication}/checklist/items/{checklistItem}/documents/{document}', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'removeChecklistItemDocument'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.checklist.items.documents.destroy');
+        Route::post('/{rentalApplication}/checklist/items/{checklistItem}/documents/{document}/restore', [\App\Http\Controllers\CoreX\RentalApplicationReviewController::class, 'restoreChecklistItemDocument'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.checklist.items.documents.restore');
         // §3.1 — "Open/collapsed state is remembered per user per section."
         // A per-user UI preference, not application data — no {rentalApplication}
         // in the path, but kept in this same permission-gated group since it

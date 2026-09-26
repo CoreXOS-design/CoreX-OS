@@ -135,6 +135,7 @@ class RentalApplicationChecklistTemplateController extends Controller
             'name' => ['required', 'string', 'max:191'],
             'help_text' => ['nullable', 'string', 'max:2000'],
             'note_required' => ['nullable', 'boolean'],
+            'document_required' => ['nullable', 'boolean'],
         ]);
 
         RentalChecklistTemplateItem::create([
@@ -143,6 +144,7 @@ class RentalApplicationChecklistTemplateController extends Controller
             'name' => $validated['name'],
             'help_text' => $validated['help_text'] ?? null,
             'note_required' => (bool) ($validated['note_required'] ?? false),
+            'document_required' => (bool) ($validated['document_required'] ?? false),
             'is_derived' => false,
             'derived_key' => null,
             'sort_order' => RentalChecklistTemplateItem::nextSortOrderFor($section->id),
@@ -164,12 +166,14 @@ class RentalApplicationChecklistTemplateController extends Controller
             'name' => ['required', 'string', 'max:191'],
             'help_text' => ['nullable', 'string', 'max:2000'],
             'note_required' => ['nullable', 'boolean'],
+            'document_required' => ['nullable', 'boolean'],
         ]);
 
         $item->update([
             'name' => $validated['name'],
             'help_text' => $validated['help_text'] ?? null,
             'note_required' => (bool) ($validated['note_required'] ?? false),
+            'document_required' => (bool) ($validated['document_required'] ?? false),
         ]);
 
         return back()->with('success', 'Checklist item updated.');

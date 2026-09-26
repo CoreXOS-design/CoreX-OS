@@ -129,6 +129,10 @@
                         <input type="hidden" name="note_required" value="0">
                         <input type="checkbox" name="note_required" value="1"> Require a note before this item can be marked done
                     </label>
+                    <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                        <input type="hidden" name="document_required" value="0">
+                        <input type="checkbox" name="document_required" value="1"> Require a document before this item can be marked done
+                    </label>
                     <div class="flex justify-end gap-2">
                         <button type="button" class="corex-btn-outline text-xs" @click="addItemForSectionId = null">Cancel</button>
                         <button type="submit" class="corex-btn-primary text-xs">Save item</button>
@@ -146,6 +150,9 @@
                             @endif
                             @if($item->note_required)
                                 <span class="ds-badge ds-badge-muted" style="font-size: 9px;">Note required</span>
+                            @endif
+                            @if($item->document_required)
+                                <span class="ds-badge ds-badge-muted" style="font-size: 9px;">Document required</span>
                             @endif
                             @if($item->trashed())
                                 <span class="ds-badge ds-badge-muted">Archived</span>
@@ -180,6 +187,10 @@
                             <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
                                 <input type="hidden" name="note_required" value="0">
                                 <input type="checkbox" name="note_required" value="1" @checked($item->note_required)> Require a note before this item can be marked done
+                            </label>
+                            <label class="flex items-center gap-2 text-xs" style="color: var(--text-secondary);">
+                                <input type="hidden" name="document_required" value="0">
+                                <input type="checkbox" name="document_required" value="1" @checked($item->document_required)> Require a document before this item can be marked done
                             </label>
                             <div class="flex justify-end gap-2">
                                 <button type="button" class="corex-btn-outline text-xs" @click="editItemId = null">Cancel</button>

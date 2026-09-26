@@ -23,6 +23,7 @@ class Document extends Model
         'document_type_id', 'source_type', 'source_id', 'uploaded_by',
         'deal_id', // AT-158 WS3 (D4) — DR2 deal anchor
         'custom_field_key', // .ai/specs/rental-application-field-config.md §7, piece (c)(4)
+        'checklist_item_id', // AT-430 Part E — rental-application checklist-item attachment tag
     ];
 
     protected $casts = ['size' => 'integer'];
@@ -68,6 +69,18 @@ class Document extends Model
     public function deal(): BelongsTo
     {
         return $this->belongsTo(\App\Models\DealV2\DealV2::class, 'deal_id');
+    }
+
+    /**
+     * AT-430 Part E — the rental-application checklist item this evidence
+     * was attached from, if any. Nullable: most documents are not
+     * checklist-tagged. Deliberately NOT excluded from the generic
+     * Supporting Documents list (RentalApplication::documents() is
+     * unfiltered by this column) — "one document store, two views".
+     */
+    public function checklistItem(): BelongsTo
+    {
+        return $this->belongsTo(RentalApplicationChecklistItem::class, 'checklist_item_id');
     }
 
     // ── Helpers ──

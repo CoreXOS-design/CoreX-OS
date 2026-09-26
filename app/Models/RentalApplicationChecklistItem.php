@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * AT-430 §3.2 — the per-application SNAPSHOT of a checklist item. Copied
@@ -29,12 +30,13 @@ class RentalApplicationChecklistItem extends Model
 
     protected $fillable = [
         'agency_id', 'application_section_id', 'template_item_id',
-        'name', 'help_text', 'note_required', 'is_derived', 'derived_key',
+        'name', 'help_text', 'note_required', 'document_required', 'is_derived', 'derived_key',
         'state', 'note', 'set_by_user_id', 'set_at', 'sort_order',
     ];
 
     protected $casts = [
         'note_required' => 'boolean',
+        'document_required' => 'boolean',
         'is_derived' => 'boolean',
         'sort_order' => 'integer',
         'set_at' => 'datetime',
@@ -53,5 +55,18 @@ class RentalApplicationChecklistItem extends Model
     public function setByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'set_by_user_id');
+    }
+
+    /**
+     * AT-430 Part E — evidence attached directly on this item, tagged (not
+     * duplicated) onto the SAME row that also lives in the application's
+     * generic Supporting Documents list (see the migration that adds
+     * `checklist_item_id` to `documents`). Trashed rows excluded by
+     * default — callers that need archived attachments too (the item's own
+     * "Removed" disclosure) use withTrashed() explicitly.
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(Document::class, 'checklist_item_id');
     }
 }
