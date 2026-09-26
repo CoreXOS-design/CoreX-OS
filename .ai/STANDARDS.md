@@ -832,6 +832,14 @@ The conductor had been holding finished, tested work off QA1 until she had perso
 
 ## Standard −1s — Lanes do not build browser verification harnesses (2026-09-22, Johan, standing policy)
 
+**Narrowed 2026-09-26 — see Standard −1u below.** The "What this does NOT change" paragraph below still
+means what it says for `scripts/rental-smoke.mjs` and `scripts/rental-click-through.mjs`, and for
+`verify-alpine-render.mjs` on any change that does NOT touch an Alpine attribute. For a change that DOES
+touch an Alpine attribute, Standard −1u now requires the lane itself to run `verify-alpine-render.mjs`
+against a real fetched page before pushing — a narrow, named carve-out from "a lane does not stand these
+up pre-push under any circumstance" below, not a repeal of it. Read this section for the general policy
+and why it exists; read Standard −1u for the one class of change it no longer covers, and why.
+
 Three lanes each burned over an hour the same day on mint-session-cookie scripts, dev servers bound to isolated databases, and ad hoc Puppeteer/headless-Chromium scripts written to prove a change worked before pushing it. Johan's ruling, verbatim in substance: **"Lanes do not build browser harnesses. My own rule is that a lane's test results are never proof anyway — I verify every change myself in a real browser on the deployed site. Your local render proves nothing to him and costs him time and usage."**
 
 **The rule: a lane's own verification, before push, is exactly three things — `php -l` on every changed PHP file, `php artisan view:clear`, and the relevant EXISTING test file if one already exists. That is all.** If a change has no existing test covering it, a lane does not write a Puppeteer script, a minted-cookie curl harness, or any other browser-verification scaffolding to compensate — it pushes on the three-step verification above and lets the deployed-site check catch what the existing tests don't. Writing a NEW test (a real PHPUnit feature test, not a browser harness) is still the normal, encouraged way to prove new behaviour — this rule is about NOT standing up throwaway dev-server/browser tooling as a substitute for either an existing test or a real one, not about avoiding tests altogether.
@@ -864,6 +872,66 @@ A distinctive name is not a substitute for cleanup. "CC1 Verify" or "ZZ Conducto
 record easy to *identify* later, which is better than an unnamed one, but it is not the same as removing
 it — the four rooms above were all clearly named and still sat there for days. Naming a throwaway record
 clearly is good practice; it does not discharge the obligation to clean it up.
+
+---
+
+## Standard −1u — The four Blade sweeps are attribute-scoped, not line-scoped; a lane running `verify-alpine-render.mjs` itself is now REQUIRED before pushing any Alpine-attribute change (2026-09-26, Johan, standing policy)
+
+This is the SECOND time incident #2's exact shape — a `//` comment inside a quoted Alpine attribute
+containing a literal `"`, closing the attribute early — has taken a whole page down on QA1. The first
+time (rental-applications review screen, the incident `verify-alpine-render.mjs` was originally built to
+catch) cost three separate rental-applications screens. This time it was
+`resources/views/corex/properties/show.blade.php`'s `x-data="rentalImages({...})"` — a ~420-line
+multi-line attribute — where a newly-added comment read `// the explicit "Auto-pair" button.` The literal
+`"` around `Auto-pair` closed the HTML attribute right there; everything after it, including the rest of
+the config object and the closing `})`, spilled out as literal page text, and the truncated expression
+Alpine actually received threw `SyntaxError: Unexpected token ')'` on construction. Because `rentalImages()`
+backs the entire Inspections tab, not just the feature being added, the WHOLE tab — every room panel, the
+Next-inspection control, everything — went dead, not only the new pairing UI. `php -l` and
+`php artisan view:cache` both passed clean, exactly as Standard −1's own opening incidents already prove
+they always will for this class of bug — neither one executes a single line of the JS a Blade file emits.
+
+**What let it through a second time:** the "four sweeps" convention several lanes have been running by
+hand before merging Blade changes (`:style` clobber, a JS comment inside a quoted Alpine attribute, a
+literal `"` inside `x-data="..."`, a multi-root `<template x-if>`/`x-for>`) was never written down as a
+standard — it existed only as instruction repeated at the top of each merge/verify task. Worse, every
+actual run of it was LINE-SCOPED: a grep for `//` on the same diff line as an `x-data="` opening. This
+comment sat six lines into a multi-line attribute, on its own line, nowhere near the `x-data="` token —
+a line-scoped grep structurally cannot see it, no matter how carefully it's run.
+
+**Rule 1 — the four sweeps are attribute-scoped, not line-scoped.** For any Blade change touching an
+Alpine attribute (`x-data`, `x-init`, `x-show`, `x-if`, `x-for`, `x-bind`/`:*`, `@*`/`x-on:*`, or any other
+`x-*` directive), the sweep is run against the FULL attribute value — from its opening quote to its
+matching closing quote, however many lines that spans — never against only the lines the diff touched.
+A single-line `grep` on the diff hunk is not this check; it is the exact gap that let this incident
+through. If tooling is needed to do this properly (extracting a full multi-line attribute value out of a
+diff, or out of the compiled file, to scan it as one string), write it — a five-minute script here is
+cheaper than a second dead page.
+
+**Rule 2 — a lane pushing any Alpine-attribute change runs `verify-alpine-render.mjs` itself, before
+pushing.** This is a narrow, named exception to Standard −1s (see the amendment note at its top) — it
+does not reopen ad hoc Puppeteer harnesses, minted-session dev servers, or any of the scaffolding −1s
+correctly stops. It requires exactly the two commands Standard −1 already documents, run by the lane that
+wrote the change, not deferred to whoever verifies afterward:
+
+```bash
+php8.2 scripts/fetch-authenticated-page.php \
+    --app-root=/corex-qa1 --user-id=<a real test fixture id> \
+    --url=https://qatesting1.corexos.co.za/<the changed route> \
+    --out=/tmp/rendered.html
+node scripts/verify-alpine-render.mjs /tmp/rendered.html
+```
+
+`php -l` and `view:cache` cannot see this class of defect — they check PHP syntax and Blade-directive
+pairing, never the JavaScript a Blade file emits into the page. `verify-alpine-render.mjs` is the only
+gate in this repo that actually parses and executes that JavaScript the way a real browser does. A change
+that touches an Alpine attribute and skips this check is not verified, regardless of how many other tests
+pass — this incident shipped with `php -l` clean, `view:cache` clean, and the branch's own commit message
+stating plainly that no live-browser verification had been performed.
+
+This was found and root-caused, after the fact, by fetching the real deployed page and running these
+exact two commands — proof the gate works when it runs. The fix here is making that the lane's own
+pre-push step for this one class of change, not something only discovered once Johan opens the page.
 
 ---
 
