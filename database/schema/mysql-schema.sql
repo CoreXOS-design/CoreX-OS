@@ -13361,6 +13361,7 @@ CREATE TABLE `rental_inspection_settings` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `require_notes_blocks_progression` tinyint(1) DEFAULT NULL,
+  `auto_pair_photos_enabled` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `rental_inspection_settings_agency_id_foreign` (`agency_id`),
   CONSTRAINT `rental_inspection_settings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE
@@ -18016,3 +18017,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1457,'2026_10_03_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1458,'2026_10_03_200700_add_checklist_item_id_to_documents_table',370);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1459,'2026_10_03_200800_add_document_required_to_rental_checklist_template_items_table',370);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1460,'2026_10_03_200900_add_document_required_to_rental_application_checklist_items_table',370);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1461,'2026_10_03_200600_add_auto_pair_photos_enabled_to_rental_inspection_settings_table',371);
