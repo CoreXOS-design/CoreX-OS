@@ -124,6 +124,19 @@
     .rir-strip-nomatch { display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px dashed var(--border); }
     .rir-strip-nomatch-label { font-size:8px; font-weight:700; letter-spacing:0.02em; color:var(--text-muted); text-align:center; line-height:1.2; padding:0 4px; }
     .rir-strip-more { display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary); font-size:0.75rem; font-weight:700; padding:0; cursor:pointer; }
+    /* §24.6, AT-433 Part B — the predecessor tile's drop-target styling,
+       applied entirely within the tile's own stacking context (never a new
+       absolutely-positioned sibling of .rir-strip-row — the exact bug class
+       that row was just rebuilt to remove). -eligible is toggled ONLY while
+       a pairing drag is in progress (pairDragActive) and clears the instant
+       it ends, so there is no persistent affordance and no hover state on a
+       tile when nothing is being dragged, per Johan's own ruling. -over is
+       the finer highlight for whichever eligible tile the drag is currently
+       over — same dashed-cyan visual language as this file's own
+       dragOverRoom (room heading drop target) above, for one consistent
+       drop-target language across this screen. */
+    .rir-strip-pair-eligible { outline:1px dashed color-mix(in srgb, var(--brand-icon,#0ea5e9) 55%, transparent); outline-offset:-1px; }
+    .rir-strip-pair-over { outline:2px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); }
     /* Item 2, 2026-09-26 — a staged (picked, not yet uploaded) photo, shown
        so choosing a file never looks like nothing happened. Not part of
        stripPairCount()'s predecessor/tail pairing (it has no server photo

@@ -2862,6 +2862,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // §17, Johan 2026-09-21, from Retha's real paper form — the condition vocabulary.
     Route::post('/settings/rental-inspections/condition-states', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateConditionStates'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.condition-states');
+    // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 — its own narrow
+    // saver, same one-concern-per-endpoint discipline as the four above.
+    Route::post('/settings/rental-inspections/auto-pair-photos', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAutoPairPhotosEnabled'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-pair-photos');
 
     // .ai/specs/rental-inventory.md §8 — the move-out disposition vocabulary
     // (present/short/damaged/missing), agency-configurable. Own settings
@@ -4367,6 +4371,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.store');
         Route::delete('/{property}/rental-inspection-photo-matches/{member}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'destroyPhotoMatch'])
             ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.destroy');
+        // §24.5, AT-433 Part B — the explicit "Auto-pair" button (approved
+        // mockup) and, once the Blade pass wires it, the automatic
+        // first-view trigger both call this same endpoint.
+        Route::post('/{property}/rental-inspection-photo-matches/auto-pair', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'autoPairPhotoMatches'])
+            ->middleware('permission:rental_inspections.create')->name('rental-inspection-photo-matches.auto-pair');
         // AT-402 — Rental tab (data fields, not images). Only reachable for an
         // EXISTING, non-pending-type-change rental property — a brand new
         // property or a type-change draft still saves its rental fields

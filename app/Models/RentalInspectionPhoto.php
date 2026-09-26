@@ -120,10 +120,25 @@ class RentalInspectionPhoto extends Model
         $this->tagTo(null, null, $by);
     }
 
-    /** Soft-delete — archived, never hard-deleted (non-negotiable #1). */
+    /**
+     * Soft-delete — archived, never hard-deleted (non-negotiable #1).
+     *
+     * §24 (AT-433 Part B) — if this photo is currently an active member of
+     * a match group, that membership is removed too (mirroring an explicit
+     * unmatch), auto-archiving the group if that leaves it with one or zero
+     * active members. Without this, archiving a paired photo left a
+     * dangling active membership pointing at a trashed photo: the group's
+     * own member count never dropped, so a two-member group's surviving
+     * photo kept reading as "matched" against a photo that no longer
+     * renders anywhere.
+     */
     public function archive(User $by): void
     {
         $this->forceFill(['archived_by_user_id' => $by->id])->save();
         $this->delete();
+
+        RentalInspectionPhotoMatchGroupMember::where('rental_inspection_photo_id', $this->id)
+            ->first()
+            ?->removeAndMaybeArchiveGroup($by);
     }
 }
