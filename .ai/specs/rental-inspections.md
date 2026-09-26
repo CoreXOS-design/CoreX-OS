@@ -3122,6 +3122,166 @@ position) and the pair-id-based badge/key described in §20.20.1's swap point ab
 
 ---
 
+## 20.21 AT-433 Part E — drop a desktop file onto an item's strip to upload it (STAGE 1 — investigation + spec only, 2026-09-26, cc)
+
+**Numbering note:** same caveat as §20.20 — confirm no other in-flight branch (cc6's pairing-drag work, landing
+first per the sequencing below) has already claimed 20.21 before this merges.
+
+**STAGE 1 ONLY.** No code changed this round. `rental-inspection-recording.blade.php` and
+`rental-inspection-item-cell.blade.php` are untouched — cc6 is currently wiring the photo-pairing drag
+(dragging an already-uploaded photo from the strip onto its counterpart on the predecessor side) into the
+same element this feature needs, and two lanes writing drop handlers into the same shared Blade file at the
+same time is how a merge silently drops one lane's work. This section is the approach only; Stage 2 (the
+actual build) waits until cc6 has landed and cc3's photo-notes pass is also in, then rebases onto QA1.
+
+### 20.21.1 Correction to the starting premise
+
+The ask was "today only the room heading accepts a file drop." Checked directly rather than assumed — that's
+not quite what's there. The room heading's drop handler is `dropOnRoom()`
+(`public/js/corex-photo-batch-uploader.js:315-322`), wired from `rental-inspection-recording.blade.php:474-476`:
+
+```
+@dragover.prevent="group.room && (dragOverRoom = group.room.id)"
+@dragleave="dragOverRoom = null"
+@drop.prevent="group.room && photoUploader({{ $sectionJs }}).dropOnRoom($event, group.room.id); dragOverRoom = null"
+```
+
+`dropOnRoom(event, roomId)` reads `event.dataTransfer.getData('text/plain')`, JSON-parses it as an array of
+**already-uploaded photo ids**, and calls `tagSelectedToRoom(roomId)` — it re-tags EXISTING photos to a room.
+The `text/plain` payload is written by `dragStartSelection(event, id)` (same file, lines 310-313), fired when
+an agent drags a photo tile that's part of the tray's own multi-select. If `dropOnRoom` gets an empty/unparseable
+payload — which is exactly what a real desktop file drag produces, since the OS never populates `text/plain`
+with file content — `ids.length` is 0 and it returns immediately. **It does nothing with the dropped file.**
+
+So: **no surface on this screen currently accepts a real OS file drop for upload.** The room heading is a
+drag-to-tag gesture for photos already inside the app, not a file-drop zone. Dragging a real file from the
+desktop onto the room heading today silently no-ops — the heading still highlights on `dragover` (that handler
+doesn't check drag type either), so it looks receptive and isn't. This is a pre-existing rough edge, not
+something this round touches: Johan's ruling is to leave `dropOnRoom` exactly as it is (§20.21.4), and it's
+noted here only because "found, not fixed" outside the exact task is the standing rule — no code change
+proposed for it.
+
+The only ways to get a NEW photo into an inspection today are all file-**picker** based, never drag: the
+tray's own `<input type=file>` (line 336, general upload), the room heading's camera icon
+(`onRoomPhotosSelected`, line 499), and the per-item add-tile (`onItemPhotosSelected`, show.blade.php:6292,
+wired from the add-tile `<input>` added in the AT-433 overlap fix). Part E adds the first real desktop-file
+drop path this screen has ever had.
+
+### 20.21.2 Coexistence contract: one dispatcher, branched on `dataTransfer.types`
+
+An HTML element can carry exactly one `@dragover`/`@drop` attribute pair — Alpine can't bind two competing
+handlers to the same event on the same tag. Since cc6's pairing drag and this file-drop both need to live on
+the item's strip, they cannot be two independent handlers bolted on separately; whichever lane lands second
+must write ONE dispatcher that both drags run through.
+
+Per the sequencing above, cc6 lands first. **Stage 2's job is to write that single dispatcher**, calling
+cc6's already-landed pairing-drop function for one branch and this round's new upload logic for the other.
+The branch condition, checkable on both `dragover` (for the visual affordance) and `drop` (for the actual
+handling) — `dataTransfer.getData()` returns empty strings during `dragover` for security reasons, but
+`dataTransfer.types` is readable at both stages:
+
+```js
+const isFileDrag = Array.from(event.dataTransfer.types || []).includes('Files');
+```
+
+`'Files'` is the standard, cross-browser type string the OS itself sets on a real file drag — not something
+either lane's own `setData()` call can produce, since `dataTransfer.files`/the `'Files'` type is populated by
+the browser only for a genuine OS-level drag, never by an in-page `dragstart` handler. Conversely, an in-page
+drag (cc6's pairing drag, or the existing `dragStartSelection`/`dropOnRoom` pattern) sets its own custom
+payload via `setData()` and never carries `'Files'`. **These are mutually exclusive by construction** — a
+single drag operation originates either from the OS (real file, always carries `Files`) or from a page
+`dragstart` handler (custom payload, never carries `Files`), never both from the same source.
+
+**What happens if a drag somehow carries both:** treat it as a file drop. `Files` wins the tie. Reasoning: if
+`'Files'` is present at all, a real file is genuinely attached to that drag and IS what the browser will hand
+back from `event.dataTransfer.files` on drop — ignoring it in favor of a same-drag internal payload would
+silently drop a file the agent visibly dragged, which is the worse failure mode of the two. This should not
+be reachable in practice per the paragraph above, but the dispatcher checks `Files` first regardless, so the
+tie-break is explicit rather than accidental.
+
+```js
+// Illustrative shape for Stage 2 — exact element/method names confirmed once cc6 lands (§20.21.5):
+onStripDragOver(event, item) {
+    if (Array.from(event.dataTransfer.types || []).includes('Files')) {
+        this.stripFileDragOver = item.id;   // this round's new state, drives the affordance below
+    } else {
+        /* delegate to cc6's own dragover state/handler, unchanged */
+    }
+},
+onStripDrop(event, item) {
+    if (Array.from(event.dataTransfer.types || []).includes('Files')) {
+        this.onItemPhotosSelected(section, item, event.dataTransfer.files);   // same call the add-tile makes
+    } else {
+        /* delegate to cc6's own drop handler, unchanged */
+    }
+    this.stripFileDragOver = null;
+},
+```
+
+### 20.21.3 Item not yet recorded — Johan's ruling, not argued against
+
+Confirmed by reading `onItemPhotosSelected(section, item, fileList)` (show.blade.php:6292): it already branches
+on whether the item has a recorded observation — immediate `uploadFiles()` if it does, staged into
+`obsField(...).photos` with a pending preview tile (added in the add-tile/strip-overlap fix, 2026-09-26, same
+day as §20.20) if it doesn't. A file dropped from the desktop is, from the browser's point of view, just another
+`FileList` — `event.dataTransfer.files` has the identical shape as `$event.target.files` from the file input.
+So the drop handler's file branch is a one-line call into the existing function:
+
+```js
+this.onItemPhotosSelected(section, item, event.dataTransfer.files);
+```
+
+No new upload path, no new staging logic, no new pending-tile rendering — the drop is a second way to trigger
+the exact same code the add-tile's `<input>` already triggers. This is Johan's ruling and there's no argument
+against it: any second path here would be the same class of bug this screen just had (two ways to do the same
+thing, one of them eventually drifting from the other).
+
+### 20.21.4 Visual affordance — distinguishable from the pairing drop, no new absolutely-positioned element
+
+Constraint from the overlap fix: `.rir-strip-row` is a flex container now, and the fix's entire point was
+removing an absolutely-positioned element from inside it. Part E must not reintroduce one.
+
+The affordance for "a file is being dragged over this item's strip" is a style change on the row's OWN box —
+the same technique `dragOverRoom` already uses on the room heading (`rental-inspection-recording.blade.php:470`,
+`outline:2px dashed var(--brand-icon,#0ea5e9)` + a tinted background) — driven by a new per-item reactive flag
+(`stripFileDragOver`, keyed by item id, same shape as `dragOverRoom`) set in the dispatcher's `dragover` branch
+above and read by a `:style` binding already-present on `.rir-strip-row` (or added to it, still no new child
+element). Dashed outline was deliberately reused rather than invented, since it's the one existing drop-target
+convention on this screen — an agent who already knows what a dashed blue outline means on the room heading
+sees the same signal on the item strip.
+
+**Must be visually distinguishable from cc6's pairing-drop affordance** — exact contrast confirmed once cc6
+lands (§20.21.5), but the intent going in: file-drop stays the dashed outline (matching the existing
+`dragOverRoom` convention, signaling "drop to add"); pairing-drop should read as a different action (e.g. a
+solid outline, or a highlight on the specific target tile rather than the whole row, or a distinct icon/cursor)
+since it means "link this to that tile," a conceptually different operation from "add a new photo here." Both
+affordances must never render as a new absolutely-positioned box — a `:style`/`:class` change on the existing
+row or an existing tile is the only sanctioned mechanism after the overlap fix.
+
+### 20.21.5 Open items for Stage 2 (cannot be resolved until cc6 lands)
+
+- **Which element cc6's pairing drag attaches `@dragover`/`@drop` to** — the whole `.rir-strip-row`, or each
+  individual `.rir-strip-tile` (more likely, since pairing needs to know WHICH tile was the drop target, not
+  just which item). If per-tile, this round's file-drop dispatcher goes on the same per-tile elements instead
+  of the row — the branch logic is identical either way (a file dropped anywhere in the strip uploads to the
+  item regardless of which specific tile it landed on), only the attachment point moves.
+- **cc6's exact handler/method names and dataTransfer payload type**, so Stage 2 delegates to the real thing
+  instead of a placeholder.
+- **cc6's exact pairing-drop visual affordance**, to confirm it reads as distinguishable from this round's
+  dashed-outline file-drop state per §20.21.4.
+- Confirm cc3's photo-notes pass hasn't also added attributes to the same tile elements that this round's
+  dispatcher would need to coexist with.
+- Final section number, per the numbering-collision caveat above.
+
+### 20.21.6 Room heading drop — stays as-is
+
+Johan's view, confirmed correct on inspection: `dropOnRoom` is a valid, already-shipped way to tag photos you
+haven't assigned to an item yet, and Part E doesn't touch it. It's a different gesture (tag an existing photo)
+solving a different problem (untagged photos exist and need a home) than Part E (upload a new file directly to
+an item). No change proposed.
+
+---
+
 ## 21. Add an item to an EXISTING room (2026-09-22, cc1) — there was no way to do this at all
 
 Johan, verbatim, looking at property 4862's Inspection Items panel: *"I want to add lets say bic to
