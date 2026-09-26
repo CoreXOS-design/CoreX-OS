@@ -4714,7 +4714,10 @@
                     // §24.5, AT-433 Part B — the same idempotent auto-pair
                     // run, called both automatically on first view (once
                     // chainPredecessor/chainTail are both present) and from
-                    // the explicit "Auto-pair" button.
+                    // the explicit Auto-pair button. No literal double-quote
+                    // in this comment — see this attribute's own rule just
+                    // below (2026-09-21): one ends the whole x-data value
+                    // right here, as far as the browser's HTML parser cares.
                     photoMatchesAutoPair: '{{ route('corex.properties.rental-inspection-photo-matches.auto-pair', $property) }}',
                     // Base for the inspection-scoped actions below — each one appends
                     // /{id}/... itself, since which inspection is current changes at
