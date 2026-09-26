@@ -3650,3 +3650,302 @@ is, for example, computed only in a Blade view with no underlying queryable reco
   the badge, if built, must be conditional on an actual match existing.
 - Report/document generation itself consuming matched photo pairs — named as a future consumer (§23.3),
   not designed here.
+
+---
+
+## 24. AT-433 Part B — drag-to-pair, auto-pair proposal, viewer paired-first ordering (INVESTIGATION ONLY, 2026-09-26)
+
+**Status: spec only. No application code has been written against this section.** Sequenced deliberately
+behind cc1's concurrent restyle of `rental-inspection-recording.blade.php`/`rental-inspection-item-cell.blade.php`
+(worktree `insp-photo-pairing-2026-09-26`'s sibling, `.../corex-worktrees/insp-photo-strips-2026-09-26`) —
+§24.6 below identifies those same two files as this feature's own attachment point, so building this now
+would race that restyle. This section reports what exists, proposes what to build, and names every
+decision that is Johan's to make, per his own instruction for this round.
+
+Johan's feature, verbatim in substance: two blocks side by side; drag a photo to pair it with its
+counterpart, or tag them to link them; the photo viewer shows the tagged pairs first, then the unmatched
+photos.
+
+### 24.1 The headline finding — most of this already exists
+
+Two prior commits (`93d16d843`, 2026-09-22; `ea8c605c2`, 2026-09-23 — §20.15/§20.16/§20.17 above) already
+built a real pairing feature: a persisted, many-to-many, soft-deleted, audit-carrying link between photos
+on different inspections, a full-screen compare viewer, and a click-based "Match" action. Reading §24.1-24.4
+against §20.15-20.17 above before writing a single new line is the load-bearing step of this investigation —
+the risk on this round is not "how do we build pairing," it is "don't rebuild what §20.16/§20.17 already
+shipped."
+
+What already exists and should be **reused, not rebuilt**:
+
+1. **The pair IS an explicit link, already spans a lineage, already survives add/remove/reorder** —
+   `RentalInspectionPhotoMatchGroup`/`RentalInspectionPhotoMatchGroupMember` (§24.4 below). Johan's design
+   decision #1 in this round's brief is already the shipped model, not a new one to design.
+2. **"Tag them to link them" already exists** — `RentalInspectionPhotoMatchGroup::linkPhotos()`
+   (`app/Models/RentalInspectionPhotoMatchGroup.php:126-145`), reached via clicking a thumbnail in either
+   side's carousel then the viewer's "Match" button (`compareViewerMatch()`,
+   `resources/views/corex/properties/show.blade.php:6033-6038`), POSTing to
+   `POST /corex/properties/{property}/rental-inspection-photo-matches`
+   (`RentalInspectionRecordingController::storePhotoMatch()`, same file `:897-914`). What is genuinely new
+   this round is the **drag** gesture (§24.6) as a second, faster way to reach the exact same
+   `linkPhotos()` call — not a new linking mechanism.
+3. **The "third inspection" question is already answered** — a group is a SET, not a pairwise edge; §20.16.1
+   states outright that the group model "already work[s] for any number of members from any number of
+   inspections" (§20.17.9). §24.4 confirms this by reading the actual code, not just the spec's own claim.
+4. **The compare viewer (the "two blocks side by side" AND the "photo viewer") both already exist** —
+   §24.5/§24.6 identify exactly which of the two Johan means by each phrase, since they are two different
+   screens in this codebase, not one.
+
+What is genuinely new and not built anywhere: the **drag** gesture itself, **auto-pair**, and **paired-first
+ordering** in the viewer's carousel. §24.5-24.7 propose all three.
+
+### 24.2 Photo storage today — file:line
+
+- `RentalInspectionPhoto` (`app/Models/RentalInspectionPhoto.php`) — one row per photo. Belongs always to
+  an inspection (`rental_inspection_id`, `:38`); OPTIONALLY to a room (`property_room_id`, `:40`) and/or a
+  specific item's observation within that inspection (`rental_inspection_observation_id`, `:39`) — both
+  null means "sits in the inspection's own untagged tray" (`isUntagged()`, `:95-98`). Tagging is a
+  **supersede**, not an append (`tagTo()`, `:107-115`; `untag()`, `:118-121` — the exact same call with
+  nulls). Soft-deletable (`archive()`, `:124-128`), never hard-deleted.
+- Migrations: base table `database/migrations/2026_09_17_100300_create_rental_inspection_photos_table.php`;
+  room/tray columns added by
+  `database/migrations/2026_09_22_140000_add_room_and_tray_support_to_rental_inspection_photos_table.php`.
+- **Rooms and items are property-scoped, not inspection-scoped** — `PropertyRoom` and `RentalInspectionItem`
+  belong to the `Property` directly and are reused across every inspection on it
+  (`RentalInspection.php:656-659`'s own docblock: "Rooms/items are property-wide... every link in the chain
+  automatically shares the same structure"). This is why `property_room_id` is directly comparable across
+  two different inspections' photos — the same physical room has the same id everywhere. An **item**,
+  however, is reached from a photo only via `rental_inspection_observation_id` →
+  `RentalInspectionObservation::item()` (`app/Models/RentalInspectionObservation.php:92-94`,
+  `rental_inspection_item_id` at `:53`) — the *observation* is inspection-scoped (each inspection creates
+  its own), but the *item* it points at (`rental_inspection_item_id`) is the same property-wide id on both
+  sides. Any code keying photos by "same item across two inspections" must resolve through
+  `observation->rental_inspection_item_id`, never assume the observation ids themselves line up.
+- **The chain** — `RentalInspection.previous_inspection_id` (`RentalInspection.php:68`), one linear chain,
+  set once at creation by `startNext()` (`:671-700`), never edited afterward. `chainTailFor()` (`:543-555`)
+  finds whichever link has no successor yet; `inferredPredecessorFor()` (`:579-588`) is the type+date
+  fallback for a pre-chain pair recorded before this column existed. `compareRightFor()`/`mostRecentFor()`
+  (`:603-615`) resolve the original fixed in/out pair the compare viewer's `chainPredecessor`/`chainTail`
+  state is built from (`tabPayloadFor()`, `:847-998`, the `photo_matches` key specifically at `:977-996`).
+
+### 24.3 Compare viewer ordering today — file:line
+
+The carousel a paired-vs-unmatched sort would need to change is
+`compareViewerCarouselPhotos(side)`/`compareViewerPhotosForSide(side)`
+(`resources/views/corex/properties/show.blade.php:5938-5948`). Today it returns
+`roomPhotosForInspection()`/`conditionForInspection()`'s own photo array
+(`roomPhotosForInspection()` defined at `:6687`), filtered only for a present `storage_path` (`:5944`) —
+**no pairing-aware sort exists**. Order is whatever `itemPhotosForInspection()`/the underlying eager-loaded
+`photos` relation returns (upload/creation order, unsorted for this purpose). `groupForPhoto()`
+(`:5755-5757` area) is already available inside this same component and is the lookup a paired-first sort
+would call per photo.
+
+Clicking a thumbnail here (`compareViewerSelectCarouselPhoto()`, `:5960-5973`) already loads the clicked
+photo's matched-group counterpart into the opposite pane — this is the mechanic Johan's "the photo viewer
+shows the tagged pairs first" extends: today the agent has to already know to click a paired photo to see
+the pairing; the ask is to surface it as a visible ordering instead of something the agent discovers by
+clicking.
+
+**Proposed change (build-time, not yet built):** `compareViewerCarouselPhotos(side)` sorts its result into
+two runs — every photo with an active group membership (`groupForPhoto(photo.id)` truthy) first, ordered
+by pair order (§24.4's open question on what "pair order" means), then every unmatched photo, labelled by
+side in the UI exactly as Johan specified ("no match" / the side it came from). This is a pure read-side
+sort — it changes what order `compareViewerCarouselPhotos()` returns, not the underlying data.
+
+### 24.4 The pair's data model — REUSE `RentalInspectionPhotoMatchGroup`, do not design a new one
+
+Johan's brief asks four things of a pair's data model: explicit link (not position); survives add/remove/
+reorder; states what happens when a third inspection joins the chain; states what happens when a paired
+photo is removed. All four are already answered by the shipped model:
+
+- **Explicit link, not position** — `rental_inspection_photo_match_group_members` is a real row per photo
+  per group (`database/migrations/2026_10_03_100100_..._members_table.php`), not a computed position.
+- **A photo belongs to at most ONE active group** — enforced in application code, not a DB constraint
+  (`RentalInspectionPhotoMatchGroup::addMember()`, `:84-114`), because a plain unique index can't express
+  "unique among non-deleted rows" alongside soft deletes (the member migration's own docblock,
+  `2026_10_03_100100...php:8-25`, names this exact MySQL gotcha).
+- **Third inspection joining the chain** — **a photo pairs to a lineage (the group), never to "one
+  predecessor."** `RentalInspectionPhotoMatchGroup::photos()` (`:48-58`) is a `hasManyThrough` with no
+  inspection filter at all — a group can and does hold members from any number of inspections
+  simultaneously. `RentalInspection::tabPayloadFor()`'s `photo_matches` key (`:977-996`) already reads
+  "every match GROUP touching the chain's CURRENT predecessor/tail pair," with its own comment naming
+  exactly the case Johan is asking about: "a group may carry members from more than just these two
+  inspections (Johan's own 'third and fourth inspection' case), and every one of those members ships to
+  the frontend too." **This is not a proposal — it is what is already running on QA1.**
+- **Removing a paired photo** — `RentalInspectionPhotoMatchGroupMember::removeAndMaybeArchiveGroup()`
+  (`:59-69`) soft-deletes just that one membership; if the group drops to ≤1 active member, the GROUP is
+  archived too (`RentalInspectionPhotoMatchGroup::archive()`, `:148-152` — a soft delete, `deleted_at`,
+  never a hard delete). The removed photo's own row is untouched; only its membership row and, possibly,
+  the now-empty group are archived.
+
+**Recommendation: build nothing new here.** The drag gesture (§24.6) and auto-pair (§24.5) should both
+call the exact same `RentalInspectionPhotoMatchGroup::linkPhotos($clicked, $anchor, $by)` the click-based
+UI already calls (`RentalInspectionRecordingController::storePhotoMatch()`,
+`app/Http/Controllers/CoreX/RentalInspectionRecordingController.php:897-914`) — one linking primitive, three
+ways to trigger it (click, drag, auto-pair), never a second table or a second write path.
+
+**Open question — "sets the order":** the brief says the drag gesture "makes the link and sets the order."
+Today's schema has no explicit position column — `toComparePayload()` (`RentalInspectionPhotoMatchGroup.php
+:161-174`) returns `$this->members->map(...)` in whatever order the `members()` relation yields, which
+without an explicit `orderBy` is insertion order (ascending `id`, i.e. the order photos were added to the
+group). **[cc design call, not yet approved]:** proposing this insertion order stand in for "pair order"
+rather than adding a new `position`/`sort_order` column — it already reflects "the order the agent paired
+them in," which is very likely all "sets the order" means, and a same-group reorder-without-relinking
+feature was not asked for. If Johan wants a photo to be movable to a different position WITHIN an existing
+group without unlinking and relinking it, that is a real schema gap (no column carries an explicit
+position today) and needs a business answer before it's built: **is "the order photos were paired in"
+good enough, or does an agent need to manually reorder an already-paired set?**
+
+### 24.5 Auto-pair — proposed rule, not built anywhere today
+
+`grep -i "auto-pair"` across the entire spec returns zero hits before this section — confirmed nothing
+resembling this exists, on QA1 or in any prior design record.
+
+**Proposed rule, stated precisely enough to predict its output:**
+
+1. Scope: the chain's current predecessor/tail pair (`$rawPredecessor`/`$rawChainTail`,
+   `RentalInspection.php:910-912` — the same pair `photo_matches` is already scoped to).
+2. For every **tagged** photo (`isUntagged()` false, `RentalInspectionPhoto.php:95-98`) on either side that
+   does **not** already belong to an active group (`RentalInspectionPhotoMatchGroup::forPhoto()` returns
+   null, `:66-71`), compute a key:
+   - item-level photo (`rental_inspection_observation_id` set): key = `(property_room_id,
+     observation->rental_inspection_item_id)`.
+   - room-level-only photo (`property_room_id` set, `rental_inspection_observation_id` null): key =
+     `(property_room_id, null)`.
+   - untagged photos are never candidates — there is no tag signal to key off, and guessing from image
+     content is out of scope for this build.
+3. For every key present on BOTH sides: if the predecessor side has **exactly one** ungrouped candidate for
+   that key AND the tail side has **exactly one** ungrouped candidate for that key, propose the pair
+   (call `linkPhotos()`, `matched_by_user_id` recorded as a system/auto actor — see open question below).
+   **If either side has zero, or either side has more than one, propose NOTHING for that key** — this is
+   Johan's own ruling stated in the brief ("proposes nothing rather than guessing wrong"), and it is the
+   only rule that can't silently mismatch: with four in-photos and two out-photos tagged to the same item,
+   the key has 4 candidates on one side and 2 on the other — count ≠ 1 on both sides, so auto-pair proposes
+   nothing for that item and leaves all six for the agent to pair by hand (drag or click), exactly as
+   instructed.
+4. Idempotent by construction: re-running the rule after some pairs already exist only ever looks at
+   *ungrouped* candidates (step 2's filter), so it can safely run more than once without touching photos an
+   agent already paired or already decided not to pair.
+
+**Open questions Johan needs to rule on — not guessed:**
+
+- **When does it run?** Three real options: (a) automatically, once, the first time both sides of a
+  predecessor/tail pair have tagged photos (event-driven, silent); (b) automatically every time the
+  two-block screen or the compare viewer is opened (idempotent per §24.5.4, so safe to re-run, but the
+  agent never sees it as a discrete step); (c) an explicit "Auto-pair" button the agent presses, so pairing
+  the forty photos Johan describes is a deliberate, visible action with a result the agent then reviews —
+  closer to "runs first" as a step in a flow than something that happens invisibly on page load. This is a
+  business/UX call (what the agent sees happen on screen), not an engineering one — Johan's call.
+- **Auto-pair on or off by default** (§24.7's setting) — Johan's brief names this as one of the settings to
+  build but doesn't state the default.
+- **Who is recorded as `matched_by_user_id` on an auto-created pair?** The column is `nullable` (schema:
+  `2026_10_03_100100_..._members_table.php:38-39`), so a system-attributed row (null `added_by_user_id`) is
+  possible without a schema change — but this is deposit-dispute evidence (§20.16.2's own framing), so
+  whether "auto-paired, nobody confirmed" needs to read differently from "agent X paired this" anywhere it
+  surfaces (the group's audit trail, any future report) is worth Johan's explicit ruling, not a silent
+  default.
+
+### 24.6 Where drag-and-drop attaches — an existing pattern on THIS EXACT SCREEN, and a live conflict
+
+**"Two blocks side by side" is the item-level comparison grid**, not the compare-viewer modal. It lives in
+`resources/views/corex/properties/partials/rental-inspection-recording.blade.php:611-629`
+(`rir-compare-row`, `grid-template-columns:1fr 1fr` at `:629`) — ONE `x-for` over `group.items` drives both
+columns so "item N is always item N on both sides by construction" (that file's own docblock, `:612-627`).
+Each cell is rendered by the SAME shared partial,
+`resources/views/corex/properties/partials/rental-inspection-item-cell.blade.php`, once with `$readOnly =
+true` (the predecessor/left cell) and once `$readOnly = false` (the tail/right cell) — confirmed by reading
+that partial's own docblock (`item-cell.blade.php:1-49`) and its `@if($readOnly)` branches
+(`:54-136`).
+
+**Room-level photos have NO side-by-side block today.** The room photo strip (§20.14.3's "R1")
+(`rental-inspection-recording.blade.php:500-609`) renders ONLY the tail side — its own comment says so
+outright: "there is no predecessor-side room gallery in this file" (`:551`). If Johan wants room-level
+(not just item-level) photos pairable via drag between two visible blocks, that block does not exist yet
+and building it is itself new scope, separate from wiring drag onto the item-level grid that already has
+two sides. **[Open question]:** does this round cover item-level pairing only (where two blocks already
+exist), or does it also require building a predecessor-side room gallery that doesn't exist today?
+
+**"The photo viewer" is the separate compare-viewer modal** (`show.blade.php`, opened via
+`openCompareViewer(photo, insp)` from either cell — item-cell.blade.php `:107` (read-only) and `:124`
+(live)). §24.3 is where its paired-first ordering change belongs. These are two different UI surfaces in
+this codebase — the brief's two sentences describe two different screens, not one.
+
+**The drag mechanic already exists on this exact screen, for a different purpose — match it, don't invent a
+second one.** `rental-inspection-recording.blade.php:349-450` already implements native HTML5
+drag-and-drop for tagging: `draggable="true"` + `@dragstart="photoUploader({{ $sectionJs }}).
+dragStartSelection($event, photo.id)"` (`:349-350`) on a tray photo tile, and `@dragover.prevent`/
+`@drop.prevent="...dropOnRoom($event, group.room.id)"` (`:448-450`) on a room heading as the drop target.
+The handlers themselves live in the reusable component `public/js/corex-photo-batch-uploader.js:308-317`:
+`dragStartSelection(event, id)` stashes the dragged photo id(s) in `event.dataTransfer`;
+`dropOnRoom(event, roomId)` reads them back out and calls the existing tag action. **Proposed reuse:** the
+same two-function shape — a new `dragStartPairCandidate(event, photoId)` on the tail (live) cell's photo
+tile (`item-cell.blade.php:123-124`, currently NOT draggable — no `draggable` attribute exists on this
+element today) and a new `dropOnPairCandidate(event, photoId)` on the predecessor (read-only) cell's
+counterpart tile (`item-cell.blade.php:106-107`), calling `linkPhotos()`'s existing endpoint via the anchor/
+clicked shape `storePhotoMatch()` already accepts (`photo_id`/`anchor_photo_id`,
+`RentalInspectionRecordingController.php:899-902`) — no new endpoint needed, only a new client-side trigger
+for the one that exists.
+
+**A real design tension, named rather than resolved:** the read-only cell's own docblock states its rule
+in Johan's own words — *"Read-only means disabled controls or a static rendering of the same component — it
+does not mean a different component with a different look"* (`item-cell.blade.php:12-14`) — and today that
+branch (`:90-109`) has **zero interactive affordances**: no select, no tag button, no drag handle, nothing
+but a click that opens the viewer. Making it a **drop target** is a new interactive behaviour on a cell
+this file's own rule was written to keep inert. It is arguably not a "control" in the sense the rule means
+(nothing on the read-only side becomes editable; it only ever receives a drop that acts on the OTHER side's
+photo), but it is a change to that cell's behaviour that its own docblock did not anticipate, and this
+round should not decide unilaterally that the rule doesn't apply. **[Open question for Johan]:** is a drop
+target on the read-only predecessor cell consistent with "read-only," or does dragging need to work the
+other direction only (drag the read-only/predecessor photo onto the live/tail cell) to keep every write
+action anchored on the side that already accepts writes?
+
+**Live conflict, confirmed, not assumed:** `git worktree list` shows a second, currently-checked-out
+worktree, `/mnt/HC_Volume_103099143/corex-worktrees/insp-photo-strips-2026-09-26` (branch
+`insp-photo-strips-2026-09-26`, branched from the same `origin/QA1` tip as this investigation's own
+worktree, no commits ahead of it yet — the restyle is uncommitted work-in-progress at the time of this
+investigation). Its name and Johan's own framing ("cc1 is restyling the same Blade file right now") both
+point at exactly the two files this section proposes to touch
+(`rental-inspection-recording.blade.php`/`item-cell.blade.php`, specifically the `.rir-item-photo-tile`/
+`.rir-room-photo-tile` tile styling declared at `rental-inspection-recording.blade.php:96-111`). **This
+build must not start until that restyle lands on QA1 and this branch rebases onto it** — building drag
+handlers against tile markup that is about to be restyled underneath them is the exact race Johan is
+already sequencing against.
+
+### 24.7 Agency-configurable settings — proposed, following the existing pattern exactly
+
+`RentalInspectionSetting` (`app/Models/RentalInspectionSetting.php`) is a single row per agency, one real
+column plus one static `...For(?int $agencyId)` accessor per setting (e.g.
+`requireNotesBlocksProgressionFor()`, `:256-264`; `refusalReasonPresetsFor()`, `:303-...`) — never a
+generic key-value blob. Proposed additions, following that exact shape:
+
+- **`auto_pair_photos_enabled`** (boolean column, new `...For()` accessor) — Johan's brief names this
+  explicitly as needed; **default not stated, Johan's call** (§24.5's open question).
+- Depending on Johan's answer to §24.5's "when does it run" question, possibly no second setting is
+  needed — if auto-pair is always an explicit button (option (c)), the on/off toggle IS the only setting;
+  if it runs automatically, a second question (can an agent re-trigger it manually even when the automatic
+  setting is off) may need its own toggle or may not — deferred until the first question is answered, not
+  designed twice.
+
+**Setup Wizard — non-negotiable #10a, not yet done, named so it isn't forgotten:** the existing rental-
+inspections wizard step lives in `config/agency-onboarding-copy.php` (`source: 'rental_inspections'` block,
+approximately `:396-411`, settings page route `corex.settings.rental-inspections.edit` referenced at
+`:487-489`). Any new setting from this section ships in the SAME prompt that builds it, added to that same
+step with a real `explain`/`affects` pair — not deferred to a later prompt.
+
+### 24.8 Open questions — the complete list, restated together
+
+1. **§24.4** — is insertion order (the order photos were added to the group) sufficient for "pair order,"
+   or does an agent need to reorder an already-paired set without unlinking/relinking?
+2. **§24.5** — does auto-pair run automatically (silently on load, or once when both sides first have
+   tagged photos) or via an explicit "Auto-pair" button the agent presses?
+3. **§24.5** — auto-pair's default (on/off) for a new agency.
+4. **§24.5** — how an auto-created pair's provenance (`matched_by_user_id` = null/system) should read
+   anywhere it surfaces, versus an agent-made pair.
+5. **§24.6** — does this round cover item-level photo pairing only, or does it also require building a
+   predecessor-side room-level photo gallery that does not exist today (§20.14.3's R1 strip currently
+   renders the tail side only)?
+6. **§24.6** — is a drop target on the read-only predecessor cell an acceptable exception to that cell's
+   own "no interactive affordances" rule, or should the drag direction be reversed (predecessor photo
+   dragged onto the live tail cell) to keep all write actions anchored on the side that already accepts
+   them?
+7. **§24.6 (sequencing, not a design question)** — this build waits for `insp-photo-strips-2026-09-26` to
+   land on QA1 and for this branch to rebase onto that restyle before any markup changes are written.
