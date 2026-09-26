@@ -40,7 +40,14 @@ class RentalInspectionReportPdfService
             ->with('room')
             ->get();
 
-        $currentByItem = $inspection->observations->groupBy('rental_inspection_item_id')
+        // AT-433, 2026-09-26 — a photo-anchor row (RentalInspectionObservation
+        // ::CONDITION_PENDING) is not an assessment; excluded before the
+        // latest-per-item pick so this COMPLETED inspection's own printed
+        // report never shows an empty string as the item's recorded
+        // condition just because a photo arrived before a condition did.
+        $currentByItem = $inspection->observations
+            ->where('condition', '!=', \App\Models\RentalInspectionObservation::CONDITION_PENDING)
+            ->groupBy('rental_inspection_item_id')
             ->map(fn ($group) => $group->sortByDesc('created_at')->first());
 
         $rows = $items

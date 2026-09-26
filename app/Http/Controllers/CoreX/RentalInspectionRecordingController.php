@@ -13,6 +13,7 @@ use App\Models\RentalInspectionPhoto;
 use App\Models\RentalInspectionRoomNote;
 use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
+use App\Models\User;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\RentalInspectionPhotoAutoPairService;
 use Illuminate\Http\JsonResponse;
@@ -563,7 +564,11 @@ class RentalInspectionRecordingController extends Controller
             default => RentalInspectionObservation::SOURCE_AD_HOC,
         };
 
-        $alreadyRecordedItemIds = RentalInspectionObservation::where('rental_inspection_id', $rentalInspection->id)
+        // AT-433, 2026-09-26 — ->recorded() so an item that only has a
+        // photo-anchor observation (no real condition yet) is still filled
+        // in here, not silently skipped as if it were already done.
+        $alreadyRecordedItemIds = RentalInspectionObservation::recorded()
+            ->where('rental_inspection_id', $rentalInspection->id)
             ->pluck('rental_inspection_item_id');
 
         $items = RentalInspectionItem::where('property_room_id', $room->id)
@@ -599,7 +604,9 @@ class RentalInspectionRecordingController extends Controller
             default => RentalInspectionObservation::SOURCE_AD_HOC,
         };
 
-        $alreadyRecordedItemIds = RentalInspectionObservation::where('rental_inspection_id', $rentalInspection->id)
+        // AT-433, 2026-09-26 — same reasoning as markRoomGood() above.
+        $alreadyRecordedItemIds = RentalInspectionObservation::recorded()
+            ->where('rental_inspection_id', $rentalInspection->id)
             ->pluck('rental_inspection_item_id');
 
         $items = RentalInspectionItem::where('property_id', $rentalInspection->property_id)
@@ -719,17 +726,25 @@ class RentalInspectionRecordingController extends Controller
      * client_idempotency_key so a retried batch never double-uploads a file
      * that actually landed.
      *
-     * property_room_id / rental_inspection_observation_id are both optional
-     * and independent: neither sent = untagged (tray); room only = a
-     * general room shot; both = filed against one item. An item id is
-     * validated to actually belong to the given/resolved room and to this
-     * inspection's own property — never trusted blindly from the client.
+     * property_room_id / rental_inspection_observation_id / rental_inspection_
+     * item_id are all optional: neither sent = untagged (tray); room only =
+     * a general room shot; observation_id = filed against that exact
+     * observation (the pre-AT-433 path, still used whenever the caller
+     * already has a real one); item_id = filed against that item — AT-433,
+     * 2026-09-26, Johan ("adding a photo uploads it. Immediately. Always"):
+     * resolves (or creates, if none exists yet — see
+     * currentOrPendingObservationFor()) the item's own observation on THIS
+     * inspection rather than requiring the caller to have recorded a real
+     * condition first. A room/item id is validated to actually belong to
+     * the given/resolved room and to this inspection's own property — never
+     * trusted blindly from the client.
      */
     public function storePhotos(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
             'rental_inspection_observation_id' => ['nullable', 'integer', 'exists:rental_inspection_observations,id'],
+            'rental_inspection_item_id' => ['nullable', 'integer', 'exists:rental_inspection_items,id'],
             'photos' => ['required', 'array', 'min:1', 'max:10'],
             'photos.*' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
             'client_idempotency_keys' => ['nullable', 'array'],
@@ -738,6 +753,7 @@ class RentalInspectionRecordingController extends Controller
 
         $roomId = isset($validated['property_room_id']) ? (int) $validated['property_room_id'] : null;
         $observationId = $validated['rental_inspection_observation_id'] ?? null;
+        $itemId = $validated['rental_inspection_item_id'] ?? null;
 
         if ($observationId) {
             $observation = RentalInspectionObservation::findOrFail($observationId);
@@ -745,6 +761,13 @@ class RentalInspectionRecordingController extends Controller
             // The item's own room wins — a client-supplied room_id that
             // disagrees with the item's real room is never trusted.
             $roomId = $observation->item?->property_room_id;
+        } elseif ($itemId) {
+            $item = RentalInspectionItem::where('id', $itemId)
+                ->where('property_id', $rentalInspection->property_id)
+                ->firstOrFail();
+            $observation = $this->currentOrPendingObservationFor($rentalInspection, $item, $request->user());
+            $observationId = $observation->id;
+            $roomId = $item->property_room_id;
         } elseif ($roomId) {
             abort_unless(
                 PropertyRoom::where('id', $roomId)->where('property_id', $rentalInspection->property_id)->exists(),
@@ -784,6 +807,58 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json(['photos' => $created], 201);
+    }
+
+    /**
+     * AT-433, 2026-09-26, Johan (property 5792, a staged photo silently lost
+     * on reload — "adding a photo uploads it. Immediately. Always... no
+     * staging, no hidden dependency on a separate deliberate action.").
+     * Finds the item's own observation on THIS inspection — real or an
+     * earlier photo-anchor row — or creates a new photo-anchor row
+     * (RentalInspectionObservation::CONDITION_PENDING) so the photo always
+     * has somewhere to attach, whether or not a condition has been recorded.
+     *
+     * Plain create(), never record(): a photo-anchor row is not an
+     * assessment and must never run discrepancy detection —
+     * RentalInspectionDiscrepancy::detectFor() also independently refuses a
+     * pending observation on either side of a comparison (see its own
+     * comment), so this is belt-and-suspenders, not the only guard.
+     *
+     * Known, accepted race: two near-simultaneous uploads to the SAME
+     * never-before-touched item can each see "none exists yet" and each
+     * create their own photo-anchor row. Harmless — RentalInspectionObservation
+     * ::scopeRecorded() excludes every photo-anchor row regardless of how
+     * many exist, and every "this item's photos" read already aggregates
+     * across ALL of an item's observations (§20.20's itemPhotosFor()) — not
+     * engineered away with a DB-level lock, since a unique index on
+     * (inspection, item, condition) would also block the legitimate case of
+     * re-confirming the same real condition twice.
+     */
+    private function currentOrPendingObservationFor(RentalInspection $rentalInspection, RentalInspectionItem $item, User $user): RentalInspectionObservation
+    {
+        $existing = RentalInspectionObservation::where('rental_inspection_id', $rentalInspection->id)
+            ->where('rental_inspection_item_id', $item->id)
+            ->latest('id')
+            ->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $source = match ($rentalInspection->type) {
+            RentalInspection::TYPE_IN => RentalInspectionObservation::SOURCE_IN_INSPECTION,
+            RentalInspection::TYPE_OUT => RentalInspectionObservation::SOURCE_OUT_INSPECTION,
+            default => RentalInspectionObservation::SOURCE_AD_HOC,
+        };
+
+        return RentalInspectionObservation::create([
+            'agency_id' => $rentalInspection->agency_id,
+            'rental_inspection_id' => $rentalInspection->id,
+            'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $user->id,
+            'condition' => RentalInspectionObservation::CONDITION_PENDING,
+            'notes' => null,
+            'source' => $source,
+        ]);
     }
 
     /**

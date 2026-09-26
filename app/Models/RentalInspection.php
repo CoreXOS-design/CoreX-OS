@@ -230,7 +230,12 @@ class RentalInspection extends Model
      */
     public function itemsWithMissingRequiredNotes(): \Illuminate\Support\Collection
     {
+        // AT-433, 2026-09-26 — ->recorded() excludes photo-anchor rows
+        // (CONDITION_PENDING) before the latest-per-item pick below, so an
+        // item with only an unrecorded photo is treated as not-yet-recorded
+        // (excluded here entirely), never as "recorded but missing notes."
         return $this->observations()
+            ->recorded()
             ->with('item.room')
             ->get()
             ->groupBy('rental_inspection_item_id')
@@ -727,9 +732,14 @@ class RentalInspection extends Model
             }
             $seen[$current->id] = true;
 
+            // AT-433, 2026-09-26 — a photo-anchor row (CONDITION_PENDING) is
+            // excluded from both branches so a link where an item only ever
+            // got a photo, never a condition, doesn't print an empty string
+            // into this run (or into ucfirst() in the report PDF's
+            // history_text, RentalInspectionReportPdfService::generate()).
             $observation = $current->relationLoaded('observations')
-                ? $current->observations->where('rental_inspection_item_id', $item->id)->sortByDesc('created_at')->first()
-                : $current->observations()->where('rental_inspection_item_id', $item->id)->latest('created_at')->first();
+                ? $current->observations->where('rental_inspection_item_id', $item->id)->where('condition', '!=', RentalInspectionObservation::CONDITION_PENDING)->sortByDesc('created_at')->first()
+                : $current->observations()->recorded()->where('rental_inspection_item_id', $item->id)->latest('created_at')->first();
 
             if ($observation) {
                 $run->prepend((object) [
