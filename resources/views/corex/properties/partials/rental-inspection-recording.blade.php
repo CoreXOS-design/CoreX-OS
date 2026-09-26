@@ -103,23 +103,37 @@
        still used for the tray/upload preview list elsewhere on this
        screen, so it keeps its own 165x124 size. .rir-strip-row is the
        horizontal scroller (always scrollable, never wraps — a narrow
-       viewport scrolls instead of silently clipping tiles). */
-    .rir-strip-row { position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; white-space:nowrap; font-size:0; }
-    .rir-strip-tile { display:inline-block; vertical-align:top; width:86px; height:64px; overflow:hidden; background:var(--surface-3); margin-right:6px; box-sizing:border-box; }
+       viewport scrolls instead of silently clipping tiles).
+       FIX, 2026-09-26 (AT-433 follow-up) — the first version of this strip
+       positioned .rir-add-tile as an absolutely-positioned SIBLING of this
+       row, placed via a `left` computed from tile count/width and clamped
+       with calc(100% - 124px) so it wouldn't run off the right edge. In the
+       narrow half-width comparison cell that clamp routinely engaged,
+       landing the add-tile on top of the "+N" tile (and the last visible
+       tiles) — because both were position:absolute with no z-index, the
+       later-painted add-tile silently ate the +N tile's clicks. Any future
+       change to tile width, cap, or count would recreate the same collision
+       — a computed-left formula next to a full-bleed absolute row is a bug
+       generator, not a one-off mistake. Fixed at the class level: the row
+       is now a real flex container and .rir-add-tile is simply its LAST
+       CHILD, in normal flow, after the "+N" tile — there is no left to
+       compute and nothing for it to land on top of. */
+    .rir-strip-row { position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; display:flex; flex-wrap:nowrap; align-items:flex-start; gap:6px; }
+    .rir-strip-tile { flex:none; width:86px; height:64px; overflow:hidden; background:var(--surface-3); box-sizing:border-box; }
     .rir-strip-badge { position:absolute; top:2px; left:2px; min-width:16px; height:16px; padding:0 3px; border-radius:8px; background:rgba(0,0,0,0.65); color:#fff; font-size:10px; font-weight:700; line-height:16px; text-align:center; z-index:1; pointer-events:none; }
     .rir-strip-nomatch { display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px dashed var(--border); }
     .rir-strip-nomatch-label { font-size:8px; font-weight:700; letter-spacing:0.02em; color:var(--text-muted); text-align:center; line-height:1.2; padding:0 4px; }
-    .rir-strip-more { display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary); font-size:0.75rem; font-weight:700; padding:0; margin-right:6px; cursor:pointer; }
-    /* Add-tile, 2026-09-22 — a sibling of the overflow-x:auto scroller (never a
-       descendant of it, so it can never scroll out of reach), absolutely
-       positioned against the same position:relative wrapper the scroller
-       anchors to. `left` is computed in :style from the photo count so it
-       sits immediately after the last tile — clamped with CSS min()/calc()
-       against the wrapper's own width so it can never run off the visible
-       strip when there are enough photos to fill it. top/bottom:0 (not a
-       px height) so it never becomes a source of the row's height — the
-       chip grid stays that. */
-    .rir-add-tile { position:absolute; top:0; bottom:0; width:124px; display:flex; align-items:center; justify-content:center; font-size:1.25rem; border-radius:6px; cursor:pointer; }
+    .rir-strip-more { display:inline-flex; align-items:center; justify-content:center; background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary); font-size:0.75rem; font-weight:700; padding:0; cursor:pointer; }
+    /* Item 2, 2026-09-26 — a staged (picked, not yet uploaded) photo, shown
+       so choosing a file never looks like nothing happened. Not part of
+       stripPairCount()'s predecessor/tail pairing (it has no server photo
+       id yet) — always visible, never collapsed behind "+N". */
+    .rir-strip-pending-label { position:absolute; bottom:2px; left:2px; right:2px; font-size:8px; font-weight:700; letter-spacing:0.02em; color:#fff; text-align:center; line-height:1.3; background:rgba(0,0,0,0.55); border-radius:3px; pointer-events:none; }
+    /* Add-tile — now just the strip's last flex child (see the row comment
+       above). flex:none keeps its 124px width fixed; align-self:stretch
+       reproduces the old top:0/bottom:0 full-row-height click target while
+       every tile above it stays top-aligned via the row's align-items. */
+    .rir-add-tile { flex:none; align-self:stretch; width:124px; display:flex; align-items:center; justify-content:center; font-size:1.25rem; border-radius:6px; cursor:pointer; }
 </style>
 {{-- $sectionJs override — see this file's own top docblock. --}}
 @php($sectionJs = $sectionJs ?? "'{$section}'")
