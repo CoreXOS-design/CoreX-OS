@@ -1330,6 +1330,15 @@ class TourRegistry
             return true;
         }
 
+        // A handful of screens are gated purely in-controller by role (no permission
+        // key exists to check, e.g. RcrSubmissionController::assertCompliance()) — a
+        // tour def declares that here rather than leaving canOpenRoute() to guess at
+        // a middleware that was never applied. See defs/compliance-b.php's 'comp-rcr'.
+        $roles = $tour['roles'] ?? null;
+        if ($roles && ! (is_string($user->role ?? null) && in_array($user->role, $roles, true)) && empty($user->is_admin)) {
+            return false;
+        }
+
         $permission = $tour['permission'] ?? null;
         if (! $permission) {
             return true; // inherit the route's own gate
@@ -1528,6 +1537,21 @@ class TourRegistry
                 }
             } elseif ($middleware === 'owner_only') {
                 if (! (method_exists($user, 'isOwnerRole') && $user->isOwnerRole())) {
+                    return false;
+                }
+            } elseif ($middleware === 'deny_assistant') {
+                // AT-267 — an agent-personal surface an assistant must never reach,
+                // whatever their permission matrix says. Mirrors DenyAssistant::handle().
+                if (! empty($user->is_assistant)) {
+                    return false;
+                }
+            } elseif ($middleware === 'deny_assistant_property_write') {
+                // Mirrors DenyAssistantPropertyWrite::handle(): an assistant is only
+                // let through this route name if it's on the explicit allow list —
+                // everything else is a write surface they can never complete.
+                if (! empty($user->is_assistant)
+                    && ! in_array($routeName, \App\Http\Middleware\DenyAssistantPropertyWrite::assistantMayRouteNames(), true)
+                ) {
                     return false;
                 }
             }

@@ -179,6 +179,67 @@ class AdvancedGuidingTest extends TestCase
         }
     }
 
+    /**
+     * QA2 audit fix — canOpenRoute() only recognized `permission:` and
+     * `owner_only` middleware, so a route gated by `deny_assistant` (an
+     * agent-personal surface an assistant must never reach) was silently
+     * treated as open when a tour was offered away from its own page (the
+     * Guided Tours directory, Ellie's guide buttons).
+     */
+    public function test_deny_assistant_middleware_hides_the_tour_from_an_assistant(): void
+    {
+        $assistant = $this->user(true);
+        $assistant->is_assistant = true;
+
+        foreach (['earn-dashboard', 'calc-revenue-share', 'assist-admin-create'] as $key) {
+            $tour = TourRegistry::all()[$key];
+            $this->assertFalse(TourRegistry::canOpen($tour, $assistant), "Assistant should not be offered '$key' — its route carries deny_assistant");
+        }
+
+        // A non-assistant is unaffected.
+        $this->assertTrue(TourRegistry::canOpenRoute('commission.dashboard', $this->user(true)));
+    }
+
+    /**
+     * Same bug class for `deny_assistant_property_write` — an assistant is
+     * only let through a write-only route name on the middleware's own
+     * explicit allow list; no currently-registered tour targets one, so this
+     * proves the mechanism directly against a real write-only route.
+     */
+    public function test_deny_assistant_property_write_hides_a_write_only_route_from_an_assistant(): void
+    {
+        $assistant = $this->user(true);
+        $assistant->is_assistant = true;
+
+        $this->assertFalse(TourRegistry::canOpenRoute('corex.tracked-properties.promote', $assistant));
+        $this->assertTrue(TourRegistry::canOpenRoute('corex.properties.update', $assistant), 'this route name is on the explicit allow list');
+        $this->assertTrue(TourRegistry::canOpenRoute('corex.tracked-properties.promote', $this->user(true)), 'a non-assistant is unaffected');
+    }
+
+    /**
+     * comp-rcr's real gate is in-controller only (RcrSubmissionController::
+     * assertCompliance() — no permission key exists for it). visibleTo()'s new
+     * `roles` field must match that role list exactly, or the guide is either
+     * offered to people who'll 403, or hidden from people who should see it.
+     */
+    public function test_comp_rcr_role_gate_matches_its_controllers_in_code_check(): void
+    {
+        $tour = TourRegistry::all()['comp-rcr'];
+
+        $agent = $this->user(true);
+        $agent->role = 'agent';
+        $this->assertFalse(TourRegistry::visibleTo($tour, $agent), 'a plain agent must not be offered the RCR guide');
+
+        $branchManager = $this->user(true);
+        $branchManager->role = 'branch_manager';
+        $this->assertTrue(TourRegistry::visibleTo($tour, $branchManager));
+
+        $legacyAdminFlag = $this->user(true);
+        $legacyAdminFlag->role = 'agent';
+        $legacyAdminFlag->is_admin = 1;
+        $this->assertTrue(TourRegistry::visibleTo($tour, $legacyAdminFlag), 'assertCompliance() also accepts the raw is_admin flag');
+    }
+
     public function test_record_page_tours_declare_a_real_pick_list(): void
     {
         foreach ($this->routedTours() as $key => $tour) {

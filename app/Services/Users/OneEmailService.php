@@ -44,7 +44,14 @@ class OneEmailService
             return null;
         }
 
-        return User::withoutGlobalScopes()->withTrashed()->find($agency->one_email_user_id);
+        // Defense in depth — the only writer of one_email_user_id (settings update
+        // below) already validates against candidates($agency) first, so this should
+        // never actually resolve to another agency's user. Re-checking here means a
+        // future write path that skips that validation fails closed instead of
+        // quietly handing one agency's shared inbox to another's sub-users' mail.
+        $user = User::withoutGlobalScopes()->withTrashed()->find($agency->one_email_user_id);
+
+        return ($user && (int) $user->agency_id === (int) $agency->id) ? $user : null;
     }
 
     /** A real, deliverable address: something@domain.tld (a username has no dot after the @). */

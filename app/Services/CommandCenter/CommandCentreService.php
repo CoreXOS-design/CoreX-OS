@@ -1203,7 +1203,7 @@ class CommandCentreService
                 ->whereNotExists(function ($q) {
                     $q->select(DB::raw(1))
                       ->from('calendar_event_feedback')
-                      ->whereColumn('calendar_event_feedback.event_id', 'calendar_events.id');
+                      ->whereColumn('calendar_event_feedback.calendar_event_id', 'calendar_events.id');
                 })
                 ->orderByDesc('event_date')
                 ->limit(5)

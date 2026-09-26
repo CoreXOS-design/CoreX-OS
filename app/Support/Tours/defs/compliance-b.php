@@ -234,14 +234,18 @@ return [
     ],
 
     // ── RCR (Risk & Compliance Return) submissions ───────────────────────────
-    // Route group carries only auth middleware; the sidebar gates RCR by role
-    // (manager / principal / admin), not by a permission key — so no permission
-    // is set here. The route's own gate keeps the auto-launch correct.
+    // Route group carries only auth middleware; the real gate is in-controller
+    // only (RcrSubmissionController::assertCompliance() — no permission key
+    // exists for it), so `roles` is declared explicitly here — kept in lockstep
+    // with assertCompliance()'s own role list — rather than leaving canOpenRoute()
+    // to assume "no middleware" means "open to everyone" when offering this guide
+    // away from its own page (Guided Tours directory, Ellie).
     'comp-rcr' => [
         'key'         => 'comp-rcr',
         'title'       => 'Preparing your RCR return',
         'description' => 'Build the FIC Risk & Compliance Return — CoreX drafts the answers, you transpose them into goAML.',
         'route'       => 'corex.compliance.rcr.index',
+        'roles'       => ['super_admin', 'admin', 'branch_manager', 'principal'],
         'setup'       => [
             ['action' => 'scrollTop'],
         ],

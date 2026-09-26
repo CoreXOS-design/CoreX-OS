@@ -40,7 +40,13 @@ class WorksheetMarketController extends Controller
             ->orderBy('name')
             ->get();
 
-        $worksheets = Worksheet::where('period', $period)->get()->keyBy('user_id');
+        // QA2 audit — defensive only: not reachable as a leak today (the view only
+        // ever looks up $worksheets keyed by ids drawn from the already agency-scoped
+        // $agents above), but this raw query sits right next to ones AT-424 fixed and
+        // was never itself agency-filtered. Keep it inert if that render logic changes.
+        $worksheets = Worksheet::where('period', $period)
+            ->whereIn('user_id', $agents->pluck('id'))
+            ->get()->keyBy('user_id');
 
         $branches = DB::table('branches')
             ->when($agencyId !== null, fn ($q) => $q->where('agency_id', $agencyId))

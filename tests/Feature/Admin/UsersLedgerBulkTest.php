@@ -102,12 +102,16 @@ final class UsersLedgerBulkTest extends TestCase
     {
         [$agencyId, $admin] = $this->agencyWithAdmin();
         Mail::fake();
-        $pending  = $this->agent($agencyId, ['name' => 'Needs Invite',   'email_verified_at' => null]);
-        $done     = $this->agent($agencyId, ['name' => 'Already Setup']);
-        $inactive = $this->agent($agencyId, ['name' => 'Gone Quiet',     'email_verified_at' => null, 'is_active' => 0]);
+        // A real pending invite is created with is_active = false until first login
+        // (store()) — this fixture must match that, not agent()'s active-by-default
+        // state, or it can't catch the bug where bulk resend skipped every genuine
+        // pending invite as "inactive".
+        $pending             = $this->agent($agencyId, ['name' => 'Needs Invite', 'is_active' => 0, 'email_verified_at' => null]);
+        $done                = $this->agent($agencyId, ['name' => 'Already Setup']);
+        $deactivatedButSetUp = $this->agent($agencyId, ['name' => 'Gone Quiet', 'is_active' => 0]);
 
         $res = $this->actingAs($admin)->post(route('admin.users.bulk'), [
-            'action' => 'resend_invite', 'user_ids' => [$pending->id, $done->id, $inactive->id],
+            'action' => 'resend_invite', 'user_ids' => [$pending->id, $done->id, $deactivatedButSetUp->id],
         ]);
 
         $res->assertRedirect(route('admin.users'));
@@ -116,7 +120,7 @@ final class UsersLedgerBulkTest extends TestCase
         Mail::assertSent(UserInviteMail::class, fn ($m) => $m->hasTo($pending->email));
         $skipped = implode(' | ', session('bulk_skipped'));
         $this->assertStringContainsString('Already Setup — has already set up their account', $skipped);
-        $this->assertStringContainsString('Gone Quiet — is inactive', $skipped);
+        $this->assertStringContainsString('Gone Quiet — has already set up their account', $skipped);
     }
 
     // ── Bulk: Deactivate ────────────────────────────────────────────────

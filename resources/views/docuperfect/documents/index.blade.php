@@ -109,7 +109,7 @@
                                     @csrf
                                     <button class="text-sm text-[color:var(--brand-icon)] hover:opacity-80">Restore</button>
                                 </form>
-                                <form method="POST" action="{{ route('docuperfect.documents.destroy', $doc->id) }}" class="inline" onsubmit="return confirm('Delete this document? It will be removed from your lists. Nothing is erased — CoreX keeps it and support can recover it.');">
+                                <form method="POST" action="{{ route('docuperfect.documents.destroy', $doc->id) }}" class="inline" onsubmit="return confirm('Delete this document? It will be removed from your lists. Nothing is erased — it moves to Archived, where you can restore it yourself any time.');">
                                     @csrf
                                     @method('DELETE')
                                     <button class="text-sm text-[color:var(--text-faint)] hover:text-red-600">Delete</button>
@@ -132,7 +132,7 @@
                                     </form>
                                 @endif
                                 @if(!$isInActiveWorkflow)
-                                <form method="POST" action="{{ route('docuperfect.documents.destroy', $doc->id) }}" class="inline" onsubmit="return confirm('Delete this document? It will be removed from your lists. Nothing is erased — CoreX keeps it and support can recover it.');">
+                                <form method="POST" action="{{ route('docuperfect.documents.destroy', $doc->id) }}" class="inline" onsubmit="return confirm('Delete this document? It will be removed from your lists. Nothing is erased — it moves to Archived, where you can restore it yourself any time.');">
                                     @csrf
                                     @method('DELETE')
                                     <button class="text-sm text-[color:var(--text-faint)] hover:text-red-600">Delete</button>

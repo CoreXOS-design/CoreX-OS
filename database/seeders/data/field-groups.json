@@ -3,7 +3,7 @@
     "groups": [
         {
             "id": 1,
-            "name": "Lessor â€” Name only",
+            "name": "Lessor — Name only",
             "description": null,
             "layout": "horizontal",
             "is_global": true,
@@ -24,7 +24,7 @@
         },
         {
             "id": 2,
-            "name": "Lessor â€” Name + ID",
+            "name": "Lessor — Name + ID",
             "description": null,
             "layout": "horizontal",
             "is_global": true,
@@ -55,7 +55,7 @@
         },
         {
             "id": 3,
-            "name": "Lessor â€” Full",
+            "name": "Lessor — Full",
             "description": null,
             "layout": "horizontal",
             "is_global": true,
@@ -96,7 +96,7 @@
         },
         {
             "id": 4,
-            "name": "Lessee â€” Name + ID",
+            "name": "Lessee — Name + ID",
             "description": null,
             "layout": "horizontal",
             "is_global": true,
@@ -137,7 +137,7 @@
         },
         {
             "id": 5,
-            "name": "Property â€” Address",
+            "name": "Property — Address",
             "description": null,
             "layout": "horizontal",
             "is_global": true,
@@ -168,7 +168,7 @@
         },
         {
             "id": 6,
-            "name": "Property â€” Full",
+            "name": "Property — Full",
             "description": null,
             "layout": "horizontal",
             "is_global": true,

@@ -761,13 +761,19 @@
             <span class="absolute -right-1 -bottom-1 inline-flex items-center justify-center w-7 h-7 rounded-full text-white font-bold" style="background:var(--brand-icon,#0ea5e9);box-shadow:0 2px 6px rgba(14,165,233,0.4);">+</span>
         </div>
         @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <h3 class="text-base font-semibold" style="color:var(--text-primary);">No properties match these filters.</h3>
-            <p class="text-sm mt-1" style="color:var(--text-muted);">Try clearing some filters, or add a new listing.</p>
+            <h3 class="text-base font-semibold" style="color:var(--text-primary);">No {{ ($importedStock ?? false) ? 'imported stock' : 'properties' }} match these filters.</h3>
+            <p class="text-sm mt-1" style="color:var(--text-muted);">{{ ($importedStock ?? false) ? 'Try clearing some filters.' : 'Try clearing some filters, or add a new listing.' }}</p>
+        @elseif($importedStock ?? false)
+            {{-- AT-419 — imported stock arrives via the Property24 sync, never via
+                 the New Property wizard, so this empty state carries no create CTA. --}}
+            <h3 class="text-base font-semibold" style="color:var(--text-primary);">No imported stock yet.</h3>
+            <p class="text-sm mt-1" style="color:var(--text-muted);">Off-market listings pulled in from Property24 will appear here.</p>
         @else
             <h3 class="text-base font-semibold" style="color:var(--text-primary);">No properties yet.</h3>
             <p class="text-sm mt-1" style="color:var(--text-muted);">Start with your first listing. Takes under 3 minutes.</p>
         @endif
         <div class="mt-5 flex items-center justify-center gap-2 flex-wrap">
+            @unless($importedStock ?? false)
             <a href="{{ route('corex.properties.wizard') }}"
                class="inline-flex items-center gap-2 px-5 py-2.5 rounded-md text-sm font-semibold text-white transition-all duration-200"
                style="background:var(--brand-button,#0ea5e9);">
@@ -776,6 +782,7 @@
                 </svg>
                 Create my first listing
             </a>
+            @endunless
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
             <a href="{{ route($indexRoute, ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
             @endif

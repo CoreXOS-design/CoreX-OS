@@ -62,6 +62,25 @@ final class ImportedStockTest extends TestCase
         $this->get(route('corex.properties.imported-stock'))->assertOk()->assertDontSee('ZZZ-Active-Imported');
     }
 
+    /**
+     * QA2 audit fix — the empty state was reusing Properties' generic "Start with
+     * your first listing" / "Create my first listing" wizard CTA verbatim, which
+     * doesn't fit a list that only ever fills from the Property24 sync.
+     */
+    public function test_the_empty_state_never_offers_the_new_property_wizard(): void
+    {
+        [, $admin] = $this->agencyWithAdmin();
+        $this->actingAs($admin);
+
+        $res = $this->get(route('corex.properties.imported-stock'))->assertOk();
+        $res->assertSee('No imported stock yet.');
+        $res->assertDontSee('Create my first listing');
+        $res->assertDontSee(route('corex.properties.wizard'), false);
+
+        // The ordinary Properties page keeps its own wizard CTA unaffected.
+        $this->get(route('corex.properties.index'))->assertOk()->assertSee('Create my first listing');
+    }
+
     public function test_non_imported_off_market_property_stays_on_properties(): void
     {
         [$agencyId, $admin] = $this->agencyWithAdmin();
@@ -859,6 +878,32 @@ final class ImportedStockTest extends TestCase
 
         $this->assertSame($earliest->toDateTimeString(), $property->fresh()->p24_imported_at->toDateTimeString());
         $this->assertSame($untouchedOriginal, $alreadyStamped->fresh()->p24_imported_at->toDateTimeString());
+    }
+
+    // ── Cross-agency isolation ───────────────────────────────────────────
+
+    /**
+     * QA2 audit — the shared scoping mechanism (Property's own global
+     * AgencyScope) is real, but this feature's own suite never demonstrated
+     * it: neither the list nor direct-URL-by-id access was proven blocked
+     * for another agency.
+     */
+    public function test_another_agencys_imported_stock_is_hidden_from_the_list_and_by_direct_id(): void
+    {
+        [$agencyA, $adminA] = $this->agencyWithAdmin();
+        [, $adminB] = $this->agencyWithAdmin();
+
+        $propertyA = $this->property($agencyA, $adminA, 'ZZZ-Agency-A-Imported', [
+            'status' => 'withdrawn', 'p24_imported_at' => now(),
+        ]);
+
+        $this->actingAs($adminB)
+            ->get(route('corex.properties.imported-stock'))
+            ->assertOk()->assertDontSee('ZZZ-Agency-A-Imported');
+
+        $this->actingAs($adminB)
+            ->get(route('corex.properties.show', $propertyA))
+            ->assertNotFound();
     }
 
     // ── helpers ──────────────────────────────────────────────────────────

@@ -144,6 +144,56 @@ final class AgencyScanFixesTest extends TestCase
         $this->assertNotContains('B Deleted Course', $titles);
     }
 
+    /**
+     * QA2 audit — one of the 10 fix areas in this commit had no test at all.
+     * The old query merged every agency's calendar_event_class_settings row
+     * into the "does this class require feedback" filter, so a completed
+     * event in an agency with NO require_feedback setting of its own could
+     * be flagged anyway if some OTHER agency happened to require feedback
+     * for the same event class.
+     */
+    public function test_feedback_card_uses_only_the_events_own_agencys_class_setting(): void
+    {
+        \App\Models\CommandCenter\CalendarEventClassSetting::flushResolveCache();
+        $settingRow = fn (array $overrides) => array_merge([
+            'event_class' => 'viewing', 'label' => 'Viewing',
+            'green_days' => 1, 'amber_days' => 2, 'red_days' => 3,
+            'green_visibility' => [], 'amber_visibility' => [], 'red_visibility' => [],
+            'green_notifications' => [], 'amber_notifications' => [], 'red_notifications' => [],
+        ], $overrides);
+
+        // The global default is deliberately NOT require_feedback, so agency B
+        // (no row of its own) falls through to something safe.
+        \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()
+            ->create($settingRow(['agency_id' => null, 'completion_behaviour' => 'freeform']));
+        // Only agency A opts into requiring feedback for 'viewing'.
+        \App\Models\CommandCenter\CalendarEventClassSetting::withoutGlobalScopes()
+            ->create($settingRow(['agency_id' => $this->agencyA->id, 'completion_behaviour' => 'require_feedback']));
+
+        $eventA = \App\Models\CommandCenter\CalendarEvent::withoutAgencyStamping(fn () => \App\Models\CommandCenter\CalendarEvent::create([
+            'agency_id' => $this->agencyA->id, 'branch_id' => $this->branchA->id, 'user_id' => $this->adminA->id,
+            'event_type' => 'manual', 'category' => 'viewing', 'title' => 'A viewing',
+            'event_date' => now()->subDay(), 'status' => 'completed',
+        ]));
+        $eventB = \App\Models\CommandCenter\CalendarEvent::withoutAgencyStamping(fn () => \App\Models\CommandCenter\CalendarEvent::create([
+            'agency_id' => $this->agencyB->id, 'branch_id' => $this->branchB->id, 'user_id' => $this->adminB->id,
+            'event_type' => 'manual', 'category' => 'viewing', 'title' => 'B viewing',
+            'event_date' => now()->subDay(), 'status' => 'completed',
+        ]));
+
+        $service = app(CommandCentreService::class);
+        $method = new \ReflectionMethod($service, 'eventsNeedingFeedback');
+        $method->setAccessible(true);
+
+        $this->actingAs($this->adminA);
+        $titlesA = collect($method->invoke($service, $this->adminA->id)['items'] ?? [])->pluck('title')->all();
+        $this->assertContains('A viewing', $titlesA, "agency A's own require_feedback setting must flag its event");
+
+        $this->actingAs($this->adminB);
+        $titlesB = collect($method->invoke($service, $this->adminB->id)['items'] ?? [])->pluck('title')->all();
+        $this->assertNotContains('B viewing', $titlesB, "agency B has no require_feedback setting of its own — agency A's must never leak in");
+    }
+
     // ── 3. TV messages ────────────────────────────────────────────────────
 
     public function test_tv_messages_admin_list_and_edit_are_agency_scoped(): void

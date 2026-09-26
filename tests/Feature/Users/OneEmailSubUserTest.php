@@ -250,6 +250,22 @@ final class OneEmailSubUserTest extends TestCase
         $this->assertSame(1, User::withTrashed()->where('email', 'andre@hfcoastal')->count(), 'no second account for the archived person');
     }
 
+    public function test_a_username_archived_in_another_agency_gets_an_accurate_message_not_a_generic_crash(): void
+    {
+        $this->switchOn();
+        $other = Agency::create(['name' => 'Other Agency', 'slug' => 'o-' . uniqid()]);
+        $theirs = User::factory()->create([
+            'name' => 'Andre Elsewhere', 'email' => 'andre@hfcoastal',
+            'agency_id' => $other->id, 'role' => 'agent',
+        ]);
+        $theirs->delete();
+
+        $this->createSubUser()->assertSessionHasErrors([
+            'email' => 'That username belongs to an archived account in another agency and cannot be reused here. Choose a different username.',
+        ]);
+        $this->assertSame(0, User::where('agency_id', $this->agency->id)->where('email', 'andre@hfcoastal')->count(), 'no account is created for the colliding username');
+    }
+
     public function test_a_normal_email_user_is_unchanged(): void
     {
         Mail::fake();
@@ -586,6 +602,33 @@ final class OneEmailSubUserTest extends TestCase
             ->assertOk()->assertSee('A username, sharing an inbox')->assertSee('Reset password');
         $this->actingAs($this->admin)->get(route('admin.users.create'))
             ->assertOk()->assertSee('How will this person sign in?')->assertSee('@hfcoastal');
+    }
+
+    /**
+     * QA2 audit — the sub-user endpoints ARE gated at both route middleware
+     * (permission:manage_users / permission:manage_performance_settings) and
+     * controller level, but nothing proved it: an agent with neither
+     * permission must be refused, not just an admin observed to succeed.
+     */
+    public function test_a_user_without_the_right_permissions_is_refused_every_sub_user_endpoint(): void
+    {
+        $this->switchOn();
+        $andre = $this->makeSubUser();
+        $plainAgent = User::factory()->create(['agency_id' => $this->agency->id, 'role' => 'agent']);
+
+        $this->actingAs($plainAgent)->post(route('admin.users.store'), [
+            'name' => 'Nope', 'surname' => 'Nope', 'sign_in_type' => 'username', 'username' => 'nope',
+            'email' => '', 'cell' => '082 555 0000', 'role' => 'agent',
+        ])->assertForbidden();
+
+        $this->actingAs($plainAgent)->get(route('admin.users.edit', $andre))->assertForbidden();
+        $this->actingAs($plainAgent)->post(route('admin.users.resend-invite', $andre))->assertForbidden();
+
+        $this->actingAs($plainAgent)
+            ->put(route('corex.settings.team-inbox'), ['one_email_enabled' => '1', 'one_email_user_id' => (string) $this->main->id])
+            ->assertForbidden();
+
+        $this->assertFalse(User::where('email', 'nope@hfcoastal')->exists(), 'the refused create must not have gone through');
     }
 
     public function test_the_add_user_form_has_no_choice_while_the_switch_is_off(): void

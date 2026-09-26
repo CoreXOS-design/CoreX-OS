@@ -86,6 +86,25 @@ final class AdManagerActivePropertiesTest extends TestCase
         $this->assertSame(['ZZZ-Mine'], $this->listed($agent)->pluck('title')->all());
     }
 
+    /**
+     * QA2 audit — "every active property of every agent" is scoped by
+     * BelongsToAgency same as the rest of the app, but this was demonstrated
+     * only by code inspection, never by an explicit two-agency assertion
+     * (unlike the template side, which already has one).
+     */
+    public function test_another_agencys_active_properties_never_appear(): void
+    {
+        [$agencyA, $branchA] = $this->agencyWithBranch();
+        [$agencyB, $branchB] = $this->agencyWithBranch();
+        $adminA = $this->agencyUser($agencyA, $branchA, 'admin');
+        $agentB = $this->agencyUser($agencyB, $branchB, 'agent');
+        $this->property($agencyB, $branchB, $agentB, 'ZZZ-Agency-B-Active');
+
+        $titles = $this->listed($adminA)->pluck('title')->all();
+
+        $this->assertNotContains('ZZZ-Agency-B-Active', $titles);
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
 
     private function indexView(User $user)

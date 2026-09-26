@@ -260,6 +260,26 @@ class UserManagementController extends Controller
         // handed any agency a one-form bypass of the seat hold. Removed outright.
         $trashed = User::onlyTrashed()->where('email', $data['email'])->first();
 
+        if (! $trashed) {
+            // AT-423 audit fix — the lookup above is still agency-scoped, so an archived
+            // user in ANOTHER agency holding this same email/username was invisible here
+            // and fell through to save()'s raw unique-constraint catch below, which reads
+            // like a race condition ("just taken by someone else") rather than what it
+            // actually is. Check across every agency — read-only, never offer to restore
+            // someone else's archived user — so this fails with an accurate reason instead.
+            $crossAgencyArchivedCollision = User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->onlyTrashed()->where('email', $data['email'])->exists();
+
+            if ($crossAgencyArchivedCollision) {
+                $noun = $asSubUser ? 'username' : 'email address';
+                return back()->withInput()->withErrors([
+                    // Matches the field the sibling trashed-in-this-agency branch below
+                    // uses, regardless of sign-in type — see test_a_taken_username_is_rejected.
+                    'email' => "That {$noun} belongs to an archived account in another agency and cannot be reused here. Choose a different {$noun}.",
+                ]);
+            }
+        }
+
         if ($trashed) {
             $seatLock = app(AgentSeatLockService::class);
 
@@ -1221,7 +1241,10 @@ class UserManagementController extends Controller
 
         foreach ($users as $u) {
             if ($data['action'] === 'resend_invite') {
-                if (! $u->is_active) { $skipped[] = "{$u->name} — is inactive"; continue; }
+                // AT-423 audit fix: a genuine pending invite is always is_active = false
+                // until first login (see store()) — checking it here skipped the exact
+                // population Resend exists for. The single-row resendInvite() action has
+                // no such check either; match it.
                 if ($u->email_verified_at) { $skipped[] = "{$u->name} — has already set up their account"; continue; }
                 try {
                     Mail::to($u->email)->send(new UserInviteMail($u));
