@@ -6092,6 +6092,7 @@ CREATE TABLE `documents` (
   `source_id` bigint unsigned DEFAULT NULL,
   `deal_id` bigint unsigned DEFAULT NULL,
   `custom_field_key` varchar(150) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `checklist_item_id` bigint unsigned DEFAULT NULL,
   `uploaded_by` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -6105,7 +6106,9 @@ CREATE TABLE `documents` (
   KEY `documents_branch_id_foreign` (`branch_id`),
   KEY `documents_agency_branch_idx` (`agency_id`,`branch_id`),
   KEY `documents_deal_id_index` (`deal_id`),
+  KEY `documents_checklist_item_id_foreign` (`checklist_item_id`),
   CONSTRAINT `documents_branch_id_foreign` FOREIGN KEY (`branch_id`) REFERENCES `branches` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `documents_checklist_item_id_foreign` FOREIGN KEY (`checklist_item_id`) REFERENCES `rental_application_checklist_items` (`id`) ON DELETE SET NULL,
   CONSTRAINT `documents_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals_v2` (`id`) ON DELETE SET NULL,
   CONSTRAINT `documents_document_type_id_foreign` FOREIGN KEY (`document_type_id`) REFERENCES `document_types` (`id`) ON DELETE SET NULL,
   CONSTRAINT `documents_uploaded_by_foreign` FOREIGN KEY (`uploaded_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
@@ -12238,6 +12241,7 @@ CREATE TABLE `rental_application_checklist_items` (
   `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `help_text` text COLLATE utf8mb4_unicode_ci,
   `note_required` tinyint(1) NOT NULL DEFAULT '0',
+  `document_required` tinyint(1) NOT NULL DEFAULT '0',
   `is_derived` tinyint(1) NOT NULL DEFAULT '0',
   `derived_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `state` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'not_started',
@@ -12802,6 +12806,7 @@ CREATE TABLE `rental_checklist_template_items` (
   `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `help_text` text COLLATE utf8mb4_unicode_ci,
   `note_required` tinyint(1) NOT NULL DEFAULT '0',
+  `document_required` tinyint(1) NOT NULL DEFAULT '0',
   `is_derived` tinyint(1) NOT NULL DEFAULT '0',
   `derived_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
@@ -18007,3 +18012,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1453,'2026_10_03_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1454,'2026_10_03_200400_create_rental_review_panel_preferences_table',368);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1455,'2026_10_03_200500_add_require_checklist_complete_to_rental_application_qualifying_settings',368);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1456,'2026_09_25_090000_add_checklist_snapshotted_at_to_rental_applications',369);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1457,'2026_10_03_200600_add_tpn_document_type',370);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1458,'2026_10_03_200700_add_checklist_item_id_to_documents_table',370);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1459,'2026_10_03_200800_add_document_required_to_rental_checklist_template_items_table',370);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1460,'2026_10_03_200900_add_document_required_to_rental_application_checklist_items_table',370);
