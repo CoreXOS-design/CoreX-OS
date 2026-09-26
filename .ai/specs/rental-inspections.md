@@ -3653,14 +3653,16 @@ is, for example, computed only in a Blade view with no underlying queryable reco
 
 ---
 
-## 24. AT-433 Part B — drag-to-pair, auto-pair proposal, viewer paired-first ordering (INVESTIGATION ONLY, 2026-09-26)
+## 24. AT-433 Part B — drag-to-pair, auto-pair proposal, viewer paired-first ordering
 
-**Status: spec only. No application code has been written against this section.** Sequenced deliberately
-behind cc1's concurrent restyle of `rental-inspection-recording.blade.php`/`rental-inspection-item-cell.blade.php`
-(worktree `insp-photo-pairing-2026-09-26`'s sibling, `.../corex-worktrees/insp-photo-strips-2026-09-26`) —
-§24.6 below identifies those same two files as this feature's own attachment point, so building this now
-would race that restyle. This section reports what exists, proposes what to build, and names every
-decision that is Johan's to make, per his own instruction for this round.
+**Status, 2026-09-26 (updated): the BACKEND is built and verified — migration, setting, auto-pair
+service, controller endpoint, route, and the Setup Wizard entry (§24.9). The Blade/JS layer (drag gesture,
+viewer paired-first ordering, "on first view" wiring) is still NOT built** — deliberately sequenced behind
+cc1's concurrent restyle of `rental-inspection-recording.blade.php`/`rental-inspection-item-cell.blade.php`
+(worktree `insp-photo-pairing-2026-09-26`'s sibling, `.../corex-worktrees/insp-photo-strips-2026-09-26`,
+Part A) — §24.6 identifies those same two files as this feature's own attachment point, so that markup
+pass waits for Part A to land on QA1 and this branch to rebase onto it. §24.1-24.8 below are the original
+investigation, kept as written; §24.9 records Johan's rulings and what was actually built against them.
 
 Johan's feature, verbatim in substance: two blocks side by side; drag a photo to pair it with its
 counterpart, or tag them to link them; the photo viewer shows the tagged pairs first, then the unmatched
@@ -3949,3 +3951,133 @@ step with a real `explain`/`affects` pair — not deferred to a later prompt.
    them?
 7. **§24.6 (sequencing, not a design question)** — this build waits for `insp-photo-strips-2026-09-26` to
    land on QA1 and for this branch to rebase onto that restyle before any markup changes are written.
+
+---
+
+### 24.9 Johan's rulings, 2026-09-26, and the backend built against them
+
+**Ruling on open question 5 (room-level scope) — item-level only, room-level named as a deliberate,
+tracked gap, not silently skipped.** Johan: "the room-level side-by-side block does not exist and we are
+not inventing it inside this ticket." Recorded here so it is a decision on the record, not an oversight:
+**building drag-pairing for room-level (not just item-level) photos would first require building a
+predecessor-side room photo gallery in `rental-inspection-recording.blade.php` — today's R1 strip
+(§20.14.3, that file's lines ~500-609) renders ONLY the tail side, by design, per that section's own
+comment ("there is no predecessor-side room gallery in this file").** Until that gallery exists, room-level
+photos have no "two blocks side by side" to drag between at all. Not built here; a real, separate scope
+decision if Johan wants it later.
+
+**Ruling on open question 2 (auto-pair timing) — automatic on first view, PLUS the explicit "Auto-pair"
+button from the approved mockup, kept.** Johan: "pairing forty photos by hand is exactly the work we are
+supposed to be doing for them... An explicit 'Auto-pair' button also exists to re-run it after photos are
+added — that is in Johan's approved mockup, so keep it. Any pair, proposed or manual, can be broken by the
+agent." Built as ONE endpoint serving both callers (§24.9.1) — the automatic trigger and the button are the
+exact same idempotent operation, differing only in when they're called, never in what they do.
+
+**Ruling on open question 3 (default) — ON.** Built as `RentalInspectionSetting::
+DEFAULT_AUTO_PAIR_PHOTOS_ENABLED = true`.
+
+**Ruling on open question 6 (drop-target exception) — APPROVED, with a hard limit: transient only, never
+persistent.** Johan: "The cell gains a drop target ONLY while a drag is in progress — no persistent
+affordance, no hover state, nothing on that cell when the agent is not dragging. Do not reverse the drag
+direction: ... current-inspection photo drags onto its predecessor." **Written here so the next person does
+not "fix" it into a permanent-looking control:** when the Blade/JS pass is built, the read-only
+predecessor cell's drop-target styling/listener must be conditional on a drag actually being in flight
+(e.g. an Alpine `dragging` flag toggled by the tail cell's own `dragstart`/`dragend`), and must render
+IDENTICALLY to today's inert cell (§24.6's own read of `item-cell.blade.php:90-109`) at every other time —
+no border, no highlight, no cursor change, nothing an agent would notice by hovering when not dragging.
+Direction is fixed: the LIVE tail-side photo is the one made `draggable`; the READ-ONLY predecessor-side
+photo is the one that gains the (transient) drop target. Never the reverse.
+
+**Open question 1 (pair order) and open question 4 (auto-pair provenance) — resolved by how the backend
+was actually built, not left open:**
+
+- **Pair order**: built using insertion order (§24.4's proposed default) — no `position` column was added.
+  If an agent later needs to reorder an already-paired set without unlinking/relinking, that is a real,
+  separate schema change, not something this round silently ruled out.
+- **Provenance**: there is no "system" actor in this design at all. Both the explicit "Auto-pair" button
+  and the (not-yet-wired) automatic first-view trigger are ordinary authenticated HTTP requests from the
+  agent viewing the screen — `RentalInspectionPhotoAutoPairService::runFor()` takes the acting `User` and
+  passes it straight into `linkPhotos()`, so an auto-created pair's `added_by_user_id` is genuinely the
+  agent who was looking at the screen when it fired, exactly the same provenance an agent-made pair
+  carries. Nothing reads differently; open question 4 does not need a UI distinction because there is
+  nothing distinct to show.
+
+#### 24.9.1 What was built
+
+- **Migration** — `database/migrations/2026_10_03_200600_add_auto_pair_photos_enabled_to_rental_inspection_settings_table.php`
+  — one nullable boolean column, same read-time-default pattern as every sibling column on this table.
+- **Setting** — `RentalInspectionSetting::DEFAULT_AUTO_PAIR_PHOTOS_ENABLED` / `autoPairPhotosEnabledFor()`,
+  following the existing one-column-plus-static-accessor pattern exactly.
+- **Auto-pair service** — `app/Services/RentalInspectionPhotoAutoPairService.php`, `runFor(RentalInspection
+  $predecessor, RentalInspection $tail, User $by)`. Implements §24.5's rule exactly: keys tagged,
+  never-touched photos by `(property_room_id, observation->rental_inspection_item_id)`, pairs a key only
+  when EXACTLY ONE candidate exists on each side, calls the same `RentalInspectionPhotoMatchGroup::
+  linkPhotos()` the click-based UI already uses. "Never-touched" is checked via `withTrashed()` on
+  `RentalInspectionPhotoMatchGroupMember`, not just "no active group" — this is what makes it safe to
+  re-run on every view without silently overriding an agent's own explicit unmatch (verified in §24.9.2).
+- **Controller endpoint** — `RentalInspectionRecordingController::autoPairPhotoMatches()`, `POST
+  /corex/properties/{property}/rental-inspection-photo-matches/auto-pair`
+  (`rental-inspection-photo-matches.auto-pair`), resolves the property's current chain predecessor/tail
+  pair the same way `RentalInspection::tabPayloadFor()` already does, then calls the service. Always
+  available regardless of the setting — the setting only gates whether a future caller invokes this
+  automatically; the explicit button always works.
+- **Data-layer flag for the frontend** — `RentalInspection::tabPayloadFor()` now returns
+  `auto_pair_photos_enabled`, threaded the same way `condition_states`/`refusal_reason_presets` already
+  are. The Blade/JS pass (not yet built) reads this to decide whether to call the endpoint automatically.
+- **Correctness fix, in scope because Johan's own verification list named it** —
+  `RentalInspectionPhoto::archive()` now also removes the photo's active match-group membership (soft
+  delete, mirroring an explicit unmatch), auto-archiving the group if that drops it to ≤1 member. Before
+  this fix, archiving a paired photo left a dangling active membership pointing at a trashed photo — the
+  surviving photo in a two-member group kept reading as "matched" against nothing. Verified directly
+  (§24.9.2).
+- **Setup Wizard entry (non-negotiable #10a)** — `config/agency-onboarding-copy.php`'s `leases` step gains
+  the `auto_pair_photos_enabled` toggle control (default 1) and its own saver registration
+  (`RentalInspectionSettingsController::updateAutoPairPhotosEnabled`), has()-guarded per §6.1 of the
+  onboarding spec.
+- **Dedicated settings-page saver + route** — `RentalInspectionSettingsController::
+  updateAutoPairPhotosEnabled()`, `POST /corex/settings/rental-inspections/auto-pair-photos`
+  (`corex.settings.rental-inspections.auto-pair-photos`), same one-concern-per-endpoint discipline as the
+  four existing dedicated savers on this controller. **Not built this round:** the actual checkbox on
+  `resources/views/corex/settings/rental-inspections.blade.php` — that file is Blade, out of scope for
+  this backend-only pass per instruction; the controller/route/saver are ready for it.
+- **Scoping** — `BelongsToAgency` on the group tables (unchanged, pre-existing); the new endpoint mirrors
+  the exact same property-match `abort_if` discipline `storePhotoMatch()`/`destroyPhotoMatch()` already
+  use; permission middleware reuses the existing `rental_inspections.create`/`rental_inspections.
+  manage_settings` keys — no new permission was needed.
+
+#### 24.9.2 Verification performed
+
+**Tinker, against the real `corex_qa1` schema, wrapped in a transaction that was rolled back regardless of
+outcome (zero permanent footprint — no scratch database created; `DB::beginTransaction()`/`rollBack()`
+around real fixture rows under the existing property 1724/lease 5).** 14 checks, all passing: auto-pair
+creates exactly one group for an unambiguous 1:1 key and nothing for an ambiguous 1:2 key (Johan's own
+worked example, scaled down); unmatch soft-deletes the membership and auto-archives the group at ≤1
+member; a photo the agent explicitly unmatched is never silently re-proposed on a second auto-pair run;
+manually re-pairing after an unmatch produces a working, fully active group again; archiving a currently
+paired photo (the new `archive()` fix) cascades to remove its membership and auto-archive the group,
+without touching the surviving photo on the other side.
+
+**PHPUnit, one file (non-negotiable #13 — single most relevant file, not a broad suite):**
+`tests/Feature/Onboarding/RentalsStepSaverIndependenceTest.php`, extended with two new cases —
+the wizard step's has()-guard never wipes an agency's own explicit `auto_pair_photos_enabled = false` back
+to the default, and the new dedicated settings route saves its own field without touching sibling
+settings. Both pass, along with all 5 pre-existing cases in that file except one
+(`test_saving_the_combined_rentals_step_persists_all_four_fields`) — that failure is on
+`RentalApplicationSettingsController`'s field-display savers, code this round never touched, confirmed
+unrelated by reading the diff (non-negotiable #13's own instruction: reason from the diff, don't chase it
+via more test runs) and further marked out by running roughly 1000x slower than every other case in the
+file — a pre-existing baseline issue, found and reported here, not fixed (outside this round's scope).
+
+`php -l` clean on every changed/new PHP file. `php artisan view:clear`/`route:clear`/`config:clear` clean.
+No Blade file was changed or rendered.
+
+**Environment note for whoever picks this branch up next:** this worktree required its own independent
+`composer install` (per the box's vendor-isolation rule — no vendor/ existed in a fresh worktree) and its
+own `.env` pointed at the real `corex_qa1` credentials (copied from a sibling QA1 worktree, matching
+Standard −1a/−1g). `php artisan migrate` against `corex_qa1` is guarded and refuses from any worktree but
+`/corex-qa1` itself (Standard −1g) — this migration was NOT applied to `corex_qa1` from here; it travels
+with this commit and lands on QA1 the sanctioned way. A temporary, empty `hfc_dash_test_926261` database
+was created for the PHPUnit run above, following the box's own sanctioned per-lane test-DB naming
+convention (Standard −1a) — it was NOT dropped afterward (the shell command was blocked by this session's
+own tool-permission gate on both a raw `DROP DATABASE` and a Tinker-issued equivalent); it is empty and
+harmless but should be dropped by whoever next has that permission.

@@ -72,6 +72,9 @@ class RentalInspectionSettingsController extends Controller
             // Item 5, 2026-09-22 — which configured state "All Good" bulk-
             // fills unrecorded items to.
             'baselineConditionKey' => RentalInspectionSetting::baselineConditionKeyFor($agencyId),
+            // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 —
+            // defaults ON.
+            'autoPairPhotosEnabled' => RentalInspectionSetting::autoPairPhotosEnabledFor($agencyId),
         ]);
     }
 
@@ -294,5 +297,30 @@ class RentalInspectionSettingsController extends Controller
         RentalInspectionSetting::updateOrCreate(['agency_id' => $agencyId], $attributes);
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Condition states saved.');
+    }
+
+    /**
+     * §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 — auto-pair
+     * defaults ON. Own narrow saver, same one-concern-per-endpoint
+     * discipline as the toggle savers above — guarded on has(), not just
+     * validated(), so a step render that doesn't include this control
+     * (or any future screen this saver is reused from) can never silently
+     * flip it back to the default.
+     */
+    public function updateAutoPairPhotosEnabled(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('auto_pair_photos_enabled')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['auto_pair_photos_enabled' => 'That did not save — please try again.']);
+        }
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['auto_pair_photos_enabled' => $request->boolean('auto_pair_photos_enabled')],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Auto-pair setting saved.');
     }
 }

@@ -122,6 +122,59 @@ final class RentalsStepSaverIndependenceTest extends TestCase
         $this->assertContains('custom_1', array_column($presets, 'key'), 'the wizard step must never wipe a preset it has no control for');
     }
 
+    /**
+     * §24.5/§24.7 (AT-433 Part B) — same incident class as the
+     * refusal_reason_presets test above, for the new toggle: the combined
+     * wizard step's own form always includes this control, but proving the
+     * has()-guard holds means proving what happens on a post that DOESN'T
+     * carry it (an older cached render, a test fixture, a future step
+     * reshuffle) — it must never force-default an agency's own explicit
+     * OFF back to the default ON.
+     */
+    public function test_saving_the_wizard_step_never_wipes_an_agencys_own_auto_pair_setting(): void
+    {
+        $agency = Agency::create(['name' => 'Autopair Realty', 'slug' => 'autopair-realty-' . uniqid()]);
+        $admin = $this->admin($agency);
+        RentalInspectionSetting::create(['agency_id' => $agency->id, 'auto_pair_photos_enabled' => false]);
+
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+                'expiry_notice_window_days' => 45,
+                'fault_report_window_days' => 10,
+                'out_inspection_signing_window_days' => 14,
+                'no_approval_spend_threshold' => 750,
+            ])
+            ->assertRedirect();
+
+        $this->assertFalse(RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id), 'the wizard step must never wipe an agency\'s own explicit OFF back to the default ON');
+    }
+
+    /**
+     * §24.5/§24.7 — the dedicated settings-page saver, proven the same way
+     * every other toggle on this page already is: it saves the one column
+     * it owns and touches nothing else.
+     */
+    public function test_saving_the_dedicated_auto_pair_settings_route_never_touches_sibling_settings(): void
+    {
+        $agency = Agency::create(['name' => 'Autopair Realty 2', 'slug' => 'autopair-realty-2-' . uniqid()]);
+        $admin = $this->admin($agency);
+        $this->assertTrue(RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id), 'defaults ON for an agency that has never touched it');
+
+        RentalInspectionSetting::create([
+            'agency_id' => $agency->id,
+            'fault_report_window_days' => 21,
+            'out_inspection_signing_window_days' => 30,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('corex.settings.rental-inspections.auto-pair-photos'), ['auto_pair_photos_enabled' => '0'])
+            ->assertRedirect();
+
+        $this->assertFalse(RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id), 'the field this route owns must save');
+        $this->assertSame(21, RentalInspectionSetting::faultReportWindowDaysFor($agency->id), 'untouched by the auto-pair route');
+        $this->assertSame(30, RentalInspectionSetting::signingWindowDaysFor($agency->id), 'untouched by the auto-pair route');
+    }
+
     public function test_saving_the_dedicated_lease_settings_page_never_touches_rental_inspection_settings(): void
     {
         $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-realty-' . uniqid()]);

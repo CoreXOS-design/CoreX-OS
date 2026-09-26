@@ -994,6 +994,14 @@ class RentalInspection extends Model
                     ->map(fn ($group) => $group->toComparePayload())
                     ->values()
                 : collect(),
+            // §24.5/§24.7 (AT-433 Part B) — whether the frontend should call
+            // POST .../rental-inspection-photo-matches/auto-pair
+            // automatically the first time an item's comparison is viewed,
+            // vs. only via the explicit "Auto-pair" button. A data-layer
+            // flag for the eventual Blade/JS pass to read, same pattern as
+            // condition_states/refusal_reason_presets above — the actual
+            // "call it on first view" wiring is not decided here.
+            'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($property->agency_id),
         ];
     }
 }

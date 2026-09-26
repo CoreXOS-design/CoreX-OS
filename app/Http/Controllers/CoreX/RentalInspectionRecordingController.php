@@ -14,6 +14,7 @@ use App\Models\RentalInspectionRoomNote;
 use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
 use App\Services\Images\PropertyImageStorer;
+use App\Services\RentalInspectionPhotoAutoPairService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -934,6 +935,38 @@ class RentalInspectionRecordingController extends Controller
         $group = \App\Models\RentalInspectionPhotoMatchGroup::find($groupId);
 
         return response()->json(['message' => 'Photo unmatched.', 'group' => $group?->toComparePayload()]);
+    }
+
+    /**
+     * POST /corex/properties/{property}/rental-inspection-photo-matches/auto-pair
+     * — §24.5, AT-433 Part B. Runs RentalInspectionPhotoAutoPairService
+     * against the property's current chain predecessor/tail pair
+     * (RentalInspection::chainTailFor()/previousInspection()/
+     * inferredPredecessorFor() — the exact same resolution
+     * RentalInspection::tabPayloadFor() already uses for `photo_matches`).
+     *
+     * Always available on request, regardless of
+     * RentalInspectionSetting::autoPairPhotosEnabledFor() — that setting
+     * only governs whether a caller invokes this AUTOMATICALLY on first
+     * view (the frontend reads it via tabPayloadFor()'s own
+     * `auto_pair_photos_enabled` key); Johan's explicit "Auto-pair" button
+     * (approved mockup) always works, safe to re-run after new photos are
+     * added — see the service's own docblock for why it is idempotent.
+     */
+    public function autoPairPhotoMatches(Request $request, Property $property): JsonResponse
+    {
+        $tail = RentalInspection::chainTailFor($property);
+        abort_if(! $tail, 422, 'No current inspection to auto-pair against.');
+
+        $predecessor = $tail->previousInspection ?? RentalInspection::inferredPredecessorFor($tail);
+        abort_if(! $predecessor, 422, 'No predecessor inspection to compare against yet.');
+
+        $groups = app(RentalInspectionPhotoAutoPairService::class)->runFor($predecessor, $tail, $request->user());
+
+        return response()->json([
+            'created_count' => $groups->count(),
+            'groups' => $groups->map->toComparePayload()->values(),
+        ]);
     }
 
     /** POST /corex/rental-inspections/{inspection}/discrepancies/{discrepancy}/resolve */
