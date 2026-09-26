@@ -162,18 +162,35 @@
                         <span x-text="'+' + stripMoreCount(item)"></span>
                     </button>
                 </template>
-            </div>
 @unless($readOnly)
-            <label class="rounded-md cursor-pointer rir-add-tile"
-                   :style="'left:min(' + ((stripVisibleCount(item) + (stripMoreCount(item) > 0 ? 1 : 0)) * 92) + 'px, calc(100% - 124px));' + ((obsField({{ $inspectionJs }}, item.id).photos || []).length
-                        ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
-                        : 'background:var(--surface-2); color:var(--text-secondary);')"
-                   :title="(obsField({{ $inspectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
-                <span>&#128247;</span>
-                <input type="file" accept="image/*" multiple class="hidden"
-                       @change="onItemPhotosSelected({{ $inspectionJs }}, item, $event.target.files); $event.target.value = null;">
-            </label>
+                {{-- Item 2, 2026-09-26 — a photo picked before the item is
+                     "recorded" is staged in obsField(...).photos (see
+                     onItemPhotosSelected in show.blade.php) and NOT yet
+                     uploaded, so it has no server photo id and takes no
+                     part in stripPairCount()'s predecessor/tail pairing.
+                     Rendered here so picking a file is never invisible —
+                     always shown, never collapsed behind "+N". --}}
+                <template x-for="(file, idx) in stagedPhotosFor({{ $inspectionJs }}, item)" :key="'staged-' + idx">
+                    <div class="relative rounded-md rir-strip-tile">
+                        <img :src="file._corexPreviewUrl" style="display:block; width:100%; height:100%; object-fit:cover; opacity:0.55;" alt="">
+                        <span class="rir-strip-pending-label">PENDING</span>
+                    </div>
+                </template>
+                {{-- Add-tile — the strip's own last flex child now (see
+                     .rir-add-tile's own comment in rental-inspection-
+                     recording.blade.php for why this moved out of
+                     absolute positioning). No `left` to compute here. --}}
+                <label class="rounded-md cursor-pointer rir-add-tile"
+                       :style="(obsField({{ $inspectionJs }}, item.id).photos || []).length
+                            ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
+                            : 'background:var(--surface-2); color:var(--text-secondary);'"
+                       :title="(obsField({{ $inspectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
+                    <span>&#128247;</span>
+                    <input type="file" accept="image/*" multiple class="hidden"
+                           @change="onItemPhotosSelected({{ $inspectionJs }}, item, $event.target.files); $event.target.value = null;">
+                </label>
 @endunless
+            </div>
         </div>
     </div>
 </div>

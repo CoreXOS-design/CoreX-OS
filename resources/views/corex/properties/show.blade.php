@@ -6296,6 +6296,17 @@
                     if (existing) {
                         await this.photoUploader(section).uploadFiles(files, { rental_inspection_observation_id: existing.id });
                     } else {
+                        // Item 2, 2026-09-26 — staged this side of the strip
+                        // is the ONLY feedback the agent gets that anything
+                        // happened (this.photos itself only ever holds
+                        // uploaded server photos), so each file gets a
+                        // preview URL up front, read directly off the File
+                        // object rather than a separate keyed cache — a File
+                        // isn't a plain object, so it passes through
+                        // untouched by this page's reactivity wrapping.
+                        // Revoked in _commitObservation() once the batch
+                        // upload it was standing in for finishes.
+                        files.forEach(f => { f._corexPreviewUrl = URL.createObjectURL(f); });
                         const form = this.obsField(section, item.id);
                         form.photos = (form.photos || []).concat(files);
                     }
@@ -6835,9 +6846,20 @@
                         // saved/failed banner; a failed batch stays visibly
                         // retryable in its own UI regardless.
                         await this.photoUploader(section).uploadFiles(stagedPhotos, { rental_inspection_observation_id: observation.id });
+                        // The pending strip tile's preview URL (see
+                        // onItemPhotosSelected) is only needed until the
+                        // real, uploaded photo takes its place.
+                        stagedPhotos.forEach(f => { if (f._corexPreviewUrl) URL.revokeObjectURL(f._corexPreviewUrl); });
                     }
                 },
 
+                // Item 2, 2026-09-26 — files picked but not yet uploaded
+                // (see onItemPhotosSelected); the strip's own pending tile
+                // reads this directly, never itemPhotosFor(), since these
+                // have no server photo id yet.
+                stagedPhotosFor(section, item) {
+                    return this.obsField(section, item.id).photos || [];
+                },
                 // Item 6 — every photo ever attached to any observation this
                 // item has this inspection (not just the latest one), so a
                 // corrected condition never hides an earlier photo.
