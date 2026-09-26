@@ -363,6 +363,10 @@ return [
             // of this step; the dedicated settings page always sends it).
             ['controller' => LeaseSettingsController::class, 'method' => 'update'],
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'update'],
+            // §24.5/§24.7 (AT-433 Part B) — its own narrow saver, same
+            // one-concern-per-endpoint discipline as every other toggle on
+            // this step; has()-guarded, never folded into update() above.
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateAutoPairPhotosEnabled'],
             // rental-work-orders.md §3.4b/§8, Stage 3 (2026-09-26) — the spend
             // threshold. completion_requires_photo/overdue_reminder_days are
             // still Stage 4 (work orders themselves aren't built), so this
@@ -409,6 +413,12 @@ return [
              'label' => 'Days the public inspection-report link stays live',
              'explain' => 'A completed inspection\'s PDF carries a link a tenant or landlord can open with no CoreX login. This many days after it is issued, the link stops working.',
              'affects' => 'How long a shared inspection-report link keeps working. 90 days suits most agencies — an agent can always issue a fresh link later from the inspection\'s own screen.'],
+            // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 —
+            // defaults ON.
+            ['key' => 'auto_pair_photos_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Automatically pair before/after inspection photos',
+             'explain' => 'When a move-in photo and a later inspection\'s photo are tagged to the exact same room and item, CoreX links them as a pair automatically, only when the match is unambiguous.',
+             'affects' => 'Whether obvious photo pairs are already linked when an agent opens the compare screen, or every pair — even the obvious ones — waits for the agent to make it by hand. On by default; an agent can always re-run pairing manually and can unpair anything the system got wrong.'],
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
              'label' => 'No-approval spend threshold (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',

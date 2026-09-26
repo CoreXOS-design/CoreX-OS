@@ -228,6 +228,7 @@ class RentalInspectionSetting extends Model
         'require_notes_blocks_progression',
         'omr_mark_threshold',
         'public_link_expiry_days',
+        'auto_pair_photos_enabled',
     ];
 
     protected $casts = [
@@ -241,6 +242,7 @@ class RentalInspectionSetting extends Model
         'require_notes_blocks_progression' => 'boolean',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
+        'auto_pair_photos_enabled' => 'boolean',
     ];
 
     /**
@@ -291,6 +293,30 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('public_link_expiry_days');
 
         return $value !== null ? (int) $value : self::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS;
+    }
+
+    /**
+     * .ai/specs/rental-inspections.md §24.5/§24.7 — AT-433 Part B. Johan's
+     * ruling, 2026-09-26: defaults ON — "we do complicated so the user
+     * does simple... pairing forty photos by hand is exactly the work we
+     * are supposed to be doing for them." Governs ONLY whether a caller
+     * invokes RentalInspectionPhotoAutoPairService automatically the first
+     * time an item's comparison is viewed (threaded to the frontend via
+     * RentalInspection::tabPayloadFor()'s own `auto_pair_photos_enabled`
+     * key) — it never gates the explicit "Auto-pair" button
+     * (RentalInspectionRecordingController::autoPairPhotoMatches()), which
+     * always runs on request regardless of this setting.
+     */
+    public const DEFAULT_AUTO_PAIR_PHOTOS_ENABLED = true;
+
+    public static function autoPairPhotosEnabledFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_AUTO_PAIR_PHOTOS_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('auto_pair_photos_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_AUTO_PAIR_PHOTOS_ENABLED;
     }
 
     /**

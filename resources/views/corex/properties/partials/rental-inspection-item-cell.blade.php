@@ -106,8 +106,26 @@
      <div>/<button> per iteration, with x-show (not nested x-if) toggling
      the photo-vs-placeholder content inside it. --}}
 @if($readOnly)
+                {{-- §24.6, AT-433 Part B — the predecessor tile is a drop
+                     target ONLY while a pairing drag is in progress (Johan's
+                     ruling: "no persistent affordance, no hover state,
+                     nothing on that cell when the agent is not dragging"),
+                     styled entirely within this tile's own stacking context
+                     — never a new absolutely-positioned sibling of
+                     .rir-strip-row (the exact overlap bug class the strip
+                     was just rebuilt to remove, see that class's own
+                     docblock in rental-inspection-recording.blade.php).
+                     pairDragOverTile()/pairDropOnPredecessor() never call
+                     preventDefault() unless pairDragActive is true, so an
+                     unrelated drag (a desktop file, say) over this exact
+                     tile behaves exactly as before this feature existed —
+                     not this round's concern (Johan, 2026-09-26). --}}
                 <template x-for="tile in stripTilesForInspection({{ $inspectionJs }}, item).slice(0, stripVisibleCount(item))" :key="tile.index">
-                    <div class="relative rounded-md rir-strip-tile" :class="tile.photo ? '' : 'rir-strip-nomatch'">
+                    <div class="relative rounded-md rir-strip-tile"
+                         :class="[tile.photo ? '' : 'rir-strip-nomatch', (pairDragActive && tile.photo) ? 'rir-strip-pair-eligible' : '', (pairDragActive && tile.photo && pairDragOverId === tile.photo.id) ? 'rir-strip-pair-over' : '']"
+                         @dragover="pairDragOverTile($event, tile.photo)"
+                         @dragleave="pairDragOverId = null"
+                         @drop="pairDropOnPredecessor($event, tile.photo)">
                         <span class="rir-strip-badge" x-text="tile.index + 1"></span>
                         {{-- openCompareViewer(photo, insp) — on this
                              (readOnly) branch $inspectionJs IS the
@@ -122,8 +140,23 @@
                 </template>
 @else
                 <template x-for="tile in stripTilesFor({{ $inspectionJs }}, item).slice(0, stripVisibleCount(item))" :key="tile.index">
+                    {{-- §24.6, AT-433 Part B — drag this (current-inspection)
+                         photo onto its predecessor-side counterpart. Johan's
+                         own words: "drag it left onto the photo it
+                         matches" — this tile is the only ever DRAG SOURCE;
+                         the read-only cell above is the only ever DROP
+                         TARGET, never the reverse. Reuses
+                         photoUploader().dragStartSelection() exactly as the
+                         untagged tray already does for its own
+                         drag-onto-a-room gesture — see
+                         photoDraggedForPairing()'s own docblock in
+                         show.blade.php for why this is not a second drag
+                         mechanism. --}}
                     <div class="relative rounded-md rir-strip-tile" :class="tile.photo ? '' : 'rir-strip-nomatch'"
-                         :style="tile.photo && photoUploader({{ $inspectionJs }}).isSelected(tile.photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
+                         :style="tile.photo && photoUploader({{ $inspectionJs }}).isSelected(tile.photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''"
+                         :draggable="!!tile.photo"
+                         @dragstart="tile.photo && photoDraggedForPairing({{ $inspectionJs }}, tile.photo.id, $event)"
+                         @dragend="photoDragEndForPairing()">
                         <span class="rir-strip-badge" x-text="tile.index + 1"></span>
                         {{-- openCompareViewer(photo, insp) — on THIS
                              (live) branch $inspectionJs is a section-type
@@ -171,7 +204,20 @@
                      Rendered here so picking a file is never invisible —
                      always shown, never collapsed behind "+N". --}}
                 <template x-for="(file, idx) in stagedPhotosFor({{ $inspectionJs }}, item)" :key="'staged-' + idx">
-                    <div class="relative rounded-md rir-strip-tile">
+                    {{-- Johan's ruling, 2026-09-26 — a staged photo has no
+                         server id yet, so it cannot be paired: dragging it
+                         still works (the agent has no way to know in
+                         advance it will be refused), but
+                         pairDropOnPredecessor() in show.blade.php detects
+                         the id-less payload and shows the reason visibly
+                         rather than silently doing nothing. Passing `null`
+                         to dragStartSelection() (same reused function as the
+                         real-photo tile above) is what marks the drag this
+                         way. --}}
+                    <div class="relative rounded-md rir-strip-tile"
+                         draggable="true"
+                         @dragstart="photoDraggedForPairing({{ $inspectionJs }}, null, $event)"
+                         @dragend="photoDragEndForPairing()">
                         <img :src="file._corexPreviewUrl" style="display:block; width:100%; height:100%; object-fit:cover; opacity:0.55;" alt="">
                         <span class="rir-strip-pending-label">PENDING</span>
                     </div>
