@@ -99,6 +99,16 @@ class Property extends Model
     public const STATUS_SOLD_BY_3RD_PARTY = 'sold_by_3rd_party';
 
     /**
+     * AT-432 — the slug of the 'On Auction' property_status setting item,
+     * same slugging convention as STATUS_SOLD_BY_3RD_PARTY above
+     * (strtolower(str_replace(' ', '_', $name))). Written ONLY by
+     * AuctionLotStatusService when a lot's catalogue publishes; restored to
+     * `pre_auction_status` on cancel/withdraw/passed-in (§6.2). On-market —
+     * deliberately NOT in OFF_MARKET_STATUSES.
+     */
+    public const STATUS_ON_AUCTION = 'on_auction';
+
+    /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
      * canonical definition of "active"/live stock for dashboards and filters.
      */
@@ -646,8 +656,10 @@ class Property extends Model
         'listing_type',
         'listing_type_pending',
         'status',
+        'sale_method',
         'pre_deal_offer_status',
         'pre_tenant_link_status',
+        'pre_auction_status',
         'status_label',
         'features_json',
         'features_json_meta',
@@ -1754,6 +1766,14 @@ class Property extends Model
             $status === self::STATUS_PROSPECTING => 'Prospecting',
             $status === self::STATUS_NOT_SELLING => 'Not selling',
             in_array($status, self::INACTIVE_STATUSES, true) => ucwords(str_replace('_', ' ', $status)),
+            // AT-432 — checked via isAuction() (sale_method), not the status
+            // string: the property's on-market status while catalogued IS
+            // 'on_auction' (§6.2), but the badge must ask the same single
+            // source of truth every other auction-aware surface asks, per
+            // .ai/specs/auctions.md §2. Placed AFTER every terminal-status
+            // arm above so a SOLD auction lot still badges "Sold", never
+            // "On Auction" forever after the hammer fell.
+            $this->isAuction()                               => 'On Auction',
             $this->isRental()                                => 'To Let',
             default => 'For Sale',
         };
@@ -2075,6 +2095,59 @@ class Property extends Model
             ['rental', 'to_let', 'to-let', 'lease'],
             true,
         );
+    }
+
+    /**
+     * AT-432 — .ai/specs/auctions.md §2, the spec's governing rule: an auction
+     * is a METHOD OF SALE, not a third `listing_type`. `listing_type` stays
+     * the two-value canon above; `sale_method` records whether that sale (or
+     * lease) is running as a private treaty or an auction. Kept deliberately
+     * separate from LISTING_TYPES so no existing isRental()/LISTING_TYPES call
+     * site needs to change.
+     */
+    public const SALE_METHODS = ['private_treaty', 'auction'];
+
+    /** Write-side canon guard for sale_method, mirroring normaliseListingType() exactly. */
+    public static function normaliseSaleMethod(mixed $value): string
+    {
+        $v = strtolower(trim((string) ($value ?? '')));
+
+        if ($v === '' || $v === 'private_treaty' || $v === 'private treaty') {
+            return 'private_treaty';
+        }
+
+        return $v === 'auction' ? 'auction' : $v;
+    }
+
+    public function setSaleMethodAttribute(mixed $value): void
+    {
+        $this->attributes['sale_method'] = self::normaliseSaleMethod($value);
+    }
+
+    /**
+     * THE single source of truth for "is this property going/gone to
+     * auction?". Every surface that renders, prices, labels or syndicates a
+     * listing asks this — never `sale_method === 'auction'` inline. Mirrors
+     * isRental()'s own role on the read side exactly.
+     */
+    public function isAuction(): bool
+    {
+        return strtolower(trim((string) $this->sale_method)) === 'auction';
+    }
+
+    /** The lot currently carrying this property, across any auction (concluded or not). */
+    public function auctionLots(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(\App\Models\AuctionLot::class, 'property_id');
+    }
+
+    /** The property's open (not yet concluded) auction lot, if any. Null once sold/passed-in/withdrawn. */
+    public function currentAuctionLot(): ?\App\Models\AuctionLot
+    {
+        return $this->auctionLots()
+            ->whereNotIn('status', \App\Models\AuctionLot::CONCLUDED_STATUSES)
+            ->latest('id')
+            ->first();
     }
 
     /**

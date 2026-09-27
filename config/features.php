@@ -28,4 +28,7 @@ return [
     'presentation_doc_extract_v1'     => (bool) env('PRESENTATION_DOC_EXTRACT_V1', true),
     'document_library_v1'             => (bool) env('DOCUMENT_LIBRARY_V1', true),
     'properties'                      => (bool) env('PROPERTIES_ENABLED', true),
+    // AT-432 (.ai/specs/auctions.md §20) — default OFF: an agency that does
+    // not auction must see no change whatsoever.
+    'auctions'                        => (bool) env('AUCTIONS_ENABLED', false),
 ];
