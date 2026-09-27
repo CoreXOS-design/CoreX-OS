@@ -75,6 +75,9 @@ class RentalInspectionSettingsController extends Controller
             // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 —
             // defaults ON.
             'autoPairPhotosEnabled' => RentalInspectionSetting::autoPairPhotosEnabledFor($agencyId),
+            // AT-433 Part C — the photo note's classification vocabulary
+            // (Defect/Wear and tear/Reference by default).
+            'photoNoteClassifications' => RentalInspectionSetting::photoNoteClassificationsFor($agencyId),
         ]);
     }
 
@@ -322,5 +325,50 @@ class RentalInspectionSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Auto-pair setting saved.');
+    }
+
+    /**
+     * AT-433 Part C, .ai/specs/rental-inspections.md §25 — which
+     * classifications a photo note can carry (Defect/Wear and tear/
+     * Reference by default). Own narrow saver, same discipline as
+     * updateConditionStates() above. A row's `key` is never re-derived from
+     * its label, for the same reason: an existing classification already
+     * recorded against live notes must never drift out from under them.
+     */
+    public function updatePhotoNoteClassifications(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('photo_note_classifications_submitted')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['photo_note_classifications' => 'That did not save — please try again.']);
+        }
+
+        $submitted = $request->input('photo_note_classifications', []);
+        $seenKeys = [];
+        $classifications = [];
+        foreach ((array) $submitted as $row) {
+            $key = trim((string) ($row['key'] ?? ''));
+            $label = trim((string) ($row['label'] ?? ''));
+            if ($key === '' || $label === '' || in_array($key, $seenKeys, true)) {
+                continue;
+            }
+            $seenKeys[] = $key;
+            $classifications[] = ['key' => $key, 'label' => $label];
+        }
+
+        // Never save an empty vocabulary — a photo note could never be
+        // created without at least one classification to choose from.
+        if ($classifications === []) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['photo_note_classifications' => 'At least one classification is required.']);
+        }
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['photo_note_classifications' => $classifications],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Photo note classifications saved.');
     }
 }

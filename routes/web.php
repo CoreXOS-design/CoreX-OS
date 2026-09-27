@@ -2866,6 +2866,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // saver, same one-concern-per-endpoint discipline as the four above.
     Route::post('/settings/rental-inspections/auto-pair-photos', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAutoPairPhotosEnabled'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-pair-photos');
+    // AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo note's
+    // classification vocabulary.
+    Route::post('/settings/rental-inspections/photo-note-classifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updatePhotoNoteClassifications'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.photo-note-classifications');
 
     // .ai/specs/rental-inventory.md §8 — the move-out disposition vocabulary
     // (present/short/damaged/missing), agency-configurable. Own settings
@@ -3251,6 +3255,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.untag');
         Route::delete('/{rentalInspection}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'archivePhoto'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.archive');
+        // AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo-level
+        // note (Defect/Wear and tear/Reference), full CRUD, own controller
+        // (RentalInspectionPhotoNoteController), never the item/room-shaped
+        // recording controller above. Read-only once the inspection is
+        // signed — enforced inside the controller, not by hiding the route.
+        Route::post('/{rentalInspection}/photos/{photo}/notes', [\App\Http\Controllers\CoreX\RentalInspectionPhotoNoteController::class, 'store'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.notes.store');
+        Route::patch('/{rentalInspection}/photos/{photo}/notes/{note}', [\App\Http\Controllers\CoreX\RentalInspectionPhotoNoteController::class, 'update'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.notes.update');
+        Route::delete('/{rentalInspection}/photos/{photo}/notes/{note}', [\App\Http\Controllers\CoreX\RentalInspectionPhotoNoteController::class, 'archive'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.notes.archive');
+        Route::post('/{rentalInspection}/photos/{photo}/notes/{note}/restore', [\App\Http\Controllers\CoreX\RentalInspectionPhotoNoteController::class, 'restore'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.photos.notes.restore')->withTrashed();
         Route::post('/{rentalInspection}/discrepancies/{discrepancy}/resolve', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'resolveDiscrepancy'])
             ->middleware('permission:rental_inspections.resolve_discrepancy')->name('corex.rental-inspections.discrepancies.resolve');
         // sign_on_behalf is checked INSIDE the controller (§6 — it only applies to

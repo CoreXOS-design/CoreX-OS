@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -92,6 +93,18 @@ class RentalInspectionPhoto extends Model
         return $this->belongsTo(User::class, 'tagged_by_user_id');
     }
 
+    /**
+     * .ai/specs/rental-inspections.md §25 — the photo-level note (AT-433
+     * Part C), distinct from the observation's own item comment. At most
+     * one live row per photo, enforced in
+     * RentalInspectionPhotoNoteController::store(), not by a DB constraint
+     * (see RentalInspectionPhotoNote's own docblock for why).
+     */
+    public function note(): HasOne
+    {
+        return $this->hasOne(RentalInspectionPhotoNote::class, 'rental_inspection_photo_id');
+    }
+
     public function isUntagged(): bool
     {
         return $this->property_room_id === null && $this->rental_inspection_observation_id === null;
@@ -131,6 +144,19 @@ class RentalInspectionPhoto extends Model
      * own member count never dropped, so a two-member group's surviving
      * photo kept reading as "matched" against a photo that no longer
      * renders anywhere.
+     *
+     * AT-433 Part C: the photo's own live note (if any) is archived in the
+     * same call. Found by testing, not assumed — a parent model's own
+     * SoftDeletes global scope does NOT cascade to a child accessed FROM
+     * the parent (`$photo->note`); it only protects the reverse direction
+     * (`$note->photo` going null once the photo is trashed). Left
+     * un-cascaded, a raw notes query that forgets to re-check its photo's
+     * own trashed state would still surface a note whose evidence no
+     * longer exists. No symmetric auto-restore on the reverse of this
+     * method: no route currently restores an archived photo at all (an
+     * existing, pre-existing gap in this module — flagged separately, not
+     * fixed here per SCOPE LOCK), so there is nothing yet to keep in sync
+     * on that side.
      */
     public function archive(User $by): void
     {
@@ -140,5 +166,11 @@ class RentalInspectionPhoto extends Model
         RentalInspectionPhotoMatchGroupMember::where('rental_inspection_photo_id', $this->id)
             ->first()
             ?->removeAndMaybeArchiveGroup($by);
+
+        $liveNote = $this->note;
+        if ($liveNote) {
+            $liveNote->forceFill(['archived_by_user_id' => $by->id])->save();
+            $liveNote->delete();
+        }
     }
 }

@@ -160,7 +160,11 @@ class RentalInspectionPhotoMatchGroup extends Model
      */
     public function toComparePayload(): array
     {
-        $this->loadMissing('members.photo');
+        // AT-433 Part C, .ai/specs/rental-inspections.md §25 — "the note
+        // travels with the photo into the compare viewer, where there is
+        // room for it." 'members.photo.note' so it's present in this same
+        // payload without a second round-trip.
+        $this->loadMissing('members.photo.note');
 
         return [
             'id' => $this->id,
@@ -169,6 +173,7 @@ class RentalInspectionPhotoMatchGroup extends Model
                 'photo_id' => $member->rental_inspection_photo_id,
                 'rental_inspection_id' => $member->photo?->rental_inspection_id,
                 'storage_path' => $member->photo?->storage_path,
+                'note' => $member->photo?->note,
             ])->values(),
         ];
     }

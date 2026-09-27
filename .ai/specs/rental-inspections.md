@@ -4429,3 +4429,205 @@ stated here plainly rather than claimed as passing. Its named replacements
 since this round does not deploy (Johan's explicit instruction; cc5 lands and verifies in a real browser
 next), running them now would only check the pre-existing QA1 page, not this commit's own changes, so they
 were not run. No live-browser verification was performed this round — that is cc5's step, not this one's.
+
+## 25. AT-433 Part C — photo notes (2026-09-27)
+
+Johan's feature, verbatim in substance: every photo carries its own note — what THIS photo shows, not
+what the item is like overall (that's `RentalInspectionObservation.notes`, unchanged, untouched). Two
+levels, never merged: the item comment says what the item is like; the photo note says what makes THIS
+photo evidence. A note carries a classification (Defect / Wear and tear / Reference by default, agency-
+configurable — every list is a setting). Shown under the thumbnail in the strip, truncated to two lines;
+the full note opens with the photo in the compare viewer. A room-level "Photo notes on/off" switch,
+remembered per user. The note travels with the photo into the compare viewer AND (data-layer only this
+round — see §25.5) onto the printed inspection form, where the classification is what lets a defect list
+render on its own at the end. Full CRUD, soft delete only. Read-only once the inspection is completed and
+signed (Johan's ruling, confirmed against the code — see §25.2).
+
+Built in two passes, both by the same lane: backend first (parked mid-build when cc4's photo-upload-
+immediate fix needed the same file), then the Blade/JS pass once cc4 (`2cc8951f9`) and cc6's pairing work
+were both out of `show.blade.php`.
+
+### 25.1 Investigation — file:line
+
+- **Photo identity** — `RentalInspectionPhoto` (`app/Models/RentalInspectionPhoto.php`), one row per
+  photo, real `id`, soft-deletable (`archive()`). Nothing resembling a per-photo note existed anywhere in
+  the codebase before this round (checked — the only prior per-photo metadata is tagging: room/observation
+  id, `tagged_at`/`tagged_by_user_id`).
+- **The item comment** — `RentalInspectionObservation.notes` (immutable, append-only, §3.3) — the ONLY
+  existing free-text field on the item/photo surface before this round. Deliberately not touched or
+  reused: it answers "what is this item like," never "what does this specific photo show."
+- **The printed inspection form — two different documents, only one is relevant:**
+  - `RentalInspectionFormPdfService` — the BLANK OMR tick-box capture form, generated BEFORE an
+    inspection, for wet-ink recording. Renders no photos, no notes — not the document Johan meant.
+  - `RentalInspectionReportPdfService` — the COMPLETED inspection's own report, generated AFTER. Johan's
+    own ruling on this exact service (2026-09-23, its own docblock): **no photos** ("printing the photos
+    will be a shitshow... the inspection reports will turn into 100 pages") — a QR/link to the public page
+    instead. This is where a defect list attaches: the classification lets the report list every
+    `defect`-classified note in one section at the end, as TEXT — never a photo grid, consistent with
+    Johan's own no-photos ruling on this exact document. **Not built this round** — the report's own
+    `generate()`/`report-pdf.blade.php` are Blade/PDF-template work, out of scope for the backend-only
+    pass and not reached in the Blade/JS pass either (that pass's scope was the recording screen and
+    compare viewer, per Johan's own instruction) — see §25.5.
+
+### 25.2 Data model
+
+`rental_inspection_photo_notes` — `agency_id`, `rental_inspection_id` (denormalized, same convention as
+`rental_inspection_photos.rental_inspection_id`), `rental_inspection_photo_id` (the real parent),
+`classification_key`, `note` (text), `created_by_user_id`/`updated_by_user_id`/`archived_by_user_id`,
+`timestamps()` + `softDeletes()`.
+
+Full CRUD, soft delete only — a deliberate departure from this module's usual immutable/append-only
+convention for observations/room notes/findings, per Johan's explicit ruling for this feature specifically.
+At most one LIVE note per photo, enforced at the model/controller layer
+(`RentalInspectionPhotoNoteController::store()` refuses a second one), **not** a DB unique constraint — a
+unique index has no soft-delete awareness (BUILD_STANDARD §5a) and would collide on the very archive-then-
+recreate flow this design supports.
+
+**What happens when the photo is removed:** `RentalInspectionPhoto::archive()` cascades — the photo's live
+note (if any) is archived in the same call. This was NOT the original design call (the first draft assumed
+a parent's own SoftDeletes global scope would protect a child read FROM the parent for free, the same way
+it protects the reverse direction — `$note->photo` going null once the photo is trashed) — found wrong by
+testing: `$photo->fresh()->note` still returned the live note after archiving, because `fresh()` explicitly
+bypasses global scopes on itself, and a plain `hasOne` relation has no reason to consult the parent's own
+trashed state. Fixed with an explicit cascade rather than left mismatched. No symmetric auto-restore on
+photo restore: no route in this module restores an archived photo at all yet (a pre-existing gap, flagged
+to the conductor, not fixed here per SCOPE LOCK).
+
+**Read-only once signed:** `RentalInspectionPhotoNote::assertMutable()` throws once the inspection's status
+is `completed` or `cancelled`. Confirmed against the code, not assumed — `RentalInspection::markCompleted()`
+is the ONE transition that both sets `status=completed` AND is gated on every required signature already
+existing (§15), so "signed" and "completed" are the same event in this data model; there is no in-between
+state where signing is done but completion hasn't happened yet. Mirrors `RentalInspection::updateDetails()`'s
+own precedent exactly (locks on COMPLETED or CANCELLED, never COMPLETED alone).
+
+**Classification vocabulary** — `RentalInspectionSetting::photoNoteClassificationsFor($agencyId)`, same
+read-time-default JSON-column pattern as `condition_states`. Default: Defect / Wear and tear / Reference.
+Agency-configurable via `RentalInspectionSettingsController::updatePhotoNoteClassifications()` — the
+controller-side saver and its route are built; the Setup Wizard/settings-screen Blade section is not (see
+§25.5 — same "no fitting repeater control" reasoning already recorded for `refusal_reason_presets` and
+`room_type_walking_order`, flagged for Johan's call rather than decided here).
+
+**Own/branch/agency scoping** — this module has never implemented an own/branch narrowing dimension
+anywhere (photos, observations, signatures, room notes are all agency-scoped only, via `BelongsToAgency`'s
+`AgencyScope`, plus an explicit "does this photo/note actually belong to this inspection" check in every
+controller action). Photo notes follow the exact same, only-existing precedent rather than inventing a new
+scoping dimension unilaterally for one feature — flagged to the conductor as a module-wide question, not
+decided here.
+
+**A false alarm, corrected:** an early cross-agency 404 test failed (got 201, not 404), which briefly read
+as a real `AgencyScope` security gap affecting this whole module. Root cause, found by direct comparison
+with a raw Tinker reproduction that DID scope correctly: `BelongsToAgency`'s `creating()` hook force-stamps
+`agency_id` from the CURRENTLY AUTHENTICATED user's own effective agency, overriding any explicit value
+passed to `create()`. The test built its "other agency" fixture while already `actingAs()` the first
+agency's user, so every row silently landed on agency 1 regardless of the `agency_id` written in the test —
+the cross-agency scenario was never actually exercised. Fixed by building that fixture logged-out (matching
+this test class's own `setUp()` pattern), matching the tinker reproduction's own working order. Retracted
+directly, in full, the moment the real cause was found — `AgencyScope` and the pre-existing
+`RentalInspectionRecordingController` have no defect here.
+
+### 25.3 Backend built
+
+- Migrations: `2026_10_03_210000_create_rental_inspection_photo_notes_table.php`,
+  `2026_10_03_210100_add_photo_note_classifications_to_rental_inspection_settings_table.php`.
+- `RentalInspectionPhotoNote` model — full CRUD, `assertMutable()`, `liveFor()`.
+- `RentalInspectionPhoto::note()` (hasOne) + `archive()` cascade (§25.2).
+- `RentalInspectionSetting::photoNoteClassificationsFor()` + `DEFAULT_PHOTO_NOTE_CLASSIFICATIONS`.
+- `RentalInspectionPhotoNoteController` — store/update/archive/restore, routed under
+  `/corex/rental-inspections/{rentalInspection}/photos/{photo}/notes[/{note}[/restore]]`, gated
+  `rental_inspections.create` (matching every other mutation on this controller family). Web routes
+  returning JSON, not `/api/v1/*` — deliberately following this exact module's own established
+  convention (every sibling photo/tag/signature endpoint here is the same shape), not an oversight of
+  CLAUDE.md non-negotiable #7.
+- `RentalInspectionSettingsController::updatePhotoNoteClassifications()` + its route — same narrow-saver
+  discipline as `updateConditionStates()`.
+- Read paths carry the note for free: `RentalInspection::tabPayloadFor()`'s `photos.note`/
+  `observations.photos.note` eager-loads (recording screen), `RentalInspectionPhotoMatchGroup::
+  toComparePayload()`'s `members.photo.note` + `'note'` field (compare viewer's own group payload), and
+  `tabPayloadFor()`'s new `photo_note_classifications` key (the agency's vocabulary, client-side).
+- **Verification:** 16 feature tests (`RentalInspectionPhotoNoteControllerTest`) — happy-path CRUD,
+  one-note-per-photo, each required field individually empty, an unknown classification key rejected,
+  cross-agency 404 (via route-model binding, §25.2), archive cascades to the note, restore rejected when a
+  different live note already exists, mutations blocked once completed AND once cancelled. All green.
+  `php -l` clean on every changed PHP file.
+
+### 25.4 Blade/JS built
+
+Rebased onto QA1 `4fe10b6bd`, then onto cc4's `fix-inspection-photo-upload-immediate-2026-09-26` branch tip
+(`2cc8951f9`, not yet landed on QA1 at the time — read in full before touching the same markup, per Johan's
+explicit instruction) before any markup was touched.
+
+- **Under the thumbnail, two lines** — `.rir-strip-note` (new CSS class,
+  `rental-inspection-recording.blade.php`), an absolutely-positioned overlay CAPTION inside the existing
+  `.rir-strip-tile`, `pointer-events:none`. Deliberately NOT a taller tile: this row's height has already
+  broken and been re-fixed multiple times (§22.3/22.3a/22.3b) on the same "class-level static geometry,
+  never a bound `:style` next to a static one" principle; an overlay changes nothing about tile/row height
+  at all, so it cannot reopen that class of regression, and `pointer-events:none` means it never competes
+  with the Select/tag/untag corner buttons it visually sits under. Rendered in BOTH tile branches of
+  `rental-inspection-item-cell.blade.php` (read-only predecessor AND editable tail), keyed off
+  `tile.photo.note` — never row index, position, or pairing state (Johan's ruling: every note renders for
+  every photo that renders).
+- **The composer, in the compare viewer** — "the full note opens with the photo in the compare viewer,
+  where there is room for it" (Johan, verbatim). A `.cv-tagpanel`-shaped panel (`compareViewerNotePanel`,
+  same anchored-over-the-pane shell as `compareViewerTagPanel`, not a second panel mechanism), reachable
+  via an "Add note"/"Edit note" button beside "Tag photo"/"Retag" in both single-mode and compare-mode
+  headers. Classification picker + textarea; Save (POST if none exists yet, PATCH if editing) and Remove
+  note (DELETE), via a small self-contained fetch helper (`_compareViewerNoteRequest()` — not a reuse of
+  the shared `_post()`, which is hardcoded to POST). The full note (untruncated) also renders inline in
+  both pane headers whenever one exists.
+- **No note control on a tile with no id yet** — satisfied by construction, not a bolted-on guard: a
+  PENDING/uploading tile (`pendingUploadTilesFor()`, cc4's own AT-436 rework) has no `openCompareViewer()`
+  binding at all — only a real, server-persisted photo tile opens the viewer, and the note composer only
+  ever opens FROM the viewer. There is no code path that could offer note editing on an id-less tile.
+- **Room-level "Photo notes on/off," remembered per user** — `photoNotesVisible` (keyed by room id),
+  `localStorage` key `hfc.inspPhotoNotesVisible`. Same client-only persistence pattern this screen already
+  uses for `itemStripExpanded` (`hfc.inspStripExpanded`) — this screen has no per-user preference endpoint
+  at all (checked, same finding that pattern's own docblock already states), so this is the same mechanism
+  under a new key, not a second one. Defaults ON. Toggle button rendered beside "Collapse/Expand photos" in
+  the room heading (editable side only, shared state reacts on both cells — same "one master switch"
+  convention as that button).
+- **Signed inspections read-only** — the note panel's Save/Remove buttons are hidden and replaced with a
+  plain-language explanation (`compareViewerNoteLocked()`, mirroring the server's own `assertMutable()`
+  gate) whenever the owning inspection is completed or cancelled — STANDARDS.md "No Silent Locks": say why,
+  never let a control silently 409.
+- **Never keyed off row position or visible index** — the note lives on `tile.photo.note` / the photo
+  object itself throughout; nothing added this round reads `tile.index` or any array position to resolve a
+  note. A photo that is paired, unpaired, reordered, or has its strip collapsed/expanded keeps its note
+  unchanged, because nothing about those operations touches the photo's own `.note` field.
+
+**Files touched:** `resources/views/corex/properties/show.blade.php` (config/refresh wiring for
+`photoNoteClassifications`, the room-toggle state/methods, `photoNoteClassificationLabel()`, the compare-
+viewer note-panel state/methods/markup, the pane-header note button + inline note display, both modes);
+`resources/views/corex/properties/partials/rental-inspection-recording.blade.php` (the `.rir-strip-note`
+CSS class, the room-heading toggle button); `resources/views/corex/properties/partials/rental-inspection-
+item-cell.blade.php` (the note caption in both tile branches). No other file changed.
+
+**Verification this round:** `php -l` clean on all three files (a weak signal for `.blade.php` — Blade
+directives outside `<?php ?>` are inert text to the PHP parser, so this only proves no genuinely broken raw
+PHP tag exists, not that the Blade compiles). The real check: stood up this worktree's OWN local render
+(`composer install` + `npm install && npm run build` + a seeded agency/property/inspection/photo/note in
+this worktree's own isolated test schema + `php8.2 artisan serve`), then ran
+`scripts/fetch-authenticated-page.php` + `scripts/verify-alpine-render.mjs` against that real, self-served
+response — not the pre-existing QA1 page, this commit's own rendered output. Ran it twice: once against
+this diff, once against the same commit with only the three Blade files stashed back to their pre-diff
+state (`git stash push -- <the three files>`), to isolate what this round changed, same method cc4's own
+round used. Identical failure set both times — two pre-existing `localStorage`/`document` inline-`x-data`
+issues (sidebar collapse, readiness widget) and one pre-existing `form.getAttribute` script-eval issue,
+none of it rental-inspections code, all already known from cc4's own round. The metric the standing rule
+actually names, Alpine expression syntax errors: zero both before (1927 attributes) and after (1975
+attributes) — this round's 48 new bindings all compile clean. `php artisan view:cache` — compiles every
+Blade template in the app — clean. Did not deploy, per instruction.
+
+### 25.5 What still needs the Blade/PDF-template pass — not built this round, named on purpose
+
+- **The printed report's defect-list section** — `RentalInspectionReportPdfService::generate()` would need
+  to query live, non-archived `defect`-classified notes for the inspection and pass them to
+  `report-pdf.blade.php` for a new end-of-document section; the template itself needs that section built.
+  Not started — this round's scope was the recording screen and compare viewer (Johan's own instruction),
+  and the report service/template are a distinct Blade surface with their own render-gate exposure.
+- **Settings-screen UI + Setup Wizard entry for the classification list** — the resolver, saver, and route
+  are built (§25.3); the actual `<form>` section on `/corex/settings/rental-inspections` and its Setup
+  Wizard control are not. Same "no repeater control type" gap already on record for `refusal_reason_presets`
+  and `room_type_walking_order` — Johan's call whether this needs a new wizard control type or stays
+  settings-screen-only, not decided here.
+- **Mobile/API shape** — §14.2's mobile-parity table does not yet list a photo-note endpoint. Not requested
+  this round; noted so it isn't mistaken for an oversight if the mobile app needs it later.
