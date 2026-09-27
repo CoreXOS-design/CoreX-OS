@@ -275,6 +275,10 @@ class RentalInspectionSettingsController extends Controller
                 'key' => $key,
                 'label' => $label,
                 'requires_notes' => ($row['requires_notes'] ?? '0') === '1',
+                // .ai/specs/rental-inspections.md §27.2 — the recording
+                // screen's problem filter, same per-row checkbox discipline
+                // as requires_notes just above.
+                'needs_attention' => ($row['needs_attention'] ?? '0') === '1',
             ];
         }
 

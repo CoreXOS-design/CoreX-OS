@@ -612,6 +612,78 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         }
     }
 
+    // ── §27.2 (recording-screen navigation, 2026-09-27) — needs_attention ──
+
+    public function test_condition_needs_attention_for_an_unknown_key_defaults_to_true(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'some_key_nobody_configured'));
+    }
+
+    /** Johan's explicit ruling: Good and N/A off, everything else on. */
+    public function test_good_and_na_do_not_need_attention_by_default_every_other_state_does(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+
+        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
+        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'n_a'));
+        foreach (['fair', 'damaged', 'not_working', 'missing', 'other'] as $key) {
+            $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, $key), "'{$key}' should need attention by default");
+        }
+    }
+
+    /** A row saved before needs_attention existed reads as TRUE, never silently filtered out of view. */
+    public function test_a_condition_state_saved_before_needs_attention_existed_defaults_to_true(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        RentalInspectionSetting::create([
+            'agency_id' => $agency->id,
+            'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false]],
+        ]);
+
+        $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
+        $state = collect(RentalInspectionSetting::conditionStatesFor($agency->id))->firstWhere('key', 'good');
+        $this->assertTrue($state['needs_attention']);
+    }
+
+    public function test_an_agency_can_save_needs_attention_per_condition_state(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+
+        $response = $this->actingAs($admin)->post(route('corex.settings.rental-inspections.condition-states'), [
+            'condition_states_submitted' => '1',
+            'condition_states' => [
+                ['key' => 'good', 'label' => 'Good', 'requires_notes' => '0', 'needs_attention' => '0'],
+                ['key' => 'ok', 'label' => 'OK', 'requires_notes' => '0', 'needs_attention' => '1'],
+                ['key' => 'bad', 'label' => 'Bad', 'requires_notes' => '1', 'needs_attention' => '1'],
+            ],
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
+        $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'ok'));
+        $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'bad'));
+    }
+
+    /** The lazy-but-valid shortcut — the checkbox omitted entirely (unchecked, no hidden fallback) must not 500 or silently default wrong. */
+    public function test_a_condition_state_saved_with_needs_attention_omitted_defaults_to_false(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        $admin = $this->admin($agency);
+
+        $response = $this->actingAs($admin)->post(route('corex.settings.rental-inspections.condition-states'), [
+            'condition_states_submitted' => '1',
+            'condition_states' => [
+                ['key' => 'good', 'label' => 'Good', 'requires_notes' => '0'],
+            ],
+        ]);
+
+        $response->assertSessionHasNoErrors();
+        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
+    }
+
     // ── Shared: the edit screen renders both sections with real state ──
 
     public function test_the_settings_screen_renders_current_selections_not_blanks(): void

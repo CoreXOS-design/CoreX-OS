@@ -170,18 +170,27 @@ class RentalInspectionSetting extends Model
      * either way (this constant is only ever read when that column is
      * still null).
      *
-     * @var array<int, array{key: string, label: string, requires_notes: bool}>
+     * `needs_attention` — .ai/specs/rental-inspections.md §27.2 (recording-
+     * screen navigation, 2026-09-27). A genuinely different question from
+     * requires_notes: "does this condition mean the space needs attention"
+     * versus "does picking this need a typed reason" — 'fair' answers no
+     * to the first, yes to the second (a mildly worn item is worth a
+     * follow-up but doesn't need a reason on record). Johan's explicit
+     * default: Good and N/A off, everything else on.
+     *
+     * @var array<int, array{key: string, label: string, requires_notes: bool, needs_attention: bool}>
      */
     public const DEFAULT_CONDITION_STATES = [
-        ['key' => 'good', 'label' => 'Good', 'requires_notes' => false],
-        ['key' => 'fair', 'label' => 'Fair', 'requires_notes' => false],
-        ['key' => 'damaged', 'label' => 'Damaged', 'requires_notes' => true],
-        ['key' => 'not_working', 'label' => 'Not working', 'requires_notes' => true],
-        ['key' => 'missing', 'label' => 'Missing', 'requires_notes' => true],
-        ['key' => 'other', 'label' => 'Other', 'requires_notes' => true],
+        ['key' => 'good', 'label' => 'Good', 'requires_notes' => false, 'needs_attention' => false],
+        ['key' => 'fair', 'label' => 'Fair', 'requires_notes' => false, 'needs_attention' => true],
+        ['key' => 'damaged', 'label' => 'Damaged', 'requires_notes' => true, 'needs_attention' => true],
+        ['key' => 'not_working', 'label' => 'Not working', 'requires_notes' => true, 'needs_attention' => true],
+        ['key' => 'missing', 'label' => 'Missing', 'requires_notes' => true, 'needs_attention' => true],
+        ['key' => 'other', 'label' => 'Other', 'requires_notes' => true, 'needs_attention' => true],
         // Johan: "not an argument at all" — unlike every state above it,
-        // N/A needs no justification on record.
-        ['key' => 'n_a', 'label' => 'N/A', 'requires_notes' => false],
+        // N/A needs no justification on record, and (§27.2) nothing to
+        // follow up on either.
+        ['key' => 'n_a', 'label' => 'N/A', 'requires_notes' => false, 'needs_attention' => false],
     ];
 
     /**
@@ -551,7 +560,14 @@ class RentalInspectionSetting extends Model
      * as-is once it's shaped correctly. Malformed rows (missing key/label)
      * are dropped rather than crashing a read.
      *
-     * @return array<int, array{key: string, label: string, requires_notes: bool}>
+     * §27.2 — `needs_attention` is backfilled onto every returned row
+     * (default true) so a row saved before this flag existed reads
+     * identically here, in the settings edit form, and client-side as it
+     * already does through conditionNeedsAttentionFor()'s own resolver —
+     * one normalized shape, never three call sites quietly disagreeing
+     * about what a missing key means.
+     *
+     * @return array<int, array{key: string, label: string, requires_notes: bool, needs_attention: bool}>
      */
     public static function conditionStatesFor(?int $agencyId): array
     {
@@ -565,7 +581,9 @@ class RentalInspectionSetting extends Model
             return self::DEFAULT_CONDITION_STATES;
         }
 
-        return array_values(array_filter($states, fn ($s) => is_array($s) && ! empty($s['key']) && isset($s['label'])));
+        $states = array_values(array_filter($states, fn ($s) => is_array($s) && ! empty($s['key']) && isset($s['label'])));
+
+        return array_map(fn ($s) => $s + ['needs_attention' => true], $states);
     }
 
     /**
@@ -582,6 +600,23 @@ class RentalInspectionSetting extends Model
         $state = collect(self::conditionStatesFor($agencyId))->firstWhere('key', $conditionKey);
 
         return $state === null ? true : (bool) ($state['requires_notes'] ?? true);
+    }
+
+    /**
+     * .ai/specs/rental-inspections.md §27.2 — does this condition mean the
+     * space needs attention (the recording screen's problem filter). Same
+     * read-time-default, unknown-key-defaults-true reasoning as
+     * conditionRequiresNotesFor() directly above: a condition key absent
+     * from the agency's own configured set defaults to TRUE, and a saved
+     * row from before this flag existed (missing the key entirely) also
+     * defaults to TRUE — an unknown/unconfigured state is never silently
+     * filtered out of view.
+     */
+    public static function conditionNeedsAttentionFor(?int $agencyId, string $conditionKey): bool
+    {
+        $state = collect(self::conditionStatesFor($agencyId))->firstWhere('key', $conditionKey);
+
+        return $state === null ? true : (bool) ($state['needs_attention'] ?? true);
     }
 
     /**

@@ -84,7 +84,11 @@
 @endif
     </div>
 
-    <div style="display:flex; align-items:stretch; flex:1; min-width:0;">
+    {{-- §27.1.2 — the global "Photos: shown/hidden" toggle wraps this whole
+         photo block (never just the room-level thumbnail-count control,
+         which is unchanged and still exists alongside this). Hiding it
+         reclaims the row for the condition-button block to its left. --}}
+    <div style="display:flex; align-items:stretch; flex:1; min-width:0;" x-show="photosVisible">
         <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
             {{-- AT-433 Part A, 2026-09-26 — photo strip. Tiles come from
                  stripTilesForInspection()/stripTilesFor() in show.blade.php,
