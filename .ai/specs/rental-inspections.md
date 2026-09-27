@@ -5365,3 +5365,81 @@ chevron confirmed left of the title text; all three header children's vertical p
 3px band (one line, not wrapped) at a measured row height of **35px** (target "~36px"). Four real Puppeteer
 clicks (CDP-dispatched, not synthetic): title toggles the section, chevron toggles the section, Auto-pair
 does NOT toggle it, the Next-inspection select does NOT toggle it — all four pass.
+
+### 28.4 Regression fix, 2026-09-27 — §28.1's own verification only checked the vertical band
+
+§28.3's headless measurement proved chevron-left-of-title and a one-line row, but never checked
+HORIZONTAL position — and on Johan's real browser, `/corex/properties/5294?tab=inspections`, chevron+title
+were pushed hard against the button's RIGHT edge, not the left: **Inspection Items (54)** button
+`left=350 width=1126`, heading `left=1314` (≈960px of empty space to the LEFT of the title, inside the
+button); **Inspection** header heading `left=937` in a `781px`-wide button (same symptom).
+
+**Root cause**: `flex-direction: row-reverse` alone only reverses which DOM child renders first — it does
+NOT move the packed group's position. `justify-content` was left at its default (`flex-start`), which
+packs the group against the main-axis **start**; under `row-reverse`, main-start is the PHYSICAL RIGHT
+edge, not the left. So both children packed flush right, exactly as measured.
+
+**Fix — one property added, nothing else touched:**
+
+```css
+.prop-section-toggle-chevron-left { flex-direction: row-reverse; justify-content: flex-end; }
+```
+
+Under `row-reverse`, main-**end** is the physical left, so `justify-content: flex-end` packs the
+(visually-reordered) chevron+title group flush against the button's left edge — the look Johan asked for
+in §28.1, actually achieved this time. `.prop-section-toggle-chevron-left .prop-section-chevron`'s existing
+`margin-left:0; margin-right:0.5rem` is unchanged; the outer controls row (§28.2, the `Auto-pair`/`Next
+inspection` siblings outside the button) is unaffected — that alignment comes from the OUTER row's own
+flex layout, not this button's internal `justify-content`.
+
+**Verified**: `php -l` clean on `resources/css/corex.css`. Applies uniformly to all three headers using
+this modifier (Inspection Items, Inspection, custom/"Ad Hoc" sections) since the fix lives in the shared
+CSS rule, not per-header markup. Real-render horizontal measurement (heading.left − button.left) recorded
+per header in the landing commit for this fix — see that commit's own report for the exact pixel deltas
+on property 5792 at 1440px and 1024px.
+
+---
+
+## 29. Untagged-photo tray — Small/Large tile-size toggle (2026-09-27)
+
+Johan, property 5294, live-testing: "I don't mind the small thumbnails, but can't really see them. Keep
+them this size and have a resize option or tick to enlarge them to the same size as the thumbnail photos
+in the room/item sections (e.g. Kitchen)."
+
+### 29.1 Sizes
+
+- **Small (default)** — unchanged: `.rir-tray-tile`, `3rem` (48px) square
+  (`rental-inspection-recording.blade.php`).
+- **Large** — a new `.rir-tray-tile-lg` modifier, `86px × 64px` — read directly from `.rir-strip-tile`
+  (`rental-inspection-item-cell.blade.php`, the room/item comparison-grid photo tile Johan pointed at,
+  e.g. Kitchen), not guessed, so Large is a pixel-for-pixel match to what an agent already sees on every
+  item's own photo strip.
+
+### 29.2 Control
+
+A `Small`/`Large` segmented toggle on the untagged tray's own header line, grouped directly beside the
+"N untagged" count (not a separate `justify-between` child stranded at the row's far edge) — same
+`compare-viewer-mode-btn`/`-active` styling already used by the "Photos: shown/hidden" and filter
+buttons on this screen (§27), so it reads as the same family of control. Remove (×) and click-to-tag
+behaviour are byte-for-byte unchanged in both sizes — the toggle only ever adds/removes one CSS class
+(`:class="trayTileSize === 'large' ? 'rir-tray-tile-lg' : ''"`) on the existing tile `<div>`; the earlier
+`:style`-wholesale-overwrite bug documented at the top of this file (2026-09-22) is why size is a `:class`
+addition here, never folded into the tile's existing `:style` binding.
+
+### 29.3 Persistence
+
+Per-user, server-side — the same `RentalInspectionScreenPreference` mechanism as `photos_visible`/
+`filter_mode` (§27.7), not a third mechanism and not `localStorage` (an agent's tray-size preference
+follows them from laptop to phone, same reasoning as the other two). New preference key
+`tray_tile_size`, default `'small'`, values `'small'|'large'` — an unrecognised stored/posted value
+clamps to `'small'` (`RentalInspectionRecordingController::updateScreenPreference()`), same
+clamp-not-reject pattern already used for `filter_mode`.
+
+### 29.4 Verified
+
+`php -l` clean on all three changed PHP files. `RentalInspectionRecordingControllerTest.php` — 8/8
+passing (18 assertions): default-state payload now includes `tray_tile_size => 'small'`; posting
+`large` persists and round-trips through the next tab-data fetch without disturbing the other two
+preferences; an unknown value (`'huge'`) clamps to `'small'`; the existing unknown-key-rejected and
+per-user-scoping tests are unaffected. Real-render tile measurement (48×48 in Small, 86×64 in Large)
+recorded in the landing commit's own report.

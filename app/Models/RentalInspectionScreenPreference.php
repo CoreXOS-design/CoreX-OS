@@ -29,10 +29,13 @@ class RentalInspectionScreenPreference extends Model
         return $this->belongsTo(User::class);
     }
 
-    /** Johan's ruling, §27 — photos shown by default, filter off (All) by default. */
+    /** Johan's ruling, §27 — photos shown by default, filter off (All) by default.
+     *  §29 — the untagged-photo tray tile size defaults to small (Johan: "I don't
+     *  mind the small thumbnails"). */
     public const DEFAULTS = [
         'photos_visible' => true,
         'filter_mode' => 'all',
+        'tray_tile_size' => 'small',
     ];
 
     public static function stateFor(int $userId): array

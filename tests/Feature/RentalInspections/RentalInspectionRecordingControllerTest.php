@@ -1806,7 +1806,10 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
 
         $response->assertOk();
-        $this->assertSame(['photos_visible' => true, 'filter_mode' => 'all'], $response->json('screen_preferences'));
+        $this->assertSame(
+            ['photos_visible' => true, 'filter_mode' => 'all', 'tray_tile_size' => 'small'],
+            $response->json('screen_preferences')
+        );
     }
 
     public function test_updating_photos_visible_persists_and_is_reflected_in_the_next_tab_payload(): void
@@ -1829,6 +1832,31 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
         $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
         $this->assertSame('attention', $response->json('screen_preferences.filter_mode'));
+    }
+
+    /** §29 — the untagged-photo tray Small/Large tile-size toggle. */
+    public function test_updating_tray_tile_size_persists(): void
+    {
+        $this->postJson(route('corex.rental-inspections.screen-preference'), [
+            'preference_key' => 'tray_tile_size', 'value' => 'large',
+        ])->assertOk();
+
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+        $this->assertSame('large', $response->json('screen_preferences.tray_tile_size'));
+        // The other preferences are unaffected by this save.
+        $this->assertTrue($response->json('screen_preferences.photos_visible'));
+        $this->assertSame('all', $response->json('screen_preferences.filter_mode'));
+    }
+
+    /** A stale/tampered tray_tile_size value is absorbed to the safe default, never saved verbatim. */
+    public function test_screen_preference_clamps_an_unknown_tray_tile_size_value_to_small(): void
+    {
+        $this->postJson(route('corex.rental-inspections.screen-preference'), [
+            'preference_key' => 'tray_tile_size', 'value' => 'huge',
+        ])->assertOk();
+
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+        $this->assertSame('small', $response->json('screen_preferences.tray_tile_size'));
     }
 
     public function test_screen_preference_rejects_an_unknown_key(): void

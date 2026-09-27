@@ -63,14 +63,16 @@ class RentalInspectionRecordingController extends Controller
     public function updateScreenPreference(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'preference_key' => ['required', 'string', 'in:photos_visible,filter_mode'],
+            'preference_key' => ['required', 'string', 'in:photos_visible,filter_mode,tray_tile_size'],
             'value' => ['required'],
         ]);
 
         $key = $validated['preference_key'];
-        $value = $key === 'filter_mode'
-            ? (in_array($request->input('value'), ['all', 'attention', 'unrecorded'], true) ? $request->input('value') : 'all')
-            : $request->boolean('value');
+        $value = match ($key) {
+            'filter_mode' => in_array($request->input('value'), ['all', 'attention', 'unrecorded'], true) ? $request->input('value') : 'all',
+            'tray_tile_size' => in_array($request->input('value'), ['small', 'large'], true) ? $request->input('value') : 'small',
+            default => $request->boolean('value'),
+        };
 
         RentalInspectionScreenPreference::setFor($request->user()->id, $key, $value);
 

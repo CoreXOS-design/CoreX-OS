@@ -5842,6 +5842,9 @@
                 // moment later.
                 photosVisible: config.inspectionData.screen_preferences.photos_visible,
                 filterMode: config.inspectionData.screen_preferences.filter_mode,
+                // §29 — untagged-photo tray tile size (small/large), same
+                // per-user server-resolved pattern as the two above.
+                trayTileSize: config.inspectionData.screen_preferences.tray_tile_size,
                 // Item 8, 2026-09-22 — read-only, sourced from the live
                 // Property record.
                 propertyType: config.propertyType,
@@ -7730,6 +7733,14 @@
                     if (this.filterMode === mode) return;
                     this.filterMode = mode;
                     this._saveScreenPreference('filter_mode', mode);
+                },
+                // §29 — untagged-photo tray tile size. Small/Large only; the
+                // controller clamps anything else to 'small', mirrored here
+                // so a stale value never gets echoed back verbatim.
+                setTrayTileSize(size) {
+                    if (this.trayTileSize === size) return;
+                    this.trayTileSize = size;
+                    this._saveScreenPreference('tray_tile_size', size);
                 },
                 _saveScreenPreference(key, value) {
                     this._post(this.inspectionUrls.screenPreference, { preference_key: key, value: value }).catch(() => {});

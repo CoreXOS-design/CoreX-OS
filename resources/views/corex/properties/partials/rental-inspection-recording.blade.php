@@ -98,6 +98,14 @@
     .rir-room-photo-tile { aspect-ratio:1/1; background:var(--surface-3); }
     .rir-marquee-rect { position:absolute; border:1px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); pointer-events:none; }
     .rir-tray-tile { position:relative; width:3rem; height:3rem; }
+    /* §29, 2026-09-27 — Johan, property 5294: "keep them this size and have a
+       resize option ... to enlarge them to the same size as the thumbnail
+       photos in the room/item sections." That size is .rir-strip-tile's own
+       86x64 (rental-inspection-recording.blade.php's item-cell partner,
+       rental-inspection-item-cell.blade.php) — read directly from that class
+       rather than guessed, so Large genuinely matches the Kitchen-etc strip
+       tiles pixel-for-pixel. */
+    .rir-tray-tile-lg { width:86px; height:64px; }
     /* AT-433 Part A, 2026-09-26 — the comparison-row photo strip. A NEW
        tile, not a resize of .rir-item-photo-tile above: that class is
        still used for the tray/upload preview list elsewhere on this
@@ -381,8 +389,27 @@
                     <input type="file" accept="image/*" multiple class="hidden"
                            @change="photoUploader({{ $sectionJs }}).uploadFiles($event.target.files, {}); $event.target.value = null;">
                 </label>
-                <span x-show="photoUploader({{ $sectionJs }}).untaggedPhotos().length" class="text-xs font-semibold" style="color:var(--text-muted);"
-                      x-text="photoUploader({{ $sectionJs }}).untaggedPhotos().length + ' untagged'"></span>
+                {{-- §29, 2026-09-27 — Johan: can't really see the small
+                     untagged thumbnails; keep Small as the default, offer
+                     Large (matches the room/item strip tile size exactly,
+                     .rir-tray-tile-lg above). Remove (x) and click-to-tag
+                     behaviour are unchanged in both sizes — this only ever
+                     toggles a CSS class on the same tiles. Grouped with the
+                     count (not a separate justify-between child) so the
+                     toggle sits right next to "N untagged", not stranded at
+                     the far edge of the row. --}}
+                <div x-show="photoUploader({{ $sectionJs }}).untaggedPhotos().length" class="flex items-center gap-2 flex-none">
+                    <span class="text-xs font-semibold" style="color:var(--text-muted);"
+                          x-text="photoUploader({{ $sectionJs }}).untaggedPhotos().length + ' untagged'"></span>
+                    <div class="flex items-center gap-1">
+                        <button type="button" class="text-xs font-semibold px-2 py-1 rounded-md cv-touch compare-viewer-mode-btn"
+                                :class="trayTileSize === 'small' ? 'compare-viewer-mode-btn-active' : ''"
+                                @click="setTrayTileSize('small')">Small</button>
+                        <button type="button" class="text-xs font-semibold px-2 py-1 rounded-md cv-touch compare-viewer-mode-btn"
+                                :class="trayTileSize === 'large' ? 'compare-viewer-mode-btn-active' : ''"
+                                @click="setTrayTileSize('large')">Large</button>
+                    </div>
+                </div>
             </div>
 
             <template x-for="(batch, idx) in photoUploader({{ $sectionJs }}).uploadBatches.filter(b => b.status !== 'done')" :key="idx">
@@ -422,6 +449,7 @@
                                  @dragstart="photoUploader({{ $sectionJs }}).dragStartSelection($event, photo.id)"
                                  @click="photoUploader({{ $sectionJs }}).selectClick(photo.id, photoUploader({{ $sectionJs }}).untaggedPhotos().map(p => p.id), $event)"
                                  class="rounded-md cursor-pointer rir-tray-tile"
+                                 :class="trayTileSize === 'large' ? 'rir-tray-tile-lg' : ''"
                                  :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
                                 <img :src="photo.storage_path" class="rounded-md object-cover" style="display:block; width:100%; height:100%;" alt="">
                                 {{-- Standards — a removed photo is archived

@@ -645,7 +645,12 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
    only — .prop-section-toggle/.prop-section-chevron above are untouched,
    since other screens (e.g. rental-inventories' _related-inventories.blade.php)
    still use the base classes unmodified and must render exactly as before. */
-.prop-section-toggle-chevron-left { flex-direction: row-reverse; }
+/* AT-433 §28 regression fix, 2026-09-27 — row-reverse alone leaves the
+   default justify-content: flex-start, which packs the (reversed) main-start
+   against the button's PHYSICAL RIGHT edge, pushing chevron+title there
+   instead of to the left. flex-end packs against the reversed main-end,
+   which is the physical left — verified against every header on this tab. */
+.prop-section-toggle-chevron-left { flex-direction: row-reverse; justify-content: flex-end; }
 .prop-section-toggle-chevron-left .prop-section-chevron { margin-left: 0; margin-right: 0.5rem; }
 
 /* Secondary (inside-section) heading — small uppercase muted, no left bar. */
