@@ -1815,6 +1815,78 @@ pill's active/inactive styling confirmed changing on click. Not pixel-measured a
 scrollspy's exact hand-off timing between "clicked pill's optimistic highlight" and "the observer's own
 next correction" (both documented as intentionally approximate above).
 
+### 13.12 Real-page bug fixes — pill scroll, scrollspy, header alignment — BUILT (2026-09-27)
+
+**What was reported:** cc1 clicked a real room pill on the deployed QA1 page (property 5294,
+read-only) and measured three concrete bugs the §13.10/§13.11 verification pass — run against a much
+shorter, minimal private-schema fixture — never surfaced:
+1. Clicking a pill did nothing: `window.scrollY` stayed `0` and the target room's own on-screen position
+   (`getBoundingClientRect().top`) didn't move either — not "scrolled the wrong container," genuinely
+   inert.
+2. On load, with "Bedroom 1" genuinely at the top of the page, the "Bedroom 2" pill was highlighted
+   instead.
+3. The column headers didn't line up with their columns — "Condition" sat over the photo strip, "Photos"
+   sat further right than the actual photo column.
+
+**Bug 3 root cause — `auto` grid tracks are per-instance, not shared across sibling grid containers.**
+`.inv-header-row` and every `.inv-line` are each their OWN separate CSS Grid container. An `auto`-sized
+track sizes to THAT instance's own content — the header's "Condition" text and blank actions cell are
+much narrower than a real row's 4 condition-chip buttons and "Tag photo"/"Remove" links, so the header's
+auto columns rendered narrower than the rows'. This only failed to reproduce in §13.10's own verification
+because that pass's fixture rooms had 0 items (empty rows never rendered to compare against). **Fixed** by
+replacing the two `auto` tracks with fixed widths — `12.5rem` (chips) and `7.5rem` (actions), matched to
+the actual measured content — in BOTH `.inv-header-row` and `.inv-line`'s `grid-template-columns`, so
+every grid instance on the page computes the identical layout regardless of content. Verified by reading
+`getBoundingClientRect()` on every header cell and every first-row cell directly in a real browser: X
+positions and widths now match exactly, cell for cell.
+
+**Bugs 1 & 2 root cause — a mismatch between the "sticky offset" the scroll target used and the one the
+scrollspy trigger zone used, on top of unreliable browser ancestor-detection.**
+`_setupScrollSpy()` ran synchronously in `init()`, ONE TICK BEFORE `_updateStickyOffset()`'s own
+`$nextTick` callback ever fired — so its `IntersectionObserver`'s `rootMargin` used a hardcoded `-150px`
+guess, never the real measured sticky-group height. On this branch's own minimal test fixture (a short
+identity strip, no filings/badges) that guess happened to be close enough; on a real property with a
+fuller identity strip it very plausibly undershoots, which is exactly the shape of bug 2 (the genuinely
+topmost room excluded from an over-shrunk observation zone, the next one down picked instead). Separately,
+`scrollToRoom()` relied entirely on the browser's own `scrollIntoView({block:'start'})` to (a) find
+whichever ancestor actually has the scrollable overflow and (b) respect this page's `scroll-margin-top`
+correctly against a `position:sticky` ancestor — both plausible failure points this screen doesn't fully
+control, since whether `.prop-tab-panel`'s own `overflow-y:auto` or the app shell's own `#appScroll`
+`<main>` (see `layouts/corex.blade.php`) ends up being the element with genuine overflow depends on how
+the surrounding page's height chain resolves in the real deployed layout — not provable without
+reproducing cc1's exact real-page conditions, and not worth blocking the fix on.
+
+**Fixed by removing the dependency on both uncertain mechanisms:**
+- `scrollToRoom()` no longer calls `scrollIntoView()` at all. A new `_scrollContainer()` walks up from the
+  sticky shell's parent, checking computed `overflow-y` + actual `scrollHeight > clientHeight` at each
+  ancestor (never assumed to be `.prop-tab-panel` specifically), falls back to `#appScroll`, then to
+  `window` — and `scrollToRoom()` sets that container's `scrollTop`/`scrollTo()` directly, computed from
+  the target's real `getBoundingClientRect()` position minus a freshly-read sticky offset
+  (`_stickyOffsetPx()`, reading `#inv-sticky-shell`'s `offsetHeight` live rather than trusting the CSS
+  custom property to have been published yet).
+- `_setupScrollSpy()` moved into the SAME `$nextTick` as `_updateStickyOffset()`, after it, and its
+  `rootMargin` now reads the SAME `_stickyOffsetPx()` value `scrollToRoom()` uses — the scroll target and
+  the scrollspy trigger zone can no longer drift apart from each other the way two independent guesses
+  could.
+
+**Files:** `resources/views/corex/rental-inventories/capture.blade.php` only.
+
+**Verification status:** `php -l` clean. Render-gate: 0 new failures (the one surviving
+`document.querySelector(...)?.getAttribute` construction error is the same pre-existing sandbox-stub gap
+already confirmed in §13.9/§13.10's own baselines). Real headless Chrome (Puppeteer, system `chromium`,
+1440×900) against a fixture property re-seeded with 6 real items per room (3 rooms, 18 lines total — tall
+enough to genuinely require scrolling, unlike the near-empty rooms §13.10's own pass tested against) on
+the isolated worktree's own private MySQL schema: **on load**, the active pill read directly from the DOM
+was `"Bedroom 1"` (the genuinely-topmost room — bug 2 confirmed fixed); **clicking the "Repro Room" pill**
+moved the target room's heading from `top: 1589.5px` to `top: 335.5px` on screen (a real, ~1254px visible
+shift, confirmed via `.prop-tab-panel`'s own `scrollTop` going from `0` to `1254`) and updated the active
+pill to `"Repro Room..."` (bug 1 confirmed fixed); **header alignment** — every header cell's X position
+and width read via `getBoundingClientRect()` matched the corresponding data-row cell exactly (bug 3
+confirmed fixed, screenshot also shows it visually). Zero console errors. Test data (18 seeded lines)
+removed from the private schema after verification. No data on property 5294 (or any `corex_qa1`
+property) was touched at any point, and no session was minted for user 22 — this task used the same
+isolated private-schema fixture property as §13.10/§13.11.
+
 ---
 
 ## 14. Move-in-vs-now comparison rebuild to Johan's approved mockup — BUILT (2026-09-27)
