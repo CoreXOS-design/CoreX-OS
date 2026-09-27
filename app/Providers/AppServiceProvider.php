@@ -381,6 +381,8 @@ class AppServiceProvider extends ServiceProvider
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\DocumentCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\PeopleCalendarSource::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\RecurringCalendarSource::class);
+        // AT-432 — .ai/specs/auctions.md §16.
+        $registry->register(\App\Services\CommandCenter\Calendar\Sources\AuctionCalendarSource::class);
 
         // Domain events: every concrete DomainEvent is recorded to
         // domain_event_log by RecordDomainEvent. Spec:
