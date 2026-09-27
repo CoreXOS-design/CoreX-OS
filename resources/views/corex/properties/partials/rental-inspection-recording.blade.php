@@ -167,11 +167,24 @@
        never intercepts a click meant for the image, the corner buttons
        (Select/tag/untag on the editable side), or a pairing drag. */
     .rir-strip-note { position:absolute; bottom:0; left:0; right:0; max-height:1.6em; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; font-size:7px; line-height:0.8em; font-weight:600; color:#fff; text-align:left; background:rgba(0,0,0,0.6); padding:2px 3px; pointer-events:none; }
+    /* §27 — recording-screen navigation (space nav, photo show/hide,
+       problem filter). The nav strip reuses the compare viewer's own
+       .cv-space-tab/.cv-space-tab-active classes (show.blade.php) for
+       visual consistency — this is the one class this feature adds of its
+       own, for a room the CURRENT filter has nothing left to show: greyed
+       and non-interactive rather than removed, so the agent always sees
+       every real room and never wonders where one went. */
+    .rir-space-tab-empty { opacity: 0.35; cursor: not-allowed; }
 </style>
 {{-- $sectionJs override — see this file's own top docblock. --}}
 @php($sectionJs = $sectionJs ?? "'{$section}'")
 @php($predecessorJs = $predecessorJs ?? 'chainPredecessor')
 @php($tailReadOnly = $tailReadOnly ?? false)
+{{-- §27 — both $tailReadOnly copies of this partial share one page (see
+     this file's own top docblock on why); a bare room id would collide
+     between them, so every anchor id this round adds is disambiguated by
+     which copy it belongs to at PHP compile time. --}}
+@php($roomIdPrefix = $tailReadOnly ? 'ro' : 'rw')
 
 <template x-if="!currentInspection({{ $sectionJs }})">
     <div class="space-y-2">
@@ -472,6 +485,62 @@
             </div>
         </div>
 
+        {{-- .ai/specs/rental-inspections.md §27 — recording-screen
+             navigation. Johan: 'The inspection screen... shall I call it
+             crud? like with the photo compare - top spaces to quick
+             navigate to. maybe a tick to show / hide photos, maybe a tick
+             to show all or only problem spaces... a small inspection is a
+             scroll. a large inspection is a proper scroll.' Reuses the
+             compare viewer's own room-tab pattern (.cv-space-tab, same
+             overflow-x-auto/never-wraps strip) rather than inventing a
+             second visual language. Rendered OUTSIDE the tailReadOnly
+             unless-block above/below — none of these three controls
+             mutate anything, so they render identically (and stay useful)
+             on a completed, read-only inspection too. --}}
+        <div class="flex items-center justify-between gap-2" x-show="activeItems().length">
+            <div class="flex-1 min-w-0 overflow-x-auto">
+                <div class="flex items-center gap-1" style="white-space:nowrap;">
+                    <template x-for="group in roomGroups()" :key="'insp-nav-' + (group.room ? group.room.id : 'general')">
+                        <button type="button"
+                                class="text-xs font-semibold px-3 cv-touch cv-space-tab"
+                                :class="!roomMatchesFilter({{ $sectionJs }}, group) ? 'rir-space-tab-empty' : ''"
+                                :disabled="!roomMatchesFilter({{ $sectionJs }}, group)"
+                                @click="scrollToInspectionRoom({{ $sectionJs }}, group, {{ $tailReadOnly ? 'true' : 'false' }})">
+                            <span x-text="group.room ? group.room.label : 'General'"></span>
+                            <span style="opacity:0.7;" x-text="' ' + roomProgress({{ $sectionJs }}, group).recorded + '/' + roomProgress({{ $sectionJs }}, group).total"></span>
+                            <span x-show="roomHasAttentionItem({{ $sectionJs }}, group)" title="Needs attention" style="color:#D9534F;">&#9679;</span>
+                        </button>
+                    </template>
+                </div>
+            </div>
+            {{-- §27.1.2 — Johan: keep the existing room-level "Expand/
+                 Collapse photos" thumbnail-count control exactly as it is
+                 (below, in the room heading); this is a genuinely
+                 different, GLOBAL control that collapses the photo strips
+                 entirely rather than just capping their thumbnail count. --}}
+            <button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md cv-touch compare-viewer-mode-btn flex-none"
+                    :class="photosVisible ? 'compare-viewer-mode-btn-active' : ''"
+                    @click="togglePhotosVisible()"
+                    x-text="photosVisible ? 'Photos: shown' : 'Photos: hidden'"></button>
+        </div>
+        <div class="flex items-center gap-1 flex-wrap" x-show="activeItems().length">
+            <button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md cv-touch compare-viewer-mode-btn"
+                    :class="filterMode === 'all' ? 'compare-viewer-mode-btn-active' : ''"
+                    @click="setFilterMode('all')">All</button>
+            <button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md cv-touch compare-viewer-mode-btn"
+                    :class="filterMode === 'attention' ? 'compare-viewer-mode-btn-active' : ''"
+                    @click="setFilterMode('attention')">Needs attention</button>
+            <button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md cv-touch compare-viewer-mode-btn"
+                    :class="filterMode === 'unrecorded' ? 'compare-viewer-mode-btn-active' : ''"
+                    @click="setFilterMode('unrecorded')">Not yet recorded</button>
+        </div>
+
+        {{-- Johan's ruling — a filter that matches nothing must say so in
+             words, never render a blank panel with no explanation. --}}
+        <p class="text-xs rounded-md p-3" style="background:var(--surface-2); color:var(--text-muted);"
+           x-show="activeItems().length && filterMode !== 'all' && !hasAnyFilterMatch({{ $sectionJs }})"
+           x-text="filteredEmptyMessage()"></p>
+
         {{-- 2026-09-21, Johan on property 5792 — same room-heading grouping
              as the Inspection Items panel above, applied here so a walkthrough
              actually walks room by room instead of a flat list scattered by
@@ -498,7 +567,9 @@
              underneath the room's own gallery already means "N room
              photos" by its position, unchanged. --}}
         <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
-            <div class="space-y-1 pt-2">
+            <div class="space-y-1 pt-2"
+                 :id="'insp-room-{{ $roomIdPrefix }}-' + (group.room ? group.room.id : 'general')"
+                 x-show="roomMatchesFilter({{ $sectionJs }}, group)">
                 <div class="flex items-center justify-between gap-2 rounded-md px-1 -mx-1"
                      :style="(dragOverRoom === (group.room?.id ?? null) ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); outline:2px dashed var(--brand-icon,#0ea5e9);' : '') + 'cursor:pointer; transition:background .1s;'"
                      @mouseenter="$el.style.background = 'var(--surface-2)'" @mouseleave="$el.style.background = 'transparent'; dragOverRoom = null"
@@ -619,7 +690,12 @@
                      slicing (first 3, "Show all" for the rest) so a
                      rendered tile is always whole regardless of width. --}}
                 <template x-if="group.room && roomPhotosFor({{ $sectionJs }}, group.room).length">
-                    <div class="pl-5 space-y-1">
+                    {{-- §27.1.2 — the global "Photos: shown/hidden" toggle.
+                         Reclaims the row for condition buttons/labels by
+                         removing the photo block entirely, never just
+                         capping its thumbnail count (that's the existing,
+                         unchanged "Expand/Collapse photos" control). --}}
+                    <div class="pl-5 space-y-1" x-show="photosVisible">
                         <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
                             <template x-for="photo in (roomPhotosExpanded[group.room.id] ? roomPhotosFor({{ $sectionJs }}, group.room) : roomPhotosFor({{ $sectionJs }}, group.room).slice(0, 3))" :key="photo.id">
                                 <div class="relative rounded-md overflow-hidden rir-room-photo-tile"
@@ -711,7 +787,12 @@
                          empty state in the same footprint — the row never
                          collapses or shifts. --}}
                     <template x-for="item in group.items" :key="item.id">
-                        <div class="rir-compare-row py-2" style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; border-bottom:1px solid var(--border);">
+                        {{-- §27.3 — the filter reads the TAIL side's
+                             condition and hides/shows the WHOLE row (both
+                             cells) together, never splitting a row so only
+                             one cell reacts. --}}
+                        <div class="rir-compare-row py-2" style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; border-bottom:1px solid var(--border);"
+                             x-show="itemMatchesFilter({{ $sectionJs }}, item)">
                             <div class="rir-compare-cell pl-3 space-y-1.5">
                                 <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
                                 @include('corex.properties.partials.rental-inspection-item-cell', ['inspectionJs' => $predecessorJs, 'readOnly' => true])

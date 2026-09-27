@@ -3199,6 +3199,15 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.create');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'store'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.store');
+        // .ai/specs/rental-inspections.md §27.7 — a per-user UI preference for the
+        // recording screen (photos shown/hidden, the problem filter), not inspection
+        // data — no {rentalInspection} in the path, and no extra .create gate: same
+        // reasoning as RentalApplicationReviewController::updatePanelPreference()
+        // (a per-user UI preference, not application data). Registered here, before
+        // the /{rentalInspection} wildcard below, for the same greedy-binding reason
+        // /create is.
+        Route::post('/screen-preference', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'updateScreenPreference'])
+            ->name('corex.rental-inspections.screen-preference');
         Route::get('/{rentalInspection}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'show'])->name('corex.rental-inspections.show');
         // Printable tick-box form — same .view gate as show() itself, same
         // scoping precedent as RentalWorkOrderController::pdf().

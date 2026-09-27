@@ -4741,7 +4741,12 @@
                     // Rule going forward: never a literal double-quote character
                     // anywhere between this attribute's own opening and closing
                     // quote — use single quotes or plain words instead.
-                    inspectionsBase: '{{ url('/corex/rental-inspections') }}'
+                    inspectionsBase: '{{ url('/corex/rental-inspections') }}',
+                    // .ai/specs/rental-inspections.md §27.7 — the recording
+                    // screen's own photos-visible/problem-filter preference,
+                    // per user, not per-inspection — no id appended at call
+                    // time, unlike every other inspectionUrls entry above.
+                    screenPreference: '{{ route('corex.rental-inspections.screen-preference') }}'
                 },
                 inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }},
                 {{-- Item 8, 2026-09-22 — "the property already knows it."
@@ -5817,6 +5822,13 @@
                 // vocabulary (Defect/Wear and tear/Reference by default),
                 // same agency-configurable pattern as conditionStates above.
                 photoNoteClassifications: config.inspectionData.photo_note_classifications,
+                // §27.7 — recording-screen navigation. Server-resolved, per
+                // user, synchronously available at construction (same
+                // pattern as conditionStates above) — never a lazy fetch
+                // that would otherwise render the default first and flip a
+                // moment later.
+                photosVisible: config.inspectionData.screen_preferences.photos_visible,
+                filterMode: config.inspectionData.screen_preferences.filter_mode,
                 // Item 8, 2026-09-22 — read-only, sourced from the live
                 // Property record.
                 propertyType: config.propertyType,
@@ -6422,16 +6434,18 @@
                     };
                     return countFor(this.chainPredecessor) + ' / ' + countFor(this.chainTail);
                 },
-                // Generic mapping over an agency-configurable condition
-                // vocabulary (conditionStates) — 'good' and anything
-                // containing "damag" get their own colour, everything else
-                // (fair/not working/missing/other/n_a) shares the amber
-                // "needs a look" colour, same bucket the mockup gives
-                // "untagged" too.
+                // §27.1 — was a hardcoded conditionKey === 'good' /
+                // indexOf('damag') string check: only ever correct for an
+                // agency that kept the shipped English keys, and would
+                // mis-colour (or, reused for a filter, mis-flag) any agency
+                // that renamed or reduced its condition set (Retha's own
+                // Good/OK/Bad has no 'damag'-containing key at all). Derived
+                // from the agency's own needs_attention flag instead, the
+                // same settings-driven vocabulary every other condition
+                // read on this screen already uses — never a word.
                 compareViewerConditionClass(conditionKey) {
-                    if (conditionKey === 'good') return 'cv-pill-good';
-                    if (conditionKey && conditionKey.indexOf('damag') !== -1) return 'cv-pill-damaged';
-                    return 'cv-pill-fair';
+                    if (!conditionKey) return 'cv-pill-fair';
+                    return this.conditionNeedsAttention(conditionKey) ? 'cv-pill-damaged' : 'cv-pill-good';
                 },
                 compareViewerConditionFor(side) {
                     if (this.compareViewer.kind !== 'item' || !this.compareViewer.itemId) return null;
@@ -7184,6 +7198,15 @@
                     const state = (this.conditionStates || []).find(s => s.key === key);
                     return state ? !!state.requires_notes : true;
                 },
+                // §27.2 — client-side mirror of
+                // RentalInspectionSetting::conditionNeedsAttentionFor(),
+                // same read-time-default reasoning as conditionRequiresNotes()
+                // just above: an unknown key defaults to needing attention,
+                // never silently filtered out of view.
+                conditionNeedsAttention(key) {
+                    const state = (this.conditionStates || []).find(s => s.key === key);
+                    return state ? !!state.needs_attention : true;
+                },
                 conditionLabel(key) {
                     return (this.conditionStates || []).find(s => s.key === key)?.label || key;
                 },
@@ -7675,6 +7698,96 @@
                 _persistPhotoNotesVisible() {
                     try { localStorage.setItem('hfc.inspPhotoNotesVisible', JSON.stringify(this.photoNotesVisible)); } catch (e) {}
                 },
+
+                // §27 — recording-screen navigation (space nav, photo
+                // show/hide, problem filter). Johan's ruling: photosVisible
+                // and filterMode persist PER USER, server-side, reusing the
+                // rental-applications review screen's own panel-preference
+                // pattern — a filter set on a laptop must follow the agent
+                // to the phone they inspect with, which localStorage alone
+                // can never do. Both are already synchronously initialized
+                // from config.inspectionData.screen_preferences above, so
+                // there is nothing to load here; these two setters only
+                // ever WRITE the change back.
+                togglePhotosVisible() {
+                    this.photosVisible = !this.photosVisible;
+                    this._saveScreenPreference('photos_visible', this.photosVisible);
+                },
+                setFilterMode(mode) {
+                    if (this.filterMode === mode) return;
+                    this.filterMode = mode;
+                    this._saveScreenPreference('filter_mode', mode);
+                },
+                _saveScreenPreference(key, value) {
+                    this._post(this.inspectionUrls.screenPreference, { preference_key: key, value: value }).catch(() => {});
+                },
+                // Read-time mirror of RentalInspectionSetting::
+                // conditionNeedsAttentionFor() applied to a real item: an
+                // item with no observation yet is NOT "needs attention" —
+                // that is the third, distinct bucket (unrecorded), never
+                // folded into this one.
+                itemNeedsAttention(section, item) {
+                    const condition = this.conditionFor(section, item.id)?.condition;
+                    if (!condition) return false;
+                    return this.conditionNeedsAttention(condition);
+                },
+                // All / Needs attention / Not yet recorded — a single
+                // three-way read, never two independent booleans that could
+                // both switch off and silently blank the screen.
+                itemMatchesFilter(section, item) {
+                    if (this.filterMode === 'attention') return this.itemNeedsAttention(section, item);
+                    if (this.filterMode === 'unrecorded') return !this.conditionFor(section, item.id)?.condition;
+                    return true;
+                },
+                // Drives the top nav strip's own attention dot — always
+                // computed against every item in the room, independent of
+                // whatever filter happens to be active right now.
+                roomHasAttentionItem(section, group) {
+                    return (group.items || []).some(i => this.itemNeedsAttention(section, i));
+                },
+                // Whether this room has anything left to show under the
+                // CURRENT filter — a room with zero matches stays visible
+                // in the top nav (greyed, so the agent never wonders where
+                // a room went) but is hidden entirely from the vertical
+                // list below (the filter's whole point is a shorter scroll).
+                roomMatchesFilter(section, group) {
+                    if (this.filterMode === 'all') return true;
+                    return (group.items || []).some(i => this.itemMatchesFilter(section, i));
+                },
+                hasAnyFilterMatch(section) {
+                    return this.roomGroups().some(g => this.roomMatchesFilter(section, g));
+                },
+                // Johan's ruling — a filter that matches nothing must say so
+                // in words, never render a blank panel with no explanation.
+                filteredEmptyMessage() {
+                    if (this.filterMode === 'attention') return 'No items need attention in this inspection.';
+                    if (this.filterMode === 'unrecorded') return 'Every item in this inspection has been recorded.';
+                    return '';
+                },
+                // Jump-to-room from the top nav strip. Force-opens the room
+                // (overriding roomOpenOverride/the auto-collapse default —
+                // isRoomOpen() below already does this unconditionally while
+                // a non-'all' filter is active, but a matching room can also
+                // be jumped to under 'all', where the room's own computed
+                // collapse state still applies) so clicking a room's tab
+                // never scrolls to a heading with nothing visibly open
+                // beneath it. tailReadOnly is a real JS boolean (the calling
+                // partial's own compile-time $tailReadOnly literal) — both
+                // included copies of this partial share the page, so the
+                // anchor id disambiguates which copy is currently visible.
+                scrollToInspectionRoom(section, group, tailReadOnly) {
+                    if (!this.roomMatchesFilter(section, group)) return;
+                    if (group.room) {
+                        this.roomOpenOverride[section + '_' + group.room.id] = true;
+                    }
+                    this.$nextTick(() => {
+                        const prefix = tailReadOnly ? 'ro' : 'rw';
+                        const id = 'insp-room-' + prefix + '-' + (group.room ? group.room.id : 'general');
+                        const el = document.getElementById(id);
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    });
+                },
+
                 // Alpine calls init() once automatically on the component
                 // that owns this object — no other init() existed on
                 // rentalImages() before this, and no x-init is needed on
@@ -7705,6 +7818,13 @@
                 roomOpenOverride: {},
                 isRoomOpen(section, group) {
                     if (!group.room) return true; // General (meters/legacy) — never auto-collapsed.
+                    // §27.3 — a non-'all' filter is never fighting the room's
+                    // own collapse state to show what it just promised to
+                    // show. Any room this override skips past is already
+                    // hidden entirely from the vertical list by
+                    // roomMatchesFilter() when it has nothing matching, so
+                    // forcing every OTHER room open here is safe.
+                    if (this.filterMode !== 'all') return true;
                     const key = section + '_' + group.room.id;
                     if (this.roomOpenOverride[key] !== undefined) return this.roomOpenOverride[key];
                     const p = this.roomProgress(section, group);

@@ -11,6 +11,7 @@ use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
 use App\Models\RentalInspectionPhoto;
 use App\Models\RentalInspectionRoomNote;
+use App\Models\RentalInspectionScreenPreference;
 use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
 use App\Models\User;
@@ -47,6 +48,33 @@ class RentalInspectionRecordingController extends Controller
     public function tabData(Request $request, Property $property): JsonResponse
     {
         return response()->json(RentalInspection::tabPayloadFor($property));
+    }
+
+    /**
+     * POST /corex/rental-inspections/screen-preference — .ai/specs/
+     * rental-inspections.md §27.7. A per-user UI preference for the
+     * recording screen (photos shown/hidden, the problem filter), not
+     * inspection data — no {rentalInspection} in the path, same reasoning
+     * as RentalApplicationReviewController::updatePanelPreference(). Not
+     * scoped to one property either: an agent's own preference follows
+     * them to every property's recording screen, which is the whole point
+     * of moving this off localStorage.
+     */
+    public function updateScreenPreference(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'preference_key' => ['required', 'string', 'in:photos_visible,filter_mode'],
+            'value' => ['required'],
+        ]);
+
+        $key = $validated['preference_key'];
+        $value = $key === 'filter_mode'
+            ? (in_array($request->input('value'), ['all', 'attention', 'unrecorded'], true) ? $request->input('value') : 'all')
+            : $request->boolean('value');
+
+        RentalInspectionScreenPreference::setFor($request->user()->id, $key, $value);
+
+        return response()->json(['ok' => true]);
     }
 
     /** POST /corex/properties/{property}/rental-inspections/start — §0.5, the deliberate action that begins one. */

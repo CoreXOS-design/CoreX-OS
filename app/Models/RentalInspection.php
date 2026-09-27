@@ -988,6 +988,13 @@ class RentalInspection extends Model
             // vocabulary (Defect/Wear and tear/Reference by default),
             // same agency-configurable pattern as condition_states above.
             'photo_note_classifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($property->agency_id),
+            // §27.7 — the recording screen's own "photos visible"/problem-
+            // filter controls, per user, server-side. Delivered here (the
+            // same synchronous initial payload every other per-agency/
+            // per-user default already rides in on) rather than a separate
+            // fetch, so the screen never renders a default value first and
+            // silently flips to the saved one a moment later.
+            'screen_preferences' => \App\Models\RentalInspectionScreenPreference::stateFor(\Illuminate\Support\Facades\Auth::id() ?? 0),
             // §20.15 — null/null when there is nothing yet to compare (only
             // an in-inspection exists so far, the common case); the compare
             // UI is gated entirely on compare_right_inspection being present.

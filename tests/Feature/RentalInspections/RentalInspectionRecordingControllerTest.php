@@ -1798,4 +1798,70 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertNull($response->json('compare_right_inspection'));
         $this->assertSame([], $response->json('photo_matches'));
     }
+
+    // ── §27.7 (recording-screen navigation, 2026-09-27) — per-user screen preferences ──
+
+    public function test_tab_payload_exposes_default_screen_preferences_for_a_user_with_no_saved_row(): void
+    {
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+
+        $response->assertOk();
+        $this->assertSame(['photos_visible' => true, 'filter_mode' => 'all'], $response->json('screen_preferences'));
+    }
+
+    public function test_updating_photos_visible_persists_and_is_reflected_in_the_next_tab_payload(): void
+    {
+        $this->postJson(route('corex.rental-inspections.screen-preference'), [
+            'preference_key' => 'photos_visible', 'value' => false,
+        ])->assertOk();
+
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+        $this->assertFalse($response->json('screen_preferences.photos_visible'));
+        // The other preference is unaffected by this save.
+        $this->assertSame('all', $response->json('screen_preferences.filter_mode'));
+    }
+
+    public function test_updating_filter_mode_persists(): void
+    {
+        $this->postJson(route('corex.rental-inspections.screen-preference'), [
+            'preference_key' => 'filter_mode', 'value' => 'attention',
+        ])->assertOk();
+
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+        $this->assertSame('attention', $response->json('screen_preferences.filter_mode'));
+    }
+
+    public function test_screen_preference_rejects_an_unknown_key(): void
+    {
+        $this->postJson(route('corex.rental-inspections.screen-preference'), [
+            'preference_key' => 'something_else', 'value' => true,
+        ])->assertStatus(422);
+    }
+
+    /** A stale/tampered filter_mode value is absorbed to the safe default, never saved verbatim. */
+    public function test_screen_preference_clamps_an_unknown_filter_mode_value_to_all(): void
+    {
+        $this->postJson(route('corex.rental-inspections.screen-preference'), [
+            'preference_key' => 'filter_mode', 'value' => 'not_a_real_mode',
+        ])->assertOk();
+
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+        $this->assertSame('all', $response->json('screen_preferences.filter_mode'));
+    }
+
+    /** Per USER, not global — the whole reason this moved off localStorage. */
+    public function test_screen_preference_is_scoped_per_user_not_shared(): void
+    {
+        $otherAgent = User::factory()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent',
+        ]);
+
+        $this->postJson(route('corex.rental-inspections.screen-preference'), [
+            'preference_key' => 'photos_visible', 'value' => false,
+        ])->assertOk();
+
+        $this->actingAs($otherAgent);
+        $response = $this->getJson(route('corex.properties.rental-inspection-tab.data', $this->property));
+        $this->assertTrue($response->json('screen_preferences.photos_visible'), 'A different user must still see the default, not the first agent\'s saved value.');
+    }
 }
