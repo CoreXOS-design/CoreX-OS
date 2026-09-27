@@ -219,6 +219,44 @@ compare it to `git rev-parse origin/Staging` before touching anything — a matc
 you are current; a mismatch means STOP and reconcile before merging, exactly as this
 incident required.
 
+#### 8b. `/corex-qa1` is the live QA1 deploy target, not scratch space. No lane ever checks out a branch in it.
+
+_Added 2026-09-27 after a reflog trace found the SAME pattern repeated at least four times on
+26-27 Sep: a lane would `git checkout` its own feature/investigation branch directly inside
+`/corex-qa1` — the exact directory `scripts/qa-deploy.sh` builds and serves to live QA1
+traffic — do its work, and (usually, not always) check back out to `QA1` when done. Most
+cycles self-corrected. One did not: a lane finished a backend-only commit on
+`fix-inspection-photo-upload-immediate-2026-09-26`, correctly checked back out to `QA1` — and
+then a second, unrelated investigation lane immediately checked `QA1` back OUT to its own
+branch (`inventory-investigation-2026-09-27`), committed a spec file, and never returned. QA1
+was left silently stranded on that branch. The very next `scripts/qa-deploy.sh` run built and
+served whatever was checked out — first cc4's unreviewed backend commit, then, after that
+window closed, a spec-only commit that happened to be harmless by luck, not by design. Caught
+only because a conductor-directed diagnosis compared deployed `HEAD` against `origin/QA1`'s
+real tip by hand and found them different — nothing in the deploy path itself would ever have
+caught this on its own.
+
+**Why, so nobody rediscovers this the hard way:** checking a branch out in the deploy
+directory serves that branch to live QA1 traffic immediately — `opcache.validate_timestamps`
+and Blade's own view-cache both re-read whatever is on disk within seconds, deploy script or
+not. And once that's happened, nobody can trust what they tested: a passing verification
+against `/corex-qa1` proves nothing about `origin/QA1` if the two have quietly diverged.
+
+**The rule:**
+- `/corex-qa1` is the **live QA1 deploy target**. It is not scratch space, not an
+  investigation directory, not a place to check out a branch "just to look." Ever.
+- All lane work — features, fixes, investigations, spec-only commits, everything — happens in
+  a worktree under `/mnt/HC_Volume_103099143/corex-worktrees/<branch-name>`. Create one, work
+  there, push from there. Never `git checkout`/`git switch` inside `/corex-qa1` to get there.
+- `/corex-qa1` stays on branch `QA1`, permanently, checked out, never anything else. The
+  **only** git operation ever permitted to run inside it is the fast-forward pull
+  `scripts/qa-deploy.sh` itself performs (`git pull --ff-only origin QA1`) — nothing manual,
+  nothing "just this once."
+- Before trusting anything about what QA1 is serving, confirm `git rev-parse --abbrev-ref
+  HEAD` inside `/corex-qa1` really is `QA1`, and `git rev-parse HEAD` really matches
+  `git rev-parse origin/QA1` — the same discipline non-negotiable #8a already requires for
+  `Staging`/`main`, extended here to the one directory that actually serves live QA1 traffic.
+
 ### 9. Cross-pillar reactivity uses domain events.
 For any feature that involves cross-pillar reactivity — where a state change in one part of CoreX should trigger updates, notifications, recomputations, or side effects in another part — the relevant build prompt MUST read `.ai/specs/corex-domain-events-spec.md` and use the event/listener pattern from the catalogue. Do NOT invent ad-hoc observer hooks, ad-hoc service calls, or ad-hoc query paths between pillars. Emit a named event when state changes; subscribe to existing events when reacting to state changes. The events catalogue is the API contract between pillars.
 
