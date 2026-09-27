@@ -1662,6 +1662,159 @@ photos/actions all on one line, header row aligned above); mobile wraps to the q
 condition-chips / photo-strip grouping described above. No data on property 5792 was written — every
 verification request was a plain authenticated `GET`; no button was clicked, no form submitted.
 
+### 13.10 Property-shell adoption — header + tab bar, no more blank-looking standalone page — BUILT (2026-09-27)
+
+**What was asked:** Johan: "on inventory we need to show all the same menu items like on inspections, not
+just a blank page like it's now." The capture screen renders inside the SAME property shell as
+`/corex/properties/{id}?tab=inspections` — the identity strip (thumbnail, address, status pills, price,
+Compliance Status, Save Changes) and the full tab bar (Overview … Core Matches) with Inventory active.
+Every other tab is a real link to that tab on the property page. The page's own "Back to property" button
+is removed — redundant now that any tab (including Overview) is one click away.
+
+**Two new shared partials, not a second copy of the markup:**
+`resources/views/corex/properties/partials/_property-shell-header.blade.php` and
+`_property-shell-tabs.blade.php`, extracted verbatim from `show.blade.php`'s own identity strip
+(`:158-277` before this pass) and tab bar (`:1403-1475` before this pass). `show.blade.php` itself now
+`@include`s both, with **zero behaviour change** to that page — confirmed by reasoning, not assumed: the
+header partial renders using whatever's already in `show.blade.php`'s own scope (its `@php` derivation
+block stayed exactly where it was, unmoved, since two of its variables — `$thumb`, `$isMarketable` — are
+read again later in that same file, and Blade `@include` does not leak variables it sets back to the
+caller); the tabs partial's default `mode='spa'` reproduces the original `<button @click="activeTab=...">`
+markup byte-for-byte.
+
+**`'link'` mode — the only way a STANDALONE page (no SPA panels of its own to switch to) can reuse this
+tab bar:** every tab except `$activeTabKey` renders as `<a href="{{ route('corex.properties.show',
+$property) }}?tab={{ tab }}">` (Johan: "clicking any other tab goes to that tab of the property");
+`$activeTabKey` itself renders as a non-clickable, actively-styled `<span aria-current="page">`, since it
+names the page already being viewed. `capture.blade.php` passes `mode='link'`, `activeTabKey='inventory'`.
+
+**Compliance Status becomes a link, not a modal, in `'link'` mode.** The identity strip's Compliance
+Status button opens a modal (`complianceModalOpen`) defined much further down `show.blade.php` — dragging
+that whole modal into a shared partial (or onto the standalone capture page) would have been a much larger
+change for a control this page's own brief didn't ask about specifically. `$complianceMode='link'` instead
+renders it as a plain link to the property's Overview tab. `$showSaveButton=false` hides the Save Changes
+button outright — the capture page autosaves; there is no `prop-update-form` for it to submit.
+
+**`RentalInventoryCaptureController::show()`** now additionally loads exactly what these two partials
+need — `$property->load(['agent','branch','notes.user','files.user','contacts.type'])`,
+`$readinessReport` (`MarketingReadinessService::statusFor()`), `$allDriveDocs`
+(`$property->documents()->with(...)->get()`, try/caught same as `PropertyController`), `$coreMatches`
+(`MatchingService::matchesForProperty()`) — the SAME calls `PropertyController::show()` already makes for
+the real property page, not a second computation.
+
+**A small amount of variable-derivation PHP is deliberately duplicated, the markup is not.**
+`capture.blade.php` computes the identical ~15-line `@php` block `show.blade.php`'s own `@php` block
+computes (`$backRoute`, `$backLabel`, `$thumb`, `$listingTypeLabel`, `$statusLabel`, `$brandPillStyle`,
+`$sbAddr`, `$hasRealAddr`, `$cmpLive`/`$cmpReady`/`$cmpLabel`/`$cmpPillBg`/`$cmpPillFg`) immediately before
+including the header partial. This is the one deliberate exception to "don't duplicate" — moving it into
+a shared location would have meant a bigger, riskier change to `show.blade.php` (see above) for a ~15-line
+PHP block, not the markup Johan actually asked not to duplicate.
+
+**A real Blade-compiler bug hit and fixed while building this — recorded so it isn't rediscovered blind:**
+`BladeCompiler::storePhpBlocks()` runs (via `storeUncompiledBlocks()`) BEFORE `compileComments()` in
+Blade's own compile pipeline — meaning the literal text `@php` appearing ANYWHERE in a file, including
+inside a `{{-- --}}` Blade comment (comments are NOT yet stripped at that point), gets matched by its
+non-greedy `/(?<!@)@php(.*?)@endphp/s` regex and paired with the NEXT `@endphp` it finds — which, for a
+prose comment casually mentioning "show.blade.php's own `@php` block" many lines before the real
+`@php...@endphp` derivation block, meant the ENTIRE SPAN between the two was silently swallowed as one
+corrupted "raw PHP" blob, and everything in it (a large chunk of real markup, in this case the whole
+identity-strip include and tab-panel wrapper) silently vanished from the compiled output with NO error —
+not a PHP syntax error, not a Blade exception, just quietly missing HTML. Found by bisecting
+`app('blade.compiler')->compileString()` output directly rather than guessing. **Fixed by removing every
+literal "@php" mention from prose comments in the three touched files** (reworded to "top-of-file PHP
+block" etc.) — the general lesson (already known for `@media` inside a `<style>` block from §13.9, now
+extended): never write a Blade directive's own name as literal prose text anywhere in a `.blade.php` file,
+including inside a `{{-- --}}` comment, since Blade's own comment-stripping happens too late in its
+pipeline to protect it.
+
+**Files:** `resources/views/corex/properties/partials/_property-shell-header.blade.php` (new),
+`_property-shell-tabs.blade.php` (new), `resources/views/corex/properties/show.blade.php` (its own
+identity-strip and tab-bar markup replaced with `@include`s of the two new partials — the `@php`
+derivation block that feeds the header partial stays in place, unmoved),
+`resources/views/corex/rental-inventories/capture.blade.php` (wrapped in the property shell; "Back to
+property" removed), `app/Http/Controllers/CoreX/RentalInventoryCaptureController.php` (`show()` loads
+`$readinessReport`/`$allDriveDocs`/`$coreMatches`).
+
+**Verification status:** `php -l` clean on all four PHP-touched files. `php artisan tinker`
+`app('blade.compiler')->compileString()` run directly against both `show.blade.php` and
+`capture.blade.php` post-fix, confirmed real markup (not comment text) present and byte-identical in
+structure to the pre-change baseline for `show.blade.php`'s own untouched regions. Render-gate
+(`fetch-authenticated-page.php` + `verify-alpine-render.mjs`) run against both pages through a real
+authenticated fetch on an isolated worktree — own `composer install`, own **private MySQL schema**
+(`corex_qa1_wt_cc2photos`, additively migrated to the current migration set; NEVER `corex_qa1`, per this
+task's explicit instruction, and no session ever minted for user 22) — with zero new failures on either
+page (A/B-verified against each page's own pre-change baseline; the surviving failures —
+`document.querySelector(...)?.getAttribute is not a function` on the inventory page,
+`localStorage`/`document is not defined` + `form.getAttribute` on the property page — are pre-existing
+gaps in the render-gate's own sandbox stubs, confirmed identical on both pages' baselines). Real headless
+Chrome (Puppeteer, system `chromium`) at 1440×1000 against a real fixture property (3 rooms, 2 lines added
+and removed again during verification): confirmed "Back to property" text is gone; every tab except
+Inventory renders as a real `<a href="...?tab=X">` (Inventory itself a non-link `<span>`); all 3 rooms
+render stacked simultaneously; the identity strip + tab bar + room-pill strip stay visibly pinned in place
+while the inner panel is scrolled 309px (only the panel scrolls, matching `show.blade.php`'s own
+"header+tabs never scroll away" behaviour); clicking a room pill updates the active pill; a real
+qty/description/condition/photos/actions one-line row renders correctly for a real item inside a stacked
+room panel. Zero console errors. No data on property 5294 (or any `corex_qa1` property) was touched at
+any point — this task's private-schema fixture property is a different database entirely.
+
+### 13.11 Room pills become quick-navigation, not tab-switching — every room stacked — BUILT (2026-09-27)
+
+**What was asked:** Johan, having seen the single-active-room chip strip from §13.1: "show the spaces
+like on inspections. It's not separate tabs, it's just quick navigation to get to that section." Every
+room now renders stacked down the page — like the inspection recording screen's own room list — instead
+of one room's panel shown at a time. The pill strip is kept (Johan: "the room pills on the capture screen
+are great — KEEP them") but re-purposed: clicking a pill smooth-scrolls to that room's panel instead of
+switching which panel is visible, and scrolling the page updates which pill is highlighted.
+
+**What changed, `capture.blade.php`:** `<template x-if="activeRoom()">` (one room panel) is replaced with
+`<template x-for="room in rooms">` (every room panel, stacked in `<div class="space-y-4">`), each carrying
+`:id="'room-panel-' + room.id"` for addressability. Every reference to the old single `activeRoomId`
+inside a room panel's own markup (line lists, draft row, "nothing in this room," room photos, keyboard-nav
+`onCellKeydown`/`commitRow` calls) is now scoped to the loop's own `room` variable instead — `activeRoomId`
+now means ONLY "which pill is highlighted," never panel visibility.
+
+**Sticky pill strip, one group with the tab bar above it, not two independently-offset sticky elements.**
+`#inv-sticky-shell` wraps both the (now-linked) property tab bar and the room-pill strip in ONE
+`position:sticky; top:0` container — since they're already stacked in normal document flow inside it, the
+group sticks as a single unit with no manual "height of the thing above me" pixel math needed anywhere.
+
+**Scroll mechanics — `scrollToRoom()` + `scroll-margin-top`, not manual pixel offsets.** Clicking a pill
+calls `scrollToRoom(id)`, which sets `activeRoomId` (immediate pill feedback) and calls
+`element.scrollIntoView({behavior:'smooth', block:'start'})`. The "offset for the sticky header" the brief
+asked for comes from CSS `scroll-margin-top` on every `.inv-room-panel` (`scroll-margin-top:
+var(--inv-sticky-offset, 160px)`), not from `scrollIntoView` itself — modern browsers respect
+`scroll-margin-top` automatically when computing where "the start" of an element is for scroll purposes.
+`--inv-sticky-offset` is measured, not guessed: `_updateStickyOffset()` reads `#inv-sticky-shell`'s real
+`offsetHeight` (on `init()`'s `$nextTick`, and on window resize) and publishes it as a CSS custom property,
+so the offset stays correct even if the sticky group's own height changes (a wrapping address, a narrower
+phone). The 160px fallback in the CSS only matters for the single frame before that JS runs.
+
+**Scrollspy — "scrolling updates the active pill" — an `IntersectionObserver`, not a scroll-position
+formula.** `_setupScrollSpy()` observes every room panel; on each intersection change, the visible
+entries are sorted by `boundingClientRect.top` and the topmost one's room becomes `activeRoomId`.
+`rootMargin: '-150px 0px -60% 0px'` is a generous static heuristic (roughly matched to the sticky group's
+typical height, not measured exactly like `scroll-margin-top` is) — a few px of slop here only changes
+WHICH pill highlights a moment earlier/later, never which room's content is shown, so exact precision
+isn't worth chasing the way the scroll-target offset is.
+
+**A freshly-added space now scrolls to itself instead of silently flipping a pill.** `addSpace()`'s old
+"land on the new room" behaviour (`this.activeRoomId = room.id`) is replaced with `this.$nextTick(() =>
+{ this._setupScrollSpy(); this.scrollToRoom(room.id); })` — the new room's panel doesn't exist in the DOM
+until Alpine's next tick, and re-running `_setupScrollSpy()` picks up the newly-rendered panel for
+observation (the original `init()`-time call never saw it).
+
+**Files:** `resources/views/corex/rental-inventories/capture.blade.php` only — no controller, model, or
+route change; §13.10's property-shell work landed in the same commit but is a logically separate change
+(documented above, in §13.10).
+
+**Verification status:** Covered by the same render-gate + real-Chrome pass documented in §13.10 (both
+changes shipped together): all 3 fixture rooms confirmed rendering stacked simultaneously in one
+screenshot; the sticky tab-bar-plus-pill-strip group confirmed staying pinned across a 309px inner-panel
+scroll in a second screenshot, with the OTHER two rooms' panels now visible below Bedroom 1's; a room
+pill's active/inactive styling confirmed changing on click. Not pixel-measured against a stopwatch: the
+scrollspy's exact hand-off timing between "clicked pill's optimistic highlight" and "the observer's own
+next correction" (both documented as intentionally approximate above).
+
 ---
 
 ## 14. Move-in-vs-now comparison rebuild to Johan's approved mockup — BUILT (2026-09-27)
