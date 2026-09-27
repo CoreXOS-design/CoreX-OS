@@ -205,6 +205,19 @@ class RentalInspectionSetting extends Model
     public const DEFAULT_OMR_MARK_THRESHOLD = 0.35;
 
     /**
+     * AT-433 Part C, Johan's approved default for the photo note's
+     * classification. "Defect" is what the printed report's own
+     * end-of-document defect-list section reads — the whole reason this
+     * vocabulary exists. Agency-configurable, same "every list is a
+     * setting" rule as DEFAULT_CONDITION_STATES.
+     */
+    public const DEFAULT_PHOTO_NOTE_CLASSIFICATIONS = [
+        ['key' => 'defect', 'label' => 'Defect'],
+        ['key' => 'wear_and_tear', 'label' => 'Wear and tear'],
+        ['key' => 'reference', 'label' => 'Reference'],
+    ];
+
+    /**
      * Johan, 2026-09-23, approved — the public inspection-report link's
      * expiry window. 90 days: long enough to cover the real post-move-out
      * follow-up window (deposit release, a dispute raised soon after
@@ -224,6 +237,7 @@ class RentalInspectionSetting extends Model
         'room_type_item_defaults',
         'room_type_walking_order',
         'condition_states',
+        'photo_note_classifications',
         'baseline_condition_key',
         'require_notes_blocks_progression',
         'omr_mark_threshold',
@@ -239,6 +253,7 @@ class RentalInspectionSetting extends Model
         'room_type_item_defaults' => 'array',
         'room_type_walking_order' => 'array',
         'condition_states' => 'array',
+        'photo_note_classifications' => 'array',
         'require_notes_blocks_progression' => 'boolean',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
@@ -567,6 +582,33 @@ class RentalInspectionSetting extends Model
         $state = collect(self::conditionStatesFor($agencyId))->firstWhere('key', $conditionKey);
 
         return $state === null ? true : (bool) ($state['requires_notes'] ?? true);
+    }
+
+    /**
+     * AT-433 Part C — the agency's own photo-note classification
+     * vocabulary. Read-time default pattern like every other resolver
+     * here: an agency that hasn't customized this gets
+     * DEFAULT_PHOTO_NOTE_CLASSIFICATIONS outright. Deliberately does NOT
+     * intersect against any external catalog (same reasoning as
+     * conditionStatesFor() — this vocabulary belongs entirely to the
+     * agency). Malformed rows (missing key/label) are dropped rather than
+     * crashing a read.
+     *
+     * @return array<int, array{key: string, label: string}>
+     */
+    public static function photoNoteClassificationsFor(?int $agencyId): array
+    {
+        $states = null;
+        if ($agencyId) {
+            $states = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('photo_note_classifications');
+            $states = is_string($states) ? json_decode($states, true) : $states;
+        }
+
+        if (! is_array($states) || $states === []) {
+            return self::DEFAULT_PHOTO_NOTE_CLASSIFICATIONS;
+        }
+
+        return array_values(array_filter($states, fn ($s) => is_array($s) && ! empty($s['key']) && isset($s['label'])));
     }
 
     /**

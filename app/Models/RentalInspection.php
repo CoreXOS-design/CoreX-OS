@@ -886,8 +886,13 @@ class RentalInspection extends Model
         // existing 'observations.photos' — the latter still serves
         // item-level display unchanged, the former is what the tray and
         // room-level views read from.
+        // AT-433 Part C, .ai/specs/rental-inspections.md §23 — the photo
+        // note travels with the photo everywhere a photo is read, same as
+        // every other photo attribute; 'photos.note'/'observations.photos.note'
+        // nested eager-loads so it's present in this same response without a
+        // second round-trip, matching roomNotes' own reasoning just above.
         $withDetail = fn (string $type) => self::currentFor($property, $type)
-            ?->load(['observations.item', 'observations.photos', 'photos', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
+            ?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
 
         $outInspection = $withDetail(self::TYPE_OUT);
         // 2026-09-20 fix — deliberately NOT $outInspection above. That value
@@ -909,7 +914,7 @@ class RentalInspection extends Model
         // gracefully, not as an error, same convention compare_right_
         // inspection below already established.
         $chainDetail = fn (?self $insp) => $insp
-            ?->load(['observations.item', 'observations.photos', 'photos', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
+            ?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
         $rawChainTail = self::chainTailFor($property);
         // Johan's ruling, 2026-09-23, property 5792 — a real predecessor
         // that simply never carries the explicit link (recorded before
@@ -932,7 +937,7 @@ class RentalInspection extends Model
         // comparable after completion too, not just while in progress.
         $compareRight = self::compareRightFor($property);
         $compareLeft = $compareRight ? self::mostRecentFor($property, self::TYPE_IN) : null;
-        $compareDetail = fn (?self $insp) => $insp?->load(['observations.item', 'photos']);
+        $compareDetail = fn (?self $insp) => $insp?->load(['observations.item', 'photos.note']);
         $compareLeft = $compareDetail($compareLeft);
         $compareRight = $compareDetail($compareRight);
 
