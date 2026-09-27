@@ -587,7 +587,9 @@
              scrollbar simply extends below that shared line, in its own
              space, never pulling anything else out of alignment. --}}
         <div class="flex items-start gap-2 flex-wrap lg:flex-nowrap" x-show="activeItems().length">
-            <div class="flex-1 min-w-0 overflow-x-auto">
+            {{-- position:relative, 2026-09-27 — the fade overlay below
+                 anchors to THIS wrapper's own right edge, not the row's. --}}
+            <div class="flex-1 min-w-0 overflow-x-auto" style="position:relative;">
                 <div class="flex items-center gap-2" style="flex-wrap:nowrap;">
                     <template x-for="group in roomGroups()" :key="'insp-nav-' + (group.room ? group.room.id : 'general')">
                         <button type="button"
@@ -604,7 +606,28 @@
                         </button>
                     </template>
                 </div>
+                {{-- §27, 2026-09-27 — Johan: "the strip ends mid-pill right
+                     against Photos: shown... it sort of looks cut." A soft
+                     fade so an overflowing pill fades into the panel
+                     background instead of being hard-clipped by the
+                     scroll wrapper's own edge. Purely decorative —
+                     pointer-events:none so it never blocks a click on the
+                     pill underneath it. Height matches the pill band only
+                     (2.75rem, top:0) — never the taller scrollbar-reserved
+                     space below it (§27.9/§31's own "items-start" fix). --}}
+                <div aria-hidden="true" style="position:absolute; top:0; right:0; width:24px; height:2.75rem; background:linear-gradient(to right, transparent, var(--surface)); pointer-events:none;"></div>
             </div>
+            {{-- §27, 2026-09-27 — Johan (approved): "we just need some form
+                 of splitter to split the buttons from the spaces." A thin
+                 divider between the pill strip and Photos:shown, centred
+                 within the shared 2.75rem row band (margin-top offsets it
+                 from the row's own items-start top edge rather than
+                 align-self:center, which would centre against the pill
+                 wrapper's TALLER scrollbar-inclusive line box instead —
+                 see this row's own items-start docblock above). 4px margin
+                 either side + the row's own gap-2 (8px) = ~12px total gap
+                 either side, as asked. --}}
+            <div class="flex-none" style="width:1px; height:28px; margin:8px 4px 0; background:var(--border);"></div>
             {{-- §27.1.2 — Johan: keep the existing room-level "Expand/
                  Collapse photos" thumbnail-count control exactly as it is
                  (below, in the room heading); this is a genuinely

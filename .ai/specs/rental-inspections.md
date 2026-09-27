@@ -5572,3 +5572,28 @@ the group's own bordered interior exactly — an explicit height there would ove
 **Verified**: `php -l` clean. Whole-app `php artisan view:cache` clean. Real authenticated Puppeteer
 measurement, qatesting1.corexos.co.za, property 5792, user 365 (never Johan's own live user 22 on 5294):
 every control's own height and centre-Y recorded in this fix's landing commit.
+
+### 31.1 Splitter between the pill strip and Photos:shown (2026-09-27, approved)
+
+Johan, after §31 landed: "we just need some form of splitter to split the buttons from the spaces. it
+sort of looks cut" — the pill strip ended flush against Photos:shown with the last pill visibly
+truncated by the scroll wrapper's own edge.
+
+Two additive pieces, heights/centres of every control unchanged (still `2.75rem`, still one shared
+top-aligned line per §31):
+
+- **Edge fade** — a `pointer-events:none`, `aria-hidden` 24px-wide `linear-gradient(to right,
+  transparent, var(--surface))` overlay, absolutely positioned over the pill wrapper's own right edge
+  (`position:relative` added to that wrapper for the anchor), height `2.75rem`/`top:0` — matches the pill
+  band only, never the taller scrollbar-reserved space below it. An overflowing pill now fades into the
+  panel background instead of being hard-clipped.
+- **Divider** — a `1px` × `28px` `var(--border)` line between the pill strip and Photos:shown,
+  `margin:8px 4px 0` (the `8px` top-offset centres its 28px within the shared 44px band using the SAME
+  top-anchored technique §31 already established — `align-self:center` would have centred it against the
+  pill wrapper's own taller, scrollbar-inclusive line box instead, landing it off-centre again; the `4px`
+  side margins plus the row's own existing `gap-2` (8px) total the ~12px gap either side Johan asked for).
+
+**Verified**: `php -l` clean, whole-app `view:cache` clean. Real authenticated measurement, qatesting1,
+property 5792, user 365: divider position relative to the pill strip's right edge and Photos:shown's left
+edge, plus confirmation every control is still `2.75rem` tall with centres aligned, recorded in this
+fix's own landing commit.
