@@ -73,6 +73,74 @@ if ! grep -q "corex_qa1\|qatesting1" .env 2>/dev/null; then
 fi
 
 echo "== qa-deploy: $(pwd) → origin/$BRANCH =="
+
+# ── Guard 0: (re)install the QA1 branch-guard git hook ──────────────────────
+# 2026-09-27 — `.git/hooks/` is never tracked by git, so the post-checkout
+# guard hook (scripts/qa1-git-hooks/post-checkout) can be deleted, never
+# installed on a fresh checkout, or drift out of date without git ever
+# noticing. This makes that only ever a temporary condition: every deploy
+# run re-checks the installed hook against the committed source and
+# reinstalls it if missing or different, so a deleted hook is only gone
+# until the next deploy, not indefinitely. See that file's own header for
+# why the hook exists and what it does.
+GUARD_HOOK_SRC="scripts/qa1-git-hooks/post-checkout"
+GUARD_HOOK_DST=".git/hooks/post-checkout"
+if [ -f "$GUARD_HOOK_SRC" ]; then
+    if ! cmp -s "$GUARD_HOOK_SRC" "$GUARD_HOOK_DST" 2>/dev/null; then
+        cp "$GUARD_HOOK_SRC" "$GUARD_HOOK_DST"
+        chmod +x "$GUARD_HOOK_DST"
+        echo "-- 0. guard hook was missing or had drifted — (re)installed from $GUARD_HOOK_SRC --"
+    else
+        echo "-- 0. guard hook present and current --"
+    fi
+else
+    echo "-- 0. WARNING: $GUARD_HOOK_SRC not found in this checkout — cannot verify/install the guard hook --" >&2
+fi
+
+# ── Guard 0b: refuse to do ANYTHING unless this checkout is actually on
+#    branch $BRANCH — before touching a single other file. ──────────────────
+# 2026-09-27 — the guard hook above stops a checkout from succeeding in the
+# first place; this is the second, independent layer for the case the hook
+# cannot see (deleted before this run, bypassed with core.hooksPath, or
+# never installed at all on a checkout that predates this fix). Without
+# this, the rest of the script would happily `git pull --ff-only origin
+# QA1` into WHATEVER branch happens to be checked out — fast-forwarding
+# that branch to origin/QA1's tip while HEAD's symbolic ref still points
+# somewhere else entirely, which is not the same thing as actually being on
+# QA1 and is exactly the kind of state a lane could mistake for a normal
+# deploy having run.
+CUR_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$CUR_BRANCH" != "$BRANCH" ]; then
+    cat >&2 <<EOF
+
+############################################################
+ABORT: /corex-qa1 is checked out to '$CUR_BRANCH', not '$BRANCH'.
+
+WHAT: this checkout is not on the branch it must always be on.
+
+WHY:  /corex-qa1 is the LIVE QA1 deploy target — whatever branch is
+      checked out here is served to qatesting1.corexos.co.za within
+      seconds, deploy script or not. On 26-27 Sep a lane used this
+      checkout as scratch, never checked back, and QA1 served an
+      unreviewed feature branch — at one point a spec-only branch
+      with no application code — to live QA1 traffic for hours
+      before anyone noticed. Deploying from here right now would
+      repeat exactly that.
+
+FIX:  do lane work in a worktree, never here:
+
+        git worktree add /mnt/HC_Volume_103099143/corex-worktrees/<branch-name> -b <branch-name>
+
+      Then get /corex-qa1 back onto $BRANCH by hand (git checkout
+      $BRANCH) and re-run this script — it refuses to touch anything
+      else until that is true.
+############################################################
+
+EOF
+    exit 1
+fi
+echo "-- 0b. on branch $BRANCH — OK --"
+
 OLDHEAD="$(git rev-parse HEAD)"
 
 echo "-- 1. fetch + fast-forward pull --"
@@ -97,6 +165,19 @@ echo "   $OLDHEAD → $NEWHEAD"
 if [ "$OLDHEAD" = "$NEWHEAD" ]; then
     echo "   (no new commits — running deploy steps anyway to activate current code)"
 fi
+
+# 2026-09-27 — a successful `--ff-only` pull guarantees HEAD now equals
+# origin/$BRANCH by construction, but check it explicitly and abort rather
+# than assume: this is the one place in the script that states outright
+# "what /corex-qa1 is about to serve really matches origin/$BRANCH", the
+# exact confirmation CLAUDE.md non-negotiable #8b asks for before trusting
+# what QA1 is serving.
+ORIGIN_HEAD="$(git rev-parse "origin/$BRANCH")"
+if [ "$NEWHEAD" != "$ORIGIN_HEAD" ]; then
+    echo "ABORT: HEAD ($NEWHEAD) does not match origin/$BRANCH ($ORIGIN_HEAD) right after a supposedly successful pull. Refusing to deploy from a checkout that does not match what it claims to be running." >&2
+    exit 1
+fi
+echo "   HEAD verified == origin/$BRANCH ($NEWHEAD)"
 
 echo "-- 2. frontend build if assets changed OR the build marker doesn't match HEAD --"
 # Any .blade.php counts as a frontend change too, not just resources/js|css —

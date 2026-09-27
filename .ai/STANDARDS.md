@@ -959,6 +959,53 @@ see whether it can be enforced structurally instead (a pre-checkout hook, or `qa
 `git rev-parse --abbrev-ref HEAD` is exactly `QA1` and aborting loudly otherwise) — documentation is the
 floor here, not the ceiling.
 
+**UPDATE, same day — structural enforcement built.** Two independent layers now exist, matching the
+"prevent-or-absorb" shape this file already asks for everywhere else:
+
+1. **`.git/hooks/post-checkout` in `/corex-qa1`** (canonical source committed at
+   `scripts/qa1-git-hooks/post-checkout`) — git has no hook that runs BEFORE a checkout completes and
+   can refuse it outright, so this fires immediately AFTER any `git checkout`/`git switch` that moves
+   `/corex-qa1` off branch `QA1` (`git checkout -b`, `git switch`, `git switch -c`, plain `git checkout
+   <branch>` — all confirmed to fire it; a file-level `git checkout <branch> -- <path>` correctly does
+   NOT, since it never moves HEAD's branch) and immediately reverts `/corex-qa1` back to `QA1`, printing
+   a message that says what happened, why it matters, and where lane work actually belongs
+   (`/mnt/HC_Volume_103099143/corex-worktrees/<branch-name>`). Net effect is the same as a refusal, one
+   step later than a true pre-checkout block would be, because git offers nothing earlier.
+2. **`scripts/qa-deploy.sh` steps 0/0b** — before touching anything else, every deploy run (a)
+   reinstalls the guard hook above from its committed source if it's missing or has drifted (`.git/
+   hooks/` is never tracked by git, so the hook file itself has zero durability guarantee on its own —
+   see the answer below), and (b) aborts loudly, before the fetch/pull, if `/corex-qa1` is not on branch
+   `QA1` — the second, independent layer for whatever the hook cannot see (deleted before that run,
+   bypassed with `core.hooksPath`, or a checkout that predates this fix entirely). A third check, right
+   after the fast-forward pull succeeds, confirms `HEAD` now equals `origin/QA1` exactly and aborts if
+   not.
+
+**Tested for real, in `/corex-qa1` itself** (2026-09-27): a `git checkout -b <lane-branch>` and a `git
+switch -c <lane-branch>` were each attempted directly in `/corex-qa1` with the hook installed — both
+were reverted back to `QA1` automatically, with the loud message above printed, confirmed by `git
+rev-parse --abbrev-ref HEAD` reading `QA1` again immediately after. The `qa-deploy.sh` branch guard was
+verified by deliberately bypassing the hook (`git -c core.hooksPath=/dev/null checkout <other-branch>`,
+simulating "the hook didn't fire") and confirming the script aborted before its fetch/pull step with the
+named reason, then `/corex-qa1` was restored to `QA1` and re-verified to match `origin/QA1` exactly. A
+normal deploy (`scripts/qa-deploy.sh`, no code changes pending) was also run for real afterward and
+completed cleanly through the fast-forward pull and every later step — confirming the new guards do not
+interfere with the legitimate path.
+
+**Answering the standing question this section asks — can a hook survive in that checkout, or does
+anything in the deploy flow wipe `.git/hooks`?** Nothing in `scripts/qa-deploy.sh` or `scripts/
+deploy.sh` touches `.git/hooks` or `.git` at all (confirmed by reading both, and by no crontab/systemd
+timer on this host operating on `/corex-qa1`'s git state — the one script that rewrites `/corex-qa1`
+more broadly, `scripts/qa1/sync-from-live.sh`, is DB/storage-only and has been disabled since
+2026-07-20). So a hook placed there is not silently wiped by anything that currently runs. The real
+exposure is different and structural, not operational: **`.git/hooks/` itself is never part of the
+versioned tree** — it is not cloned, not carried by `git worktree add`, and not restored by any git
+operation, so a hook dropped in by hand has no durability guarantee of its own; anyone (or anything)
+that deletes that one file removes the first layer with nothing to notice or complain. That is exactly
+why the enforcement above is two layers, not one: `qa-deploy.sh` step 0 re-installs the hook from its
+committed, versioned source on every single deploy, so a deleted hook is only ever gone until the next
+deploy, and step 0b's branch assertion still catches a bad state on any run where the hook was missing
+in between.
+
 ---
 
 ## Standard 0 — Operating Principle

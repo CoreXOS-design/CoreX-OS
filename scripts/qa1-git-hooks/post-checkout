@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+# .git/hooks/post-checkout — QA1 branch guard for /corex-qa1.
+#
+# WHY THIS EXISTS (2026-09-27): /corex-qa1 is the LIVE QA1 deploy target —
+# whatever is checked out here is served to qatesting1.corexos.co.za within
+# seconds (opcache + Blade's own view cache both re-read disk on their own,
+# deploy script or not). On 26-27 Sep, lanes used /corex-qa1 as scratch space
+# at least four times — `git checkout`ing a feature/investigation branch
+# directly in this checkout to do work, then checking back out to QA1 when
+# done. One didn't check back. A second, unrelated lane then checked QA1 OUT
+# from under it into its own investigation branch and never returned. QA1 was
+# left silently stranded, and the next deploy run served whatever was on
+# disk — first an unreviewed backend commit, then a spec-only branch with no
+# application code — to live QA1 traffic, for hours, before anyone noticed.
+#
+# Git has no hook that runs BEFORE a checkout completes and can refuse it
+# outright — `post-checkout` is the earliest hook git offers, and it only
+# fires AFTER HEAD and the working tree have already moved. So instead of
+# refusing the checkout, this hook detects it immediately afterward and
+# reverts /corex-qa1 back to QA1 before anyone can start working on the
+# wrong branch — the net effect is the same as a refusal, just one step
+# later than a true pre-checkout block would be.
+#
+# CANONICAL SOURCE: scripts/qa1-git-hooks/post-checkout, committed in the
+# repo, travels with every branch. `.git/hooks/` itself is NEVER tracked by
+# git (it lives outside the versioned tree by design), so this file can be
+# deleted, overwritten, or simply never copied into a fresh checkout without
+# git ever noticing or complaining. scripts/qa-deploy.sh reinstalls this
+# exact file from that source on every single deploy run if it is missing or
+# has drifted — see qa-deploy.sh step 0 — so a deleted or stale hook only
+# stays gone until the next deploy, not indefinitely.
+#
+set -uo pipefail
+
+PREV_HEAD="${1:-}"
+NEW_HEAD="${2:-}"
+IS_BRANCH_CHECKOUT="${3:-0}"
+
+# File-level checkout (`git checkout <branch> -- <path>`) never moves HEAD's
+# branch pointer — nothing to guard here.
+[ "$IS_BRANCH_CHECKOUT" = "1" ] || exit 0
+
+# Re-entrancy guard: the corrective `git checkout QA1` below re-triggers this
+# same hook. Without this it would recurse.
+[ -n "${QA1_GUARD_ACTIVE:-}" ] && exit 0
+
+CUR_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "HEAD")"
+[ "$CUR_BRANCH" = "QA1" ] && exit 0
+
+cat >&2 <<EOF
+
+############################################################
+BLOCKED: /corex-qa1 must never leave branch QA1.
+
+WHAT: this checkout just moved /corex-qa1 onto '$CUR_BRANCH'.
+
+WHY:  /corex-qa1 is the LIVE QA1 deploy target — whatever branch is
+      checked out here is served to qatesting1.corexos.co.za within
+      seconds, deploy script or not. On 26-27 Sep a lane did exactly
+      this, never checked back, and QA1 served an unreviewed feature
+      branch — at one point a spec-only branch with no application
+      code — to live QA1 traffic for hours before anyone noticed.
+
+FIX:  reverting /corex-qa1 back to QA1 automatically now. Do lane
+      work in a worktree instead, every time:
+
+        git worktree add /mnt/HC_Volume_103099143/corex-worktrees/<branch-name> -b <branch-name>
+
+      Never git checkout / git switch inside /corex-qa1 itself.
+############################################################
+
+EOF
+
+if QA1_GUARD_ACTIVE=1 git checkout QA1 >&2 2>&1; then
+    echo "/corex-qa1 is back on QA1 (HEAD $(git rev-parse --short HEAD))." >&2
+else
+    echo "FAILED to automatically revert to QA1 — /corex-qa1 may still be on '$CUR_BRANCH'." >&2
+    echo "STOP. Fix this by hand (git checkout QA1) before anything else touches this checkout." >&2
+fi
+
+exit 1
