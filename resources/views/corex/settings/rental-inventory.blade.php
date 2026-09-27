@@ -35,8 +35,38 @@
     @endif
 
     <form method="POST" action="{{ route('corex.settings.rental-inventory.update') }}" class="space-y-4"
-          x-data="{ presets: {{ Js::from($dispositionPresets) }} }">
+          x-data="{ presets: {{ Js::from($dispositionPresets) }}, conditionStates: {{ Js::from($conditionStates) }} }">
         @csrf
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Move-in condition options</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The condition chip an agent taps for an item while capturing the move-in inventory.
+                    "Requires a note" means the agent must explain why — useful for damaged, not usually
+                    needed for a plain New/Good/Fair.
+                </p>
+                <template x-for="(state, i) in conditionStates" :key="i">
+                    <div class="flex items-center gap-2">
+                        <input type="text" x-model="state.label" :name="`condition_states[${i}][label]`"
+                               maxlength="191" required placeholder="Label"
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <input type="hidden" :name="`condition_states[${i}][key]`" :value="state.key">
+                        <label class="flex items-center gap-1.5 text-xs whitespace-nowrap" style="color: var(--text-secondary);">
+                            <input type="checkbox" x-model="state.requires_notes" :name="`condition_states[${i}][requires_notes]`" value="1">
+                            Requires a note
+                        </label>
+                        <button type="button" @click="conditionStates.splice(i, 1)"
+                                class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
+                    </div>
+                </template>
+                <button type="button"
+                        @click="conditionStates.push({ key: 'custom_' + Date.now(), label: '', requires_notes: false })"
+                        class="corex-btn-outline text-xs">+ Add an option</button>
+            </div>
+        </div>
 
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">

@@ -22,7 +22,11 @@ from an edited cell, with no Tab/Enter first, previously discarded the edit — 
 `@blur`/`visibilitychange`/`beforeunload`), and §11.8's move-in-photos-on-comparison fix (the
 already-linked data now actually renders). QA1 was checked directly and carries zero
 completed-but-empty inventories to worry about (§12.5) — 7 rows total, 4 cancelled, 3 draft, 0
-completed.
+completed. §13 (2026-09-27, same day) rebuilt the capture screen to Johan's approved mockup: a
+room-chip strip with status dots replaces the accordion list, per-line condition chips (a new,
+distinct vocabulary from §8's move-out disposition), a per-line photo strip that uploads the instant
+a file is picked, and "Copy from last inventory" for a re-let property. The move-in-vs-now comparison
+half of the same mockup is a separate, later stage — see its own section once built.
 
 ---
 
@@ -1354,3 +1358,218 @@ the substitute available without deploying; the real render-gate pass against th
 still needed once this branch lands on QA1, per the standard's own "who runs it and when."
 `scripts/rental-click-through.mjs`/`rental-smoke.mjs` were not run for the identical reason — they
 also require a real deployed server and are the same "runs after landing" class of gate.
+
+---
+
+## 13. Capture-screen rebuild to Johan's approved mockup — BUILT (2026-09-27)
+
+Johan approved a full mockup for the capture screen and the move-in-vs-now comparison, built in that
+order after §12's completion gate (a correctness bug, fixed first): **capture, then comparison** — this
+section covers capture; the comparison rebuild is a separate, later stage/commit, tracked in its own
+spec section once built.
+
+### 13.1 Room navigation — a chip strip with status dots, replacing the accordion list
+
+**What was asked:** "Rooms across the top as a horizontal strip of chips, never wrapping, each with a
+status dot: captured, part done, not opened. Same pattern as the inspection screen's room tabs — reuse
+it, do not invent a second one."
+
+**Checked before building, not assumed:** at the time this was built, no chip/tab pattern with status
+dots existed anywhere on the rental-inspections recording screen to reuse — confirmed by search (zero
+hits for any room-tab/chip component; that screen ships a room-ACCORDION list with an Expand-all/
+Collapse-all master control, per §11.5's own investigation two days earlier in this same file). Built
+fresh here per the approved mockup rather than blocking on the mismatch; flagged here plainly so it
+isn't mistaken for a reuse that didn't actually happen. If Johan wants inspections to match this
+pattern, that is a follow-up pass on that screen, not something this pass silently forked into a second
+implementation.
+
+**What changed:** `capture.blade.php`'s all-rooms-open accordion list (design pass 2, §0c) is replaced
+entirely by a single active room at a time. A horizontal, `overflow-x-auto`/`flex-nowrap` strip of chips
+sits above it — one per room, each showing a coloured status dot plus the room's label. Clicking a chip
+sets `activeRoomId`; everything below (item list, draft row, "nothing in this room," room photos) is
+scoped to that one room via `<template x-if="activeRoom()">`, never several rooms' content stacked at
+once. `openRooms`/`toggleRoom()` and the chevron icon (§0c) are removed — fully superseded, not kept
+alongside the new pattern.
+
+**[design call] The status-dot rule, since the mockup names three states but Inventory has no
+per-item checklist the way Inspections does to derive them from:**
+- **not opened** — the room has zero lines and no "nothing in this room" mark (§12) at all.
+- **part done** — the room has at least one line, but not every line has a condition (§13.2) picked yet.
+- **captured** — either the room is marked empty (§12), or every line in it has a condition. This is
+  deliberately STRICTER than §12's own completion-gate definition of "this room is fine to complete
+  the inventory" (which only needs a mark or at least one line) — a green dot here means "nothing left
+  to do in this room," not just "this room won't block completion." Landing room on open
+  (`pickInitialActiveRoom()`) prefers the first not-opened room, then the first part-done room, then
+  just the first room — an agent should land somewhere that still needs attention, not have to find it.
+
+**Why switching rooms never loses an in-progress edit, with no extra code:** the completion-gate build
+(§12) already added `@blur` commit handlers to every qty/description cell, to close the §11.2 data-loss
+gap (a mouse click away from an edited cell, with no Tab/Enter first, previously discarded the edit).
+Alpine's `x-if` tearing down the OUTGOING room's DOM when a different chip is clicked is resolved by the
+browser as a `blur` on whatever was focused — the exact same event those handlers already commit on.
+Confirmed by reasoning through the mechanism, not re-tested with new code: no room-switch-specific flush
+was written, because the general-purpose fix from §12 already covers this case.
+
+### 13.2 Condition chips per line — a new, distinct vocabulary from §8's move-out disposition
+
+**What was asked:** "Condition chips per line from the agency-configurable vocabulary." **This reverses
+§11.11's own "no condition vocabulary at move-in, correctly" position** — that reasoning held until
+Johan's approved mockup explicitly asked for exactly this; recorded here as a deliberate reversal by
+direct instruction, the same kind of correction §1.5's original room-list reasoning received from §0b.
+
+New column `rental_inventory_lines.condition_key` (nullable string, optional — never blocks the
+lazy-but-valid shortcut of typing qty+description and moving on, per BUILD_STANDARD §2). New
+agency-configurable vocabulary on `RentalInventorySetting.condition_states` (same `{key, label,
+requires_notes}` shape §8's own `disposition_presets` and RentalInspectionSetting's own
+`condition_states` already use), default New / Good / Fair / Damaged (`requires_notes` true only for
+Damaged) — a genuinely different concept from §8's disposition (which grades the move-in/move-out
+DELTA, not the item's own state when first captured), so kept as its own column on its own settings row,
+not a reuse of `disposition_presets`. Clicking a chip commits immediately (optimistic, with rollback on
+a failed request) — same autosave discipline as every other control on this page.
+
+### 13.3 Photos as a per-line horizontal strip, uploading the moment a file is selected
+
+**What was asked:** "Photos are a horizontal strip on the line, and a photo uploads THE MOMENT it is
+selected. No staging, ever — that trap cost us a day on inspections this week."
+
+**Reused the existing many-to-many data model (`rental_inventory_line_photos`), not a new one.**
+`RentalInventoryCaptureController::storePhotos()` gained an optional `rental_inventory_line_id` — when
+present, every photo in that batch is created AND tagged to that line in the SAME request (one
+`syncWithoutDetaching()` call per photo, right after `RentalInventoryPhoto::create()`), never a
+stage-then-open-a-tagger two-step. The shared uploader component
+(`public/js/corex-photo-batch-uploader.js`) needed zero changes — `extraFields` was already generically
+spread into the upload FormData, so `rental_inventory_line_id` rides along for free; its existing
+optional 3rd `onBatchDone` callback argument is what lets the capture page push the new photo's id onto
+`line.photos` the moment the batch succeeds, the same bookkeeping `toggleTag()` already did for the
+modal path.
+
+**[design call] Deliberately NOT the item-strip mechanism §4a.1 built for room galleries, and NOT the
+absolutely-positioned-scroller mechanism `rental-inspections.md` §20.14.4/§22.3 built for its own
+item-photo pairing strip.** That mechanism exists to solve a different problem (stretching a
+horizontally-scrolling strip to match a sibling button-grid's own height, which took four attempts to
+get right) that doesn't exist here — an inventory line has no button grid to stretch against. The
+per-line strip here is the simplest correct shape for what's actually needed: a plain
+`flex; overflow-x-auto; flex-wrap:nowrap` row of fixed 44×44px `object-cover` tiles plus a "+" upload
+tile, no clip-by-count/expand control (a line worth photographing at all is rarely photographed more
+than a couple of times, unlike a whole room's gallery). Reusing the heavier mechanism here would have
+been solving a problem this shape doesn't have, not "adopting the finished thing" the way §4a's own
+principle intends.
+
+**The pre-existing room-level general photo gallery (§4a.1) is kept, unchanged, alongside the new
+per-line strips — not replaced by them.** They answer different questions: "what does this room look
+like overall" (room gallery, still fed by the SAME "Add photo(s)" control and tagger modal) vs. "what
+does this specific item look like" (the new per-line strip). The many-to-many tag-to-a-photo-via-modal
+flow (§0b's own "the TV and the stand in one lounge photo" example) still needs a pool of general room
+photos to tag FROM, which only the room gallery provides.
+
+**A pre-existing, unrelated bug found and fixed while touching this exact code path:** the line-item
+photo-tag count ("(N photo tags)") read `line.photos.length` directly — an array of ids that never gets
+cleaned up when a tagged photo is archived elsewhere (`photoUploader().archivePhoto()` only ever removes
+the photo from its own `photos` array, never from any line's own `photos` id-list). Changed the display
+to route through the new `photosForLine(line)` helper (which already filters against the live
+`photoUploader().photos` array, silently dropping any stale id), so the count self-corrects instead of
+over-counting after an archive. Fixed here because it sits directly inside the code this pass was
+already rewriting, not sought out separately.
+
+### 13.4 "Nothing in this room" — unchanged from §12
+
+Already built as part of the completion gate (§12.2); this pass only relocated its markup into the new
+single-active-room panel. No behaviour change.
+
+### 13.5 "Copy from last inventory"
+
+**What was asked:** "a furnished flat is re-let with the same contents, and re-typing forty lines is the
+work we are supposed to be doing for them."
+
+New `RentalInventory::priorInventory()` — the most recent OTHER (non-cancelled) inventory for the SAME
+property, excluding this one, ordered by id desc. Deliberately NOT ordered by `completed_at`: a property
+mid-way through a still-open prior tenancy has no completed date yet, and "the last thing recorded here"
+is still the useful starting point even if that record itself never reached `completed`. New
+`RentalInventory::copyLinesFrom()` copies every ACTIVE (non-retired) line's quantity, description, room,
+AND condition into the current inventory as fresh rows (new `created_by_user_id`, new timestamps) — a
+genuine copy, never a move; the source inventory's own lines are untouched.
+
+**[design call] Condition is copied too, as a STARTING POINT, not an assertion.** Johan's own framing
+is "re-typing is the work we're saving them," not "skip re-checking the goods" — a copied line's
+condition can be wrong by the time of a new move-in (wear since the last tenancy), so it copies forward
+editable, exactly like every other copied field, rather than being deliberately blanked out.
+
+**Additive only, by design — never destructive.** Running it after already adding some lines by hand, or
+running it twice, only ever appends; it never overwrites or de-duplicates. An unwanted copied line is
+removed the same way any other line is removed (`retireLine()`). `POST /corex/rental-inventories/
+{inventory}/copy-from-last` 404s with a plain message when no prior inventory exists — the capture
+screen only offers the control when the server already confirmed one exists
+(`RentalInventoryCaptureController::show()`'s `$hasPriorInventory`), but the endpoint is the real gate
+either way, not the button's visibility.
+
+### 13.6 Settings — a new agency-configurable list, wizard question left open (non-negotiable #10a)
+
+`RentalInventorySettingsController`/`resources/views/corex/settings/rental-inventory.blade.php` gained a
+second repeater section (`condition_states`) alongside the existing `disposition_presets` one, on the
+SAME form/action — both are written unconditionally on save (an emptied-out repeater is a real "agency
+wants zero of these" state on this dedicated single-purpose page, not a sign the field wasn't rendered,
+unlike a wizard step that posts a genuine subset of a saver's fields).
+
+**Not added to the Setup Wizard, per the SAME open item §8.4 already recorded for `disposition_presets`
+— extended here, not re-decided.** `condition_states` is architecturally identical in shape (a
+repeater/list control the wizard's generic control types don't support) and carries the identical
+open question: is this Johan's call to leave out, same as `disposition_presets`? Recorded here as the
+same still-open item, not assumed resolved by this pass.
+
+### 13.7 Files
+
+- `database/migrations/2026_10_02_180000_add_condition_states_to_rental_inventory_settings_table.php` (new)
+- `database/migrations/2026_10_02_180100_add_condition_key_to_rental_inventory_lines_table.php` (new)
+- `app/Models/RentalInventorySetting.php` — `condition_states` column, `DEFAULT_CONDITION_STATES`, `conditionStatesFor()`
+- `app/Models/RentalInventoryLine.php` — `condition_key` fillable
+- `app/Models/RentalInventory.php` — `priorInventory()`, `copyLinesFrom()`
+- `app/Http/Controllers/CoreX/RentalInventoryRecordingController.php` — `storeLine()`/`updateLine()` accept `condition_key`; new `copyFromLastInventory()`
+- `app/Http/Controllers/CoreX/RentalInventoryCaptureController.php` — `storePhotos()` accepts `rental_inventory_line_id`; `show()` passes `conditionStates`/`hasPriorInventory`/`condition_key` in `linesForJs`
+- `app/Http/Controllers/CoreX/RentalInventorySettingsController.php` — `condition_states` edit/update
+- `routes/web.php` — `corex.rental-inventories.copy-from-last`
+- `resources/views/corex/rental-inventories/capture.blade.php` — room-chip strip replaces the accordion list; condition chips; per-line photo strip; "Copy from last inventory" control
+- `resources/views/corex/settings/rental-inventory.blade.php` — `condition_states` repeater section
+- `tests/Feature/RentalInventory/RentalInventoryCaptureRebuildTest.php` (new)
+- `tests/Feature/RentalInventory/RentalInventorySettingsTest.php` (new)
+
+### 13.8 Verification status
+
+`php -l` clean on every changed PHP file. All three changed/new Blade files (`capture.blade.php`,
+`comparison.blade.php`, `settings/rental-inventory.blade.php`) compile to valid PHP via the app's own
+Blade compiler, checked directly. The four attribute-scoped Blade sweeps (Standard −1u) were run against
+every attribute this pass touched or added, by hand, with a small script to catch what a line-scoped
+grep would miss: **two real `:style` clobber bugs were found and fixed in this pass's own new markup**
+(the room-chip button and its status dot both originally carried a co-located static `style="..."`
+alongside a bound `:style="..."` on the same tag — exactly the bug class §22.3b names, caught before
+push by the sweep this standard requires, not after). No comment-inside-a-quoted-attribute, no literal
+`"` inside `x-data` (unchanged by this pass), no multi-root `<template x-if>`/`x-for>` (checked
+programmatically — every one wraps exactly one element).
+
+**Real-execution proof, without deploying (deploy is forbidden for this task):** `verify-alpine-render.
+mjs`'s own render-gate commands fetch the ACTUALLY DEPLOYED `qatesting1.corexos.co.za` page through real
+nginx/php-fpm — they cannot see code that was never deployed, and running them against the currently-
+live (unmodified) page would prove nothing about this branch. Substituted with the closest available
+real proof: a genuine PHPUnit `TestCase` HTTP request (real routing/controller/permission/DB, `Tests\
+TestCase`'s own `withoutVite()` already handling the missing asset-manifest gap a raw in-process kernel
+call hits) rendered the real capture page with a real line/photo/condition already on it, the response
+was captured to disk, and the actual COMPILED `<script>` block (not the raw Blade source, which is full
+of non-JS `@json(...)` directives) was parsed with Node's own `Function()` constructor — it parses
+cleanly as real JavaScript, and every new mechanism (`roomStatusColor`, `selectRoom`, `setLineCondition`,
+`uploadPhotoToLine`, `copyFromLastInventory`, `conditionStates`) is present in that real, compiled
+output. This is NOT a claim that a human clicked every control in a browser — it is the strongest proof
+available without deploying, and the real click-through pass Johan asked for still needs to happen once
+this branch lands on QA1.
+
+**Test coverage, real HTTP throughout:** 41 tests total across `tests/Feature/RentalInventory/` now pass
+(30 from §12 plus 11 new this pass, in `RentalInventoryCaptureRebuildTest.php`, plus 2 more in a new
+`RentalInventorySettingsTest.php` — 43 total), covering: the default condition vocabulary; a line saving
+with and without a condition; a condition update on an existing line; a photo upload tagging its line in
+the SAME request (and 404ing for a foreign line); copy-from-last-inventory's 404-with-no-prior case, its
+successful copy (proving retired lines are excluded and the source is untouched), and its additive
+(never-overwriting) behaviour; the capture page's real server-rendered "Copy from last inventory"
+control appearing ONLY when a prior inventory genuinely exists (checked against the literal surrounding
+sentence, not the button's own label text — that label also appears inside this page's own JS
+documentation comment, unconditionally, which would have made the naive assertion pass even when the
+button itself was correctly hidden; caught and fixed before this report, not left as a false-negative-
+proof test); and the settings page saving `condition_states` without wiping the pre-existing
+`disposition_presets` on the same form.

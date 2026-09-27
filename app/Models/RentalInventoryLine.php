@@ -28,6 +28,7 @@ class RentalInventoryLine extends Model
         'room_label',
         'quantity',
         'description',
+        'condition_key',
         'sort_order',
         'is_retired',
         'created_by_user_id',

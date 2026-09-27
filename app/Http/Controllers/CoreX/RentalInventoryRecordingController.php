@@ -37,6 +37,10 @@ class RentalInventoryRecordingController extends Controller
             // never silently defaulted.
             'quantity' => ['nullable', 'integer', 'min:0'],
             'description' => ['required', 'string'],
+            // §13 — the move-in condition chip. Optional: the lazy-but-valid
+            // shortcut (type quantity + description, move on) must still
+            // work end to end, so a line is never blocked on picking one.
+            'condition_key' => ['nullable', 'string', 'max:60'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
 
@@ -62,6 +66,7 @@ class RentalInventoryRecordingController extends Controller
             'room_label' => ['nullable', 'required_without:property_room_id', 'string', 'max:100'],
             'quantity' => ['nullable', 'integer', 'min:0'],
             'description' => ['required', 'string'],
+            'condition_key' => ['nullable', 'string', 'max:60'],
         ]);
 
         if (! empty($validated['property_room_id']) && empty($validated['room_label'])) {
@@ -140,6 +145,28 @@ class RentalInventoryRecordingController extends Controller
         );
 
         return response()->json($mark, 201);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/copy-from-last — §13,
+     * Johan's approved mockup: "a furnished flat is re-let with the same
+     * contents, and re-typing forty lines is the work we are supposed to be
+     * doing for them." Copies every active line from the property's most
+     * recent OTHER inventory (RentalInventory::priorInventory()) into this
+     * one. 404s with a plain message when no prior inventory exists — this
+     * control is only ever shown on the capture screen when one does, but
+     * the server is the real gate, not the button being hidden.
+     */
+    public function copyFromLastInventory(Request $request, RentalInventory $rentalInventory): JsonResponse
+    {
+        $prior = $rentalInventory->priorInventory();
+        if (! $prior) {
+            return response()->json(['message' => 'This property has no earlier inventory to copy from.'], 404);
+        }
+
+        $lines = $rentalInventory->copyLinesFrom($prior, $request->user());
+
+        return response()->json(['lines' => $lines->values()], 201);
     }
 
     /**

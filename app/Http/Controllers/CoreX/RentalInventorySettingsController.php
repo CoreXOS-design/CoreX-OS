@@ -25,6 +25,9 @@ class RentalInventorySettingsController extends Controller
         return view('corex.settings.rental-inventory', [
             'dispositionPresets' => RentalInventorySetting::dispositionPresetsFor($agencyId),
             'defaultDispositionPresets' => RentalInventorySetting::DEFAULT_DISPOSITION_PRESETS,
+            // §13 — the capture-time condition chip vocabulary.
+            'conditionStates' => RentalInventorySetting::conditionStatesFor($agencyId),
+            'defaultConditionStates' => RentalInventorySetting::DEFAULT_CONDITION_STATES,
         ]);
     }
 
@@ -37,16 +40,32 @@ class RentalInventorySettingsController extends Controller
             'disposition_presets.*.key' => ['required_with:disposition_presets', 'string', 'max:60'],
             'disposition_presets.*.label' => ['required_with:disposition_presets', 'string', 'max:191'],
             'disposition_presets.*.requires_notes' => ['nullable', 'boolean'],
+            'condition_states' => ['nullable', 'array'],
+            'condition_states.*.key' => ['required_with:condition_states', 'string', 'max:60'],
+            'condition_states.*.label' => ['required_with:condition_states', 'string', 'max:191'],
+            'condition_states.*.requires_notes' => ['nullable', 'boolean'],
         ]);
 
+        // Both repeaters live on this ONE dedicated form (never posted
+        // separately, unlike a wizard step that posts a subset of a saver's
+        // fields) — an emptied-out repeater is a real, valid "agency wants
+        // zero of these" state, not a sign the field was never rendered, so
+        // both are written unconditionally, same as this action already did
+        // for disposition_presets before this pass.
         $presets = collect($validated['disposition_presets'] ?? [])->map(fn ($p) => [
             'key' => $p['key'],
             'label' => $p['label'],
             'requires_notes' => (bool) ($p['requires_notes'] ?? false),
         ])->all();
+        $conditionStates = collect($validated['condition_states'] ?? [])->map(fn ($c) => [
+            'key' => $c['key'],
+            'label' => $c['label'],
+            'requires_notes' => (bool) ($c['requires_notes'] ?? false),
+        ])->all();
 
         RentalInventorySetting::updateOrCreate(['agency_id' => $agencyId], [
             'disposition_presets' => $presets,
+            'condition_states' => $conditionStates,
         ]);
 
         return redirect()->route('corex.settings.rental-inventory.edit')->with('success', 'Rental inventory settings saved.');

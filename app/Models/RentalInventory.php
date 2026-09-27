@@ -155,6 +155,59 @@ class RentalInventory extends Model
         return self::currentFor($lease) ?? self::start($property, $lease, $by);
     }
 
+    /**
+     * §13, Johan's approved mockup — "a furnished flat is re-let with the
+     * same contents, and re-typing forty lines is the work we are supposed
+     * to be doing for them." The most recent OTHER (non-cancelled) inventory
+     * for the SAME property, excluding this one — a prior tenancy's own
+     * inventory, since RentalInventory::start() refuses a second inventory
+     * per lease. Ordered by id desc (not completed_at) deliberately: a
+     * property mid-way through a still-open prior tenancy has no completed
+     * date yet, and "the last thing recorded here" is still the useful
+     * starting point to copy from even if that record itself never reached
+     * completed status.
+     */
+    public function priorInventory(): ?self
+    {
+        return self::where('property_id', $this->property_id)
+            ->where('id', '!=', $this->id)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * §13 — copies every active line from $source into $this, quantity +
+     * description + condition_key (the condition is copied as a STARTING
+     * POINT for the agent to confirm or correct, never asserted as this
+     * tenancy's own verified condition — Johan's own framing is "re-typing
+     * is the work we're saving them," not "skip re-checking the goods").
+     * Deliberately does NOT copy photos: a photo is evidence of what this
+     * move-in actually looked like, and copying an old photo forward would
+     * misrepresent today's condition as something it was never verified
+     * against. Additive only — never touches $this's own existing lines,
+     * so running it twice, or after already adding some items by hand, only
+     * ever adds more, never overwrites or duplicates-detects (the agent
+     * removes an unwanted copied line the same way they remove any other).
+     *
+     * @return \Illuminate\Support\Collection<int, RentalInventoryLine>
+     */
+    public function copyLinesFrom(self $source, User $by): \Illuminate\Support\Collection
+    {
+        return $source->lines->map(function (RentalInventoryLine $line) use ($by) {
+            return RentalInventoryLine::create([
+                'agency_id' => $this->agency_id,
+                'rental_inventory_id' => $this->id,
+                'property_room_id' => $line->property_room_id,
+                'room_label' => $line->room_label,
+                'quantity' => $line->quantity,
+                'description' => $line->description,
+                'condition_key' => $line->condition_key,
+                'created_by_user_id' => $by->id,
+            ]);
+        });
+    }
+
     /** Every tenant on the lease, plus the landlord if resolvable, who does NOT yet have a live disposition. */
     public function outstandingSignatories(): \Illuminate\Support\Collection
     {

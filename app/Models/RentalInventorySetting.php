@@ -23,10 +23,12 @@ class RentalInventorySetting extends Model
     protected $fillable = [
         'agency_id',
         'disposition_presets',
+        'condition_states',
     ];
 
     protected $casts = [
         'disposition_presets' => 'array',
+        'condition_states' => 'array',
     ];
 
     /**
@@ -60,5 +62,31 @@ class RentalInventorySetting extends Model
         $preset = collect(self::dispositionPresetsFor($agencyId))->firstWhere('key', $dispositionKey);
 
         return (bool) ($preset['requires_notes'] ?? false);
+    }
+
+    /**
+     * §13 — the CAPTURE-time condition chip vocabulary, a distinct concept
+     * from `disposition_presets` above (which grades the move-in/move-out
+     * DELTA, not the item's own state when first recorded). Sensible,
+     * neutral, multi-agency-safe default matching the shape
+     * RentalInspectionSetting::DEFAULT_CONDITION_STATES already
+     * established for the same idea on a different document.
+     */
+    public const DEFAULT_CONDITION_STATES = [
+        ['key' => 'new', 'label' => 'New', 'requires_notes' => false],
+        ['key' => 'good', 'label' => 'Good', 'requires_notes' => false],
+        ['key' => 'fair', 'label' => 'Fair', 'requires_notes' => false],
+        ['key' => 'damaged', 'label' => 'Damaged', 'requires_notes' => true],
+    ];
+
+    public static function conditionStatesFor(?int $agencyId): array
+    {
+        $states = null;
+        if ($agencyId) {
+            $states = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('condition_states');
+            $states = is_string($states) ? json_decode($states, true) : $states;
+        }
+
+        return is_array($states) && $states !== [] ? $states : self::DEFAULT_CONDITION_STATES;
     }
 }
