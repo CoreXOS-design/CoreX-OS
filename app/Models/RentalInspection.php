@@ -886,7 +886,7 @@ class RentalInspection extends Model
         // existing 'observations.photos' — the latter still serves
         // item-level display unchanged, the former is what the tray and
         // room-level views read from.
-        // AT-433 Part C, .ai/specs/rental-inspections.md §23 — the photo
+        // AT-433 Part C, .ai/specs/rental-inspections.md §25 — the photo
         // note travels with the photo everywhere a photo is read, same as
         // every other photo attribute; 'photos.note'/'observations.photos.note'
         // nested eager-loads so it's present in this same response without a
@@ -984,6 +984,10 @@ class RentalInspection extends Model
             // into the recording UI's condition picker instead of a
             // hardcoded set of <option> tags.
             'condition_states' => \App\Models\RentalInspectionSetting::conditionStatesFor($property->agency_id),
+            // §25, AT-433 Part C — the photo note's classification
+            // vocabulary (Defect/Wear and tear/Reference by default),
+            // same agency-configurable pattern as condition_states above.
+            'photo_note_classifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($property->agency_id),
             // §20.15 — null/null when there is nothing yet to compare (only
             // an in-inspection exists so far, the common case); the compare
             // UI is gated entirely on compare_right_inspection being present.

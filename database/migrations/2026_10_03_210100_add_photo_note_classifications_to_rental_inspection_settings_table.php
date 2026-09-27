@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Schema;
  * is written on read.
  *
  * The classification is what lets the printed inspection report list
- * defects on their own at the end (.ai/specs/rental-inspections.md §23) —
+ * defects on their own at the end (.ai/specs/rental-inspections.md §25) —
  * this vocabulary is the whole reason that report section can exist.
  */
 return new class extends Migration

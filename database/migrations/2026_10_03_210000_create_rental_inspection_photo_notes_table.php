@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Schema;
  * (`rental_inspection_observations.notes`). Two levels, not one: the item
  * comment says what the ITEM is like; this note says what THIS PHOTO shows
  * — one scuff photo out of four is the evidence, the note is what makes it
- * evidence. .ai/specs/rental-inspections.md §23.
+ * evidence. .ai/specs/rental-inspections.md §25.
  *
  * Unlike an observation (immutable, evidentiary, never edited/deleted —
  * §3.3), a photo note is Full CRUD per Johan's explicit ruling for this

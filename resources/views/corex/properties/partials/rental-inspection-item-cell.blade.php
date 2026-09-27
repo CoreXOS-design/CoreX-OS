@@ -136,6 +136,17 @@
                              style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
                              @click="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})" alt="">
                         <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
+                        {{-- §25, AT-433 Part C — the photo note, under the
+                             thumbnail, truncated to two lines. Keyed off
+                             tile.photo.note (the photo's OWN note, never row
+                             index or pairing position — see this partial's
+                             own note-cascade docblock in
+                             RentalInspectionPhotoNote.php for why the note
+                             survives being paired/unpaired/reordered).
+                             Gated on the room-level on/off switch — never on
+                             pairing or collapse state (Johan's ruling: every
+                             note renders for every photo that renders). --}}
+                        <div class="rir-strip-note" x-show="tile.photo && tile.photo.note && arePhotoNotesVisibleForRoom(group.room)" x-text="tile.photo?.note?.note"></div>
                     </div>
                 </template>
 @else
@@ -182,6 +193,12 @@
                         <button type="button" x-show="tile.photo" @click.stop="photoUploader({{ $inspectionJs }}).untagPhoto(tile.photo.id)"
                                 class="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                 style="background:rgba(0,0,0,0.65); color:#fff; line-height:1;" title="Back to untagged">&#8657;</button>
+                        {{-- §25, AT-433 Part C — see the read-only branch's
+                             own comment above; pointer-events:none (the
+                             class itself) so this never intercepts the
+                             Select/Back-to-room/Back-to-untagged buttons it
+                             visually sits under. --}}
+                        <div class="rir-strip-note" x-show="tile.photo && tile.photo.note && arePhotoNotesVisibleForRoom(group.room)" x-text="tile.photo?.note?.note"></div>
                     </div>
                 </template>
 @endif

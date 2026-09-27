@@ -160,7 +160,7 @@ class RentalInspectionPhotoMatchGroup extends Model
      */
     public function toComparePayload(): array
     {
-        // AT-433 Part C, .ai/specs/rental-inspections.md §23 — "the note
+        // AT-433 Part C, .ai/specs/rental-inspections.md §25 — "the note
         // travels with the photo into the compare viewer, where there is
         // room for it." 'members.photo.note' so it's present in this same
         // payload without a second round-trip.

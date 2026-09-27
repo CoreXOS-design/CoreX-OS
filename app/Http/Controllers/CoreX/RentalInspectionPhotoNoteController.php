@@ -12,7 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * .ai/specs/rental-inspections.md §23 — AT-433 Part C. The photo-level
+ * .ai/specs/rental-inspections.md §25 — AT-433 Part C. The photo-level
  * note (Defect / Wear and tear / Reference), distinct from
  * RentalInspectionRecordingController's item-comment/observation surface.
  * Deliberately its own controller — the note is scoped to ONE photo, never

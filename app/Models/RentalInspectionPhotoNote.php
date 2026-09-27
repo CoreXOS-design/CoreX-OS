@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * .ai/specs/rental-inspections.md §23 — AT-433 Part C. The PHOTO-level
+ * .ai/specs/rental-inspections.md §25 — AT-433 Part C. The PHOTO-level
  * note: what THIS specific photo shows, distinct from
  * `RentalInspectionObservation::notes` (the item comment — what the ITEM
  * is like overall). One scuff photo out of four is the evidence; this note

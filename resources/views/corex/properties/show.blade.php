@@ -5291,6 +5291,11 @@
                         <div class="flex items-center gap-2 flex-none">
                             <span class="cv-pill" :class="compareViewerConditionClass(compareViewerConditionFor(compareViewer.primarySide))" x-show="compareViewerConditionFor(compareViewer.primarySide)" x-text="compareViewerConditionLabel(compareViewerConditionFor(compareViewer.primarySide))"></span>
                             <button type="button" @click="compareViewerOpenTagPanel(compareViewer.primarySide)" x-show="compareViewerCurrentPhoto(compareViewer.primarySide)" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" x-text="(compareViewerCurrentPhoto(compareViewer.primarySide) && (compareViewerCurrentPhoto(compareViewer.primarySide).property_room_id || compareViewerCurrentPhoto(compareViewer.primarySide).rental_inspection_observation_id)) ? 'Retag' : 'Tag photo'"></button>
+                            {{-- §25, AT-433 Part C — "the full note opens
+                                 with the photo in the compare viewer, where
+                                 there is room for it" (Johan). Same button
+                                 placement/style as Tag photo/Retag above. --}}
+                            <button type="button" @click="compareViewerOpenNotePanel(compareViewer.primarySide)" x-show="compareViewerCurrentPhoto(compareViewer.primarySide)" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" x-text="compareViewerCurrentPhoto(compareViewer.primarySide)?.note ? 'Edit note' : 'Add note'"></button>
                             <button type="button" @click="compareViewerSetMode('compare')" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Back to compare</button>
                         </div>
                     </div>
@@ -5312,6 +5317,12 @@
                             <button type="button" @click.stop="compareViewerDoubleClickReset(compareViewer.primarySide)" class="text-xs px-2 cv-touch">Fit</button>
                             <span class="text-xs cv-text-secondary pl-1" x-show="_compareViewerZoomState(compareViewer.primarySide).scale > 1">drag to pan</span>
                         </div>
+                    </div>
+                    {{-- §25, AT-433 Part C — the full note (never truncated
+                         here, unlike the strip's own two-line caption). --}}
+                    <div class="px-1 pt-2 text-xs" x-show="compareViewerCurrentPhoto(compareViewer.primarySide)?.note">
+                        <span class="cv-pill" x-text="photoNoteClassificationLabel(compareViewerCurrentPhoto(compareViewer.primarySide)?.note?.classification_key)"></span>
+                        <span class="cv-text-secondary" x-text="compareViewerCurrentPhoto(compareViewer.primarySide)?.note?.note"></span>
                     </div>
                     <div class="flex items-center justify-between px-1 pt-2 cv-rail-label">
                         <span class="text-xs font-semibold" :class="compareViewer.primarySide === 'left' ? 'cv-text-secondary' : 'cv-accent'" x-text="compareViewerInspectionTypeName(compareViewer.primarySide).toUpperCase() + (compareViewer.primarySide === 'right' ? ' — CURRENT' : '')"></span>
@@ -5411,10 +5422,21 @@
                                 <button type="button" @click="compareViewerOpenTagPanel('{{ $side }}')" class="text-xs font-semibold px-3 cv-touch rounded-md flex-none"
                                         :class="(compareViewerCurrentPhoto('{{ $side }}') && (compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)) ? 'compare-viewer-mode-btn' : 'compare-viewer-match-btn-active'"
                                         x-text="(compareViewerCurrentPhoto('{{ $side }}') && (compareViewerCurrentPhoto('{{ $side }}').property_room_id || compareViewerCurrentPhoto('{{ $side }}').rental_inspection_observation_id)) ? 'Retag' : 'Tag photo'"></button>
+                                {{-- §25, AT-433 Part C — same button as the
+                                     single-mode pane header above. --}}
+                                <button type="button" @click="compareViewerOpenNotePanel('{{ $side }}')" class="text-xs font-semibold px-3 cv-touch rounded-md flex-none compare-viewer-mode-btn"
+                                        x-text="compareViewerCurrentPhoto('{{ $side }}')?.note ? 'Edit note' : 'Add note'"></button>
                             </div>
-                            {{-- Dim this pane while the tag panel is open on
-                                 the OTHER side, so focus is obvious. --}}
-                            <div class="cv-dim-overlay" x-show="compareViewerTagPanel.open && compareViewerTagPanel.side !== '{{ $side }}'"></div>
+                            {{-- §25, AT-433 Part C — the full note, same
+                                 room-for-it placement as single mode. --}}
+                            <div class="px-3 pb-1 text-xs" x-show="compareViewerCurrentPhoto('{{ $side }}')?.note">
+                                <span class="cv-pill" x-text="photoNoteClassificationLabel(compareViewerCurrentPhoto('{{ $side }}')?.note?.classification_key)"></span>
+                                <span class="cv-text-secondary" x-text="compareViewerCurrentPhoto('{{ $side }}')?.note?.note"></span>
+                            </div>
+                            {{-- Dim this pane while the tag panel OR the note
+                                 panel is open on the OTHER side, so focus is
+                                 obvious. --}}
+                            <div class="cv-dim-overlay" x-show="(compareViewerTagPanel.open && compareViewerTagPanel.side !== '{{ $side }}') || (compareViewerNotePanel.open && compareViewerNotePanel.side !== '{{ $side }}')"></div>
                         </div>
                         @endforeach
                     </div>
@@ -5514,6 +5536,54 @@
                         <div class="flex items-center gap-2 flex-none">
                             <button type="button" @click="compareViewerCloseTagPanel()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Cancel</button>
                             <button type="button" @click="compareViewerConfirmTag()" :disabled="!compareViewerTagPanel.pickedRoomId" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-match-btn-active">Tag photo</button>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- §25, AT-433 Part C — the note composer. Same anchored-
+                     over-the-pane panel shell as the tag panel just above
+                     (.cv-tagpanel/-left/-right, .cv-tagpanel-head/-foot —
+                     reused classes, not a parallel set) — "the full note
+                     opens with the photo in the compare viewer, where there
+                     is room for it" (Johan). Read-only once the owning
+                     inspection is signed: the composer still opens (so the
+                     agent can read what's there) but Save/Archive are
+                     replaced by an explanation, never a dead control that
+                     silently 409s — STANDARDS.md "No Silent Locks". --}}
+                <div class="cv-tagpanel" x-show="compareViewerNotePanel.open" x-cloak @click.stop
+                     :class="compareViewerNotePanel.side === 'right' ? 'cv-tagpanel-right' : 'cv-tagpanel-left'">
+                    <div class="flex items-center justify-between px-3 py-2 cv-tagpanel-head">
+                        <span class="text-xs font-semibold">Photo note</span>
+                        <button type="button" @click="compareViewerCloseNotePanel()" aria-label="Close note" class="cv-touch">&times;</button>
+                    </div>
+                    <div class="p-3 space-y-2">
+                        <template x-if="compareViewerNoteLocked()">
+                            <p class="text-xs cv-text-secondary">This inspection is completed and signed — its photo notes are read-only.</p>
+                        </template>
+                        <div class="flex items-center gap-1 flex-wrap">
+                            <template x-for="c in (photoNoteClassifications || [])" :key="'note-class-' + c.key">
+                                <button type="button" :disabled="compareViewerNoteLocked()"
+                                        @click="compareViewerNotePanel.classificationKey = c.key"
+                                        class="text-xs font-semibold px-2 py-1 rounded-md"
+                                        :class="compareViewerNotePanel.classificationKey === c.key ? 'compare-viewer-match-btn-active' : 'compare-viewer-mode-btn'"
+                                        x-text="c.label"></button>
+                            </template>
+                        </div>
+                        <textarea x-model="compareViewerNotePanel.noteText" :disabled="compareViewerNoteLocked()"
+                                  rows="3" maxlength="4000" placeholder="What does this photo show?"
+                                  class="prop-input w-full text-xs"></textarea>
+                        <p class="text-xs" style="color:#ef4444;" x-show="compareViewerNotePanel.error" x-text="compareViewerNotePanel.error"></p>
+                    </div>
+                    <div class="flex items-center justify-between gap-2 px-3 py-2 cv-tagpanel-foot">
+                        <button type="button" x-show="!compareViewerNoteLocked() && compareViewerCurrentPhoto(compareViewerNotePanel.side)?.note"
+                                :disabled="compareViewerNotePanel.saving"
+                                @click="compareViewerArchiveNote()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Remove note</button>
+                        <div class="flex items-center gap-2 flex-none" style="margin-left:auto;">
+                            <button type="button" @click="compareViewerCloseNotePanel()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Close</button>
+                            <button type="button" x-show="!compareViewerNoteLocked()"
+                                    :disabled="compareViewerNotePanel.saving || !compareViewerNotePanel.noteText.trim() || !compareViewerNotePanel.classificationKey"
+                                    @click="compareViewerSaveNote()" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-match-btn-active"
+                                    x-text="compareViewerNotePanel.saving ? 'Saving…' : 'Save note'"></button>
                         </div>
                     </div>
                 </div>
@@ -5743,6 +5813,10 @@
                 // recording UI's condition picker instead of a hardcoded
                 // set of <option> tags.
                 conditionStates: config.inspectionData.condition_states,
+                // §25, AT-433 Part C — the photo note's classification
+                // vocabulary (Defect/Wear and tear/Reference by default),
+                // same agency-configurable pattern as conditionStates above.
+                photoNoteClassifications: config.inspectionData.photo_note_classifications,
                 // Item 8, 2026-09-22 — read-only, sourced from the live
                 // Property record.
                 propertyType: config.propertyType,
@@ -6414,6 +6488,103 @@
                     }
                 },
 
+                // §25, AT-433 Part C — the photo note panel. Same
+                // anchored-over-the-pane pattern as compareViewerTagPanel
+                // just above (own state object, own open/close, side
+                // resolved the exact same way) — not a second panel
+                // mechanism, the same one for a second purpose. "The full
+                // note opens with the photo in the compare viewer, where
+                // there is room for it" (Johan) — this is that room.
+                compareViewerNotePanel: { open: false, side: null, photoId: null, classificationKey: '', noteText: '', saving: false, error: null },
+                compareViewerOpenNotePanel(side) {
+                    const photo = this.compareViewerCurrentPhoto(side);
+                    if (!photo) return;
+                    this.compareViewerNotePanel = {
+                        open: true, side, photoId: photo.id,
+                        classificationKey: photo.note?.classification_key || ((this.photoNoteClassifications || [])[0]?.key || ''),
+                        noteText: photo.note?.note || '',
+                        saving: false, error: null,
+                    };
+                },
+                compareViewerCloseNotePanel() {
+                    this.compareViewerNotePanel = { open: false, side: null, photoId: null, classificationKey: '', noteText: '', saving: false, error: null };
+                },
+                // The inspection a note-panel photo actually belongs to —
+                // same side-to-inspection resolution as
+                // compareViewerConfirmTag() above.
+                _compareViewerNoteInspection() {
+                    return this.compareViewerNotePanel.side === 'left' ? this.chainPredecessor : this.chainTail;
+                },
+                // True once the owning inspection is completed/signed or
+                // cancelled — Johan's ruling: a report someone signed must
+                // not change underneath them. Mirrors the server's own
+                // RentalInspectionPhotoNote::assertMutable() gate exactly,
+                // so the UI never offers a control the server will refuse —
+                // "No Silent Locks" (STANDARDS.md): say why, don't just let
+                // Save fail with a raw 409.
+                compareViewerNoteLocked() {
+                    const insp = this._compareViewerNoteInspection();
+                    return !insp || insp.status === 'completed' || insp.status === 'cancelled';
+                },
+                async compareViewerSaveNote() {
+                    const panel = this.compareViewerNotePanel;
+                    const insp = this._compareViewerNoteInspection();
+                    if (!insp || !panel.photoId || !panel.noteText.trim() || !panel.classificationKey) return;
+                    const photo = this.compareViewerPhotoById(panel.photoId);
+                    if (!photo) return;
+                    panel.saving = true;
+                    panel.error = null;
+                    try {
+                        const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}/photos/${photo.id}/notes`;
+                        const body = { classification_key: panel.classificationKey, note: panel.noteText.trim() };
+                        const note = photo.note
+                            ? await this._compareViewerNoteRequest(`${base}/${photo.note.id}`, 'PATCH', body)
+                            : await this._compareViewerNoteRequest(base, 'POST', body);
+                        photo.note = note;
+                        this.compareViewerCloseNotePanel();
+                    } catch (e) {
+                        panel.error = e.message;
+                    } finally {
+                        panel.saving = false;
+                    }
+                },
+                async compareViewerArchiveNote() {
+                    const panel = this.compareViewerNotePanel;
+                    const insp = this._compareViewerNoteInspection();
+                    const photo = panel.photoId ? this.compareViewerPhotoById(panel.photoId) : null;
+                    if (!insp || !photo || !photo.note) return;
+                    panel.saving = true;
+                    panel.error = null;
+                    try {
+                        const base = `${this.inspectionUrls.inspectionsBase}/${insp.id}/photos/${photo.id}/notes/${photo.note.id}`;
+                        await this._compareViewerNoteRequest(base, 'DELETE', null);
+                        photo.note = null;
+                        this.compareViewerCloseNotePanel();
+                    } catch (e) {
+                        panel.error = e.message;
+                    } finally {
+                        panel.saving = false;
+                    }
+                },
+                // A small, self-contained fetch helper — never reuses
+                // _post() below, which is hardcoded to the POST method.
+                // Same error-shape convention (throws with .message set
+                // from the server's JSON body when present).
+                async _compareViewerNoteRequest(url, method, body) {
+                    const opts = { method, headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' } };
+                    if (body) {
+                        opts.headers['Content-Type'] = 'application/json';
+                        opts.body = JSON.stringify(body);
+                    }
+                    const res = await fetch(url, opts);
+                    if (!res.ok) {
+                        let msg = 'Request failed (HTTP ' + res.status + ').';
+                        try { const data = await res.json(); if (data && data.message) msg = data.message; } catch (_) {}
+                        throw new Error(msg);
+                    }
+                    return res.status === 204 ? null : res.json();
+                },
+
                 // ── Untagged tray — bottom of the modal, multi-select then
                 // bulk-tag, identical behaviour to the recording screen's
                 // own tray (tagPhotosBulk).
@@ -6849,6 +7020,7 @@
                     this.refusalReasonPresets = data.refusal_reason_presets;
                     this.outInspectionRecorded = data.out_inspection_recorded;
                     this.conditionStates = data.condition_states;
+                    this.photoNoteClassifications = data.photo_note_classifications;
                     this.photoMatches = data.photo_matches;
                     this.autoPairPhotosEnabled = data.auto_pair_photos_enabled;
                     this.maybeAutoPairPhotos();
@@ -6950,6 +7122,12 @@
                 },
                 conditionLabel(key) {
                     return (this.conditionStates || []).find(s => s.key === key)?.label || key;
+                },
+                // §25, AT-433 Part C — same read-time-default resolution
+                // pattern as conditionLabel() just above.
+                photoNoteClassificationLabel(key) {
+                    if (!key) return '';
+                    return (this.photoNoteClassifications || []).find(c => c.key === key)?.label || key;
                 },
                 hasNaConditionState() {
                     return (this.conditionStates || []).some(s => s.key === 'n_a');
@@ -7388,6 +7566,33 @@
                 _persistStripExpanded() {
                     try { localStorage.setItem('hfc.inspStripExpanded', JSON.stringify(this.itemStripExpanded)); } catch (e) {}
                 },
+
+                // §25, AT-433 Part C — room-level "Photo notes on/off",
+                // remembered per user. Same client-only localStorage pattern
+                // as itemStripExpanded just above (this screen has no
+                // per-user preference endpoint at all — see that property's
+                // own docblock) — not a second persistence mechanism, the
+                // same one under a new key. Defaults ON: a note is evidence,
+                // and the toggle exists to let an agent declutter the strip
+                // when they want the unobstructed image, not to hide notes
+                // by default. Keyed by room id ('general' for the roomless
+                // group), independent of item id, position, or pairing state
+                // — a photo's note visibility follows its ROOM, never a row
+                // index (Johan's ruling: nothing keys off position).
+                photoNotesVisible: {},
+                _photoNotesRoomKey(room) { return room ? room.id : 'general'; },
+                arePhotoNotesVisibleForRoom(room) {
+                    const key = this._photoNotesRoomKey(room);
+                    return this.photoNotesVisible[key] !== false;
+                },
+                togglePhotoNotesForRoom(room) {
+                    const key = this._photoNotesRoomKey(room);
+                    this.photoNotesVisible[key] = !this.arePhotoNotesVisibleForRoom(room);
+                    this._persistPhotoNotesVisible();
+                },
+                _persistPhotoNotesVisible() {
+                    try { localStorage.setItem('hfc.inspPhotoNotesVisible', JSON.stringify(this.photoNotesVisible)); } catch (e) {}
+                },
                 // Alpine calls init() once automatically on the component
                 // that owns this object — no other init() existed on
                 // rentalImages() before this, and no x-init is needed on
@@ -7396,6 +7601,10 @@
                     try {
                         const saved = JSON.parse(localStorage.getItem('hfc.inspStripExpanded') || '{}');
                         this.itemStripExpanded = (saved && typeof saved === 'object') ? saved : {};
+                    } catch (e) {}
+                    try {
+                        const savedNotesVisible = JSON.parse(localStorage.getItem('hfc.inspPhotoNotesVisible') || '{}');
+                        this.photoNotesVisible = (savedNotesVisible && typeof savedNotesVisible === 'object') ? savedNotesVisible : {};
                     } catch (e) {}
                     // §24.5, AT-433 Part B — the property tab's own initial
                     // server render already carries chainPredecessor/

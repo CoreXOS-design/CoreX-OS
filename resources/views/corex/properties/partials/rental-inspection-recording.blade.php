@@ -152,6 +152,21 @@
        reproduces the old top:0/bottom:0 full-row-height click target while
        every tile above it stays top-aligned via the row's align-items. */
     .rir-add-tile { flex:none; align-self:stretch; width:124px; display:flex; align-items:center; justify-content:center; font-size:1.25rem; border-radius:6px; cursor:pointer; }
+    /* §25, AT-433 Part C — the photo note, truncated to two lines, under
+       the thumbnail. An overlay caption WITHIN the tile's own stacking
+       context (never a new absolutely-positioned sibling of .rir-strip-row
+       — the same discipline .rir-strip-pair-eligible's own docblock
+       already states) — deliberately not a taller tile: this row's height
+       has already broken and been re-fixed multiple times (§22.3/22.3a/
+       22.3b in the spec), and every fix landed on the same principle —
+       change the geometry at the class level, never per-element, and never
+       via a bound :style next to a static one. Growing the tile itself to
+       fit a caption risks exactly that class of regression for a feature
+       that has its own room-level off switch to fall back on; an overlay
+       does not touch tile/row height at all. Pointer-events:none so it
+       never intercepts a click meant for the image, the corner buttons
+       (Select/tag/untag on the editable side), or a pairing drag. */
+    .rir-strip-note { position:absolute; bottom:0; left:0; right:0; max-height:1.6em; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; font-size:7px; line-height:0.8em; font-weight:600; color:#fff; text-align:left; background:rgba(0,0,0,0.6); padding:2px 3px; pointer-events:none; }
 </style>
 {{-- $sectionJs override — see this file's own top docblock. --}}
 @php($sectionJs = $sectionJs ?? "'{$section}'")
@@ -530,6 +545,18 @@
                             <button type="button" @click="toggleAllItemStrips(group)"
                                     class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
                                     x-text="allItemStripsOpenInRoom(group) ? 'Collapse photos' : 'Expand photos'"></button>
+                        </template>
+                        {{-- §25, AT-433 Part C — room-level "Photo notes
+                             on/off", remembered per user (localStorage, same
+                             pattern as itemStripExpanded above). Shared state
+                             (photoNotesVisible, keyed by room id) reacts on
+                             BOTH cells, same "one master switch, only
+                             rendered on the editable side" convention as the
+                             Collapse/Expand photos button just above. --}}
+                        <template x-if="group.items.length">
+                            <button type="button" @click="togglePhotoNotesForRoom(group.room)"
+                                    class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
+                                    x-text="arePhotoNotesVisibleForRoom(group.room) ? 'Photo notes: On' : 'Photo notes: Off'"></button>
                         </template>
                         {{-- Item 5/7 fix, 2026-09-22 — these have zero effect
                              once the room has nothing left to fill; showing

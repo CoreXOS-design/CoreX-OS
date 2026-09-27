@@ -94,7 +94,7 @@ class RentalInspectionPhoto extends Model
     }
 
     /**
-     * .ai/specs/rental-inspections.md §23 — the photo-level note (AT-433
+     * .ai/specs/rental-inspections.md §25 — the photo-level note (AT-433
      * Part C), distinct from the observation's own item comment. At most
      * one live row per photo, enforced in
      * RentalInspectionPhotoNoteController::store(), not by a DB constraint

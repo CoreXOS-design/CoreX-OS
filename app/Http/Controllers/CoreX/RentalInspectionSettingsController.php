@@ -328,7 +328,7 @@ class RentalInspectionSettingsController extends Controller
     }
 
     /**
-     * AT-433 Part C, .ai/specs/rental-inspections.md §23 — which
+     * AT-433 Part C, .ai/specs/rental-inspections.md §25 — which
      * classifications a photo note can carry (Defect/Wear and tear/
      * Reference by default). Own narrow saver, same discipline as
      * updateConditionStates() above. A row's `key` is never re-derived from
