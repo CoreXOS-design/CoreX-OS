@@ -33,6 +33,16 @@
     earlier). Built fresh here per the approved mockup; if Johan wants
     inspections to match, that is a follow-up pass on that screen, not
     something this pass silently invented a second version of.
+
+    §13 layout pass, 2026-09-27 — Johan: "we have a whole wide screen yet
+    we choose to not align qty with desc and use a lot more space than
+    needed. With proper engineering everything from 1 inventory item can
+    sit on 1 line." The max-w-3xl cap is dropped so the whole card width is
+    used, and each line's qty/description/condition-chips/photo-strip/
+    actions collapse onto ONE row (.inv-line, ≥1024px) instead of stacking
+    across 4-5 lines. Behaviour (autosave, arrow-key grid nav, condition
+    click, photo upload/tag, remove) is unchanged — this pass is markup +
+    CSS only; see .ai/specs/rental-inventory.md §13.9 for the full note.
 --}}
 
 @section('content')
@@ -41,7 +51,91 @@
 @if($inventory)
 <script src="{{ asset_v('js/corex-photo-batch-uploader.js') }}"></script>
 @endif
-<div class="p-4 sm:p-6 max-w-3xl mx-auto space-y-4"
+<style>
+    /* §13.9 layout pass — one inventory line = one row on desktop.
+       Mobile/tablet (<1024px) wraps to 2 lines: qty+desc+actions, then
+       chips+photos — done with `order` + a forced flex-basis:100% break,
+       NOT a second markup tree, so there is exactly one DOM per line for
+       the arrow-key grid nav (onCellKeydown) to address via data-row/
+       data-cell. Desktop (>=1024px) switches the SAME element to a 5-column
+       grid with explicit grid-column per cell (not auto-placement), so a
+       row with fewer cells (the draft add-row has no chips/photos) still
+       lines its qty/description/actions up under the cells that do have
+       them — auto-placement would silently compact those into the wrong
+       columns. */
+    .inv-header-row { display: none; }
+    .inv-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.375rem 0.5rem;
+        padding: 0.375rem 0;
+        border-bottom: 1px solid var(--border);
+    }
+    .inv-cell-qty { order: 1; width: 4.5rem; flex-shrink: 0; }
+    /* flex-basis:0% (the "0%" in the shorthand), not the more common
+       "auto" — auto reads the item's own `width` property as its basis,
+       and .prop-input sets width:100% globally, which would make THIS
+       item alone claim the full flex line and wrap qty away from it. A
+       literal 0% basis ignores `width` entirely; flex-grow:1 alone still
+       expands it to fill whatever space remains after qty/actions.
+       min-width is deliberately NOT set here at mobile — flex-wrap's own
+       line-fitting pass sums every mobile-line-1 item's min-width (or
+       min-content floor, absent one) BEFORE any flex-grow runs, and an
+       8rem floor alone (72px qty + 128px desc-floor + ~113px actions +
+       gaps, on a ~258px-wide phone content column) already exceeds the
+       available line width, forcing "actions" to wrap to its own third
+       line even though it fits fine once desc grows from a smaller
+       floor. min-width:0 (the flex-item default) lets qty+desc+actions
+       share line 1 as intended, at the min-content this specific input
+       actually needs, not an arbitrary reserved floor. */
+    .inv-cell-desc { order: 2; flex: 1 1 0%; }
+    .inv-cell-actions { order: 3; display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; margin-left: auto; }
+    /* A zero-size flex item with flex-basis:100% forces a line break
+       BEFORE itself — everything after it starts a fresh line, while it
+       consumes none of that line's own visible width (unlike putting
+       flex-basis:100% directly on .inv-cell-chips, which would force
+       chips onto its own line ALONE, leaving nothing for photos to
+       share it with). Hidden outright at desktop, where there's no
+       wrapping to force. */
+    .inv-linebreak { order: 4; flex-basis: 100%; width: 0; height: 0; margin: 0; padding: 0; }
+    .inv-cell-chips { order: 5; display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+    .inv-cell-photos { order: 6; display: flex; align-items: center; gap: 0.375rem; overflow-x: auto; flex-wrap: nowrap; flex: 1 1 auto; min-width: 0; }
+    @media (min-width: 1024px) {
+        .inv-linebreak { display: none; }
+        .inv-header-row {
+            display: grid;
+            grid-template-columns: 4.5rem minmax(0,1fr) auto minmax(0,13rem) auto;
+            gap: 0.5rem;
+            padding: 0 0 0.375rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .inv-line {
+            display: grid;
+            grid-template-columns: 4.5rem minmax(0,1fr) auto minmax(0,13rem) auto;
+            gap: 0.5rem;
+            align-items: center;
+            min-height: 44px;
+            padding: 0.25rem 0;
+        }
+        /* `order` (needed above for the mobile flex reflow) also feeds
+           grid's own auto-placement cursor, even though grid-column is
+           explicit here — the cursor still advances in ORDER-modified
+           sequence, and a column value LOWER than the previous one in
+           that sequence pushes the item to a new row (this is why chips
+           landed on row 2 the first time this was written: order was
+           left at its mobile value of 4, after actions' mobile order of
+           3, so column 3 < the cursor's already-advanced column 5).
+           Resetting order to match grid-column here keeps the sequence
+           monotonic, so every cell lands in row 1. */
+        .inv-cell-qty { grid-column: 1; order: 1; width: auto; }
+        .inv-cell-desc { grid-column: 2; order: 2; }
+        .inv-cell-chips { grid-column: 3; order: 3; flex-basis: auto; flex-wrap: nowrap; }
+        .inv-cell-photos { grid-column: 4; order: 4; }
+        .inv-cell-actions { grid-column: 5; order: 5; margin-left: 0; }
+    }
+</style>
+<div class="p-4 sm:p-6 space-y-4"
      @if($inventory) x-data="rentalInventoryCapture({{ $inventory->id }}, {{ $property->id }}, '{{ $spaceStoreUrl ?? '' }}')" @endif>
 
     <div class="flex items-start justify-between gap-3">
@@ -171,45 +265,65 @@
                     <span class="text-xs shrink-0" style="color: var(--text-muted);" x-text="linesFor(activeRoomId).length + ' item' + (linesFor(activeRoomId).length === 1 ? '' : 's')"></span>
                 </div>
 
+                {{-- §13.9 — one column header row per room, labelling the
+                     grid columns below so they're not repeated per line;
+                     desktop only (.inv-header-row is display:none below
+                     1024px, since mobile wraps to 2 lines and a header
+                     wouldn't line up with either). The blank 5th cell keeps
+                     it aligned with the actions column, which has no label. --}}
+                <div class="inv-header-row" aria-hidden="true">
+                    <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Qty</span>
+                    <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Description</span>
+                    <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Condition</span>
+                    <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Photos</span>
+                    <span></span>
+                </div>
+
                 {{-- Line items. §0b+2026-09-26 — every committed line is a
                      live grid cell (arrow-key navigation, onCellKeydown()
-                     below); §13 adds a condition-chip row and a per-line
-                     photo strip beneath the qty/description grid row, so
-                     each item is now two stacked rows, not one. --}}
+                     below). §13.9 — qty/description/condition-chips/photo-
+                     strip/actions now sit on ONE row on desktop (.inv-line,
+                     >=1024px), wrapping to 2 lines only below that — see
+                     the <style> block above. The separate "(N photos)" text
+                     next to the description is dropped; the strip already
+                     shows the photos, with a small "N×" badge only when the
+                     strip has more photos than comfortably fit (>3). --}}
                 <div>
                     <template x-for="line in linesFor(activeRoomId)" :key="line.id">
-                        <div class="space-y-1.5 text-sm" style="padding:0.5rem 0; border-bottom:1px solid var(--border);">
-                            <div style="display:grid; grid-template-columns:4.5rem 1fr 7.5rem; gap:0.5rem; align-items:center;">
-                                <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="line.quantity"
-                                       class="prop-input" style="width:100%;"
-                                       :data-row="'line-' + line.id" data-cell="qty"
-                                       @keydown="onCellKeydown($event, activeRoom(), 'line', line, 'qty')"
-                                       @blur="commitRow(activeRoom(), 'line', line)">
-                                <div class="min-w-0">
-                                    <input type="text" x-model="line.description"
-                                           class="prop-input w-full"
-                                           :data-row="'line-' + line.id" data-cell="description"
-                                           @keydown="onCellKeydown($event, activeRoom(), 'line', line, 'description')"
-                                           @blur="commitRow(activeRoom(), 'line', line)">
-                                    <template x-if="photosForLine(line).length">
-                                        <span class="text-xs ml-1" style="color: var(--text-muted);" x-text="'(' + photosForLine(line).length + ' photo' + (photosForLine(line).length === 1 ? '' : 's') + ')'"></span>
-                                    </template>
-                                </div>
-                                <div style="display:flex; align-items:center; justify-content:flex-end; gap:0.5rem;">
-                                    {{-- tabindex="-1" on both: mouse-clickable, never a Tab/keyboard stop (§2 of the grid spec). --}}
-                                    <button type="button" tabindex="-1" x-show="photoUploader().roomPhotos(activeRoomId).length" @click="openTagger(line)" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Tag photo</button>
-                                    <button type="button" tabindex="-1" @click="retireLine(line)" class="text-xs font-semibold" style="color: var(--ds-crimson,#c41e3a);">Remove</button>
-                                </div>
-                            </div>
+                        <div class="inv-line text-sm">
+                            {{-- No inline width:100% here (unlike the old
+                                 markup) — that would set an explicit `width`
+                                 on the element, which flexbox's flex-basis:
+                                 auto then reads as this item's flex-basis,
+                                 forcing it to claim the WHOLE mobile flex
+                                 line width and wrap. The .inv-cell-qty/-desc
+                                 classes own sizing in both layouts now. --}}
+                            <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="line.quantity"
+                                   class="prop-input inv-cell-qty"
+                                   :data-row="'line-' + line.id" data-cell="qty"
+                                   @keydown="onCellKeydown($event, activeRoom(), 'line', line, 'qty')"
+                                   @blur="commitRow(activeRoom(), 'line', line)">
+
+                            <input type="text" x-model="line.description"
+                                   class="prop-input inv-cell-desc"
+                                   :data-row="'line-' + line.id" data-cell="description"
+                                   @keydown="onCellKeydown($event, activeRoom(), 'line', line, 'description')"
+                                   @blur="commitRow(activeRoom(), 'line', line)">
+
+                            {{-- Forces the mobile line-break before chips —
+                                 see .inv-linebreak in the <style> block for
+                                 why this can't just be flex-basis:100% on
+                                 .inv-cell-chips itself. --}}
+                            <div class="inv-linebreak" aria-hidden="true"></div>
 
                             {{-- §13 — condition chips, the agency-configurable
                                  move-in vocabulary. A plain click sets it —
                                  no separate save step, matching every other
                                  control on this page. --}}
-                            <div class="flex items-center gap-1 flex-wrap">
+                            <div class="inv-cell-chips">
                                 <template x-for="state in conditionStates" :key="state.key">
                                     <button type="button" tabindex="-1" @click="setLineCondition(line, state.key)"
-                                            class="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                                            class="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
                                             :style="line.condition_key === state.key ? 'background:var(--brand-button,#0ea5e9); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary);'"
                                             x-text="state.label"></button>
                                 </template>
@@ -225,16 +339,28 @@
                                  UI needed. Uploads AND tags to this line in
                                  ONE request (storePhotos() with
                                  rental_inventory_line_id) — never a
-                                 stage-then-tag two-step. --}}
-                            <div class="flex items-center gap-1.5 overflow-x-auto" style="flex-wrap:nowrap;">
+                                 stage-then-tag two-step. §13.9 — thumbnails
+                                 shrunk 44px -> 36px to fit the row; the
+                                 strip itself scrolls (overflow-x-auto) when
+                                 there are more photos than fit, and a "N×"
+                                 badge appears alongside it past 3 photos as
+                                 an at-a-glance overflow signal. --}}
+                            <div class="inv-cell-photos">
+                                <span x-show="photosForLine(line).length > 3" x-cloak class="text-[10px] font-semibold shrink-0" style="color: var(--text-muted);" x-text="photosForLine(line).length + '×'"></span>
                                 <template x-for="photo in photosForLine(line)" :key="photo.id">
-                                    <img :src="photo.storage_path" class="rounded-md object-cover shrink-0" style="width:44px; height:44px; background:var(--surface-3);" alt="Item photo">
+                                    <img :src="photo.storage_path" class="rounded-md object-cover shrink-0" style="width:36px; height:36px; background:var(--surface-3);" alt="Item photo">
                                 </template>
-                                <label class="flex items-center justify-center rounded-md cursor-pointer shrink-0" style="width:44px; height:44px; background:var(--surface-2); border:1px dashed var(--border); font-size:16px; color:var(--text-muted);">
+                                <label class="flex items-center justify-center rounded-md cursor-pointer shrink-0" style="width:36px; height:36px; background:var(--surface-2); border:1px dashed var(--border); font-size:14px; color:var(--text-muted);">
                                     <span>+</span>
                                     <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" tabindex="-1"
                                            @change="uploadPhotoToLine(line, $event.target.files); $event.target.value=''">
                                 </label>
+                            </div>
+
+                            <div class="inv-cell-actions">
+                                {{-- tabindex="-1" on both: mouse-clickable, never a Tab/keyboard stop (§2 of the grid spec). --}}
+                                <button type="button" tabindex="-1" x-show="photoUploader().roomPhotos(activeRoomId).length" @click="openTagger(line)" class="text-xs font-semibold shrink-0" style="color: var(--brand-button,#0ea5e9);">Tag photo</button>
+                                <button type="button" tabindex="-1" @click="retireLine(line)" class="text-xs font-semibold shrink-0" style="color: var(--ds-crimson,#c41e3a);">Remove</button>
                             </div>
                         </div>
                     </template>
@@ -273,19 +399,27 @@
                      committing resets it in place SYNCHRONOUSLY, before the
                      save request resolves, so a fast typist filling the
                      next row never races their own in-flight save. --}}
-                <form @submit.prevent="commitDraftRow(activeRoom())" style="display:grid; grid-template-columns:4.5rem 1fr 7.5rem; gap:0.5rem; align-items:center; padding-top:0.5rem;">
+                {{-- §13.9 — reuses .inv-line so its Qty/Description columns
+                     line up exactly under the committed lines above (and
+                     under the header row); it has no chips/photos cells,
+                     but the explicit grid-column placement on qty/desc/
+                     actions (not auto-placement) keeps them aligned to the
+                     same columns regardless. --}}
+                <form @submit.prevent="commitDraftRow(activeRoom())" class="inv-line" style="padding-top:0.5rem;">
                     <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="newLine[activeRoomId].quantity" placeholder="Qty"
-                           class="prop-input" style="width:100%;"
+                           class="prop-input inv-cell-qty"
                            data-row="draft" data-cell="qty"
                            @keydown="onCellKeydown($event, activeRoom(), 'draft', null, 'qty')"
                            @blur="commitRow(activeRoom(), 'draft', null)">
                     <input type="text" x-model="newLine[activeRoomId].description" placeholder="e.g. White wooden headboard"
-                           class="prop-input"
+                           class="prop-input inv-cell-desc"
                            data-row="draft" data-cell="description"
                            @keydown="onCellKeydown($event, activeRoom(), 'draft', null, 'description')"
                            @blur="commitRow(activeRoom(), 'draft', null)">
-                    <button type="submit" tabindex="-1" :disabled="lineBusy[activeRoomId]"
-                            class="text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9); padding:0.375rem 0.75rem; justify-self:end;">Add</button>
+                    <div class="inv-cell-actions">
+                        <button type="submit" tabindex="-1" :disabled="lineBusy[activeRoomId]"
+                                class="text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9); padding:0.375rem 0.75rem;">Add</button>
+                    </div>
                 </form>
                 {{-- §7 — quiet, in-place feedback, never a toast: a
                      one-line fade that disappears on its own. --}}
