@@ -5543,3 +5543,32 @@ report exactly. **After the fix**, re-measured on the same fixture plus, separat
 own real chain (inspection 32 tail / inspection 29 predecessor, predecessor has real tagged photos) to
 confirm the already-working compare-layout did not regress — see this fix's own landing commit for the
 exact pixel heights recorded on both.
+
+---
+
+## 31. Nav-row control height/colour mismatch (2026-09-27)
+
+Johan, property 5294: "you're killing my OCD. make the buttons the same, that's just off." Room pills
+(§27.9, light `var(--surface-2)`, `rounded-full`) and Photos:shown/the filter (dark `.compare-viewer-
+mode-btn` family, `#10151B`/`#3FC9E6`, `rounded-md`) were two different visual languages, AND the pill
+strip's own native horizontal scrollbar (an `overflow-x:auto` box with `height:auto` grows to fit its
+scrollbar BELOW its content — standard browser behaviour) added height to only that one child, so the
+row's `items-center` centred the shorter Photos/filter buttons on a different line than the taller
+pill-strip box.
+
+**Fix**: one shared class family, `.rir-nav-pill`/`.rir-nav-pill-active` (light inactive matching the
+pills, filled `var(--brand-button)`/white active matching the inventory screen's own active-chip look),
+applied to the room pills, Photos:shown, and every segmented-filter button — scoped to this row only,
+`.compare-viewer-mode-btn` itself untouched everywhere else it's used on this page. Every control gets an
+EXPLICIT `height:2.75rem` (not a `min-height` floor), and the outer row switches `items-center` →
+`items-start`: since every control starts at the same top edge and is the same explicit height, their
+centres coincide without depending on the scrollbar's extra height at all — the scrollbar now simply
+extends below that shared line, in its own space, exactly as asked. `border-radius` unified to
+`rounded-full`/`9999px` (Photos button, the segmented group) to match the pills' own family. The
+segmented buttons get `height:auto` (not the shared `2.75rem`) specifically so `align-items:stretch` fills
+the group's own bordered interior exactly — an explicit height there would overflow the group's own
+`box-sizing:border-box` 1px inset by 2px.
+
+**Verified**: `php -l` clean. Whole-app `php artisan view:cache` clean. Real authenticated Puppeteer
+measurement, qatesting1.corexos.co.za, property 5792, user 365 (never Johan's own live user 22 on 5294):
+every control's own height and centre-Y recorded in this fix's landing commit.

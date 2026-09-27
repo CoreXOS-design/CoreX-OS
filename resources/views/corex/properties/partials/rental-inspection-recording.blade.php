@@ -99,14 +99,32 @@
     .rir-marquee-rect { position:absolute; border:1px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); pointer-events:none; }
     /* §27, 2026-09-27 — Johan: All/Needs attention/Not yet recorded reads as
        ONE compact segmented control, not three separate pill buttons with
-       gaps. Combined selectors (specificity 0,2,0) so this reliably beats
-       .compare-viewer-mode-btn's own single-class border rule (0,1,0)
-       regardless of which <style> block the browser applies first — the
-       buttons keep that class's background/active colouring, only the
-       border/radius/dividers change. */
-    .rir-seg-group { display:flex; align-items:center; border:1px solid #1E262F; border-radius:6px; overflow:hidden; }
-    .rir-seg-btn.compare-viewer-mode-btn { border-top:0; border-bottom:0; border-left:0; border-right:1px solid #1E262F; border-radius:0; }
-    .rir-seg-btn.compare-viewer-mode-btn:last-child { border-right:0; }
+       gaps. */
+    .rir-seg-group { display:flex; align-items:stretch; height:2.75rem; border:1px solid var(--border); border-radius:9999px; overflow:hidden; box-sizing:border-box; }
+    /* height:auto — .rir-nav-pill's own fixed 2.75rem would otherwise fight
+       align-items:stretch here and overflow the group's own 1px border
+       inset by 2px (border-box: the group's 44px already includes its
+       border, leaving ~42px of interior for children to stretch into). */
+    .rir-seg-btn.rir-nav-pill { height:auto; border-top:0; border-bottom:0; border-left:0; border-right:1px solid var(--border); border-radius:0; }
+    .rir-seg-btn.rir-nav-pill:last-child { border-right:0; }
+    /* §27, 2026-09-27 regression fix — Johan, property 5294: "you're killing
+       my OCD. make the buttons the same, that's just off." Room pills used
+       .rounded-full/var(--surface-2) (light); Photos:shown + the filter used
+       the DARK .compare-viewer-mode-btn family (#10151B bg, #3FC9E6 active)
+       — a completely different visual language, plus a different
+       border-radius (rounded-md vs rounded-full) and a taller effective box
+       (the pill strip's own native horizontal scrollbar added height ONLY
+       to that one child, so row-level `items-center` centred the shorter
+       Photos/filter buttons differently to the taller pill-strip box).
+       .rir-nav-pill is the ONE shared visual family for every control on
+       this row — same light/teal colours as the room pills' own inactive/
+       active look, SCOPED to this row only (never touches the many other
+       .compare-viewer-mode-btn call sites elsewhere on this page). Height
+       is set explicitly (not min-height) on every control INCLUDING this
+       row's own outer wrapper (see the markup's own docblock) so the
+       scrollbar's extra height never leaks into the alignment math again. */
+    .rir-nav-pill { height:2.75rem; background:var(--surface-2); color:var(--text-secondary); border:none; box-sizing:border-box; }
+    .rir-nav-pill-active { background:var(--brand-button,#0ea5e9); color:#fff; }
     .rir-tray-tile { position:relative; width:3rem; height:3rem; }
     /* §29, 2026-09-27 — Johan, property 5294: "keep them this size and have a
        resize option ... to enlarge them to the same size as the thumbnail
@@ -556,12 +574,24 @@
              above/below — none of these controls mutate anything, so they
              render identically (and stay useful) on a completed, read-only
              inspection too. --}}
-        <div class="flex items-center gap-2 flex-wrap lg:flex-nowrap" x-show="activeItems().length">
+        {{-- items-start (not items-center), 2026-09-27 — Johan: the pill
+             strip's own native horizontal scrollbar was adding height ONLY
+             to that one child (an overflow-x:auto box with auto height
+             grows to fit content PLUS the scrollbar, below the content —
+             standard browser behaviour, not a bug), so items-center
+             centred it differently to the shorter Photos/filter buttons.
+             Every control below is now an EXPLICIT, IDENTICAL 2.75rem tall
+             (.rir-nav-pill/.rir-seg-group, not just a min-height floor) —
+             with items-start, all three start at the row's own top edge,
+             so their centres coincide automatically; the pill strip's
+             scrollbar simply extends below that shared line, in its own
+             space, never pulling anything else out of alignment. --}}
+        <div class="flex items-start gap-2 flex-wrap lg:flex-nowrap" x-show="activeItems().length">
             <div class="flex-1 min-w-0 overflow-x-auto">
-                <div class="flex items-center gap-2 pb-1" style="flex-wrap:nowrap;">
+                <div class="flex items-center gap-2" style="flex-wrap:nowrap;">
                     <template x-for="group in roomGroups()" :key="'insp-nav-' + (group.room ? group.room.id : 'general')">
                         <button type="button"
-                                class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full shrink-0 cv-touch"
+                                class="flex items-center gap-1.5 text-xs font-semibold px-3 rounded-full shrink-0 cv-touch rir-nav-pill"
                                 :class="!roomMatchesFilter({{ $sectionJs }}, group) ? 'rir-space-tab-empty' : ''"
                                 :disabled="!roomMatchesFilter({{ $sectionJs }}, group)"
                                 :style="'background:var(--surface-2); color:var(--text-secondary); white-space:nowrap;'"
@@ -580,19 +610,19 @@
                  (below, in the room heading); this is a genuinely
                  different, GLOBAL control that collapses the photo strips
                  entirely rather than just capping their thumbnail count. --}}
-            <button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md cv-touch compare-viewer-mode-btn flex-none"
-                    :class="photosVisible ? 'compare-viewer-mode-btn-active' : ''"
+            <button type="button" class="text-xs font-semibold px-3 rounded-full cv-touch rir-nav-pill flex-none"
+                    :class="photosVisible ? 'rir-nav-pill-active' : ''"
                     @click="togglePhotosVisible()"
                     x-text="photosVisible ? 'Photos: shown' : 'Photos: hidden'"></button>
             <div class="rir-seg-group flex-none">
-                <button type="button" class="text-xs font-semibold px-3 py-1.5 cv-touch compare-viewer-mode-btn rir-seg-btn"
-                        :class="filterMode === 'all' ? 'compare-viewer-mode-btn-active' : ''"
+                <button type="button" class="text-xs font-semibold px-3 cv-touch rir-nav-pill rir-seg-btn"
+                        :class="filterMode === 'all' ? 'rir-nav-pill-active' : ''"
                         @click="setFilterMode('all')">All</button>
-                <button type="button" class="text-xs font-semibold px-3 py-1.5 cv-touch compare-viewer-mode-btn rir-seg-btn"
-                        :class="filterMode === 'attention' ? 'compare-viewer-mode-btn-active' : ''"
+                <button type="button" class="text-xs font-semibold px-3 cv-touch rir-nav-pill rir-seg-btn"
+                        :class="filterMode === 'attention' ? 'rir-nav-pill-active' : ''"
                         @click="setFilterMode('attention')">Needs attention</button>
-                <button type="button" class="text-xs font-semibold px-3 py-1.5 cv-touch compare-viewer-mode-btn rir-seg-btn"
-                        :class="filterMode === 'unrecorded' ? 'compare-viewer-mode-btn-active' : ''"
+                <button type="button" class="text-xs font-semibold px-3 cv-touch rir-nav-pill rir-seg-btn"
+                        :class="filterMode === 'unrecorded' ? 'rir-nav-pill-active' : ''"
                         @click="setFilterMode('unrecorded')">Not yet recorded</button>
             </div>
         </div>
