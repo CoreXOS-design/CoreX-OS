@@ -1011,7 +1011,7 @@ class Property24SyndicationService
             'agencyId'        => $agencyId,
             'firstname'       => $parts[0] ?? '',
             'lastname'        => $parts[1] ?? $parts[0] ?? '',
-            'emailAddress'    => $user->email ?? '',
+            'emailAddress'    => $user->deliveryEmail() ?? '',
             'mobileNumber'    => $this->normaliseSaPhone($user->cell ?? $user->phone),
             'sourceReference' => 'CoreX-Agent-' . $user->id,
             'published'       => !$user->exclude_from_p24,
@@ -1139,7 +1139,7 @@ class Property24SyndicationService
             'agencyId'         => $agencyId,
             'firstname'        => $parts[0] ?? '',
             'lastname'         => $parts[1] ?? $parts[0] ?? '',
-            'emailAddress'     => $user->email ?? '',
+            'emailAddress'     => $user->deliveryEmail() ?? '',
             'mobileNumber'     => $this->normaliseSaPhone($user->cell ?? $user->phone),
             'sourceReference'  => 'CoreX-Agent-' . $user->id,
             'published'        => $isActive,   // hides the profile from P24 portal when deactivated or opted out

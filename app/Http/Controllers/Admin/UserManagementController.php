@@ -16,6 +16,7 @@ use App\Services\Admin\AgentSeatLockService;
 use App\Services\Images\AgentProfilePhotoService;
 use App\Services\Syndication\Property24\Property24ApiClient;
 use App\Services\Syndication\Property24\Property24SyndicationService;
+use App\Services\Users\OneEmailService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -36,14 +37,7 @@ class UserManagementController extends Controller
         // (Company → Assistants), not here. They are an extension of an agent,
         // not a standalone staff member, so they never appear in the user
         // directory. (Johan, 2026-07-22.)
-        $users = User::agencyMembers()
-            ->where('is_assistant', 0)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where(function ($q2) use ($agencyId) {
-                    $q2->where('agency_id', $agencyId)
-                        ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
-                });
-            })
+        $users = $this->agencyDirectoryQuery()
             ->orderBy('name')
             ->get();
 
@@ -88,9 +82,44 @@ class UserManagementController extends Controller
         // up on that page at all.
         $canOverride = (bool) auth()->user()?->isOwnerRole();
 
+        // AT-422 (Ledger) — the two columns the table adds: one grouped query each, never one
+        // per row. Listings = the agent's ON-MARKET properties; last seen = latest login.
+        $userIds = $users->pluck('id');
+        $listingCounts = \App\Models\Property::query()->onMarket()
+            ->whereIn('agent_id', $userIds)
+            ->selectRaw('agent_id, COUNT(*) as c')->groupBy('agent_id')
+            ->pluck('c', 'agent_id');
+        $lastSeen = DB::table('login_histories')
+            ->where('event', 'login')->whereIn('user_id', $userIds)
+            ->selectRaw('user_id, MAX(created_at) as last_at')->groupBy('user_id')
+            ->pluck('last_at', 'user_id');
+        // Shown in the bulk-deactivate confirmation (platform-wide, from the seat-lock service).
+        $holdDays = app(AgentSeatLockService::class)->lockDays();
+
         return view('admin.users.index', compact(
-            'users','branches','designations','p24AgentMap','ppraDueCount','archivedCount','seatHolds','canOverride'
+            'users','branches','designations','p24AgentMap','ppraDueCount','archivedCount','seatHolds','canOverride',
+            'listingCounts','lastSeen','holdDays'
         ));
+    }
+
+    /**
+     * AT-422 — who counts as a user in the acting admin's agency. The ONE definition shared by the
+     * Users list and the bulk actions, so a bulk request can never reach further than the list shows:
+     * the agency's own members (or anyone on one of its branches), assistants excluded (they are
+     * managed on Company → Assistants).
+     */
+    private function agencyDirectoryQuery(): \Illuminate\Database\Eloquent\Builder
+    {
+        $agencyId = auth()->user()?->effectiveAgencyId();
+
+        return User::agencyMembers()
+            ->where('is_assistant', 0)
+            ->when($agencyId, function ($q) use ($agencyId) {
+                $q->where(function ($q2) use ($agencyId) {
+                    $q2->where('agency_id', $agencyId)
+                        ->orWhereHas('branch', fn ($b) => $b->where('agency_id', $agencyId));
+                });
+            });
     }
 
     /**
@@ -141,12 +170,32 @@ class UserManagementController extends Controller
             'branches'     => $branches,
             'designations' => $designations,
             'roles'        => $roles,
+            'oneEmailForm' => $this->oneEmailFormData(null),
         ]);
+    }
+
+    /** AT-423 — what the Add/Edit User form needs to offer "A username, sharing an inbox". */
+    private function oneEmailFormData(?User $user): array
+    {
+        $oneEmail = app(OneEmailService::class);
+
+        return $oneEmail->formData($oneEmail->agencyFor(auth()->user()), $user);
     }
 
     public function store(Request $request)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        // AT-423 — "A username, sharing an inbox": build the username into the sign-in
+        // column before validation, so the normal unique/seat-lock rules apply to it.
+        $asSubUser = $request->input('sign_in_type') === 'username';
+        if ($asSubUser) {
+            $login = $this->resolveSubUserLogin($request, null);
+            if (isset($login['error'])) {
+                return back()->withInput()->withErrors(['username' => $login['error']]);
+            }
+            $request->merge(['email' => $login['email']]);
+        }
 
         $data = $request->validate([
             'name'          => ['required', 'string', 'max:255'],
@@ -177,7 +226,7 @@ class UserManagementController extends Controller
             'test_agent'      => ['nullable', 'in:0,1'],
             'show_on_website' => ['nullable', 'in:0,1'],
             'exclude_from_p24' => ['nullable', 'in:0,1'],
-        ]);
+        ], $asSubUser ? $this->subUserMessages($request->input('email')) : []);
 
         // The owner role cannot be created through user management.
         $submittedRole = Role::allRoles()->firstWhere('name', $data['role']);
@@ -211,6 +260,26 @@ class UserManagementController extends Controller
         // handed any agency a one-form bypass of the seat hold. Removed outright.
         $trashed = User::onlyTrashed()->where('email', $data['email'])->first();
 
+        if (! $trashed) {
+            // AT-423 audit fix — the lookup above is still agency-scoped, so an archived
+            // user in ANOTHER agency holding this same email/username was invisible here
+            // and fell through to save()'s raw unique-constraint catch below, which reads
+            // like a race condition ("just taken by someone else") rather than what it
+            // actually is. Check across every agency — read-only, never offer to restore
+            // someone else's archived user — so this fails with an accurate reason instead.
+            $crossAgencyArchivedCollision = User::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                ->onlyTrashed()->where('email', $data['email'])->exists();
+
+            if ($crossAgencyArchivedCollision) {
+                $noun = $asSubUser ? 'username' : 'email address';
+                return back()->withInput()->withErrors([
+                    // Matches the field the sibling trashed-in-this-agency branch below
+                    // uses, regardless of sign-in type — see test_a_taken_username_is_rejected.
+                    'email' => "That {$noun} belongs to an archived account in another agency and cannot be reused here. Choose a different {$noun}.",
+                ]);
+            }
+        }
+
         if ($trashed) {
             $seatLock = app(AgentSeatLockService::class);
 
@@ -241,7 +310,7 @@ class UserManagementController extends Controller
             ]);
         }
 
-        $user = User::create([
+        $user = User::make([
             'name'                        => $fullName,
             'email'                       => $data['email'],
             'display_email'               => ($data['display_email'] ?? null) ?: null,
@@ -277,6 +346,17 @@ class UserManagementController extends Controller
             'show_on_website'             => isset($data['show_on_website']) && $data['show_on_website'] == '1' ? 1 : 0,
             'exclude_from_p24'            => isset($data['exclude_from_p24']) && $data['exclude_from_p24'] == '1' ? 1 : 0,
         ]);
+        // AT-423 — not fillable on purpose (only this screen and the assistants screen set it).
+        $user->is_sub_user = $asSubUser;
+
+        try {
+            $user->save();
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            // Two admins took the same email/username at the same moment — the unique index won.
+            return back()->withInput()->withErrors([$asSubUser ? 'username' : 'email' => $asSubUser
+                ? 'That username was just taken by someone else — please choose another.'
+                : 'That email address was just taken by someone else.']);
+        }
 
         // Sync branch_assignments
         if ($user->branch_id) {
@@ -312,10 +392,73 @@ class UserManagementController extends Controller
             return redirect()->route('admin.users')->with('status', "Test agent \"{$fullName}\" created (no invite email sent). Property24 registration queued — the agent ID will appear shortly.");
         }
 
+        if ($user->isSubUser()) {
+            // Land on their Edit page: it always shows the username + set-up link while the
+            // invite is pending, so the admin gets the link even if the flash is lost.
+            return $this->sendSubUserInvite(redirect()->route('admin.users.edit', $user), $user, "Sub-user \"{$fullName}\" created with username {$user->email}.");
+        }
+
         // Send invitation email
         Mail::to($user->email)->send(new UserInviteMail($user));
 
         return redirect()->route('admin.users')->with('status', "User \"{$fullName}\" created. An invitation email has been sent to {$user->email}.");
+    }
+
+    // ── AT-423 — One email (sub-users). Spec: .ai/specs/one-email-sub-users.md ──
+
+    /** Build the sub-user's username from the form (rules live in OneEmailService). */
+    private function resolveSubUserLogin(Request $request, ?User $existing): array
+    {
+        $oneEmail = app(OneEmailService::class);
+
+        return $oneEmail->buildUsername($oneEmail->agencyFor(auth()->user()), $existing, $request->input('username'));
+    }
+
+    /**
+     * Spec §8 — archiving the shared inbox is allowed (sub-users keep working, their mail
+     * still goes to that real address) but the admin is told first. Null when not relevant.
+     */
+    private function sharedInboxNotice(User $user): ?string
+    {
+        $agency = $user->agency_id ? Agency::find((int) $user->agency_id) : null;
+        if (!$agency || (int) $agency->one_email_user_id !== (int) $user->id) {
+            return null;
+        }
+
+        $count = app(OneEmailService::class)->subUserCount($agency);
+        if ($count === 0) {
+            return null;
+        }
+
+        return "{$user->name}'s inbox ({$user->email}) is the shared inbox for {$count} "
+            . ($count === 1 ? 'sub-user' : 'sub-users')
+            . '. They will keep signing in, and their CoreX emails will still go to that address. '
+            . 'To send them somewhere else, choose a different shared inbox in Settings → Team Inbox.';
+    }
+
+    private function subUserMessages(?string $username): array
+    {
+        return app(OneEmailService::class)->usernameMessages($username);
+    }
+
+    /**
+     * Email a sub-user's invite to the shared inbox and hand the admin the username +
+     * set-up link to pass on directly (spec §6.2 / §6.3).
+     */
+    private function sendSubUserInvite($redirect, User $user, string $lead)
+    {
+        $inbox = $user->deliveryEmail();
+        if ($inbox) {
+            Mail::to($inbox)->send(new UserInviteMail($user));
+        }
+
+        return $redirect
+            ->with('status', $lead . ($inbox
+                ? " The invitation email went to the shared inbox {$inbox}."
+                : ' No invitation email was sent because your agency has no shared inbox — use the link below.'))
+            ->with('invite_link', app(OneEmailService::class)->setupUrl($user))
+            ->with('invite_name', $user->name)
+            ->with('invite_username', $user->email);
     }
 
     public function edit(User $user)
@@ -337,14 +480,36 @@ class UserManagementController extends Controller
             ? \App\Models\LoginHistory::forUser($user->id)->latest('created_at')->limit(25)->get()
             : collect();
 
+        $oneEmailForm = $this->oneEmailFormData($user);
+
         return view('admin.users.create-edit', compact(
-            'user', 'branches', 'designations', 'roles', 'canViewLoginHistory', 'loginHistory'
+            'user', 'branches', 'designations', 'roles', 'canViewLoginHistory', 'loginHistory', 'oneEmailForm'
         ));
     }
 
     public function update(Request $request, User $user)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        // AT-423 — sign-in type. Absent (form without the choice) = keep what they have.
+        $asSubUser = $request->input('sign_in_type', $user->isSubUser() ? 'username' : 'email') === 'username';
+        if ($asSubUser) {
+            // An unchanged username is kept exactly (OneEmailService::buildUsername).
+            $login = $this->resolveSubUserLogin($request, $user);
+            if (isset($login['error'])) {
+                return back()->withInput()->withErrors(['username' => $login['error']]);
+            }
+            $request->merge(['email' => $login['email']]);
+        } elseif ($user->isSubUser()
+            && !app(OneEmailService::class)->isRealEmail($request->input('email'))) {
+            return back()->withInput()->withErrors([
+                'email' => 'To give this person their own sign-in, enter their own email address (for example andre@gmail.com).',
+            ]);
+        }
+
+        // Option A (Andre, 2026-09-21): an admin resetting a sub-user's password sets a
+        // temporary one, typed twice; the person must choose their own at next sign-in.
+        $subUserPasswordRules = $asSubUser && $request->filled('password') ? ['confirmed'] : [];
 
         $data = $request->validate([
             'name'          => ['required', 'string', 'max:255'],
@@ -375,10 +540,13 @@ class UserManagementController extends Controller
             'show_in_performance_reports' => ['nullable', 'in:0,1'],
             'agent_photo'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'ffc_certificate' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:5120'],
-            'password'        => ['nullable', 'string', 'min:8'],
+            'password'        => array_merge(['nullable', 'string', 'min:8'], $subUserPasswordRules),
             'show_on_website' => ['nullable', 'in:0,1'],
             'exclude_from_p24' => ['nullable', 'in:0,1'],
-        ]);
+        ], $asSubUser ? $this->subUserMessages($request->input('email')) + [
+            'password.min'       => 'The temporary password must be at least 8 characters.',
+            'password.confirmed' => 'The two temporary passwords do not match.',
+        ] : []);
 
         // The owner role cannot be assigned through user management.
         $submittedRole = Role::allRoles()->firstWhere('name', $data['role']);
@@ -456,9 +624,25 @@ class UserManagementController extends Controller
 
         if (!empty($data['password'])) {
             $user->password = Hash::make($data['password']);
+
+            // AT-423 — a sub-user's password is only ever reset by an admin, as a temporary
+            // one: they must choose their own at next sign-in, and a remembered session on
+            // any device stops working now. Spec one-email-sub-users.md §6.5.
+            if ($asSubUser) {
+                $user->must_change_password = true;
+                $user->remember_token = \Illuminate\Support\Str::random(60);
+            }
         }
 
-        $user->save();
+        $user->is_sub_user = $asSubUser;
+
+        try {
+            $user->save();
+        } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+            return back()->withInput()->withErrors([$asSubUser ? 'username' : 'email' => $asSubUser
+                ? 'That username was just taken by someone else — please choose another.'
+                : 'That email address was just taken by someone else.']);
+        }
 
         // ── Domain events (spec corex-domain-events-spec.md) ─────────────────
         $fresh = $user->fresh() ?? $user;
@@ -535,8 +719,12 @@ class UserManagementController extends Controller
 
         $p24Note = $this->pushUserToP24($user->fresh());
 
+        $resetNote = ($asSubUser && !empty($data['password']))
+            ? ' Temporary password set — give it to them; they will choose their own when they next sign in.'
+            : '';
+
         return $this->withActiveTab(redirect()->route('admin.users.edit', $user), $request)
-            ->with('status', "User \"{$fullName}\" updated.{$p24Note}");
+            ->with('status', "User \"{$fullName}\" updated.{$resetNote}{$p24Note}");
     }
 
     /**
@@ -888,6 +1076,11 @@ class UserManagementController extends Controller
             return $this->withActiveTab(back(), $request)->withErrors('This user has already set up their account.');
         }
 
+        // AT-423 — a sub-user's invite goes to the shared inbox, plus a copyable link.
+        if ($user->isSubUser()) {
+            return $this->sendSubUserInvite($this->withActiveTab(back(), $request), $user, "New set-up link created for {$user->name}.");
+        }
+
         Mail::to($user->email)->send(new UserInviteMail($user));
 
         return $this->withActiveTab(back(), $request)->with('status', "Invitation email resent to {$user->email}.");
@@ -966,40 +1159,127 @@ class UserManagementController extends Controller
             }
         }
 
+        // AT-422 — deactivating is ONE shared implementation (also used by the Users-list bulk action).
+        if (! $reactivating) {
+            $done = $this->deactivateAgent($user, $seatLock);
+
+            return $this->withActiveTab(back(), $request)->with('status', "{$user->name} deactivated.{$done['holdNote']}{$done['p24Note']}");
+        }
+
         // The gate above is the authority; suspend the observer backstop so it
         // does not re-refuse the write the gate just authorised.
-        AgentSeatLockService::bypass(fn () => $user->update([
-            'is_active' => ! $user->is_active,
-        ]));
-
-        if ($reactivating) {
-            $seatLock->reinstate($user, auth()->user(), $overrideReason);
-        } else {
-            $seatLock->release($user, AgentSeatRelease::REASON_DEACTIVATED, (int) auth()->id());
-            $this->revokeAccess($user);
-        }
+        AgentSeatLockService::bypass(fn () => $user->update(['is_active' => true]));
+        $seatLock->reinstate($user, auth()->user(), $overrideReason);
 
         $fresh = $user->fresh();
         $p24Note = $this->pushUserToP24($fresh);
-        $state = $fresh->is_active ? 'activated' : 'deactivated';
 
         // Domain events — spec .ai/specs/corex-domain-events-spec.md
-        if ($fresh->is_active) {
-            event(new \App\Events\Agent\AgentActivated($fresh, auth()->id()));
-        } else {
-            event(new \App\Events\Agent\AgentDeactivated($fresh, auth()->id()));
-        }
+        event(new \App\Events\Agent\AgentActivated($fresh, auth()->id()));
 
-        // Tell the admin about the hold UP FRONT rather than letting them
-        // discover it when they try to undo the click (STANDARDS: no silent locks).
+        $holdNote = $overrideReason ? ' The hold was lifted early and the reason recorded.' : '';
+
+        return $this->withActiveTab(back(), $request)->with('status', "{$user->name} activated.{$holdNote}{$p24Note}");
+    }
+
+    /**
+     * AT-422 — the ONE implementation of "deactivate a user", shared by the single Deactivate
+     * (toggle) and the Users-list bulk Deactivate so the two can never drift: the billable seat is
+     * released and its hold started, access is revoked, Property24 is updated and AgentDeactivated
+     * fires. The caller has already checked permission and that this is not the acting admin.
+     *
+     * @return array{fresh:User, p24Note:string, holdNote:string}
+     */
+    private function deactivateAgent(User $user, AgentSeatLockService $seatLock): array
+    {
+        // Deactivating frees a billable seat (billing spec §3 D1); the observer backstop must not
+        // re-refuse the write this method is authorising.
+        AgentSeatLockService::bypass(fn () => $user->update(['is_active' => false]));
+        $seatLock->release($user, AgentSeatRelease::REASON_DEACTIVATED, (int) auth()->id());
+        $this->revokeAccess($user);
+
+        $fresh = $user->fresh();
+        $p24Note = $this->pushUserToP24($fresh);
+
+        // Domain events — spec .ai/specs/corex-domain-events-spec.md
+        event(new \App\Events\Agent\AgentDeactivated($fresh, auth()->id()));
+
+        // Tell the admin about the hold UP FRONT rather than letting them discover it when they
+        // try to undo the click (STANDARDS: no silent locks).
         $holdNote = '';
-        if (! $fresh->is_active && ($until = $seatLock->lockedUntil($fresh))) {
+        if ($until = $seatLock->lockedUntil($fresh)) {
             $holdNote = " They are no longer billed. They cannot be reactivated until {$until->format('j F Y')}.";
-        } elseif ($reactivating && $overrideReason) {
-            $holdNote = ' The hold was lifted early and the reason recorded.';
         }
 
-        return $this->withActiveTab(back(), $request)->with('status', "{$user->name} {$state}.{$holdNote}{$p24Note}");
+        return ['fresh' => $fresh, 'p24Note' => $p24Note, 'holdNote' => $holdNote];
+    }
+
+    /**
+     * AT-422 — Users list bulk actions: Resend invitation / Deactivate for the ticked people. Spec:
+     * .ai/specs/users-pages-restyle.md §2.1. Each person goes through the same rules and the same code
+     * as the single action; anyone ineligible is SKIPPED with a stated reason, never silently.
+     */
+    public function bulk(Request $request, AgentSeatLockService $seatLock)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $data = $request->validate([
+            'action'     => ['required', Rule::in(['resend_invite', 'deactivate'])],
+            'user_ids'   => ['required', 'array', 'min:1', 'max:200'],
+            'user_ids.*' => ['integer'],
+        ]);
+        $ids = array_values(array_unique(array_map('intval', $data['user_ids'])));
+
+        // The SAME agency-scoped query as the list: another agency's id is simply not found here.
+        $users = $this->agencyDirectoryQuery()->whereIn('id', $ids)->orderBy('name')->get();
+
+        $done = [];
+        $skipped = [];
+        if (($missing = count($ids) - $users->count()) > 0) {
+            $skipped[] = $missing . ($missing === 1 ? ' selected person' : ' selected people') . ' could not be found.';
+        }
+
+        foreach ($users as $u) {
+            if ($data['action'] === 'resend_invite') {
+                // AT-423 audit fix: a genuine pending invite is always is_active = false
+                // until first login (see store()) — checking it here skipped the exact
+                // population Resend exists for. The single-row resendInvite() action has
+                // no such check either; match it.
+                if ($u->email_verified_at) { $skipped[] = "{$u->name} — has already set up their account"; continue; }
+                try {
+                    Mail::to($u->email)->send(new UserInviteMail($u));
+                    $done[] = $u->name;
+                } catch (\Throwable $e) {
+                    report($e);
+                    $skipped[] = "{$u->name} — the email could not be sent";
+                }
+                continue;
+            }
+
+            // deactivate
+            if ($u->id === auth()->id()) { $skipped[] = "{$u->name} — you cannot deactivate yourself"; continue; }
+            if (! $u->is_active) { $skipped[] = "{$u->name} — is already inactive"; continue; }
+            try {
+                $this->deactivateAgent($u, $seatLock);
+                $done[] = $u->name;
+            } catch (\Throwable $e) {
+                report($e);
+                $skipped[] = "{$u->name} — something went wrong, nothing further was changed for them";
+            }
+        }
+
+        $n = count($done);
+        $people = $n === 1 ? 'person' : 'people';
+        $verb = $data['action'] === 'resend_invite' ? "Invitation resent to {$n} {$people}." : "Deactivated {$n} {$people}.";
+        if ($data['action'] === 'deactivate' && $n > 0) {
+            $verb .= ' They are no longer billed and cannot be reactivated for ' . $seatLock->lockDays() . ' days.';
+        }
+
+        $redirect = redirect()->route('admin.users')->with('bulk_skipped', $skipped);
+
+        return $n > 0
+            ? $redirect->with('status', $verb)
+            : $redirect->withErrors(['bulk' => 'Nobody was changed.']);
     }
 
     /**
@@ -1016,6 +1296,25 @@ class UserManagementController extends Controller
         return response()->json([
             'success'         => true,
             'show_on_website' => (bool) $user->show_on_website,
+        ]);
+    }
+
+    /**
+     * AT-422 — quick on/off switch for the daily digest email for ONE user
+     * (users.daily_digest_enabled). The digest job (corex:calendar:send-digests)
+     * skips a switched-off user entirely — calendar items and birthdays alike, as
+     * it is a single email. Off does not touch anyone else's digest or any other
+     * notification (reminders, alerts) the user has.
+     */
+    public function toggleDailyDigest(Request $request, User $user)
+    {
+        abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
+
+        $user->update(['daily_digest_enabled' => ! $user->daily_digest_enabled]);
+
+        return response()->json([
+            'success'              => true,
+            'daily_digest_enabled' => (bool) $user->fresh()->daily_digest_enabled,
         ]);
     }
 
@@ -1105,6 +1404,7 @@ class UserManagementController extends Controller
                 'slug' => $user->ensureQrSlug(),
             ],
             'counts'  => $counts,
+            'shared_inbox_notice' => $this->sharedInboxNotice($user),
             'targets' => $targets->map(fn ($u) => [
                 'id'    => $u->id,
                 'label' => trim($u->name ?? '').($u->email ? " ({$u->email})" : ''),

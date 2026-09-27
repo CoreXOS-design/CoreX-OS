@@ -38,7 +38,7 @@
 
     {{-- ═══════════ IN PROGRESS ═══════════ --}}
     @if($inProgress->isNotEmpty())
-    <div class="space-y-3">
+    <div class="space-y-3" data-tour="dp-sales-in-progress">
         <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--brand-icon);">In Progress ({{ number_format($inProgress->count()) }})</h3>
 
         <div class="space-y-4">

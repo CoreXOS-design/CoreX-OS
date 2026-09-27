@@ -78,7 +78,7 @@
                                class="w-full rounded-md text-sm px-3 py-2"
                                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     </div>
-                    <div>
+                    <div data-tour="calc-deposit-interest-refund">
                         <label for="refund_date" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Date Refunded <span class="text-red-500">*</span></label>
                         <input id="refund_date" type="date" name="refund_date" required
                                value="{{ old('refund_date', $input['refund_date'] ?? now()->format('Y-m-d')) }}"
@@ -105,7 +105,7 @@
                     </div>
 
                     <template x-for="(topup, index) in topups" :key="index">
-                        <div class="flex items-center gap-3 mb-2">
+                        <div class="flex items-center gap-3 mb-2" data-tour="calc-deposit-interest-topup-row">
                             <div class="flex-1">
                                 <input type="date" :name="'topups[' + index + '][date]'" x-model="topup.date" required
                                        class="w-full rounded-md text-sm px-3 py-2"
@@ -140,7 +140,7 @@
             {{-- Results --}}
             @if($result)
                 {{-- Summary Card --}}
-                <div class="rounded-md p-5" style="border: 1px solid var(--border); background: var(--surface);">
+                <div data-tour="calc-deposit-interest-result" class="rounded-md p-5" style="border: 1px solid var(--border); background: var(--surface);">
                     <div class="flex items-start justify-between mb-4">
                         <div>
                             <h2 class="text-lg font-semibold" style="color: var(--text-primary);">{{ $input['property_name'] }}</h2>
@@ -178,7 +178,7 @@
                 </div>
 
                 {{-- Breakdown Table --}}
-                <div class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
+                <div data-tour="calc-deposit-interest-breakdown" class="rounded-md overflow-hidden" style="border: 1px solid var(--border); background: var(--surface);">
                     <div class="px-5 py-3" style="border-bottom: 1px solid var(--border);">
                         <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-primary);">Interest Breakdown</h3>
                     </div>
@@ -239,7 +239,7 @@
                     <form method="POST" action="{{ route('deposit-interest-calculator.download-tenant-pdf') }}" class="inline">
                         @csrf
                         @include('deposit-interest-calculator._hidden-inputs')
-                        <button type="submit" class="corex-btn-primary inline-flex items-center gap-2">
+                        <button type="submit" data-tour="calc-deposit-interest-tenant-pdf" class="corex-btn-primary inline-flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
                             </svg>
@@ -261,7 +261,7 @@
                     <form method="POST" action="{{ route('deposit-interest-calculator.save') }}" class="inline">
                         @csrf
                         @include('deposit-interest-calculator._hidden-inputs')
-                        <button type="submit" class="corex-btn-outline inline-flex items-center gap-2">
+                        <button type="submit" data-tour="calc-deposit-interest-save" class="corex-btn-outline inline-flex items-center gap-2">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" />
                             </svg>

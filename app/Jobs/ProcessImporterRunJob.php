@@ -63,6 +63,36 @@ class ProcessImporterRunJob implements ShouldQueue
             $mapped = $row->mapped_json ?? [];
 
             DB::transaction(function () use ($row, $mapped, $run, $downloader) {
+                // AT-423 (importer.md §15) — the admin chose who this agent is on the preview.
+                // Their P24 ids go onto that person; email is not used at all.
+                if ($row->action === 'link') {
+                    $user = User::withoutGlobalScopes()
+                        ->where('agency_id', $run->agency_id)
+                        ->whereNull('deleted_at')
+                        ->find($row->resolved_agent_id);
+                    if (!$user) {
+                        $row->update([
+                            'status'      => 'error',
+                            'errors_json' => ['The person chosen for this agent no longer exists in this agency — skipped'],
+                        ]);
+                        return;
+                    }
+                    $user->forceFill([
+                        'p24_agent_id'     => $mapped['p24_agent_id'] ?? $user->p24_agent_id,
+                        'source_reference' => $mapped['source_reference'] ?? $user->source_reference,
+                    ])->save();
+                    $this->finishAgentRow($row, $user, $mapped, $downloader);
+                    return;
+                }
+                // A row nobody decided on (the preview blocks this; defensive for old runs).
+                if ($row->action === 'choose') {
+                    $row->update([
+                        'status'      => 'error',
+                        'errors_json' => ['No person was chosen for this agent — skipped'],
+                    ]);
+                    return;
+                }
+
                 $email = strtolower(trim($mapped['email'] ?? ''));
                 if ($email === '') return;
 
@@ -101,28 +131,34 @@ class ProcessImporterRunJob implements ShouldQueue
                     $row->action = 'update';
                 }
 
-                // Profile photo
-                $photoUrl = $mapped['profile_photo_url'] ?? null;
-                if ($photoUrl) {
-                    $dest = "agents/{$user->id}.jpg";
-                    $stored = $downloader->download($photoUrl, $dest);
-                    if ($stored) {
-                        if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'profile_photo_path')) {
-                            $user->profile_photo_path = $stored;
-                            $user->save();
-                        } elseif (\Illuminate\Support\Facades\Schema::hasColumn('users', 'agent_photo_path')) {
-                            $user->agent_photo_path = $stored;
-                            $user->save();
-                        }
-                    }
-                }
-
-                $row->update([
-                    'status'       => 'confirmed',
-                    'target_id'    => $user->id,
-                    'confirmed_at' => now(),
-                ]);
+                $this->finishAgentRow($row, $user, $mapped, $downloader);
             });
         }
+    }
+
+    /** Profile photo + mark the agent row confirmed (shared by the email and "linked" paths). */
+    private function finishAgentRow($row, User $user, array $mapped, P24ImageDownloader $downloader): void
+    {
+        // Profile photo
+        $photoUrl = $mapped['profile_photo_url'] ?? null;
+        if ($photoUrl) {
+            $dest = "agents/{$user->id}.jpg";
+            $stored = $downloader->download($photoUrl, $dest);
+            if ($stored) {
+                if (\Illuminate\Support\Facades\Schema::hasColumn('users', 'profile_photo_path')) {
+                    $user->profile_photo_path = $stored;
+                    $user->save();
+                } elseif (\Illuminate\Support\Facades\Schema::hasColumn('users', 'agent_photo_path')) {
+                    $user->agent_photo_path = $stored;
+                    $user->save();
+                }
+            }
+        }
+
+        $row->update([
+            'status'       => 'confirmed',
+            'target_id'    => $user->id,
+            'confirmed_at' => now(),
+        ]);
     }
 }

@@ -819,6 +819,8 @@ final class MapPinService
             ->join('market_reports as mr', 'mr.id', '=', 'mrcr.market_report_id')
             ->leftJoin('market_reports as mr_scheme', function ($j) use ($req) {
                 $j->on(DB::raw('LOWER(mr_scheme.subject_scheme_name)'), '=', DB::raw('LOWER(mrcr.scheme_name)'))
+                  // AT-424 — inherit GPS only from the SAME agency's reports.
+                  ->on('mr_scheme.agency_id', '=', 'mr.agency_id')
                   ->whereNotNull('mr_scheme.subject_latitude');
                 // Phase 3h Step 9.5 — when demo is hidden the COALESCE
                 // fallback must not pull GPS from a demo subject report
@@ -888,7 +890,7 @@ final class MapPinService
             ->whereNotNull('psc.raw_row_json')
             ->select([
                 'psc.id', 'psc.sold_date as sale_date', 'psc.sold_price_inc as sale_price',
-                'psc.raw_row_json', 'psc.suburb',
+                'psc.raw_row_json', 'psc.suburb', 'p.agency_id',
             ]);
         $this->applyScopeFilter($pscQ, $req, 'p.agency_id');
         $this->applyDateFilter($pscQ, $req, 'psc.sold_date');
@@ -915,11 +917,12 @@ final class MapPinService
             }
         }
         $pscGpsById = $pscCompRowIds
-            ? DB::table('market_report_comp_rows')
-                ->whereIn('id', array_unique($pscCompRowIds))
-                ->whereNull('deleted_at')
-                ->whereNotNull('latitude')->whereNotNull('longitude')
-                ->select(['id', 'latitude', 'longitude', 'address'])
+            ? DB::table('market_report_comp_rows as mrcr')
+                ->join('market_reports as mr', 'mr.id', '=', 'mrcr.market_report_id')
+                ->whereIn('mrcr.id', array_unique($pscCompRowIds))
+                ->whereNull('mrcr.deleted_at')
+                ->whereNotNull('mrcr.latitude')->whereNotNull('mrcr.longitude')
+                ->select(['mrcr.id', 'mrcr.latitude', 'mrcr.longitude', 'mrcr.address', 'mr.agency_id'])
                 ->get()->keyBy('id')
             : collect();
 
@@ -929,7 +932,8 @@ final class MapPinService
             if (!$compRowId) continue; // V1 — only MIC-sourced rows have lat/lng
 
             $gps = $pscGpsById->get($compRowId);
-            if (!$gps) continue;
+            // AT-424 — the comp row must come from the presentation's own agency.
+            if (!$gps || (int) $gps->agency_id !== (int) $r->agency_id) continue;
 
             $lat = (float) $gps->latitude;
             $lng = (float) $gps->longitude;
@@ -1335,7 +1339,8 @@ final class MapPinService
         // scheme don't multiply the owner rows.
         $q = DB::table('scheme_owners as so')
             ->join('market_reports as mr', function ($j) {
-                $j->on(DB::raw('LOWER(mr.subject_scheme_name)'), '=', DB::raw('LOWER(so.scheme_name)'));
+                $j->on(DB::raw('LOWER(mr.subject_scheme_name)'), '=', DB::raw('LOWER(so.scheme_name)'))
+                  ->on('mr.agency_id', '=', 'so.agency_id'); // AT-424 — same agency's reports only
             })
             ->whereNull('so.deleted_at')
             ->whereNull('mr.deleted_at')
@@ -1356,7 +1361,8 @@ final class MapPinService
 
         $totalQ = DB::table('scheme_owners as so')
             ->join('market_reports as mr', function ($j) {
-                $j->on(DB::raw('LOWER(mr.subject_scheme_name)'), '=', DB::raw('LOWER(so.scheme_name)'));
+                $j->on(DB::raw('LOWER(mr.subject_scheme_name)'), '=', DB::raw('LOWER(so.scheme_name)'))
+                  ->on('mr.agency_id', '=', 'so.agency_id'); // AT-424 — same agency's reports only
             })
             ->whereNull('so.deleted_at')
             ->whereNull('mr.deleted_at')

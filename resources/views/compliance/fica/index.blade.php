@@ -112,7 +112,7 @@
             ['key' => 'rejected',              'label' => 'Rejected',              'count' => $counts['rejected']],
         ]);
     @endphp
-    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
+    <div class="flex flex-wrap gap-1 text-sm font-medium" data-tour="fica-tabs" style="border-bottom: 1px solid var(--border);">
         @foreach($tabs as $t)
             @php
                 $active = $tab === $t['key'];
@@ -177,12 +177,12 @@
           style="background: var(--surface); border: 1px solid var(--border);">
         <input type="hidden" name="tab" value="{{ $tab }}">
         @if($canPickAgent ?? false)<input type="hidden" name="agent_id" value="{{ $filterAgentId }}">@endif {{-- AT-346 keep My/All across search --}}
-        <input type="text" name="search" value="{{ request('search') }}"
+        <input type="text" name="search" data-tour="fica-search" value="{{ request('search') }}"
                placeholder="Search by contact name or email..."
                class="flex-1 rounded-md px-3 py-2 text-sm"
                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         <div class="flex gap-2">
-            <button type="submit" class="corex-btn-primary">Search</button>
+            <button type="submit" class="corex-btn-primary" data-tour="fica-search-btn">Search</button>
             @if(request('search'))
                 <a href="{{ route('compliance.fica.index', ['tab' => $tab]) }}" class="corex-btn-outline">Clear</a>
             @endif
@@ -192,7 +192,7 @@
     {{-- Table --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
-            <table class="min-w-full text-sm ds-table">
+            <table class="min-w-full text-sm ds-table" data-tour="fica-table">
                 <thead>
                     <tr style="background: var(--surface-2);">
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Contact</th>

@@ -61,6 +61,16 @@ $loginHandler = function (Request $request) {
         ], 403);
     }
 
+    // AT-423 — an admin reset this person's password to a temporary one. The app has no
+    // "choose a new password" screen, so they must do that on the website first.
+    // Checked AFTER the password, like the app-access gate above. Spec: one-email-sub-users.md §6.5.
+    if ($user->must_change_password) {
+        return response()->json([
+            'message' => 'Please sign in on the website first to choose a new password.',
+            'code'    => 'password_change_required',
+        ], 403);
+    }
+
     $token = $user->createToken('corex-mobile')->plainTextToken;
 
     $agency = $user->effectiveAgencyId()

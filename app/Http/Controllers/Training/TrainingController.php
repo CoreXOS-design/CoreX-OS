@@ -40,9 +40,21 @@ class TrainingController extends Controller
         return view('training.show', compact('course', 'completion'));
     }
 
-    public function startLesson($lessonId)
+    /**
+     * AT-424 — TrainingLesson has no agency of its own; it belongs to the
+     * agency of its course, and TrainingCourse is agency-scoped. Resolving the
+     * course through the scope 404s another agency's lesson.
+     */
+    private function visibleLesson($lessonId): TrainingLesson
     {
         $lesson = TrainingLesson::findOrFail($lessonId);
+        abort_unless(TrainingCourse::whereKey($lesson->course_id)->exists(), 404);
+        return $lesson;
+    }
+
+    public function startLesson($lessonId)
+    {
+        $lesson = $this->visibleLesson($lessonId);
 
         TrainingProgress::firstOrCreate(
             ['user_id' => auth()->id(), 'lesson_id' => $lesson->id],
@@ -54,7 +66,7 @@ class TrainingController extends Controller
 
     public function completeLesson($lessonId)
     {
-        $lesson = TrainingLesson::findOrFail($lessonId);
+        $lesson = $this->visibleLesson($lessonId);
         $userId = auth()->id();
 
         $progress = TrainingProgress::firstOrCreate(

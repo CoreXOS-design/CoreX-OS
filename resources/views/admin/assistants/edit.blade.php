@@ -87,6 +87,9 @@
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                    onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                         </div>
+                        @if((($oneEmailForm['enabled'] ?? false) || $assistant?->isSubUser()) && !($oneEmailForm['is_main'] ?? false))
+                            @include('admin.assistants._sign-in-fields', ['oe' => $oneEmailForm, 'subject' => $assistant])
+                        @else
                         <div class="sm:col-span-2">
                             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Email <span class="text-red-500">*</span></label>
                             <input type="email" name="email" value="{{ old('email', $assistant?->email) }}" required
@@ -97,6 +100,7 @@
                                 This is the address they sign in with. Changing it does not re-send the setup link — use Resend invite if they still need one.
                             </p>
                         </div>
+                        @endif
                         <div>
                             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Cell <span class="text-red-500">*</span></label>
                             <input type="text" name="cell" value="{{ old('cell', $assistant?->cell) }}" required placeholder="083 555 0142"

@@ -132,6 +132,7 @@
             @endphp
             @foreach($portalTabs as $key => $label)
             <button type="button"
+                    @if($key === 'overview' || $key === 'compliance') data-tour="portal-home-tab-{{ $key }}" @endif
                     @click="setTab('{{ $key }}')"
                     class="whitespace-nowrap px-4 py-3 text-sm border-b-2 transition-colors"
                     :style="tab === '{{ $key }}'
@@ -400,10 +401,18 @@
 
                     {{-- Email --}}
                     <div style="grid-column:span 2;">
+                        @if($user->isSubUser())
+                        {{-- AT-423 — a sub-user's username is changed only by an admin. --}}
+                        <label for="email" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Username</label>
+                        <input id="email" type="text" value="{{ $user->email }}" disabled
+                               style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-muted); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; cursor:not-allowed;">
+                        <p style="font-size:0.6875rem; color:var(--text-muted); margin-top:3px;">You sign in with this username. Your CoreX emails go to {{ $user->deliveryEmail() ?? 'your agency\'s shared inbox' }}. Only your admin can change it.</p>
+                        @else
                         <label for="email" style="display:block; font-size:0.6875rem; font-weight:600; color:var(--text-muted); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.05em;">Email <span class="text-red-500">*</span></label>
                         <input id="email" name="email" type="email" value="{{ old('email', $user->email) }}" required autocomplete="username"
                                style="width:100%; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary); padding:9px 12px; font-size:0.8125rem; box-sizing:border-box; transition:border-color 200ms;"
                                onfocus="this.style.borderColor='var(--brand-button)'" onblur="this.style.borderColor='var(--border)'">
+                        @endif
                         @error('email') <p style="font-size:0.6875rem; color:var(--ds-crimson); margin-top:3px;">{{ $message }}</p> @enderror
                         @if ($user instanceof \Illuminate\Contracts\Auth\MustVerifyEmail && ! $user->hasVerifiedEmail())
                         <div style="margin-top:6px;">
@@ -1210,7 +1219,7 @@
     {{-- ═══════════════════════════════════════════
          TAB: COMPLIANCE
          ═══════════════════════════════════════════ --}}
-    <div x-show="tab === 'compliance'" x-cloak>
+    <div x-show="tab === 'compliance'" x-cloak data-tour="portal-home-compliance-tab">
 
         {{-- Overall status card --}}
         @php
@@ -1235,7 +1244,7 @@
         </div>
 
         {{-- Breakdown list --}}
-        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;" data-tour="portal-home-compliance-breakdown">
             <div class="px-5 py-3" style="border-bottom:1px solid var(--border);">
                 <h3 class="text-sm font-bold" style="color:var(--text-primary);">Compliance Breakdown</h3>
             </div>

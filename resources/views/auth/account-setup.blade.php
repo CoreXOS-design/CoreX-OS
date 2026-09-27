@@ -14,13 +14,32 @@
         </div>
     @endif
 
+    @if($needsUsername ?? false)
+    {{-- AT-423 — sub-user step 1: prove the link reached the right person by typing the
+         username. The username is deliberately NOT shown. Spec: one-email-sub-users.md §6.3. --}}
+    <form method="POST" action="{{ $formAction }}">
+        @csrf
+        <div>
+            <label for="username" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">Enter your username</label>
+            <input id="username" name="username" type="text" value="{{ old('username') }}" required autofocus
+                   autocomplete="username" autocapitalize="none" spellcheck="false" inputmode="email"
+                   placeholder="e.g. andre@youragency"
+                   class="block mt-1 w-full rounded-lg px-3 py-2 text-sm"
+                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" />
+            <p style="color:var(--text-muted); font-size:0.75rem; margin:0.375rem 0 0;">Your admin gave you this username. You will use it to sign in.</p>
+        </div>
+        <div class="mt-6">
+            <button type="submit" class="login-btn w-full" style="width:100%; text-align:center;">Continue</button>
+        </div>
+    </form>
+    @else
     <form method="POST" action="{{ $formAction }}">
         @csrf
 
-        {{-- Email (read-only) --}}
+        {{-- Email / username (read-only) --}}
         <div>
-            <label for="email" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">Email</label>
-            <input id="email" type="email" value="{{ $user->email }}" disabled
+            <label for="email" class="block text-sm font-medium" style="color:var(--text-muted); font-size:0.8125rem;">{{ $user->isSubUser() ? 'Username' : 'Email' }}</label>
+            <input id="email" type="text" value="{{ $user->email }}" disabled
                    class="block mt-1 w-full rounded-lg px-3 py-2 text-sm"
                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted); cursor:not-allowed;" />
         </div>
@@ -76,4 +95,5 @@
             </button>
         </div>
     </form>
+    @endif
 </x-guest-layout>

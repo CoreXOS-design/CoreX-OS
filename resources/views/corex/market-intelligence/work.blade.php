@@ -71,7 +71,7 @@
     @include('corex.market-intelligence._filter-rail')
     </div>
 
-    <main class="mi-main" id="mic-slot-listings" style="min-width: 0; overflow-x: hidden; padding: 12px 16px;">
+    <main class="mi-main" id="mic-slot-listings" data-tour="mic-listings" style="min-width: 0; overflow-x: hidden; padding: 12px 16px;">
         @include('corex.market-intelligence._listings')
     </main>
 </div>

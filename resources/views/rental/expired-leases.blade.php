@@ -85,6 +85,9 @@
                            class="corex-btn-outline text-xs px-3 py-1.5 text-center">
                             History
                         </a>
+                        {{-- A lease ended early is not renewable (LeaseController::renewLease
+                             accepts active / expiring / expired only) — start a new lease instead. --}}
+                        @unless($isTerminated)
                         <form method="POST" action="{{ route('docuperfect.leases.renew', $lease) }}" class="inline">
                             @csrf
                             <button type="submit" class="corex-btn-primary w-full text-xs px-3 py-1.5 text-center"
@@ -92,6 +95,7 @@
                                 Renew Lease
                             </button>
                         </form>
+                        @endunless
                     </div>
                 </div>
             </div>

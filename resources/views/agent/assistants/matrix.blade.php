@@ -59,7 +59,7 @@
 
     {{-- Tabs: what they CAN do (permissions) vs what they HAVE done (activity) --}}
     <div class="flex items-center gap-1" style="border-bottom:1px solid var(--border, rgba(0,0,0,0.07));">
-        <button type="button" @click="tab = 'permissions'"
+        <button type="button" @click="tab = 'permissions'" data-tour="assist-matrix-permissions-tab"
                 class="px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors"
                 :style="tab === 'permissions'
                     ? 'color:var(--brand-icon, #0ea5e9); border-color:var(--brand-icon, #0ea5e9);'
@@ -328,7 +328,7 @@
     </div>{{-- /permissions tab --}}
 
     {{-- ══════════ ACTIVITY TAB ══════════ --}}
-    <div x-show="tab === 'activity'" x-cloak>
+    <div x-show="tab === 'activity'" x-cloak data-tour="assist-matrix-activity-panel">
         <div class="rounded-md overflow-hidden" style="background:var(--surface, #fff); border:1px solid var(--border, rgba(0,0,0,0.07));">
             <div class="px-4 py-3" style="background:var(--surface-2, #f0f2f8); border-bottom:1px solid var(--border, rgba(0,0,0,0.07));">
                 <div class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary, #6b7280);">

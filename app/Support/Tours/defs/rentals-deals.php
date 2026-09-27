@@ -25,6 +25,7 @@ return [
         'steps' => [
             [
                 'element' => '[data-tour="rent-dashboard-intro"]',
+                'section' => 'Reading the tiles',
                 'title'   => 'Your rental home base',
                 'body'    => 'This is the Rental Division dashboard — one place to see where every lease stands. Sales deals live elsewhere; this screen is just rentals.',
             ],
@@ -35,11 +36,15 @@ return [
             ],
             [
                 'element' => '[data-tour="rent-dashboard-signatures"]',
+                'section' => 'Sending leases for signing',
+                'do'      => ['action' => 'click', 'say' => 'Click Electronic Signatures to send a lease or check who has signed — or press Skip this step.'],
                 'title'   => 'Electronic Signatures',
                 'body'    => 'This is where you send a lease out for signing and watch each party sign. It is the busiest screen in the division.',
             ],
             [
                 'element' => '[data-tour="rent-dashboard-actions"]',
+                'section' => 'Opening your leases',
+                'do'      => ['action' => 'click', 'say' => 'Click Active Leases or Expired Leases to open that list.'],
                 'title'   => 'Quick actions',
                 'body'    => 'Three shortcuts to the work you do most: signing workflows, active leases, and expired leases. Close this and tap a tile to see your leases.',
             ],
@@ -59,18 +64,31 @@ return [
         'steps' => [
             [
                 'element' => '[data-tour="rent-active-leases-intro"]',
+                'section' => 'Reading your rent roll',
                 'title'   => 'Active leases',
                 'body'    => 'Every lease here is signed and currently in force. This is your live rent roll.',
             ],
             [
                 'element' => '[data-tour="rent-active-leases-upload"]',
+                'section' => 'Sending a new lease',
+                'do'      => ['action' => 'click', 'say' => 'Click Upload & Send Lease to send a new lease for signing — or press Skip this step to work an existing one.'],
                 'title'   => 'Upload & Send a lease',
                 'body'    => 'Already have a lease document ready? Use this to upload it and send it out for electronic signing in one step.',
             ],
             [
                 'element' => '[data-tour="rent-active-leases-list"]',
+                'section' => 'Renewing a lease',
                 'title'   => 'The lease cards',
                 'body'    => 'Each card shows the property, tenant, landlord and monthly rental in Rands. The coloured badge is the warning level: green "Active" is healthy, amber "Nd left" means it expires within 90 days, red "Expired" needs action. Close this and open the one expiring soonest to renew it.',
+            ],
+            [
+                // `click` on the whole list so Renew on ANY card counts (it submits
+                // and reloads the page). Renew keeps the parties and starts a new term.
+                'element'       => '[data-tour="rent-active-leases-list"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Renew Lease on the lease the tenant is staying on, then confirm — this starts a new 12-month term with the same parties.'],
+                'title'         => 'Renew the lease',
+                'body'          => 'Renew creates the next lease term straight away, with the same property, tenant, landlord and rental. CoreX asks you to confirm first. History on each card shows every earlier term.',
             ],
         ],
     ],
@@ -88,6 +106,7 @@ return [
         'steps' => [
             [
                 'element' => '[data-tour="rent-expired-leases-intro"]',
+                'section' => 'Reading ended leases',
                 'title'   => 'Expired leases',
                 'body'    => 'These leases have run their full term or been terminated early. Nothing here is in force — it is your record of what has ended.',
             ],
@@ -98,8 +117,18 @@ return [
             ],
             [
                 'element' => '[data-tour="rent-expired-leases-actions"]',
+                'section' => 'Renewing a lease',
                 'title'   => 'What you can still do',
                 'body'    => 'Even on an ended lease you can pull the signed Audit trail, download the PDF, view the History, or hit Renew Lease to start a fresh term with the same parties. Close this and renew any lease the tenant is staying on.',
+            ],
+            [
+                // `click` on the whole list so Renew on ANY card counts, not only the
+                // first card's action column highlighted above.
+                'element'       => '[data-tour="rent-expired-leases-list"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Renew Lease on an expired lease the tenant is staying on, then confirm — this starts a new 12-month term with the same parties.'],
+                'title'         => 'Renew the lease',
+                'body'          => 'Renew creates the next lease term straight away, with the same property, tenant, landlord and rental. CoreX asks you to confirm first.',
             ],
         ],
     ],
@@ -116,16 +145,20 @@ return [
         'steps' => [
             [
                 'element' => '[data-tour="rent-signatures-intro"]',
+                'section' => 'Tracking signing',
                 'title'   => 'Electronic Signatures',
                 'body'    => 'This screen runs every rental lease through signing — and shows you exactly where each one is, right now, in real time.',
             ],
             [
                 'element' => '[data-tour="rent-signatures-cards"]',
+                'do'      => ['action' => 'click', 'say' => 'Click a stage to jump to the leases in it.'],
                 'title'   => 'The stages of signing',
                 'body'    => 'A lease moves left to right: Draft (fields still being filled), Ready to Sign, Awaiting Signatures (out with the tenant or landlord), then Completed. "Needs Approval" means a signed copy is waiting for you to check it. Tap any card to scroll to that group.',
             ],
             [
                 'element' => '[data-tour="rent-signatures-upload"]',
+                'section' => 'Sending a lease',
+                'do'      => ['action' => 'click', 'say' => 'Click Upload & Send for Signing to upload a lease and choose who signs.'],
                 'title'   => 'Send a lease for signing',
                 'body'    => 'Start a new signing run here — upload the lease, choose who signs, and CoreX emails each party their turn. Close this when you are ready to send your first lease.',
             ],
@@ -145,16 +178,20 @@ return [
         'steps' => [
             [
                 'element' => '[data-tour="rent-stock-intro"]',
+                'section' => 'Reading the register',
                 'title'   => 'Rentals Register',
                 'body'    => 'This is the full register of every rental assigned to the agency — not a monthly view, but the complete list you can work from.',
             ],
             [
                 'element' => '[data-tour="rent-stock-new"]',
+                'section' => 'Capturing a rental',
+                'do'      => ['action' => 'click', 'say' => 'Click New Rental to capture a rental — or press Skip this step to read the register.'],
                 'title'   => 'Capture a new rental',
                 'body'    => 'Use this to record a new rental — the property, the lease dates and the commission split. It then appears in the table below.',
             ],
             [
                 'element' => '[data-tour="rent-stock-summary"]',
+                'section' => 'Reading your totals',
                 'title'   => 'The two headline numbers',
                 'body'    => 'At a glance: how many rentals you hold in total, and the total commission earned excluding VAT, shown in Rands.',
             ],
@@ -165,6 +202,7 @@ return [
             ],
             [
                 'element' => '[data-tour="rent-stock-table"]',
+                'do'      => ['action' => 'click', 'say' => 'Click Edit on a rental to open and update it.'],
                 'title'   => 'The rental rows',
                 'body'    => 'Every rental, one per row: address, lease start and end, whether it is month-to-month, whether it is still active, and the commission excluding VAT. Close this and capture a rental to add your first row.',
             ],

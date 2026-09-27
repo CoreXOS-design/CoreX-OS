@@ -9,6 +9,19 @@ use Illuminate\Validation\Rule;
 class ProfileUpdateRequest extends FormRequest
 {
     /**
+     * AT-423 — a sub-user's sign-in is a username only an admin changes, so whatever the
+     * form posts for `email` is ignored and their current username is kept. This also keeps
+     * the "email changed → invite pending again" reset in the profile controllers from ever
+     * firing for them. Spec one-email-sub-users.md §6.6 / §8.
+     */
+    protected function prepareForValidation(): void
+    {
+        if ($this->user()?->isSubUser()) {
+            $this->merge(['email' => $this->user()->email]);
+        }
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>

@@ -89,6 +89,12 @@ Route::middleware('auth')->group(function () {
 
     Route::put('password', [PasswordController::class, 'update'])->name('password.update');
 
+    // AT-423 — "Choose a new password" after an admin reset (one-email-sub-users.md §6.5).
+    Route::get('password/change-required', [\App\Http\Controllers\Auth\PasswordChangeRequiredController::class, 'show'])
+        ->name('password.change-required');
+    Route::post('password/change-required', [\App\Http\Controllers\Auth\PasswordChangeRequiredController::class, 'store'])
+        ->name('password.change-required.store');
+
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])
         ->name('logout');
 });

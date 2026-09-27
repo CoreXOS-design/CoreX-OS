@@ -25,7 +25,8 @@
     // "navy" suits the branded brand-default banners.
     $__hdrSlotClass = (($variant ?? 'navy') === 'surface') ? 'tour-slot-surface' : 'tour-slot-navy';
 @endphp
-@if($__hdrTour && \App\Support\Tours\TourRegistry::visibleTo($__hdrTour, auth()->user()))
+@if($__hdrTour && \App\Support\Tours\TourRegistry::visibleTo($__hdrTour, auth()->user())
+    && app(\App\Services\Features\AgencyFeatureService::class)->enabled('guided-tours'))
     {{-- Empty slot; the tour engine appends the "?" button here on init().
          Wrapped in once so that even if this partial is included more than once
          on a page (e.g. via a shared header component AND a bespoke header) the

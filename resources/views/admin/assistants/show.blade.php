@@ -38,6 +38,7 @@
             {{ session('success') }}
         </div>
     @endif
+    @include('admin.users._invite-link', ['inviteFor' => $assistant ?? null])
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm"
              style="background:var(--surface-2); color:var(--ds-crimson, #dc2626); border:1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 30%, transparent);">
@@ -50,8 +51,13 @@
          style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div>
+                @if($assistant?->isSubUser())
+                <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Username</div>
+                <div>{{ $assistant->email }} <span class="text-xs" style="color:var(--text-muted);">· emails go to {{ $assistant->deliveryEmail() ?? 'no shared inbox' }}</span></div>
+                @else
                 <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Email</div>
                 <div>{{ $assistant?->email }}</div>
+                @endif
             </div>
             <div>
                 <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Branch</div>

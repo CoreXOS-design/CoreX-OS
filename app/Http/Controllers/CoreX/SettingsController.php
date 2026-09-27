@@ -47,7 +47,7 @@ class SettingsController extends Controller
             'feature-documents', 'feature-rentals', 'feature-contacts',
             'feature-properties', 'feature-presentations', 'feature-matches', 'feature-dashboard',
             'leave-visibility', 'remote-access', 'commission', 'command-center', 'prospecting-setup',
-            'outreach-templates',
+            'outreach-templates', 'team-inbox',
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
@@ -166,6 +166,14 @@ class SettingsController extends Controller
         // tenant happens to have the lowest id.
         $agencyId = $user?->effectiveAgencyId();
         $data['agency'] = $agencyId ? Agency::find($agencyId) : null;
+
+        // AT-423 — Team Inbox (sub-users signing in with a username). Spec: one-email-sub-users.md §6.1.
+        $oneEmail = app(\App\Services\Users\OneEmailService::class);
+        $data['teamInbox'] = ($data['agency'] && $user?->hasPermission('manage_performance_settings')) ? [
+            'candidates' => $oneEmail->candidates($data['agency']),
+            'main'       => $oneEmail->mainAccount($data['agency']),
+            'sub_users'  => $oneEmail->subUserCount($data['agency']),
+        ] : null;
 
         // §15.2 — AI background removal for agent photos, per-agency toggle.
         $data['adBgRemovalApiEnabled'] = (bool) ($data['agency']->ad_bg_removal_api_enabled ?? true);

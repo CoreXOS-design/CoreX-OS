@@ -22,10 +22,6 @@ use Illuminate\Queue\SerializesModels;
  */
 class RentalApplicationDecisionMail extends Mailable implements ShouldQueue
 {
-    // Prod-audit 2026-09-16 — request-triggered mail is queued (CLAUDE.md), never
-    // sent inside the page request; the live mail worker group drains this queue.
-    public $queue = 'mail';
-
     use Queueable, SerializesModels;
 
     public string $agentName;
@@ -39,6 +35,10 @@ class RentalApplicationDecisionMail extends Mailable implements ShouldQueue
         public ?string $reason = null,
         public bool $isOverride = false,
     ) {
+        // Queueable already declares $queue — set it via onQueue() rather than
+        // redeclaring the property (fatals as an incompatible trait-property
+        // redeclaration; see RentalApplicationReturnedMail's own note).
+        $this->onQueue('mail');
         $this->agentName = $application->createdBy->name ?? 'there';
         $this->contactName = $application->contact->full_name ?: 'A tenant';
         $this->reviewUrl = route('corex.rental-applications.review', $application);

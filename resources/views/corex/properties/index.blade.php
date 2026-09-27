@@ -407,7 +407,7 @@
             @endif
 
             {{-- Sort --}}
-            <select name="sort" onchange="this.form.submit()" class="list-header-filter">
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-sort">
                 <option value="newest"     {{ ($filters['sort'] ?? 'newest') === 'newest'     ? 'selected' : '' }}>Newest first</option>
                 @if(($agencySortMode ?? 'created') === 'status_priority' || ($filters['sort'] ?? '') === 'status_priority')
                 <option value="status_priority" {{ ($filters['sort'] ?? '') === 'status_priority' ? 'selected' : '' }}>Status order (default)</option>
@@ -419,7 +419,7 @@
             </select>
 
             {{-- More filters toggle --}}
-            <button type="button" @click="advancedOpen = !advancedOpen"
+            <button type="button" @click="advancedOpen = !advancedOpen" data-tour="re-properties-more"
                     class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
                     :style="advancedOpen ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : ''">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -580,7 +580,7 @@
             </div>
 
             {{-- ── Advanced filters panel ───────────────────────────────────── --}}
-            <div x-show="advancedOpen" x-cloak x-transition class="w-full mt-3 pt-3" style="border-top:1px dashed var(--border);">
+            <div x-show="advancedOpen" x-cloak x-transition data-tour="re-properties-more-panel" class="w-full mt-3 pt-3" style="border-top:1px dashed var(--border);">
                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
 
                     {{-- Property Type --}}
@@ -761,13 +761,19 @@
             <span class="absolute -right-1 -bottom-1 inline-flex items-center justify-center w-7 h-7 rounded-full text-white font-bold" style="background:var(--brand-icon,#0ea5e9);box-shadow:0 2px 6px rgba(14,165,233,0.4);">+</span>
         </div>
         @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
-            <h3 class="text-base font-semibold" style="color:var(--text-primary);">No properties match these filters.</h3>
-            <p class="text-sm mt-1" style="color:var(--text-muted);">Try clearing some filters, or add a new listing.</p>
+            <h3 class="text-base font-semibold" style="color:var(--text-primary);">No {{ ($importedStock ?? false) ? 'imported stock' : 'properties' }} match these filters.</h3>
+            <p class="text-sm mt-1" style="color:var(--text-muted);">{{ ($importedStock ?? false) ? 'Try clearing some filters.' : 'Try clearing some filters, or add a new listing.' }}</p>
+        @elseif($importedStock ?? false)
+            {{-- AT-419 — imported stock arrives via the Property24 sync, never via
+                 the New Property wizard, so this empty state carries no create CTA. --}}
+            <h3 class="text-base font-semibold" style="color:var(--text-primary);">No imported stock yet.</h3>
+            <p class="text-sm mt-1" style="color:var(--text-muted);">Off-market listings pulled in from Property24 will appear here.</p>
         @else
             <h3 class="text-base font-semibold" style="color:var(--text-primary);">No properties yet.</h3>
             <p class="text-sm mt-1" style="color:var(--text-muted);">Start with your first listing. Takes under 3 minutes.</p>
         @endif
         <div class="mt-5 flex items-center justify-center gap-2 flex-wrap">
+            @unless($importedStock ?? false)
             <a href="{{ route('corex.properties.wizard') }}"
                class="inline-flex items-center gap-2 px-5 py-2.5 rounded-md text-sm font-semibold text-white transition-all duration-200"
                style="background:var(--brand-button,#0ea5e9);">
@@ -776,6 +782,7 @@
                 </svg>
                 Create my first listing
             </a>
+            @endunless
             @if(collect(request()->except(['direction','page']))->filter(fn($v) => $v !== null && $v !== '')->isNotEmpty())
             <a href="{{ route($indexRoute, ['clear' => 1]) }}" class="text-sm font-medium" style="color:var(--text-muted);">Clear filters</a>
             @endif
@@ -834,6 +841,9 @@
         <div class="pcard-v2 relative overflow-hidden flex flex-col p-3.5" style="border:1px dashed color-mix(in srgb, var(--ds-amber) 45%, var(--border));">
             <div class="text-[1.125rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedPrice() }}</div>
             <div class="text-sm font-semibold leading-snug line-clamp-1" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</div>
+            @if($property->isImportedStock())
+            <span class="mt-2 text-[10px] font-semibold px-1.5 py-0.5 rounded inline-block w-fit whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+            @endif
             <div class="text-xs mt-2 px-2 py-1 rounded-md inline-block w-fit font-medium" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
                 Agent: {{ $property->agent?->name ?? 'Unassigned' }}
             </div>
@@ -871,7 +881,9 @@
                     @if($property->mandate_type)
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Mandate type">{{ ucwords(strtolower($property->mandate_type)) }}</span>
                     @endif
-                    @if($importedStock ?? false)
+                    {{-- AT-422 — per property, not per page: a search on Properties also lists
+                         imported off-market stock, and it must be tagged there too. --}}
+                    @if($property->isImportedStock())
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Imported from Property24">Imported</span>
                     @endif
                 </div>
@@ -995,7 +1007,7 @@
     </div>
 
     {{-- ═══ LIST VIEW ═══ --}}
-    <div x-show="view === 'list'" x-cloak class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
+    <div x-show="view === 'list'" x-cloak data-tour="re-properties-table" class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
       <div class="overflow-x-auto">
         <table class="min-w-full text-sm ds-table">
             @php
@@ -1077,6 +1089,9 @@
                             <div class="flex items-center gap-3 min-w-0">
                                 <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</span>
                                 <span class="text-xs font-semibold tabular-nums" style="color:var(--text-secondary);">{{ $property->formattedPrice() }}</span>
+                                @if($property->isImportedStock())
+                                <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+                                @endif
                                 <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
                                     Agent: {{ $property->agent?->name ?? 'Unassigned' }}
                                 </span>
@@ -1107,6 +1122,9 @@
                         <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="font-semibold text-sm transition-all duration-300" style="color:var(--text-primary);" onmouseover="this.style.color='var(--brand-icon,#0ea5e9)'" onmouseout="this.style.color='var(--text-primary)'">
                             {{ Str::limit($property->title, 35) }}
                         </a>
+                        @if($property->isImportedStock())
+                        <span class="ml-1.5 align-middle text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+                        @endif
                         @if($property->p24_ref)
                         <div class="text-[10px] font-mono mt-0.5" style="color:{{ $rowIsOffMarket ? 'var(--text-muted)' : 'var(--brand-icon, #0ea5e9)' }};" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
                         @endif

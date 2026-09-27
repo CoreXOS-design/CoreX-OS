@@ -40,8 +40,14 @@ class PropertyAdTemplateController extends Controller
             ->pluck('name')
             ->all();
 
+        // Opened from the Template Manager (ad-manager.md §19): Back returns there instead of
+        // the properties list. A redirect hint only — honoured solely when it is exactly
+        // 'templates' AND the route exists; it grants nothing.
+        $fromTemplates = $request->query('from') === 'templates'
+            && \Illuminate\Support\Facades\Route::has('tools.ad-manager.templates');
+
         return view('corex.properties.ad-builder', compact(
-            'template', 'property', 'propertyData', 'propertyTypeOptions'
+            'template', 'property', 'propertyData', 'propertyTypeOptions', 'fromTemplates'
         ));
     }
 

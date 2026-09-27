@@ -160,7 +160,7 @@
         <div>
             {{-- View toggle --}}
             <div x-cloak class="flex items-center justify-end gap-2">
-                <div class="flex items-center gap-0.5 rounded-md" style="height: 2.25rem; padding: 0.125rem; background: var(--surface-2); border: 1px solid var(--border);">
+                <div class="flex items-center gap-0.5 rounded-md" data-tour="dp-templates-view-toggle" style="height: 2.25rem; padding: 0.125rem; background: var(--surface-2); border: 1px solid var(--border);">
                     <button @click="viewMode = 'grid'; localStorage.setItem('docuperfect_tpl_view', 'grid')"
                             :style="viewMode === 'grid' ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'color: var(--text-muted);'"
                             class="h-full px-2 rounded inline-flex items-center justify-center transition-all duration-300" title="Grid view">
@@ -245,7 +245,7 @@
                                 <button class="corex-btn-outline text-xs px-3 py-1.5">Archive</button>
                             </form>
                         @endif
-                        <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline ml-auto" onsubmit="return confirm('Permanently delete this template? This cannot be undone.');">
+                        <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline ml-auto" onsubmit="return confirm('Delete this template? It will be removed from your lists. Nothing is erased — it moves to Archived, where you can restore it yourself any time.');">
                             @csrf
                             @method('DELETE')
                             <button class="text-xs font-semibold transition-all duration-300 hover:opacity-80" style="color: var(--ds-crimson);">Delete</button>
@@ -332,7 +332,7 @@
                                                 <button class="corex-btn-outline text-xs px-2 py-1">Copy</button>
                                             </form>
                                         @endif
-                                        <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline" onsubmit="return confirm('Permanently delete?');">
+                                        <form method="POST" action="{{ route('docuperfect.templates.destroy', $tpl->id) }}" class="inline" onsubmit="return confirm('Delete this template? It will be removed from your lists. Nothing is erased — it moves to Archived, where you can restore it yourself any time.');">
                                             @csrf
                                             @method('DELETE')
                                             <button class="text-xs font-semibold px-2 py-1 transition-colors hover:opacity-80" style="color: var(--ds-crimson);">Delete</button>

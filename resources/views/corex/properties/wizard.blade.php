@@ -227,7 +227,7 @@
                 </div>
 
                 {{-- Street --}}
-                <div>
+                <div data-tour="wiz-street">
                     <div class="text-[0.6875rem] font-bold uppercase tracking-wider text-center py-1.5 rounded-t-md" style="background:var(--brand-default); color:#fff;">Street</div>
                     <div class="p-4 rounded-b-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border); border-top:0;">
                         <div>
@@ -306,7 +306,7 @@
             </div>
 
             {{-- Bedrooms / Bathrooms / Garages as steppers --}}
-            <div>
+            <div data-tour="wiz-rooms">
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Rooms</label>
                 <div class="grid grid-cols-3 gap-3">
                     @foreach([['beds', 'Bedrooms', '🛏'], ['baths', 'Bathrooms', '🚿'], ['garages', 'Garages', '🚗']] as [$key, $label, $emoji])
@@ -369,7 +369,7 @@
         <div class="p-6 space-y-4">
 
             {{-- Drop zone --}}
-            <label for="wizard-files"
+            <label for="wizard-files" data-tour="wiz-photos-drop"
                    @dragover.prevent="dragOver = true"
                    @dragleave.prevent="dragOver = false"
                    @drop.prevent="handleDrop($event)"
@@ -405,7 +405,7 @@
             {{-- Photo grid --}}
             <div x-show="photos.length" x-cloak class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 <template x-for="(photo, idx) in photos" :key="photo">
-                    <div class="relative group rounded-md overflow-hidden aspect-[4/3]" style="background:var(--surface-2);border:1px solid var(--border);"
+                    <div data-tour="wiz-photo" class="relative group rounded-md overflow-hidden aspect-[4/3]" style="background:var(--surface-2);border:1px solid var(--border);"
                          draggable="true"
                          @dragstart="dragIdx = idx"
                          @dragover.prevent
@@ -439,7 +439,7 @@
             <button type="button" @click="step = 1"
                     class="text-sm font-medium px-4 py-2 rounded-md"
                     style="background:transparent;color:var(--text-secondary);border:1px solid var(--border);">&larr; Back</button>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2" data-tour="wiz-photos-next">
                 <button type="button" @click="step = 3"
                         class="text-sm font-medium px-4 py-2 rounded-md"
                         style="background:transparent;color:var(--text-secondary);border:1px solid var(--border);">Skip for now</button>
@@ -454,7 +454,7 @@
     </section>
 
     {{-- STEP 3: DETAILS ─────────────────────────────────────────────── --}}
-    <section x-show="step === 3" x-cloak class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
+    <section x-show="step === 3" x-cloak data-tour="wiz-details" class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
         <header class="px-6 py-4" style="border-bottom:1px solid var(--border);">
             <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-default,#0b2a4a);">Step 3 &middot; Details</h3>
             <p class="text-xs mt-0.5" style="color:var(--text-muted);">Fill in what you have. You can always come back later.</p>
@@ -462,7 +462,7 @@
         <div class="p-6 space-y-5">
 
             {{-- Description --}}
-            <div>
+            <div data-tour="wiz-description">
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Description</label>
                 <textarea x-model="s3.description" rows="5"
                           placeholder="Tell buyers what makes this home special. Views, light, layout, outdoor space…"
@@ -472,7 +472,7 @@
             </div>
 
             {{-- Mandate (branch is auto-assigned to the creating user's branch) --}}
-            <div>
+            <div data-tour="wiz-mandate">
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Mandate</label>
                 <select x-model="s3.mandate_type"
                         class="w-full px-3 py-2.5 text-sm rounded-md outline-none"
@@ -502,7 +502,7 @@
             @endif
 
             {{-- Sizes --}}
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4" data-tour="wiz-sizes">
                 <div>
                     <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Floor size (m²)</label>
                     <input type="number" x-model.number="s3.size_m2" min="0"
@@ -539,7 +539,7 @@
             <button type="button" @click="step = 2"
                     class="text-sm font-medium px-4 py-2 rounded-md"
                     style="background:transparent;color:var(--text-secondary);border:1px solid var(--border);">&larr; Back</button>
-            <button type="button" @click="submitStep3()"
+            <button type="button" @click="submitStep3()" data-tour="wiz-details-continue"
                     :disabled="loading"
                     class="inline-flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold text-white shadow-lg transition-all duration-300"
                     style="background:var(--brand-button,#0ea5e9);">
@@ -551,7 +551,7 @@
     </section>
 
     {{-- STEP 4: REVIEW ──────────────────────────────────────────────── --}}
-    <section x-show="step === 4" x-cloak class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
+    <section x-show="step === 4" x-cloak data-tour="wiz-review" class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
         <header class="px-6 py-4" style="border-bottom:1px solid var(--border);">
             <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--brand-default,#0b2a4a);">Step 4 &middot; Review</h3>
             <p class="text-xs mt-0.5" style="color:var(--text-muted);">Take a look. Publish when ready — or save as draft and finish later.</p>
@@ -559,7 +559,7 @@
         <div class="p-6 space-y-5">
 
             {{-- Readiness checklist --}}
-            <div>
+            <div data-tour="wiz-checklist">
                 <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Ready to publish?</div>
                 <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <template x-for="item in checklist" :key="item.key">
@@ -613,7 +613,7 @@
             <button type="button" @click="step = 3"
                     class="text-sm font-medium px-4 py-2 rounded-md"
                     style="background:transparent;color:var(--text-secondary);border:1px solid var(--border);">&larr; Back</button>
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-2 flex-wrap" data-tour="wiz-finish">
                 <button type="button" @click="finalize(false)"
                         :disabled="loading"
                         class="text-sm font-medium px-4 py-2 rounded-md"

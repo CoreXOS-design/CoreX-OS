@@ -692,7 +692,7 @@ class PropertyIntelligenceService
 
         $mds             = app(\App\Services\MarketDataSnapshotService::class);
         $comparableSales = $mds->getComparableSales($propertyId);
-        $areaAvg         = $mds->calculateAreaAverages($property->suburb);
+        $areaAvg         = $mds->calculateAreaAverages($property->suburb, $property->agency_id);
         $recommend       = $mds->calculateRecommendedPrice($property, $comparableSales);
 
         // Property-level comparable count = the canonical coverage union

@@ -101,7 +101,7 @@
             @endunless
             @if(!empty($sortBy ?? null))<input type="hidden" name="sort" value="{{ $sortBy }}">@endif
             @if(!empty($sortDir ?? null))<input type="hidden" name="dir" value="{{ $sortDir }}">@endif
-            <input type="text" name="q" value="{{ $search ?? '' }}" placeholder="Search name, phone or email…"
+            <input type="text" name="q" data-tour="buyers-search" value="{{ $search ?? '' }}" placeholder="Search name, phone or email…"
                    class="flex-1 min-w-[200px] px-3 py-1.5 rounded-md text-sm"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             <select name="state" onchange="this.form.submit()" class="px-3 py-1.5 rounded-md text-xs"
@@ -131,7 +131,7 @@
             <input type="date" name="entered_to" value="{{ $enteredTo ?? '' }}"
                    class="px-2 py-1.5 rounded-md text-xs" title="Entered pipeline on/before"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            <button type="submit" class="corex-btn-outline text-xs">Search</button>
+            <button type="submit" data-tour="buyers-search-btn" class="corex-btn-outline text-xs">Search</button>
             @if(($search ?? '') !== '' || !empty($stateFilter ?? null) || !empty($agentFilter ?? null))
                 <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'lead_type'), [])) }}"
                    class="text-xs no-underline" style="color: var(--text-muted);">Clear</a>
@@ -174,7 +174,7 @@
 
     @if($view === 'kanban')
         {{-- Kanban View (drag-drop enabled) --}}
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:flex-1 md:min-h-0" x-data="kanbanDrag()">
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 md:flex-1 md:min-h-0" x-data="kanbanDrag()" data-tour="buyers-board">
             @foreach(['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold', 'lost' => 'Lost'] as $stateKey => $stateLabel)
                 @php
                     $stateColour = match($stateKey) {
@@ -299,7 +299,7 @@
                 };
                 $sortArrow = fn (string $col) => ($sortBy ?? null) === $col ? (($sortDir ?? 'desc') === 'asc' ? '↑' : '↓') : '';
             @endphp
-            <table class="min-w-full text-sm ds-table">
+            <table class="min-w-full text-sm ds-table" data-tour="buyers-list">
                 <thead>
                     <tr style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">

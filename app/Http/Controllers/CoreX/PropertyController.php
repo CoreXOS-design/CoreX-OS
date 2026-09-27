@@ -158,9 +158,13 @@ class PropertyController extends Controller
         // AT-419 — the two pages partition every property between them: Imported
         // Stock gets P24-imported off-market rows, Properties gets everything
         // else (including active imported stock, unchanged).
+        // AT-422 — the one exception: a typed search on Properties looks across both,
+        // so a user hunting for a specific property doesn't have to repeat it on the
+        // Imported Stock page. Those rows carry the "Imported" tag in the view. No
+        // search term = the default partition above, unchanged.
         if ($importedStock) {
             $query->importedOffMarket();
-        } else {
+        } elseif ($search === '') {
             $query->excludingImportedOffMarket();
         }
 
@@ -224,6 +228,13 @@ class PropertyController extends Controller
         }
 
         if ($search !== '') {
+            // AT-422 — a search on Properties also lists imported off-market stock, and that
+            // always comes AFTER live / non-imported properties whatever sort is picked. It
+            // must be the first ORDER BY key, ahead of the "own listings first" rule below.
+            if (! $importedStock) {
+                $query->importedLast();
+            }
+
             // AT-394 — the viewer's OWN listings sort first, ahead of everything else (including
             // whatever sort the user picked below) — a widened search mixes in colleagues'
             // listings, and the agent's own book is what they're most likely looking for. "Own"
@@ -469,9 +480,14 @@ class PropertyController extends Controller
 
         // Sort by marketing_status (derived — PHP sort, current page only)
         if ($sort === 'marketing_status') {
-            $properties->setCollection(
-                $properties->getCollection()->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc')->values()
-            );
+            $sorted = $properties->getCollection()->sortBy('marketing_status', SORT_REGULAR, $dir === 'desc');
+            // AT-422 — this PHP re-sort would otherwise mix imported rows back in among live
+            // ones on a search page. Stable second pass (PHP >= 8.0) keeps imported stock last
+            // while preserving the marketing-status order inside each group.
+            if ($search !== '' && ! $importedStock) {
+                $sorted = $sorted->sortBy(fn ($p) => $p->isImportedStock() ? 1 : 0);
+            }
+            $properties->setCollection($sorted->values());
         }
 
         // AT-188 — the current agent's own unpublished drafts, newest first.
@@ -1313,6 +1329,17 @@ class PropertyController extends Controller
         $priceRequired = ! $isDraftSave && ! $isRental;     // sale price — a completed SALE
         $bbRequired    = ! $isDraftSave && $needsBedsBaths; // beds/baths/garages — a completed RESIDENTIAL listing
 
+        // AT-422 — Imported Stock turns into a normal, new-looking listing when a user changes
+        // its status, expiry date or listed date (decided further down, after validation).
+        // Its own imported dates are meaningless, so a typed expiry date is validated against
+        // TODAY — the listed date it will get if this save takes it over. That stand-in is
+        // only for validation; it is stripped again below unless the listing is taken over.
+        $wasImportedStock    = $property->isImportedStock();
+        $importedListedInput = $request->filled('listed_date') ? (string) $request->input('listed_date') : null;
+        if ($wasImportedStock && $importedListedInput === null) {
+            $request->merge(['listed_date' => now()->toDateString()]);
+        }
+
         $data = $request->validate([
             'title'            => 'required|string|max:200',
             'excerpt'          => 'nullable|string|max:500',
@@ -1564,6 +1591,34 @@ class PropertyController extends Controller
         foreach (['price', 'beds', 'baths', 'garages', 'suburb', 'agent_id'] as $notNullField) {
             if (array_key_exists($notNullField, $data) && $data[$notNullField] === null) {
                 unset($data[$notNullField]);
+            }
+        }
+
+        // AT-422 — a user changing the status, expiry date or listed date of Imported Stock
+        // takes the listing over: Listed Date and Loaded become today, the Imported tag goes,
+        // and Expiry Date is the date they typed, else blank (a new listing's agent sets it).
+        // Anything else on the form (description, price, photos…) leaves it imported. The
+        // status is compared normalised (case / spaces) so an unchanged save never counts.
+        if ($wasImportedStock) {
+            $normStatus = static fn ($v): string => strtolower(str_replace(' ', '_', trim((string) $v)));
+            $toDate     = static fn ($v): ?string => ($v === null || $v === '') ? null : \Illuminate\Support\Carbon::parse($v)->toDateString();
+
+            $statusChanged = array_key_exists('status', $data)
+                && $normStatus($data['status']) !== $normStatus($property->status);
+            $expiryChanged = array_key_exists('expiry_date', $data)
+                && $toDate($data['expiry_date']) !== $property->expiry_date?->toDateString();
+            $listedChanged = $importedListedInput !== null
+                && $toDate($importedListedInput) !== ($property->listed_date ?? $property->created_at)?->toDateString();
+
+            if ($statusChanged || $expiryChanged || $listedChanged) {
+                $new = $property->newListingAttributes($expiryChanged ? $toDate($data['expiry_date']) : null);
+                // created_at / imported_released_at are not mass-assignable; forceFill rides the
+                // same save (and the same audit-trail entry) as the rest of the edit.
+                $property->forceFill(['created_at' => $new['created_at'], 'imported_released_at' => $new['imported_released_at']]);
+                $data['listed_date'] = $new['listed_date'];
+                $data['expiry_date'] = $new['expiry_date'];
+            } else {
+                unset($data['listed_date']);   // only ever merged in for validation
             }
         }
 

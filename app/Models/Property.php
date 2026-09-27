@@ -239,6 +239,7 @@ class Property extends Model
 
         return $query->where(function ($q) use ($placeholders, $statuses) {
             $q->whereNull('p24_imported_at')
+              ->orWhereNotNull('imported_released_at')   // AT-422 — a user has taken it over
               ->orWhereRaw("LOWER(status) NOT IN ($placeholders)", $statuses);
         });
     }
@@ -255,7 +256,62 @@ class Property extends Model
         $placeholders = implode(',', array_fill(0, count($statuses), '?'));
 
         return $query->whereNotNull('p24_imported_at')
+            ->whereNull('imported_released_at')   // AT-422 — released rows are ordinary properties
             ->whereRaw("LOWER(status) IN ($placeholders)", $statuses);
+    }
+
+    /**
+     * AT-422 — orders imported off-market stock AFTER everything else. Used by the
+     * Properties search, which now lists both: live and non-imported properties
+     * must always come first, imported stock after them. Meant to be the FIRST
+     * ORDER BY key so no later sort can pull an imported row above a live one, and
+     * — being SQL — it holds across pages, not just within one. Same status set
+     * and casing rule as the two scopes above.
+     */
+    public function scopeImportedLast($query)
+    {
+        $statuses = self::importedStockStatuses();
+        $placeholders = implode(',', array_fill(0, count($statuses), '?'));
+
+        return $query->orderByRaw(
+            "CASE WHEN p24_imported_at IS NOT NULL AND imported_released_at IS NULL AND LOWER(status) IN ($placeholders) THEN 1 ELSE 0 END",
+            $statuses
+        );
+    }
+
+    /**
+     * AT-422 — instance mirror of scopeImportedOffMarket(): true when this row is
+     * P24-imported stock that has gone off-market. Drives the "Imported" tag on the
+     * Properties list, where a typed search now surfaces these rows alongside
+     * everything else. Same single source of truth as the scope (importedStockStatuses(),
+     * case-insensitive) so the tag can never drift from what Imported Stock lists.
+     */
+    public function isImportedStock(): bool
+    {
+        return $this->p24_imported_at !== null
+            && $this->imported_released_at === null
+            && in_array(strtolower((string) $this->status), self::importedStockStatuses(), true);
+    }
+
+    /**
+     * AT-422 — the attributes that turn an imported listing into a normal, new-looking
+     * one. Applied when a user changes the status, expiry date or listed date of
+     * Imported Stock (PropertyController::update): Listed Date and Loaded become today,
+     * the Imported tag goes (imported_released_at), and Expiry Date is whatever the
+     * user typed — or blank when they didn't, exactly like a brand-new listing where
+     * the agent still has to set the mandate expiry. p24_imported_at is left alone: it
+     * stays the permanent record of when the listing was imported.
+     *
+     * @return array{listed_date:string, expiry_date:?string, created_at:\Illuminate\Support\Carbon, imported_released_at:\Illuminate\Support\Carbon}
+     */
+    public function newListingAttributes(?string $userExpiryDate): array
+    {
+        return [
+            'listed_date'          => now()->toDateString(),
+            'expiry_date'          => $userExpiryDate,
+            'created_at'           => now(),
+            'imported_released_at' => now(),
+        ];
     }
 
     /**
@@ -727,6 +783,7 @@ class Property extends Model
         'spaces_json'         => 'array',
         'published_at'        => 'datetime',
         'p24_imported_at'      => 'datetime',
+        'imported_released_at' => 'datetime',
         'price'               => 'integer',
         'price_on_application' => 'boolean',
         'has_deposit'         => 'boolean',

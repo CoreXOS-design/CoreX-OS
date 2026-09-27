@@ -167,6 +167,14 @@
                 </div>
             </template>
 
+            {{-- AT-423 — archiving the One email shared inbox: sub-users keep working and their
+                 mail still goes to that address; the admin is told before confirming. --}}
+            <template x-if="!loading && !error && sharedInboxNotice">
+                <div class="text-sm p-3 rounded-md"
+                     style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);"
+                     x-text="sharedInboxNotice"></div>
+            </template>
+
             {{-- Historic stock — opt-in, off by default. AT-118's default keeps sold/withdrawn/
                  expired/draft stock attributed to the departing agent as their track record; this
                  checkbox is for the case where the successor is meant to inherit the FULL book. --}}
@@ -261,6 +269,7 @@ function agentDeleteModal() {
         userId: null,
         userName: '',
         counts: null,
+        sharedInboxNotice: null,
         targets: [],
         targetUserId: '',
         secondaryHandling: 'promote',
@@ -288,6 +297,7 @@ function agentDeleteModal() {
             this.userId = userId;
             this.userName = userName || 'this agent';
             this.counts = null;
+            this.sharedInboxNotice = null;
             this.targets = [];
             this.targetUserId = '';
             this.secondaryHandling = 'promote';
@@ -304,6 +314,7 @@ function agentDeleteModal() {
                 .then(({ ok, body }) => {
                     if (!ok) { this.error = body.error || 'Failed to load preview.'; return; }
                     this.counts = body.counts;
+                    this.sharedInboxNotice = body.shared_inbox_notice || null;
                     this.targets = body.targets;
                 })
                 .catch(() => { this.error = 'Network error loading preview.'; })

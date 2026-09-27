@@ -39,7 +39,7 @@
                    style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
         </div>
 
-        <select name="channel" onchange="this.form.submit()" class="list-header-filter">
+        <select name="channel" onchange="this.form.submit()" class="list-header-filter" data-tour="comms-triage-channel">
             <option value="" {{ ($filters['channel'] ?? '') === '' ? 'selected' : '' }}>All channels</option>
             @foreach(($channels ?? []) as $ch)
                 <option value="{{ $ch }}" {{ ($filters['channel'] ?? '') === $ch ? 'selected' : '' }}>{{ ucfirst($ch) }}</option>
@@ -136,7 +136,7 @@
     {{-- Add-contact modal (reuses the standard contact-create fields, prefilled from the identifier) --}}
     <div x-show="showAdd" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
         <div class="rounded-md w-full max-w-md" style="background: var(--surface); border:1px solid var(--border);" @click.outside="showAdd=false">
-            <form method="POST" action="{{ route('communications.triage.add-contact') }}">
+            <form method="POST" action="{{ route('communications.triage.add-contact') }}" data-tour="comms-triage-add-form">
                 @csrf
                 <input type="hidden" name="identifier" :value="identifier">
                 <div class="px-5 py-4" style="border-bottom:1px solid var(--border);">
@@ -164,7 +164,7 @@
                 </div>
                 <div class="px-5 py-3 flex items-center justify-end gap-3" style="border-top:1px solid var(--border);">
                     <button type="button" @click="showAdd=false" class="corex-btn-outline">Cancel</button>
-                    <button type="submit" class="corex-btn-primary">Add &amp; Archive</button>
+                    <button type="submit" class="corex-btn-primary" data-tour="comms-triage-add-save">Add &amp; Archive</button>
                 </div>
             </form>
         </div>

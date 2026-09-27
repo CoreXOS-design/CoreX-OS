@@ -252,7 +252,7 @@ function propertyPickerCollision(init) {
         statuses: init.statuses || {},
         agentNames: init.agentNames || {},
         currentPropertyId: init.currentPropertyId,
-        onPickerChange(newPropertyId) {
+        onPickerChange(newPropertyId, pickerEl = null) {
             const status = this.statuses[String(newPropertyId)]
                        ?? this.statuses[Number(newPropertyId)]
                        ?? 'available';
@@ -265,15 +265,11 @@ function propertyPickerCollision(init) {
                     + 'Are you sure you want to use this property?'
                 );
                 if (!ok) {
-                    // Roll the dropdown back to the previously-selected property.
-                    const sel = document.querySelector('select[data-property-picker], select');
-                    // Native select reset — find the option for currentPropertyId
-                    // and re-select it without firing change.
-                    const selects = document.querySelectorAll('select');
-                    selects.forEach(s => {
-                        const opt = s.querySelector('option[value="' + this.currentPropertyId + '"]');
-                        if (opt) s.value = String(this.currentPropertyId);
-                    });
+                    // Roll ONLY the property picker back to the previously-selected
+                    // property (setting .value fires no change event). Every other
+                    // dropdown on the page — template, channel — keeps its choice;
+                    // resetting all <select>s matching the id clobbered them.
+                    if (pickerEl) pickerEl.value = this.currentPropertyId == null ? '' : String(this.currentPropertyId);
                     return;
                 }
             }

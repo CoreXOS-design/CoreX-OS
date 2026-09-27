@@ -10,7 +10,6 @@ class P24AgentsCsvParser
     public function parse(string $path): array
     {
         $rows = [];
-        $seenEmails = [];
         $handle = fopen($path, 'r');
         if ($handle === false) {
             throw new \RuntimeException("Cannot open agents CSV: {$path}");
@@ -30,17 +29,11 @@ class P24AgentsCsvParser
             if (!is_numeric($agentId)) {
                 $errors[] = 'Invalid AgentId';
             }
+            // AT-423 (importer.md §15) — a missing, malformed or repeated email is no longer a
+            // row ERROR (which silently left the agent out of the import). The row goes through;
+            // ImporterController marks it "Choose who this is" and the admin links it to a
+            // person or skips it.
             $email = trim((string)($raw['EmailAddress'] ?? ''));
-            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                $errors[] = 'Invalid or missing EmailAddress';
-            } else {
-                $lower = strtolower($email);
-                if (isset($seenEmails[$lower])) {
-                    $errors[] = "Duplicate email in file: {$email}";
-                } else {
-                    $seenEmails[$lower] = true;
-                }
-            }
 
             $name = trim(($raw['Firstname'] ?? '') . ' ' . ($raw['Lastname'] ?? ''));
             $mapped = [

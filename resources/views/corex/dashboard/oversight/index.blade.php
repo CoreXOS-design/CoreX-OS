@@ -105,10 +105,10 @@
                                 </td>
                                 <td class="px-4 py-3 text-right">
                                     @if($canManage)
-                                        <button type="button" @click="openNudge = true" class="text-xs font-semibold" style="color: var(--brand-icon);">Nudge</button>
+                                        <button type="button" @click="openNudge = true" data-tour="cc-oversight-nudge" class="text-xs font-semibold" style="color: var(--brand-icon);">Nudge</button>
 
                                         <div x-show="openNudge" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="openNudge = false" @keydown.escape.window="openNudge = false">
-                                            <form method="POST" action="{{ route('corex.dashboard.oversight.nudge') }}"
+                                            <form method="POST" action="{{ route('corex.dashboard.oversight.nudge') }}" data-tour="cc-oversight-nudge-form"
                                                   class="rounded-md p-6 w-full max-w-md"
                                                   style="background: var(--surface); border: 1px solid var(--border);">
                                                 @csrf
@@ -124,7 +124,7 @@
                                                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">Hi {{ $row['agent_name'] }}, please action this {{ ucwords(str_replace('_', ' ', $row['category'])) }}: {{ $row['summary'] }}</textarea>
                                                 <div class="mt-4 flex justify-end gap-2">
                                                     <button type="button" @click="openNudge = false" class="corex-btn-outline">Cancel</button>
-                                                    <button type="submit" class="corex-btn-primary">Send Nudge</button>
+                                                    <button type="submit" class="corex-btn-primary" data-tour="cc-oversight-nudge-send">Send Nudge</button>
                                                 </div>
                                             </form>
                                         </div>

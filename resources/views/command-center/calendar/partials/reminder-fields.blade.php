@@ -24,7 +24,7 @@
     $leadOptions = ($reminderLeadOptions ?? [0, 5, 10, 15, 30, 60, 120, 1440]);
 @endphp
 
-<div class="pt-1">
+<div class="pt-1" data-tour="cal-event-reminder">
     {{-- Deterministic POST payload (independent of checkbox submit semantics). --}}
     <input type="hidden" name="send_reminder"  :value="form.sendReminder ? 1 : 0">
     <input type="hidden" name="reminder_offset" :value="form.reminderOffset">

@@ -470,7 +470,7 @@
 
     {{-- ===== AWAITING SIGNATURES ===== --}}
     @if($groups['awaiting']->isNotEmpty())
-    <div id="section-awaiting" class="space-y-3 scroll-mt-4">
+    <div id="section-awaiting" class="space-y-3 scroll-mt-4" data-tour="dp-esign-my-docs-awaiting">
         <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--ds-amber);">Awaiting Signatures</h3>
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto">

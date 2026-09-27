@@ -42,7 +42,7 @@
                     <h4 class="text-xs font-bold uppercase mb-2" style="color:var(--text-muted); letter-spacing:0.05em;">Leave Details</h4>
                     <dl class="space-y-1.5 text-xs">
                         <div class="flex justify-between"><dt style="color:var(--text-muted);">Type</dt><dd class="font-semibold" style="color:var(--text-primary);">{{ $application->leaveType->label ?? '-' }}</dd></div>
-                        <div class="flex justify-between"><dt style="color:var(--text-muted);">Period</dt><dd style="color:var(--text-primary);">{{ $application->start_date?->format('d M') }} â€” {{ $application->end_date?->format('d M Y') }}</dd></div>
+                        <div class="flex justify-between"><dt style="color:var(--text-muted);">Period</dt><dd style="color:var(--text-primary);">{{ $application->start_date?->format('d M') }} — {{ $application->end_date?->format('d M Y') }}</dd></div>
                         <div class="flex justify-between"><dt style="color:var(--text-muted);">Working Days</dt><dd class="font-semibold" style="color:var(--text-primary);">{{ number_format($application->working_days_requested, 1) }}</dd></div>
                         <div class="flex justify-between"><dt style="color:var(--text-muted);">Calendar Days</dt><dd style="color:var(--text-primary);">{{ $application->calendar_days_requested }}</dd></div>
                         @if($application->is_half_day)
@@ -141,7 +141,7 @@
                         <ul class="space-y-1">
                             @foreach($conflicts as $c)
                                 <li class="text-xs" style="color:var(--text-primary);">
-                                    {{ $c->user->name ?? '?' }} â€” {{ $c->leaveType->label ?? '?' }} ({{ number_format($c->working_days_requested, 1) }} days)
+                                    {{ $c->user->name ?? '?' }} — {{ $c->leaveType->label ?? '?' }} ({{ number_format($c->working_days_requested, 1) }} days)
                                 </li>
                             @endforeach
                         </ul>
