@@ -300,10 +300,10 @@
                             <span x-text="obs.condition + (obs.notes ? ' — ' + obs.notes : '')"></span>
                         </label>
                     </template>
-                    <button type="button" :disabled="discBusy[discrepancy.id] || !discField(discrepancy.id).accepted_observation_id"
+                    <button type="button" :disabled="isDiscBusy(discrepancy.id) || !discField(discrepancy.id).accepted_observation_id"
                             @click="resolveDiscrepancy({{ $sectionJs }}, discrepancy)"
                             class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--ds-crimson);"
-                            x-text="discBusy[discrepancy.id] ? 'Resolving…' : 'Resolve'"></button>
+                            x-text="isDiscBusy(discrepancy.id) ? 'Resolving…' : 'Resolve'"></button>
                 </div>
             </div>
         </template>
@@ -564,18 +564,18 @@
                              is worse than not showing it. --}}
                         <template x-if="group.room && roomProgress({{ $sectionJs }}, group).recorded < roomProgress({{ $sectionJs }}, group).total">
                             <div class="flex items-center gap-1">
-                                <button type="button" :disabled="markGoodBusy[group.room?.id]"
+                                <button type="button" :disabled="isMarkGoodBusy(group.room?.id)"
                                         @click="markRoomGood({{ $sectionJs }}, group.room)"
                                         class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
-                                        x-text="markGoodBusy[group.room?.id] ? 'Marking…' : 'All Good'"></button>
+                                        x-text="isMarkGoodBusy(group.room?.id) ? 'Marking…' : 'All Good'"></button>
                                 {{-- §17, Johan on Retha's real paper form: "she
                                      strikes ENTIRE ROOMS out with one big N/A."
                                      Only offered when N/A is actually one of
                                      the agency's configured condition states. --}}
-                                <button type="button" x-show="hasNaConditionState()" :disabled="markNaBusy[group.room?.id]"
+                                <button type="button" x-show="hasNaConditionState()" :disabled="isMarkNaBusy(group.room?.id)"
                                         @click="markRoomNa({{ $sectionJs }}, group.room)"
                                         class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
-                                        x-text="markNaBusy[group.room?.id] ? 'Marking…' : 'Mark room N/A'"></button>
+                                        x-text="isMarkNaBusy(group.room?.id) ? 'Marking…' : 'Mark room N/A'"></button>
                             </div>
                         </template>
                     </div>

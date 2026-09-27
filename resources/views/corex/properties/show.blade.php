@@ -6184,8 +6184,31 @@
                         : ((this.conditionForInspection(insp, this.compareViewer.itemId) || {}).photos || []);
                     return (photos || []).filter(p => p && p.storage_path);
                 },
+                // §24.11, AT-433 Part B follow-up, 2026-09-27 — pairs first
+                // (in pair order), then unmatched, each labelled with the
+                // side it came from by which rail it sits in (each rail is
+                // already under its own "IN"/"CURRENT" pane header, §20.17.3
+                // — no separate label needed here). Shares pairedRows() with
+                // the strip's own pairedStripRows() rather than a second
+                // ordering implementation; works for room-kind AND item-kind
+                // for free, since compareViewerPhotosForSide() already
+                // branches on that. Filtering out the null half of each row
+                // is enough — the viewer's two rails are independent
+                // scrollable lists, not a fixed two-column grid like the
+                // strip, so there is no "NO MATCH" placeholder tile to
+                // render here. openCompareViewer(photo, insp) itself is
+                // untouched — nothing here calls or modifies it.
+                compareViewerPairedRows() {
+                    return this.pairedRows(
+                        this.compareViewerPhotosForSide('left'),
+                        this.compareViewerPhotosForSide('right'),
+                    );
+                },
                 compareViewerCarouselPhotos(side) {
-                    return this.compareViewer.open ? this.compareViewerPhotosForSide(side) : [];
+                    if (!this.compareViewer.open) return [];
+                    return this.compareViewerPairedRows()
+                        .map(row => side === 'left' ? row.predecessorPhoto : row.tailPhoto)
+                        .filter(Boolean);
                 },
                 compareViewerPhotoById(id) {
                     if (!id) return null;
@@ -7465,9 +7488,19 @@
                 // UNCHANGED; `index` is still a stable per-row position, it
                 // is just computed from real pairs now, not from raw array
                 // order.
-                pairedStripRows(item) {
-                    const predPhotos = this.itemPhotosForInspection(this.chainPredecessor, item.id);
-                    const tailPhotos = this.itemPhotosFor(this.tailSection(), item);
+                // §24.11, AT-433 Part B follow-up, 2026-09-27 — extracted
+                // out of pairedStripRows() (unchanged below it) into a
+                // photo-array-agnostic core so the compare viewer's carousel
+                // (compareViewerPairedRows()) can share the exact same,
+                // already-proven ordering instead of a second
+                // reimplementation. Takes two already-resolved photo arrays
+                // — item-scoped or room-scoped, it doesn't care which —
+                // returns pairs first (by group id, insertion order), then
+                // every remaining photo on either side interleaved so
+                // neither side is ever starved. Every photo in EITHER input
+                // array appears in EXACTLY one output row: pairing only ever
+                // reorders, never hides (the rule that broke twice, §24).
+                pairedRows(predPhotos, tailPhotos) {
                     const predById = new Map(predPhotos.map(p => [p.id, p]));
                     const tailById = new Map(tailPhotos.map(p => [p.id, p]));
                     const usedPred = new Set();
@@ -7512,6 +7545,14 @@
                     }
 
                     return rows.map((row, index) => ({ ...row, index }));
+                },
+                // Item-level wrapper — unchanged behaviour, now a one-line
+                // call into the shared core above.
+                pairedStripRows(item) {
+                    return this.pairedRows(
+                        this.itemPhotosForInspection(this.chainPredecessor, item.id),
+                        this.itemPhotosFor(this.tailSection(), item),
+                    );
                 },
                 stripPairCount(item) {
                     return this.pairedStripRows(item).length;
@@ -7663,6 +7704,21 @@
                 // earlier observation on the same item still raises a real
                 // discrepancy, exactly as it should.
                 markNaBusy: {},
+                // FIX, 2026-09-27 (Johan, cc5 live-browser report, property
+                // 5792) — same class as isObsBusy() above (2026-09-22) and
+                // rental-click-through.mjs's own documented 2026-09-15
+                // incident: `:disabled="markNaBusy[group.room?.id]"` read a
+                // key directly in the template before any room had ever
+                // triggered mark-N/A, so the value was `undefined`, not
+                // `false` — and a boolean-attribute binding backed by
+                // `undefined` resolves through `Element.toggleAttribute(name,
+                // force)` with `force` OMITTED, which just flips the
+                // attribute's current presence instead of forcing it false.
+                // The button started disabled on every fresh load and had no
+                // way to ever become enabled by itself. Coercing to a real
+                // boolean here is the fix, not a workaround — the third time
+                // this exact root cause has shipped in this file.
+                isMarkNaBusy(roomId) { return !!this.markNaBusy[roomId]; },
                 async markRoomNa(section, room) {
                     if (!window.confirm(`Mark every item in "${room.label}" as N/A for this inspection?`)) return;
                     const insp = this.currentInspection(section);
@@ -7682,6 +7738,12 @@
                 // observation is: recording a different condition on that
                 // item afterward simply becomes the new current fact.
                 markGoodBusy: {},
+                // FIX, 2026-09-27 — the confirmed-dead control (Johan, cc5
+                // live-browser report, property 5792): three real click
+                // attempts did nothing, markRoomGood() itself returned 200
+                // when called directly. Same root cause as isMarkNaBusy()
+                // above — see its own comment for the exact mechanism.
+                isMarkGoodBusy(roomId) { return !!this.markGoodBusy[roomId]; },
                 async markRoomGood(section, room) {
                     const insp = this.currentInspection(section);
                     if (!insp) return;
@@ -7776,6 +7838,16 @@
                 lifecycleError: '',
                 discForm: {},
                 discBusy: {},
+                // FIX, 2026-09-27 — same root cause as isMarkGoodBusy()/
+                // isMarkNaBusy() above, on the sibling state right next to
+                // discForm's own already-wrapped discField() accessor:
+                // discBusy was read via a raw `discBusy[discrepancy.id]`
+                // bracket lookup directly in :disabled, always `undefined`
+                // until a discrepancy had been resolved once. Confirmed by
+                // reading, not assumed identical — same "populated only
+                // imperatively inside an async handler, read via inline
+                // bracket lookup inside an x-for" shape as the other two.
+                isDiscBusy(discrepancyId) { return !!this.discBusy[discrepancyId]; },
                 discField(discrepancyId) {
                     return this.discForm[discrepancyId] || (this.discForm[discrepancyId] = { accepted_observation_id: null, resolution_note: '' });
                 },
