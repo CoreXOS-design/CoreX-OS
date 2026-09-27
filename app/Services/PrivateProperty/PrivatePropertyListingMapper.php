@@ -9,6 +9,26 @@ use App\Services\Images\PropertyImageGuard;
 use App\Services\Syndication\Concerns\ResolvesPropertyFeatures;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * AT-432 Phase 5 note — .ai/specs/auctions.md §14.1a — PP's
+ * `ListingAuctionDetailsUpdate` SOAP operation (the ONLY place auction
+ * date/venue exist on PP; there is no scalar auction field on the main
+ * submit payload at all) is deliberately NOT called from this mapper.
+ * Its `AuctionVenueId` (int) must match one of PP's own pre-registered
+ * venues for the branch — resolved via `VenueDetailsGet`/
+ * `ArrayOfAuctionVenues` — and CoreX's free-text `auctions.venue_name`
+ * has no mapping onto that today. The operation also carries raw
+ * `ReservePrice`, which would need its own disclosure-policy decision
+ * before ever reaching a third party, independent of the venue question.
+ * This is a real, separate integration (PP-side venue registration + a
+ * venue match-or-flag UI + a reserve-disclosure decision), not a
+ * mapper-level field addition — already flagged "niche" in
+ * .ai/audits/2026-07-07-portal-data-gap-analysis.md:44. `map()` below
+ * wires the one thing that IS a plain mapper fix — the
+ * MandateType::AuctionOnly flip — so an on-auction property at least
+ * reaches PP correctly flagged as an auction; date/venue detail on PP
+ * remains a documented gap pending that separate integration.
+ */
 class PrivatePropertyListingMapper
 {
     use ResolvesPropertyFeatures;
@@ -48,7 +68,7 @@ class PrivatePropertyListingMapper
         $cfg         = PrivatePropertyConfig::forProperty($property);
         $branchGuid  = $cfg['branch_guid'];
         $category    = self::resolvePpCategory($property);
-        $mandateType = $this->mapMandateType($property->mandate_type);
+        $mandateType = self::resolveMandateType($property);
         $listingType = self::resolveListingType($property);
         $status      = $this->mapPropertyStatus($property, $listingType);
 
@@ -707,6 +727,20 @@ class PrivatePropertyListingMapper
         ];
 
         return $map[strtolower($category ?? '')] ?? 'Residential';
+    }
+
+    /**
+     * AT-432 Phase 5 — .ai/specs/auctions.md §14.1a. `sale_method` is
+     * orthogonal to `mandate_type` (sole/open/dual) — an on-auction
+     * property still carries whichever of those it had before going to
+     * auction. PP signals auction via a dedicated MandateType value
+     * (AuctionOnly, wsdl :141), not a status, so this takes priority over
+     * whatever mandate_type happens to be set, exactly as `isAuction()` is
+     * the single source of truth everywhere else (Property::isAuction()).
+     */
+    public static function resolveMandateType(Property $property): string
+    {
+        return $property->isAuction() ? 'AuctionOnly' : (new self())->mapMandateType($property->mandate_type);
     }
 
     private function mapMandateType(?string $mandateType): string

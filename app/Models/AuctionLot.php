@@ -113,6 +113,17 @@ class AuctionLot extends Model
         return $this->hasMany(AuctionLotStatusHistory::class)->orderByDesc('created_at');
     }
 
+    public function viewings(): HasMany
+    {
+        return $this->hasMany(AuctionLotViewing::class)->orderBy('starts_at');
+    }
+
+    /** §14.4 — the public lot page shows only viewings that haven't already ended. */
+    public function upcomingViewings(): HasMany
+    {
+        return $this->viewings()->where('ends_at', '>=', now());
+    }
+
     public function isConcluded(): bool
     {
         return in_array($this->status, self::CONCLUDED_STATUSES, true);

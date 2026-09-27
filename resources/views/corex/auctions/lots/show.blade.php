@@ -112,6 +112,54 @@
     @endif
 
     <div>
+        <h2 class="font-medium mb-2">Viewings — §5.6</h2>
+        <p class="text-sm text-gray-500 mb-2">Scheduled viewing windows before the sale. Published viewings appear on the calendar and, once live, the public lot page.</p>
+        <table class="w-full text-sm border-collapse mb-3">
+            <thead><tr class="text-left text-gray-500 border-b"><th class="py-1">Starts</th><th>Ends</th><th>Type</th><th>Notes</th><th>Agent</th><th></th></tr></thead>
+            <tbody>
+                @forelse($lot->viewings as $viewing)
+                <tr class="border-b">
+                    <td class="py-1">{{ $viewing->starts_at->format('d M Y H:i') }}</td>
+                    <td>{{ $viewing->ends_at->format('H:i') }}</td>
+                    <td>{{ $viewing->is_by_appointment ? 'By appointment' : 'Open' }}</td>
+                    <td>{{ $viewing->notes ?? '—' }}</td>
+                    <td>{{ $viewing->agent?->name ?? '—' }}</td>
+                    <td>
+                        @permission('auctions.edit')
+                        <form method="POST" action="{{ route('corex.auctions.lots.viewings.destroy', [$lot, $viewing]) }}" onsubmit="return confirm('Remove this viewing?')">
+                            @csrf @method('DELETE')
+                            <button type="submit" class="text-xs text-red-600 underline">Remove</button>
+                        </form>
+                        @endpermission
+                    </td>
+                </tr>
+                @empty
+                <tr><td colspan="6" class="py-2 text-gray-500">No viewings scheduled yet.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
+        @permission('auctions.edit')
+        <form method="POST" action="{{ route('corex.auctions.lots.viewings.store', $lot) }}" class="flex flex-wrap gap-2 items-end">
+            @csrf
+            <div>
+                <label class="block text-xs text-gray-500">Starts *</label>
+                <input type="datetime-local" name="starts_at" required class="corex-input">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-500">Ends *</label>
+                <input type="datetime-local" name="ends_at" required class="corex-input">
+            </div>
+            <label class="flex items-center gap-1 text-sm"><input type="checkbox" name="is_by_appointment" value="1"> By appointment</label>
+            <div>
+                <label class="block text-xs text-gray-500">Notes</label>
+                <input type="text" name="notes" class="corex-input" placeholder="Optional">
+            </div>
+            <button type="submit" class="corex-btn-outline text-sm">Add Viewing</button>
+        </form>
+        @endpermission
+    </div>
+
+    <div>
         <h2 class="font-medium mb-2">History</h2>
         <table class="w-full text-sm border-collapse">
             <thead><tr class="text-left text-gray-500 border-b"><th class="py-2">When</th><th>From</th><th>To</th><th>By</th><th>Reason</th></tr></thead>

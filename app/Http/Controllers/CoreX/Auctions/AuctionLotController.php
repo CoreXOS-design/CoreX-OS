@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AgencyAuctionSettings;
 use App\Models\AuctionBid;
 use App\Models\AuctionLot;
+use App\Models\AuctionLotViewing;
 use App\Models\PropertySettingItem;
 use App\Services\Auctions\AuctionDealFactory;
 use App\Services\Auctions\AuctionLotStatusService;
@@ -29,7 +30,7 @@ class AuctionLotController extends Controller
         $agencyId = (int) $lot->agency_id;
 
         return view('corex.auctions.lots.show', [
-            'lot' => $lot->load(['auction', 'property', 'confirmedBy', 'statusHistory.changedBy']),
+            'lot' => $lot->load(['auction', 'property', 'confirmedBy', 'statusHistory.changedBy', 'viewings.agent']),
             'canSeeReserve' => AgencyAuctionSettings::reserveVisibilityFor($agencyId) === 'published'
                 || auth()->user()->hasPermission('auctions.reserve.view'),
             'statusLabels' => PropertySettingItem::auctionLotStatusLabelsFor($agencyId),
@@ -117,6 +118,40 @@ class AuctionLotController extends Controller
         }
 
         return redirect()->route('corex.auctions.lots.show', $lot)->with('status', "Deal #{$deal->deal_no} opened.");
+    }
+
+    /** AT-432 Phase 5 — .ai/specs/auctions.md §5.6. Publish a viewing window ahead of the sale. */
+    public function addViewing(Request $request, AuctionLot $lot)
+    {
+        $data = $request->validate([
+            'starts_at' => 'required|date',
+            'ends_at' => 'required|date|after:starts_at',
+            'is_by_appointment' => 'nullable|boolean',
+            'notes' => 'nullable|string|max:500',
+            'agent_id' => 'nullable|integer|exists:users,id',
+        ]);
+
+        AuctionLotViewing::create([
+            'agency_id' => $lot->agency_id,
+            'auction_lot_id' => $lot->id,
+            'agent_id' => $data['agent_id'] ?? auth()->id(),
+            'starts_at' => $data['starts_at'],
+            'ends_at' => $data['ends_at'],
+            'is_by_appointment' => (bool) ($data['is_by_appointment'] ?? false),
+            'notes' => $data['notes'] ?? null,
+        ]);
+
+        return redirect()->route('corex.auctions.lots.show', $lot)->with('status', 'Viewing added.');
+    }
+
+    public function removeViewing(AuctionLot $lot, AuctionLotViewing $viewing)
+    {
+        if ((int) $viewing->auction_lot_id !== (int) $lot->id) {
+            abort(404);
+        }
+        $viewing->delete();
+
+        return redirect()->route('corex.auctions.lots.show', $lot)->with('status', 'Viewing removed.');
     }
 
     private function run(AuctionLot $lot, \Closure $action, string $message)

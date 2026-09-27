@@ -94,4 +94,26 @@ class Auction extends Model
     {
         return $this->auctioneer_kind === 'internal';
     }
+
+    /** §9 step 5 — an auction is public once its catalogue has gone live. */
+    public function isCataloguePublished(): bool
+    {
+        return $this->catalogue_published_at !== null;
+    }
+
+    /** §10.1 — whether a new bidder may still register right now. */
+    public function isRegistrationOpen(): bool
+    {
+        if (in_array($this->status, [self::STATUS_CLOSED, self::STATUS_SETTLED, self::STATUS_CANCELLED], true)) {
+            return false;
+        }
+        if ($this->registration_opens_at && now()->lessThan($this->registration_opens_at)) {
+            return false;
+        }
+        if ($this->registration_closes_at && now()->greaterThan($this->registration_closes_at)) {
+            return false;
+        }
+
+        return true;
+    }
 }

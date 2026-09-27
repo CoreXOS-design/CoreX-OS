@@ -5,23 +5,24 @@ namespace App\Services\CommandCenter\Calendar\Sources;
 use App\Contracts\CalendarSourceContract;
 use App\Models\Auction;
 use App\Models\AuctionLot;
+use App\Models\AuctionLotViewing;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * AT-432 — .ai/specs/auctions.md §16. Lights up the 3 auction event
- * classes computable from Phase 1 data:
+ * AT-432 — .ai/specs/auctions.md §16. Lights up 4 of the 6 auction event
+ * classes:
  *   auction_date                  — auctions.starts_at
  *   auction_registration_closes   — auctions.registration_closes_at
  *   auction_confirmation_deadline — auction_lots.confirmation_deadline
  *                                   (only while still awaiting the
  *                                   seller's decision — confirmed_at null)
+ *   auction_viewing                — auction_lot_viewings (Phase 5)
  *
- * NOT yet emitted (§16's other three classes need tables/data Phase 1
- * does not build): auction_viewing needs auction_lot_viewings (Phase 2),
- * auction_deposit_refund_due needs auction_bidders (Phase 2),
- * auction_balance_due needs the resulting Deal (Phase 3). Their vocabulary
- * is registered in CalendarEventClassSeeder now so the settings screen and
+ * NOT yet emitted: auction_deposit_refund_due needs a refund-task model
+ * §10.3 describes but has not been built; auction_balance_due needs the
+ * resulting Deal's guarantee/balance deadline. Their vocabulary is
+ * registered in CalendarEventClassSeeder now so the settings screen and
  * onboarding wizard can reference them; each source ships alongside its
  * own phase.
  *
@@ -41,7 +42,8 @@ class AuctionCalendarSource implements CalendarSourceContract
         return collect()
             ->merge($this->auctionDate())
             ->merge($this->registrationCloses())
-            ->merge($this->confirmationDeadline());
+            ->merge($this->confirmationDeadline())
+            ->merge($this->viewings());
     }
 
     private function auctionDate(): Collection
@@ -101,6 +103,29 @@ class AuctionCalendarSource implements CalendarSourceContract
                 'agency_id'   => $lot->agency_id,
                 'branch_id'   => $lot->auction?->branch_id,
                 'property_id' => $lot->property_id,
+            ]);
+    }
+
+    /** §5.6/§16 — draft/withdrawn lots excluded via the same lens as the other three methods. */
+    private function viewings(): Collection
+    {
+        return AuctionLotViewing::withoutGlobalScopes()
+            ->whereHas('auctionLot', fn ($q) => $q->where('status', '!=', AuctionLot::STATUS_DRAFT))
+            ->with(['auctionLot.property:id,agent_id,address,suburb', 'auctionLot.auction:id,branch_id'])
+            ->get()
+            ->map(fn (AuctionLotViewing $v) => [
+                'event_type'  => 'auction',
+                'category'    => 'auction_viewing',
+                'title'       => 'Viewing'.($v->is_by_appointment ? ' (by appointment)' : '')
+                    .' — Lot '.$v->auctionLot->lot_number
+                    .($v->auctionLot->property ? ' ('.$v->auctionLot->property->address.')' : ''),
+                'event_date'  => Carbon::parse($v->starts_at),
+                'source_type' => AuctionLotViewing::class,
+                'source_id'   => $v->id,
+                'user_id'     => $v->agent_id ?? $v->auctionLot->property?->agent_id,
+                'agency_id'   => $v->agency_id,
+                'branch_id'   => $v->auctionLot->auction?->branch_id,
+                'property_id' => $v->auctionLot->property_id,
             ]);
     }
 }

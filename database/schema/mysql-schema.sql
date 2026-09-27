@@ -1771,6 +1771,30 @@ CREATE TABLE `auction_lot_status_history` (
   CONSTRAINT `auction_lot_status_history_changed_by_id_foreign` FOREIGN KEY (`changed_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `auction_lot_viewings`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `auction_lot_viewings` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `auction_lot_id` bigint unsigned NOT NULL,
+  `agent_id` bigint unsigned DEFAULT NULL,
+  `starts_at` datetime NOT NULL,
+  `ends_at` datetime NOT NULL,
+  `is_by_appointment` tinyint(1) NOT NULL DEFAULT '0',
+  `notes` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `auction_lot_viewings_auction_lot_id_foreign` (`auction_lot_id`),
+  KEY `auction_lot_viewings_agent_id_foreign` (`agent_id`),
+  KEY `auction_lot_viewings_lot_starts_idx` (`agency_id`,`auction_lot_id`,`starts_at`),
+  CONSTRAINT `auction_lot_viewings_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `auction_lot_viewings_agent_id_foreign` FOREIGN KEY (`agent_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `auction_lot_viewings_auction_lot_id_foreign` FOREIGN KEY (`auction_lot_id`) REFERENCES `auction_lots` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `auction_lots`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -16942,3 +16966,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1361,'2026_09_27_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1362,'2026_09_27_220000_create_auction_bids_table',261);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1363,'2026_09_27_220100_add_winning_bid_fk_to_auction_lots_table',261);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1364,'2026_09_28_090000_add_online_closes_at_to_auction_lots_table',262);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1365,'2026_09_29_090000_create_auction_lot_viewings_table',263);

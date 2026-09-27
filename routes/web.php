@@ -4060,6 +4060,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // AT-432 Phase 3 (.ai/specs/auctions.md §12.2) — manual retry for CreateDealOnLotSold.
         Route::post('/lots/{lot}/open-deal', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'openDeal'])->middleware('permission:auctions.edit')->name('lots.open-deal');
 
+        // AT-432 Phase 5 (.ai/specs/auctions.md §5.6) — viewing windows.
+        Route::post('/lots/{lot}/viewings', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'addViewing'])->middleware('permission:auctions.edit')->name('lots.viewings.store');
+        Route::delete('/lots/{lot}/viewings/{viewing}', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'removeViewing'])->middleware('permission:auctions.edit')->name('lots.viewings.destroy');
+
         // AT-432 Phase 2 (.ai/specs/auctions.md §7 screens 5-6, §10.2) — the
         // Bidder Register and staff-side registration/approval. The register
         // is always OF an auction (§8.3), so it's nested under {auction}.
@@ -5246,6 +5250,19 @@ Route::prefix('rental-application')->group(function () {
     Route::get('/{token}/documents/{document}', [\App\Http\Controllers\RentalApplicationSigningController::class, 'viewDocument'])->middleware('throttle:rental-application-document-view')->name('rental-applications.public.documents.view');
     Route::post('/{token}/documents/{document}/remove', [\App\Http\Controllers\RentalApplicationSigningController::class, 'removeDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.remove');
     Route::post('/{token}/documents/{document}/replace', [\App\Http\Controllers\RentalApplicationSigningController::class, 'replaceDocument'])->middleware('throttle:rental-application-documents')->name('rental-applications.public.documents.replace');
+});
+
+// ===== AT-432 AUCTION BIDDER REGISTRATION (public, no auth) =====
+// .ai/specs/auctions.md §10.1/§14.4 — "Register to Bid as a real online
+// flow, not a phone number." No token: this is a fresh public form keyed
+// by the auction's own id (already public once its catalogue is
+// published — see Auction::isCataloguePublished()), not a per-recipient
+// prefilled link like rental-application above, so there's nothing to
+// protect by obscurity — only the submit action is throttled.
+Route::prefix('register-to-bid')->group(function () {
+    Route::get('/{auction}', [\App\Http\Controllers\Public\AuctionRegistrationController::class, 'show'])->name('public.auctions.register.show');
+    Route::post('/{auction}', [\App\Http\Controllers\Public\AuctionRegistrationController::class, 'store'])->middleware('throttle:auction-registration-submit')->name('public.auctions.register.store');
+    Route::get('/{auction}/thanks', [\App\Http\Controllers\Public\AuctionRegistrationController::class, 'thanks'])->name('public.auctions.register.thanks');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====

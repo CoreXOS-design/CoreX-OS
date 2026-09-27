@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX\Auctions;
 
+use App\Events\Auction\BidderRegistered;
 use App\Http\Controllers\Controller;
 use App\Models\AgencyAuctionSettings;
 use App\Models\Auction;
@@ -123,6 +124,8 @@ class AuctionBidderController extends Controller
             'deposit_required' => AgencyAuctionSettings::registrationDepositRequiredFor((int) $auction->agency_id),
             'deposit_amount' => AgencyAuctionSettings::registrationDepositAmountFor((int) $auction->agency_id),
         ]);
+
+        event(new BidderRegistered($bidder, auth()->id()));
 
         return redirect()->route('corex.auctions.bidders.show', $bidder)->with('status', 'Bidder registered — complete the gates below before issuing a paddle.');
     }

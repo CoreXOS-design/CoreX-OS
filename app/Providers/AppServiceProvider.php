@@ -1190,5 +1190,19 @@ class AppServiceProvider extends ServiceProvider
                     ], 429);
                 });
         });
+
+        // AT-432 Phase 5 — .ai/specs/auctions.md §10.1 public bidder
+        // registration. No per-applicant token (this is a fresh public
+        // form anyone reaches from the auction's public listing, not a
+        // prefilled per-recipient link) — keyed by IP, matching a plain
+        // spam/abuse throttle rather than the token-keyed rental-application
+        // limiters above.
+        \Illuminate\Support\Facades\RateLimiter::for('auction-registration-submit', function (\Illuminate\Http\Request $request) {
+            return \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, 5)
+                ->by('auction-registration-submit:' . $request->ip())
+                ->response(fn () => response()->json([
+                    'message' => "You've submitted a few registrations in a short time, so submitting is paused for a moment. Please wait and try again.",
+                ], 429));
+        });
     }
 }
