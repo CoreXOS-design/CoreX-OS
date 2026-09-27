@@ -861,6 +861,76 @@ each portal accepts for an auction listing — auction date, guide price, "On Au
 POA handling — and record the findings in this file. Shipping an invented field mapping to a
 portal is how listings get rejected in bulk.
 
+### 14.1a Verified portal findings (2026-09-27 — code audit + live-page check)
+
+The paragraph above is now answered for both portals, from their real schemas plus one
+live listing, not from guesswork. One conclusion up front, load-bearing for §5–§6:
+**neither portal has an "Auction" status.** AUCTION and POA are two independent tags on
+the same on-market listing, driven by separate fields — confirmed live on
+<https://www.property24.com/for-sale/nimrod-park/kempton-park/gauteng/11539/117195830>
+(a live Caprivi Auctions & Bids lot on P24), which shows an **AUCTION** badge and a
+**POA** price tag together, plus the auction date/time (16 July 2026, 15:00), venue, and
+"FICA Documentation Required for Registration". This means `sale_method = 'auction'`
+(§2) and `price_on_application` are correctly modelled as orthogonal in this spec — no
+change needed there.
+
+**Property24** (`storage/p24_swagger.json`):
+- `ListingStatus` has no Auction member — 13 values (`NewListing`, `Active`, `Rented`,
+  `Withdrawn`, `BackOnMarket`, `Expired`, `Extended`, `RaisedPrice`, `ReducedPrice`,
+  `Cancelled`, `Pending`, `Sold`, `CancelledSale`). The AUCTION badge on the live page is
+  driven by the presence of `auctionInfo`, not by `status`.
+- `Listing.auctionInfo` (→ schema `AuctionInfo`) is a real top-level field: `date`
+  (date-time), `venue` (string, optional), `description` (string, optional),
+  `numberOfLots` (int32, optional).
+- `isPOA` (boolean) is a separate top-level field, independent of `auctionInfo` — matches
+  the live page showing both tags together.
+- `Property24ListingMapper::map()` (`app/Services/Syndication/Property24/Property24ListingMapper.php`)
+  never builds `auctionInfo` — confirmed by reading the full method. `isPOA` **is** already
+  wired (`:47`, `(bool) $property->price_on_application`) — nothing to do there.
+  `mapPropertyStatus()`/`getP24Status()` (`:1652`) maps any status containing "auction" to
+  plain `Active`, so an on-auction property syndicated today gets POA (if set) but zero
+  auction date/venue/description and no AUCTION badge, because `auctionInfo` is absent —
+  this is the exact, live-confirmed defect Phase 3 closes.
+- Already flagged (not new): `.ai/audits/2026-06-26-p24-full-audit.md:94` and
+  `.ai/audits/syndication-mapping-audit-2026-07-05.md:53` both list `auctionInfo` as
+  unmapped.
+- No column to hold this yet: `app/Services/Importer/P24ListingsCsvParser.php:86-88`
+  already parses `AuctionDate`/`AuctionVenue`/`AuctionDescription` out of inbound P24
+  export CSVs, but no migration creates matching columns on `properties` — imported
+  auction detail currently has nowhere to land. §5.3's `auction_lots` table (date via the
+  parent `auctions.starts_at`, `venue_name`, no free-text auction description field yet)
+  should absorb this on write; confirm the importer target during Phase 3 build.
+- `numberOfLots` has no CoreX equivalent today; irrelevant for a single-lot auction, but
+  note it if a multi-lot batch import is ever built.
+
+**Private Property** (`storage/pp-agentimport.wsdl`):
+- `MandateType` includes a real `AuctionOnly` value (`:141`). CoreX's
+  `PrivatePropertyListingMapper::mapMandateType()` (`:712-725`) has no `'auction'` case in
+  its map — an on-auction property falls through to the default `'OpenMandate'` and never
+  reaches PP as an auction listing. Phase 3 adds the case.
+- PP's `PropertyStatus` enum (`ForSale`/`ToLet`/`PendingOffer`/`Sold`/`Inactive`/`Archived`)
+  also has no Auction member — consistent with P24: PP signals auction via `MandateType`,
+  not status, so `mapPropertyStatus()`/`statusFor()` need no new state, only the
+  `MandateType` fix above.
+- PP exposes a dedicated `ListingAuctionDetailsUpdate` SOAP operation (`AuctionVenueId` in,
+  `VenueDetailsGet`/`ArrayOfAuctionVenues` for venue lookup — wsdl `:714-754`), not called
+  anywhere in `PrivatePropertySoapClient`/`PrivatePropertySyndicationService`. Already
+  flagged as a gap in `.ai/audits/2026-07-07-portal-data-gap-analysis.md:44` ("niche").
+  Phase 3 build must decide whether this operation is in scope or whether `auctionInfo`-
+  equivalent detail rides the main submit payload only.
+- **Naming trap, resolved:** `MandateType` also contains `SAHSPOA` and `AbsaPoa` (wsdl
+  `:140,143`). These are **Power of Attorney** bank/attorney distressed-sale categories
+  (alongside `FNBQuickSell`, `AbsaHelpYouSell`, `SAHSaleInExecution`, `SAHInsolvencies`,
+  `SAHDeceasedEstates`, `NedbankSie`, `StandardBankPip`, …) — **not** Price On Application.
+  `price_on_application` must never be wired to either of these.
+- PP's actual price-display field is `SalesPricePresentation` — a bare `s:string`
+  (wsdl `:108`, no enum), sent today as a hardcoded empty string unconditionally
+  (`PrivatePropertyListingMapper.php:97`), never populated from `price_on_application`.
+  **Still open:** the wsdl gives no enumerated value, so the exact string PP expects for
+  "POA" display (e.g. `"OnApplication"` or similar) is not confirmed from the schema
+  alone. This is the one item Phase 3 still needs a sandbox submission or PP support
+  confirmation for before wiring `price_on_application` → `SalesPricePresentation`.
+
 ### 14.2 The refresh-cost contract still binds
 
 CLAUDE.md's portal sync contract applies unchanged: **a Refresh where nothing changed costs
