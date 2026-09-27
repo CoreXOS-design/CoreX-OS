@@ -154,6 +154,56 @@ class AuctionLotStatusService
         });
     }
 
+    /**
+     * AT-432 Phase 4 — .ai/specs/auctions.md §11.2: "the lot closes when
+     * the window passes quietly." A pure online lot has no auctioneer to
+     * click "knock down" — this is the automatic equivalent, run on a
+     * schedule (see App\Console\Commands\Auctions\CloseExpiredAuctionLots)
+     * against every lot whose online window has genuinely expired.
+     *
+     * Sold if there's a standing bid (via the normal fall-of-hammer path,
+     * so the Deal-creation listener fires exactly as it would for a
+     * hammer-fall click); passed in if there's none.
+     *
+     * §11.4 — a HYBRID lot is deliberately excluded: "closing is manual
+     * (the hammer), not timed" there, since a human is running the floor.
+     * Only a PURE online auction's lots close themselves.
+     *
+     * @return AuctionLot[] the lots actually closed
+     */
+    public function closeExpiredOnlineLots(): array
+    {
+        $closed = [];
+
+        $expired = AuctionLot::whereIn('status', [AuctionLot::STATUS_OPEN_FOR_BIDS, AuctionLot::STATUS_UNDER_THE_HAMMER])
+            ->whereNotNull('online_closes_at')
+            ->where('online_closes_at', '<=', now())
+            ->whereHas('auction', fn ($q) => $q->where('bidding_mode', 'online'))
+            ->get();
+
+        foreach ($expired as $lot) {
+            try {
+                if ($lot->status === AuctionLot::STATUS_OPEN_FOR_BIDS) {
+                    $this->startHammer($lot);
+                }
+
+                if ((new BidService())->currentHighBid($lot)) {
+                    $closed[] = $this->recordHammerFromCurrentBid($lot);
+                } else {
+                    $closed[] = $this->markPassedIn($lot, null, 'Online bidding window closed with no bids.');
+                }
+            } catch (\Throwable $e) {
+                // Prevent-or-absorb — one bad lot must never block the rest
+                // of the sweep. Logged, not silently swallowed.
+                \Illuminate\Support\Facades\Log::error('closeExpiredOnlineLots failed for one lot', [
+                    'auction_lot_id' => $lot->id, 'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $closed;
+    }
+
     /** Seller confirms a below-reserve hammer (§6.2: sold_subject_to_confirmation → sold). */
     public function confirmSaleBelowReserve(AuctionLot $lot, ?int $actorId = null): AuctionLot
     {

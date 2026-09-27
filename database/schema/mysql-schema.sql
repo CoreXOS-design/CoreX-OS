@@ -1785,6 +1785,7 @@ CREATE TABLE `auction_lots` (
   `guide_price_max` decimal(15,2) DEFAULT NULL,
   `opening_bid` decimal(15,2) DEFAULT NULL,
   `bid_increment` decimal(12,2) DEFAULT NULL,
+  `online_closes_at` datetime DEFAULT NULL,
   `buyers_premium_percent` decimal(5,2) DEFAULT NULL,
   `sellers_commission_percent` decimal(5,2) DEFAULT NULL,
   `deposit_percent` decimal(5,2) DEFAULT NULL,
@@ -8999,7 +9000,7 @@ CREATE TABLE `p24_import_rows` (
   `external_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `payload_json` json DEFAULT NULL,
   `mapped_json` json DEFAULT NULL,
-  `action` enum('create','update','skip','choose','link') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'create',
+  `action` enum('create','update','skip','choose','link') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'create',
   `status` enum('pending','confirmed','excluded','error') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `resolved_agent_id` bigint unsigned DEFAULT NULL,
   `target_id` bigint unsigned DEFAULT NULL,
@@ -16928,15 +16929,16 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1348,'2026_09_19_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1349,'2026_09_21_000000_add_one_email_sub_user_columns',257);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1350,'2026_09_21_000001_add_agency_id_to_rentals_table',257);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1351,'2026_09_21_000002_add_agency_id_to_tv_messages_table',257);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1352,'2026_09_21_000100_add_choose_and_link_to_p24_import_rows_action',258);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1353,'2026_09_26_000000_scrub_cross_agency_rental_agents',259);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1354,'2026_09_27_090000_add_sale_method_to_properties_table',260);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1355,'2026_09_27_090100_create_agency_auction_settings_table',260);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1356,'2026_09_27_090200_create_auctions_table',260);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1357,'2026_09_27_090300_create_auction_lots_table',260);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1358,'2026_09_27_090400_create_auction_lot_status_history_table',260);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1359,'2026_09_27_090500_backfill_auction_property_setting_items',260);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1360,'2026_09_27_190000_create_auction_bidders_table',261);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1361,'2026_09_27_190100_add_winning_bidder_fk_to_auction_lots_table',261);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1362,'2026_09_27_220000_create_auction_bids_table',262);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1363,'2026_09_27_220100_add_winning_bid_fk_to_auction_lots_table',262);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1352,'2026_09_21_000100_add_choose_and_link_to_p24_import_rows_action',257);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1353,'2026_09_26_000000_scrub_cross_agency_rental_agents',258);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1354,'2026_09_27_090000_add_sale_method_to_properties_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1355,'2026_09_27_090100_create_agency_auction_settings_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1356,'2026_09_27_090200_create_auctions_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1357,'2026_09_27_090300_create_auction_lots_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1358,'2026_09_27_090400_create_auction_lot_status_history_table',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1359,'2026_09_27_090500_backfill_auction_property_setting_items',259);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1360,'2026_09_27_190000_create_auction_bidders_table',260);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1361,'2026_09_27_190100_add_winning_bidder_fk_to_auction_lots_table',260);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1362,'2026_09_27_220000_create_auction_bids_table',261);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1363,'2026_09_27_220100_add_winning_bid_fk_to_auction_lots_table',261);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1364,'2026_09_28_090000_add_online_closes_at_to_auction_lots_table',262);

@@ -6,12 +6,15 @@ namespace Tests\Feature\Auctions;
 
 use App\Models\Agency;
 use App\Models\Auction;
+use App\Models\AuctionBidder;
 use App\Models\AuctionLot;
 use App\Models\AuctionLotStatusHistory;
 use App\Models\Branch;
+use App\Models\Contact;
 use App\Models\Property;
 use App\Models\User;
 use App\Services\Auctions\AuctionLotStatusService;
+use App\Services\Auctions\BidService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -227,5 +230,69 @@ final class AuctionLotStatusServiceTest extends TestCase
             ['catalogued', 'open_for_bids', 'under_the_hammer', 'sold'],
             $rows->pluck('to_status')->all(),
         );
+    }
+
+    private function makeBidder(int $auctionId): AuctionBidder
+    {
+        $contact = Contact::create(['agency_id' => $this->agency->id, 'first_name' => 'AutoClose', 'last_name' => 'Bidder'.uniqid()]);
+
+        return AuctionBidder::create([
+            'agency_id' => $this->agency->id, 'auction_id' => $auctionId, 'contact_id' => $contact->id,
+            'status' => AuctionBidder::STATUS_APPROVED, 'paddle_number' => (string) random_int(100, 999),
+            'fica_status' => 'approved', 'fica_verified_at' => now(), 'rules_signed_at' => now(),
+            'deposit_required' => false, 'approved_at' => now(),
+        ]);
+    }
+
+    /**
+     * AT-432 Phase 4 — regression for a real bug caught while verifying
+     * closeExpiredOnlineLots() via Tinker: the sweep called
+     * recordHammerFromCurrentBid()/markPassedIn() directly from
+     * open_for_bids, but ALLOWED_TRANSITIONS only permits sold/passed_in
+     * FROM under_the_hammer — every closure attempt threw "cannot move
+     * from 'open_for_bids' to 'sold'"/"'passed_in'", was swallowed by the
+     * per-lot try/catch, and the sweep silently closed nothing. Fixed by
+     * transitioning through startHammer() first when the lot is still
+     * open_for_bids.
+     */
+    public function test_close_expired_online_lots_sells_a_lot_with_a_bid_and_passes_in_one_with_none(): void
+    {
+        $auction = $this->makeAuction(['bidding_mode' => 'online']);
+        $lotWithBid = $this->makeLot($auction, $this->makeProperty(), ['lot_number' => 1, 'online_closes_at' => now()->addMinute()]);
+        $lotNoBids = $this->makeLot($auction, $this->makeProperty(), ['lot_number' => 2, 'online_closes_at' => now()->subMinute()]);
+        $lotNotExpired = $this->makeLot($auction, $this->makeProperty(), ['lot_number' => 3, 'online_closes_at' => now()->addHour()]);
+
+        $this->svc->publishCatalogue($auction);
+        $this->svc->openForBids($lotWithBid);
+        $this->svc->openForBids($lotNoBids);
+        $this->svc->openForBids($lotNotExpired);
+
+        $bidder = $this->makeBidder($auction->id);
+        (new BidService())->placeBid($lotWithBid, $bidder, 200000, 'online');
+        $lotWithBid->update(['online_closes_at' => now()->subMinute()]);
+
+        $closed = $this->svc->closeExpiredOnlineLots();
+
+        $this->assertCount(2, $closed);
+        $this->assertSame(AuctionLot::STATUS_SOLD, $lotWithBid->refresh()->status);
+        $this->assertSame(AuctionLot::STATUS_PASSED_IN, $lotNoBids->refresh()->status);
+        $this->assertSame(AuctionLot::STATUS_OPEN_FOR_BIDS, $lotNotExpired->refresh()->status);
+    }
+
+    public function test_close_expired_online_lots_ignores_a_hybrid_auction(): void
+    {
+        // §11.4: hybrid closing is manual (the hammer), not timed — a human
+        // is running the floor, so the sweep must never touch these lots
+        // even when online_closes_at has passed.
+        $auction = $this->makeAuction(['bidding_mode' => 'hybrid']);
+        $lot = $this->makeLot($auction, $this->makeProperty(), ['online_closes_at' => now()->subMinute()]);
+
+        $this->svc->publishCatalogue($auction);
+        $this->svc->openForBids($lot);
+
+        $closed = $this->svc->closeExpiredOnlineLots();
+
+        $this->assertCount(0, $closed);
+        $this->assertSame(AuctionLot::STATUS_OPEN_FOR_BIDS, $lot->refresh()->status);
     }
 }

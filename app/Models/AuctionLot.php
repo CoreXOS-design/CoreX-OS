@@ -48,7 +48,7 @@ class AuctionLot extends Model
 
     protected $fillable = [
         'agency_id', 'auction_id', 'property_id', 'lot_number', 'reserve_price',
-        'guide_price_min', 'guide_price_max', 'opening_bid', 'bid_increment',
+        'guide_price_min', 'guide_price_max', 'opening_bid', 'bid_increment', 'online_closes_at',
         'buyers_premium_percent', 'sellers_commission_percent', 'deposit_percent', 'deposit_amount',
         'status', 'hammer_price', 'hammer_at', 'winning_bid_id', 'winning_bidder_id', 'reserve_met',
         'confirmation_deadline', 'confirmed_at', 'confirmed_by_id', 'deal_id', 'withdrawn_reason', 'passed_in_at',
@@ -60,6 +60,7 @@ class AuctionLot extends Model
         'guide_price_max' => 'decimal:2',
         'opening_bid' => 'decimal:2',
         'bid_increment' => 'decimal:2',
+        'online_closes_at' => 'datetime',
         'buyers_premium_percent' => 'decimal:2',
         'sellers_commission_percent' => 'decimal:2',
         'deposit_percent' => 'decimal:2',
