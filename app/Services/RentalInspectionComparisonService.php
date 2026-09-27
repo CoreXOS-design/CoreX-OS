@@ -127,8 +127,14 @@ class RentalInspectionComparisonService
     {
         $inInspection = $this->matchingInInspection($outInspection);
 
+        // AT-433, 2026-09-26 — ->recorded() excludes photo-anchor rows
+        // (RentalInspectionObservation::CONDITION_PENDING) from both sides:
+        // an item with only an unrecorded photo has nothing to compare yet,
+        // and must never surface here as an empty-string "condition" that
+        // classify() would treat as a real, gradeable finding.
         $inObservations = $inInspection
-            ? RentalInspectionObservation::where('rental_inspection_id', $inInspection->id)
+            ? RentalInspectionObservation::recorded()
+                ->where('rental_inspection_id', $inInspection->id)
                 ->orderBy('rental_inspection_item_id')
                 ->latest('created_at')
                 ->get()
@@ -136,7 +142,8 @@ class RentalInspectionComparisonService
                 ->keyBy('rental_inspection_item_id')
             : collect();
 
-        $outObservations = RentalInspectionObservation::where('rental_inspection_id', $outInspection->id)
+        $outObservations = RentalInspectionObservation::recorded()
+            ->where('rental_inspection_id', $outInspection->id)
             ->orderBy('rental_inspection_item_id')
             ->latest('created_at')
             ->get()

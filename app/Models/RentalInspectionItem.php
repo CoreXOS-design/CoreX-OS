@@ -141,7 +141,12 @@ class RentalInspectionItem extends Model
                     : $participantIds->reject(fn ($id) => $id === $discrepancy->accepted_observation_id);
             });
 
+        // AT-433, 2026-09-26 — a photo-anchor row (RentalInspectionObservation
+        // ::CONDITION_PENDING) is not a condition anyone assessed; ->recorded()
+        // skips it so "current condition" falls through to an earlier real
+        // one (or null), never surfaces an empty string as if it were a fact.
         return $this->observations()
+            ->recorded()
             ->when($excludedObservationIds->isNotEmpty(), fn (Builder $q) => $q->whereNotIn('id', $excludedObservationIds->unique()))
             ->latest('created_at')
             ->latest('id')

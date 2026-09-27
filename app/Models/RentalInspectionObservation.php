@@ -38,6 +38,31 @@ class RentalInspectionObservation extends Model
      */
     public const CONDITION_NA = 'n_a';
 
+    /**
+     * AT-433, 2026-09-26, Johan (property 5792, a staged photo silently lost
+     * on reload) — "adding a photo uploads it. Immediately. Always... no
+     * staging, no hidden dependency on a separate deliberate action." A
+     * photo can now arrive before anyone has recorded a real condition for
+     * its item, and every photo needs an observation row to hang off
+     * (RentalInspectionPhoto::rental_inspection_observation_id). This is
+     * that row's condition value when it exists ONLY to anchor a photo — an
+     * empty string, never one of the agency's own configured condition
+     * keys (storeObservation()'s Rule::in() already rejects it from the
+     * real recording endpoint, so only the photo-upload path can produce
+     * one), and never NULL (the column stays NOT NULL — no migration).
+     *
+     * NON-NEGOTIABLE INVARIANT: an observation with this condition MUST
+     * NEVER be treated as "this item is recorded" anywhere — not in a
+     * progress counter, not in "All Good"'s already-done check, not in
+     * discrepancy detection, not in a printed form or the in/out
+     * comparison. Every one of those reads observations through
+     * scopeRecorded() below (or the equivalent client-side `?.condition`
+     * truthiness check — empty string is already falsy, so JS needs no new
+     * constant to know this). See .ai/specs/rental-inspections.md §20.22
+     * for the full audit of every site this touches and why.
+     */
+    public const CONDITION_PENDING = '';
+
     public const SOURCE_IN_INSPECTION = 'in_inspection';
     public const SOURCE_TENANT_FAULT_REPORT = 'tenant_fault_report';
     public const SOURCE_OUT_INSPECTION = 'out_inspection';
@@ -107,6 +132,25 @@ class RentalInspectionObservation extends Model
     public function photos(): HasMany
     {
         return $this->hasMany(RentalInspectionPhoto::class);
+    }
+
+    /** AT-433, 2026-09-26 — true for a photo-anchor row with no real condition on it yet. See CONDITION_PENDING's own docblock. */
+    public function isPending(): bool
+    {
+        return $this->condition === self::CONDITION_PENDING;
+    }
+
+    /**
+     * AT-433, 2026-09-26 — the ONE filter every "is this item recorded"
+     * query in the app must apply. Excludes photo-anchor rows
+     * (CONDITION_PENDING) so a photo uploaded before anyone rated the item
+     * can never count as that item being assessed — see CONDITION_PENDING's
+     * own docblock for the full invariant and .ai/specs/rental-
+     * inspections.md §20.22 for the audited call-site list.
+     */
+    public function scopeRecorded(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->where('condition', '!=', self::CONDITION_PENDING);
     }
 
     /**

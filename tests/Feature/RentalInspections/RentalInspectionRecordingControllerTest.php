@@ -764,6 +764,98 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertSame(1, RentalInspectionPhoto::where('client_idempotency_key', $key)->count());
     }
 
+    // ── AT-433, 2026-09-26 — a photo uploads immediately, never staged ──
+    // (property 5792, Johan: a staged photo was silently lost on reload).
+    // Every test in this group proves the SAME non-negotiable: creating an
+    // observation to hold a photo must never make the item count as
+    // recorded anywhere.
+
+    public function test_uploading_a_photo_to_an_unrecorded_item_creates_a_pending_observation_the_item_is_not_recorded(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
+
+        $response = $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'rental_inspection_item_id' => $item->id,
+            'photos' => [UploadedFile::fake()->image('damp-patch.jpg')],
+        ])->assertStatus(201);
+
+        $observation = RentalInspectionObservation::where('rental_inspection_item_id', $item->id)->sole();
+        $this->assertSame(RentalInspectionObservation::CONDITION_PENDING, $observation->condition);
+        $this->assertSame(1, RentalInspectionPhoto::where('rental_inspection_observation_id', $observation->id)->count());
+        // AT-436, 2026-09-27 — the client can only fold a brand-new
+        // photo-anchor observation into insp.observations (so
+        // itemPhotosFor() finds the photo without a reload) if the response
+        // actually carries it.
+        $response->assertJsonPath('observation.id', $observation->id);
+        $response->assertJsonPath('observation.condition', RentalInspectionObservation::CONDITION_PENDING);
+
+        // The exact invariant Johan required: this item must not count as
+        // recorded anywhere, even though a real observation row now exists.
+        $this->assertSame(0, RentalInspectionObservation::recorded()->where('rental_inspection_item_id', $item->id)->count());
+        $this->assertNull($item->fresh()->currentObservation());
+        $this->assertTrue($inspection->itemsWithMissingRequiredNotes()->isEmpty());
+    }
+
+    public function test_two_photos_added_before_any_condition_is_recorded_share_one_pending_observation(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'photos' => [UploadedFile::fake()->image('a.jpg')],
+        ])->assertStatus(201);
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'photos' => [UploadedFile::fake()->image('b.jpg')],
+        ])->assertStatus(201);
+
+        $observation = RentalInspectionObservation::where('rental_inspection_item_id', $item->id)->sole();
+        $this->assertSame(2, RentalInspectionPhoto::where('rental_inspection_observation_id', $observation->id)->count());
+    }
+
+    public function test_marking_all_good_still_fills_in_an_item_that_only_has_a_photo(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $room = $this->makeRoomWithItems(1);
+        $item = RentalInspectionItem::where('property_room_id', $room->id)->firstOrFail();
+        $inspection = $this->makeInspection();
+
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'photos' => [UploadedFile::fake()->image('a.jpg')],
+        ])->assertStatus(201);
+
+        // Before the fix, $alreadyRecordedItemIds counted the pending row's
+        // mere existence and mark-all-good silently skipped this item.
+        $this->postJson(route('corex.rental-inspections.mark-all-good', $inspection))->assertOk();
+
+        $this->assertSame(2, RentalInspectionObservation::where('rental_inspection_item_id', $item->id)->count());
+        $this->assertNotNull($item->fresh()->currentObservation());
+        $this->assertNotSame(RentalInspectionObservation::CONDITION_PENDING, $item->fresh()->currentObservation()->condition);
+    }
+
+    public function test_a_different_agent_recording_a_real_condition_after_a_photo_does_not_create_a_spurious_discrepancy(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('public');
+        $item = $this->makeItem();
+        $inspection = $this->makeInspection();
+        $secondAgent = User::factory()->create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent',
+        ]);
+
+        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'photos' => [UploadedFile::fake()->image('a.jpg')],
+        ])->assertStatus(201);
+
+        $this->actingAs($secondAgent);
+        $this->postJson(route('corex.rental-inspections.observations.store', $inspection), [
+            'rental_inspection_item_id' => $item->id, 'condition' => 'good', 'source' => 'in_inspection',
+        ])->assertOk();
+
+        $this->assertSame(0, RentalInspectionDiscrepancy::count());
+    }
+
     // ── Batch upload / room+item tagging / tray (§20.13, 2026-09-22) ─
 
     /** Item 1/3 — several files in one request, none tagged (lands in the tray). */

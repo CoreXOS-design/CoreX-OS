@@ -137,11 +137,16 @@
        drop-target language across this screen. */
     .rir-strip-pair-eligible { outline:1px dashed color-mix(in srgb, var(--brand-icon,#0ea5e9) 55%, transparent); outline-offset:-1px; }
     .rir-strip-pair-over { outline:2px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); }
-    /* Item 2, 2026-09-26 — a staged (picked, not yet uploaded) photo, shown
-       so choosing a file never looks like nothing happened. Not part of
+    /* AT-436, 2026-09-27 — a photo mid-upload (or, with the failed
+       modifier below, one that failed and needs a retry tap). Not part of
        stripPairCount()'s predecessor/tail pairing (it has no server photo
-       id yet) — always visible, never collapsed behind "+N". */
-    .rir-strip-pending-label { position:absolute; bottom:2px; left:2px; right:2px; font-size:8px; font-weight:700; letter-spacing:0.02em; color:#fff; text-align:center; line-height:1.3; background:rgba(0,0,0,0.55); border-radius:3px; pointer-events:none; }
+       id yet) — always visible, never collapsed behind "+N". A <button>,
+       not a <span>: the PENDING state renders it disabled (native
+       non-interactivity, no pointer-events hack needed), the failed state
+       renders it as a real, clickable Retry control — same element, same
+       footprint, so nothing shifts when a batch fails. */
+    .rir-strip-pending-label { position:absolute; bottom:2px; left:2px; right:2px; font-size:8px; font-weight:700; letter-spacing:0.02em; color:#fff; text-align:center; line-height:1.3; background:rgba(0,0,0,0.55); border-radius:3px; border:none; padding:1px 2px; font-family:inherit; }
+    .rir-strip-pending-failed { background:var(--ds-crimson,#dc2626); cursor:pointer; }
     /* Add-tile — now just the strip's last flex child (see the row comment
        above). flex:none keeps its 124px width fixed; align-self:stretch
        reproduces the old top:0/bottom:0 full-row-height click target while

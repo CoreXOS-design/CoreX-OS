@@ -196,41 +196,62 @@
                     </button>
                 </template>
 @unless($readOnly)
-                {{-- Item 2, 2026-09-26 — a photo picked before the item is
-                     "recorded" is staged in obsField(...).photos (see
-                     onItemPhotosSelected in show.blade.php) and NOT yet
-                     uploaded, so it has no server photo id and takes no
-                     part in stripPairCount()'s predecessor/tail pairing.
-                     Rendered here so picking a file is never invisible —
-                     always shown, never collapsed behind "+N". --}}
-                <template x-for="(file, idx) in stagedPhotosFor({{ $inspectionJs }}, item)" :key="'staged-' + idx">
-                    {{-- Johan's ruling, 2026-09-26 — a staged photo has no
-                         server id yet, so it cannot be paired: dragging it
-                         still works (the agent has no way to know in
-                         advance it will be refused), but
+                {{-- AT-436, 2026-09-27 — a photo posts the moment it's
+                     picked (onItemPhotosSelected, show.blade.php); this tile
+                     means "uploading right now", never "waiting for you to
+                     do something else" (the staging model this replaced).
+                     pendingUploadTilesFor() reads photoUploader().uploadBatches
+                     directly — the one place upload state already lives
+                     (§20.13) — flattened to one entry per file, each still
+                     carrying its own batch's status/error. Rendered here so
+                     picking a file is never invisible — always shown, never
+                     collapsed behind "+N", and it has no server photo id yet
+                     so it takes no part in stripPairCount()'s
+                     predecessor/tail pairing either way. --}}
+                <template x-for="entry in pendingUploadTilesFor({{ $inspectionJs }}, item)" :key="entry.file._corexPreviewUrl">
+                    {{-- Johan's ruling, 2026-09-26 — a photo still uploading
+                         has no server id yet, so it cannot be paired:
+                         dragging it still works (the agent has no way to
+                         know in advance it will be refused), but
                          pairDropOnPredecessor() in show.blade.php detects
                          the id-less payload and shows the reason visibly
                          rather than silently doing nothing. Passing `null`
                          to dragStartSelection() (same reused function as the
                          real-photo tile above) is what marks the drag this
-                         way. --}}
+                         way — unchanged by AT-436, since the underlying
+                         reason (no id yet) is still exactly true. --}}
                     <div class="relative rounded-md rir-strip-tile"
                          draggable="true"
                          @dragstart="photoDraggedForPairing({{ $inspectionJs }}, null, $event)"
                          @dragend="photoDragEndForPairing()">
-                        <img :src="file._corexPreviewUrl" style="display:block; width:100%; height:100%; object-fit:cover; opacity:0.55;" alt="">
-                        <span class="rir-strip-pending-label">PENDING</span>
+                        <img :src="entry.file._corexPreviewUrl"
+                             :style="'display:block; width:100%; height:100%; object-fit:cover; opacity:' + (entry.batch.status === 'failed' ? '0.35' : '0.55') + ';'" alt="">
+                        <button type="button" x-show="entry.batch.status !== 'failed'" class="rir-strip-pending-label" disabled>PENDING</button>
+                        {{-- A failed upload must SAY so and offer a retry —
+                             it must never silently vanish. retryBatch()
+                             reuses the exact same batch entry (same files,
+                             same extraFields), so a retry is a genuine
+                             re-attempt of the SAME upload, not a new one. --}}
+                        <button type="button" x-show="entry.batch.status === 'failed'" class="rir-strip-pending-label rir-strip-pending-failed"
+                                @click.stop="photoUploader({{ $inspectionJs }}).retryBatch(entry.batch)"
+                                :title="entry.batch.error || 'Upload failed — tap to retry'">Retry</button>
                     </div>
                 </template>
                 {{-- Add-tile — the strip's own last flex child now (see
                      .rir-add-tile's own comment in rental-inspection-
                      recording.blade.php for why this moved out of
-                     absolute positioning). No `left` to compute here. --}}
+                     absolute positioning). No `left` to compute here.
+                     AT-436, 2026-09-27 — the tint/tooltip used to read
+                     obsField(...).photos (the staged-and-waiting queue);
+                     that queue no longer exists (a photo posts immediately),
+                     so this now reflects pendingUploadTilesFor() — genuinely
+                     uploading right now, not "saved once you get around to
+                     it". --}}
                 <label class="rounded-md cursor-pointer rir-add-tile"
-                       :style="(obsField({{ $inspectionJs }}, item.id).photos || []).length
+                       :style="pendingUploadTilesFor({{ $inspectionJs }}, item).length
                             ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
                             : 'background:var(--surface-2); color:var(--text-secondary);'"
-                       :title="(obsField({{ $inspectionJs }}, item.id).photos || []).length ? 'Photo(s) attached — saves once this item is recorded' : 'Add photo(s)'">
+                       :title="pendingUploadTilesFor({{ $inspectionJs }}, item).length ? 'Uploading…' : 'Add photo(s)'">
                     <span>&#128247;</span>
                     <input type="file" accept="image/*" multiple class="hidden"
                            @change="onItemPhotosSelected({{ $inspectionJs }}, item, $event.target.files); $event.target.value = null;">

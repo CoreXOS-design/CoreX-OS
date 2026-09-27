@@ -112,7 +112,20 @@ class RentalInspectionDiscrepancy extends Model
      */
     public static function detectFor(RentalInspectionObservation $newObservation): ?self
     {
+        // AT-433, 2026-09-26 — a photo-anchor row (CONDITION_PENDING) is not
+        // an assessment, so it can never itself be "in conflict" with
+        // anything: neither as the thing being recorded (record() never
+        // calls this for one — see storePhotos()'s find-or-create — but a
+        // future caller doing so is still guarded here) nor as a candidate
+        // conflicting observation an unrelated agent's real condition tap
+        // would otherwise collide with just because someone uploaded a
+        // photo to the item first.
+        if ($newObservation->isPending()) {
+            return null;
+        }
+
         $conflicting = RentalInspectionObservation::query()
+            ->recorded()
             ->where('rental_inspection_id', $newObservation->rental_inspection_id)
             ->where('rental_inspection_item_id', $newObservation->rental_inspection_item_id)
             ->where('id', '!=', $newObservation->id)
