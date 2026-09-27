@@ -421,6 +421,11 @@ class AppServiceProvider extends ServiceProvider
         //     (.ai/atlas/deals-commission.md §8.1 "System C ... orphaned").
         Event::listen(\App\Events\Deal\DealCommissionFinalised::class, \App\Listeners\Deal\GenerateCommissionLedgerEntries::class);
 
+        // AT-432 Phase 3 (.ai/specs/auctions.md §17) — AuctionLotSold → open the
+        // Deal (App\Services\Auctions\AuctionDealFactory). Sync, never queued —
+        // see that service's own docblock for why (readonly $eventId).
+        Event::listen(\App\Events\Auction\AuctionLotSold::class, \App\Listeners\Auction\CreateDealOnLotSold::class);
+
         // ─────────────────────────────────────────────────────────────────
         // MIC Phase A3 — log every activity-relevant domain event to
         // agent_activity_events. Spec §14.6: ONE listener for now;

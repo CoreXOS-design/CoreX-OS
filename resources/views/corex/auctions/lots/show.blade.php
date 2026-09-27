@@ -24,6 +24,22 @@
         @if($lot->confirmation_deadline)<div><span class="text-gray-500">Confirmation Due</span><br>{{ $lot->confirmation_deadline->format('d M Y H:i') }}</div>@endif
     </div>
 
+    @if($lot->status === 'sold')
+    @permission('auctions.edit')
+    <div>
+        @if($lot->deal_id)
+        <a href="{{ route('deals-dr2.edit', $lot->deal_id) }}" class="corex-btn-outline text-sm">View Deal</a>
+        @else
+        <form method="POST" action="{{ route('corex.auctions.lots.open-deal', $lot) }}">
+            @csrf
+            <button type="submit" class="corex-btn-primary text-sm">Open Deal</button>
+        </form>
+        <p class="text-xs text-gray-400 mt-1">Usually opens automatically on the fall of the hammer — use this if it didn't (e.g. the property has no linked seller yet).</p>
+        @endif
+    </div>
+    @endpermission
+    @endif
+
     @permission('auctions.edit')
     <div class="flex flex-wrap gap-2">
         @if($lot->status === 'catalogued')

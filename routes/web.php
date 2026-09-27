@@ -4044,6 +4044,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/lots/{lot}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'decline'])->middleware('permission:auctions.edit')->name('lots.decline');
         Route::post('/lots/{lot}/passed-in', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'passedIn'])->middleware('permission:auctions.edit')->name('lots.passed-in');
         Route::post('/lots/{lot}/withdraw', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'withdraw'])->middleware('permission:auctions.edit')->name('lots.withdraw');
+        // AT-432 Phase 3 (.ai/specs/auctions.md §12.2) — manual retry for CreateDealOnLotSold.
+        Route::post('/lots/{lot}/open-deal', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'openDeal'])->middleware('permission:auctions.edit')->name('lots.open-deal');
 
         // AT-432 Phase 2 (.ai/specs/auctions.md §7 screens 5-6, §10.2) — the
         // Bidder Register and staff-side registration/approval. The register

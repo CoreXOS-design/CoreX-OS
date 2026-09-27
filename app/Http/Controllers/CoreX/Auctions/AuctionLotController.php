@@ -7,6 +7,7 @@ use App\Models\AgencyAuctionSettings;
 use App\Models\AuctionBid;
 use App\Models\AuctionLot;
 use App\Models\PropertySettingItem;
+use App\Services\Auctions\AuctionDealFactory;
 use App\Services\Auctions\AuctionLotStatusService;
 use Illuminate\Http\Request;
 
@@ -90,6 +91,32 @@ class AuctionLotController extends Controller
         $reason = $request->input('reason');
 
         return $this->run($lot, fn ($svc) => $svc->withdraw($lot, auth()->id(), $reason), 'Lot withdrawn.');
+    }
+
+    /**
+     * Manual retry path for CreateDealOnLotSold (§17) — that listener
+     * silently logs and gives up on failure (most commonly: no seller
+     * contact linked to the property yet, DealPropertyOwnerGate) rather
+     * than breaking the fall-of-hammer transaction. This button is how the
+     * agent finishes the job once they've fixed whatever blocked it, and is
+     * also simply how a Phase-1-recorded sale (no bidding engine, hammer
+     * entered manually) gets its deal — CreateDealOnLotSold only fires from
+     * a REAL bid's AuctionLotSold; a lot sold via the plain recordHammer()
+     * path (Phase 1, still supported) has no bid behind it to trigger from.
+     */
+    public function openDeal(AuctionLot $lot)
+    {
+        if ($lot->deal_id) {
+            return back()->withErrors(['lot' => "This lot already carries deal #{$lot->deal_id}."]);
+        }
+
+        try {
+            $deal = app(AuctionDealFactory::class)->createFromSoldLot($lot, auth()->id());
+        } catch (\Throwable $e) {
+            return back()->withErrors(['lot' => 'Could not open the deal: '.$e->getMessage()]);
+        }
+
+        return redirect()->route('corex.auctions.lots.show', $lot)->with('status', "Deal #{$deal->deal_no} opened.");
     }
 
     private function run(AuctionLot $lot, \Closure $action, string $message)
