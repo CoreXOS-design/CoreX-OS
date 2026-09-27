@@ -5076,7 +5076,7 @@
                                  AND a tail to compare, same precondition
                                  runAutoPair() itself checks. --}}
                             <div x-show="chainTail && chainPredecessor" x-cloak class="flex items-center gap-2 flex-wrap pr-3 py-1.5">
-                                <button type="button" :disabled="autoPairBusy" @click="runAutoPair()"
+                                <button type="button" data-qa="auto-pair" :disabled="autoPairBusy" @click="runAutoPair()"
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
                                         title="Link any obviously-matching photos between this inspection and its predecessor.">
                                     <span x-text="autoPairBusy ? 'Pairing…' : 'Auto-pair'"></span>
@@ -5090,7 +5090,7 @@
                                     <option value="ad_hoc">Routine (mid-tenancy)</option>
                                     <option value="out">Out</option>
                                 </select>
-                                <button type="button" :disabled="nextBusy" @click="nextInspection(nextType)"
+                                <button type="button" data-qa="next-inspection" :disabled="nextBusy" @click="nextInspection(nextType)"
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
                                         x-text="nextBusy ? 'Starting…' : 'Start'"></button>
                             </div>

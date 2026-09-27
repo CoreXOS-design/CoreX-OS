@@ -4752,3 +4752,117 @@ Blade template in the app — clean. Did not deploy, per instruction.
   settings-screen-only, not decided here.
 - **Mobile/API shape** — §14.2's mobile-parity table does not yet list a photo-note endpoint. Not requested
   this round; noted so it isn't mistaken for an oversight if the mobile app needs it later.
+
+---
+
+## 26. The dead-bulk-action-button class, closed — plus compare-viewer pairing order and real click-through coverage (2026-09-27)
+
+Three deliverables, one root incident: cc5 found "All Good" (a per-room bulk-fill button) rendering
+permanently disabled on every fresh page load, unclicked for five days since the 2026-09-22 rebuild.
+Investigated read-only first (Johan's own instruction), released once cc3's photo-notes pass (§25) was out
+of `show.blade.php`. Rebased onto `83bcaa65a` (§25 landed) before touching anything.
+
+### 26.1 The bug, confirmed by reading, not assumed
+
+`rental-inspection-recording.blade.php:540`, at the time: `:disabled="markGoodBusy[group.room?.id]"`.
+`markGoodBusy: {}` (`show.blade.php`) starts genuinely empty and is populated ONLY imperatively inside
+`markRoomGood()` — no room's key exists until that room's button has fired once, so every fresh load reads
+`undefined`, not `false`. Same root cause this repo already named and fixed twice: `isObsBusy()`
+(2026-09-22, condition buttons) and `scripts/rental-click-through.mjs`'s own documented 2026-09-15
+incident (the strike/restore button) — a boolean-attribute binding backed by `undefined` does not behave
+like one backed by `false`. `markGoodBusy`/`markNaBusy` were written in the SAME 2026-09-22 rebuild that
+fixed `obsBusy` — the fix reached one sibling, never the other two that share the identical shape.
+
+### 26.2 Fixed — three instances, the proven pattern, not a new one
+
+`isMarkGoodBusy(roomId)`, `isMarkNaBusy(roomId)`, `isDiscBusy(discrepancyId)` — each `return !!this.xBusy[key]`,
+mirroring `isObsBusy()` exactly. Used in both the `:disabled` binding and the `x-text` reading the same key
+(`show.blade.php`); `discBusy[discrepancy.id]`/`markGoodBusy[group.room?.id]`/`markNaBusy[group.room?.id]`
+replaced with the wrapped calls at their three template sites
+(`rental-inspection-recording.blade.php:288,567,570,575,578`). `discBusy` (the "Resolve" discrepancy button)
+was fixed alongside the confirmed-dead one on structural evidence — byte-identical shape (object initialised
+`{}`, populated only imperatively inside an async handler, read via a raw non-negated bracket lookup,
+inside an `x-for`) to the cc5-confirmed-dead case — not independently reproduced live in a real browser this
+round (Playwright/Puppeteer browser binaries are not available in this environment without a network
+fetch this round chose not to gamble on mid-incident; real-browser confirmation is §26.4's click-through
+checks, run by cc5).
+
+### 26.3 The class swept, not just the instance — complete list
+
+Every boolean-attribute binding (`:disabled`/`:readonly`/`:required`/`:checked`) on the Inspections tab
+reading a bracket lookup on an object populated lazily, checked directly:
+
+| Control | Binding | In an `x-for`? | Verdict |
+|---|---|---|---|
+| All Good (per-room) | `markGoodBusy[group.room?.id]` | yes | **Fixed** — confirmed dead |
+| Mark room N/A | `markNaBusy[group.room?.id]` | yes | **Fixed** — same shape as confirmed-dead |
+| Resolve (discrepancy) | `discBusy[discrepancy.id] \|\| !discField(...).accepted_observation_id` | yes | **Fixed** — same shape |
+| Tag selected (room photo bulk-tag) | `!roomPhotoTagItemChoice[group.room.id]` | yes | Negated (`!`) — Alpine always receives a real boolean regardless of key presence. Not the same risk; not changed. |
+| "Set" room type (property spaces) | `itemBusy \|\| !assignTypeChoice[item.id]` | yes | `itemBusy` is a plain scalar; the bracket half is negated. Not the same risk; not changed. |
+| All good — whole inspection | `markAllGoodBusy` (plain scalar) | no | Different, safe shape. |
+| Start In/Out/Ad-hoc Inspection | `startBusy[{{ $sectionJs }}]` / `startBusy['in']` | no (single element, never repeated per-item) | Not inside an `x-for`; empirically proven working throughout this whole build. |
+| Condition buttons | `isObsBusy(section, itemId)` | yes | Already carries the 2026-09-22 fix. |
+
+**No fourth or fifth dead control found.** The two remaining bracket-lookups (`roomPhotoTagItemChoice`,
+`assignTypeChoice`) are both guarded by JavaScript's own `!` negation, which always returns a real boolean
+regardless of whether the underlying key exists — structurally immune to this specific failure, independent
+of x-for or population timing.
+
+### 26.4 Compare-viewer pairing order, built (§24.11's approach, unchanged)
+
+Exactly the approach written up and released for build in §24.11: extracted `pairedStripRows()`'s
+already-fixed row algorithm into `pairedRows(predPhotos, tailPhotos)` (data-only, two arguments);
+`pairedStripRows(item)` and a new `compareViewerPairedRows()` are both one-line wrappers around it;
+`compareViewerCarouselPhotos(side)` redefined against it with its exact existing signature. No template
+changes anywhere — every consumer already expected an ordered array of photo objects.
+`openCompareViewer(photo, insp)` untouched, not called or modified by anything in this round. The
+nothing-paired-yet case is a provable no-op (§24.11's own analysis, unchanged by this build).
+
+### 26.5 Click-through coverage for the Inspections tab — the class fix
+
+`scripts/rental-click-through.mjs` existed for exactly this ("a test proving the endpoint works is not the
+same claim as an agent can reach it") but its coverage was an opt-in, named list that never included the
+Inspections tab — the actual reason a dead button went unnoticed for five days, not bad luck. Closed by
+adding this screen to the SAME gate, not a parallel one:
+
+- **`scripts/rental-inspection-click-through-fixture.php`** (new) — a throwaway property/lease/rooms/items/
+  chain, mirroring `rental-click-through-fixture.php`'s own create/cleanup discipline exactly. Verified
+  end-to-end for real against `corex_qa1` this round (create, confirmed `tabPayloadFor()` resolves the
+  chain and `RentalInspectionPhotoAutoPairService` finds its one unambiguous pair, cleanup) — not merely
+  `php -l`'d. Rooms/items deliberately spread across Bedroom 1 / Bathroom 1 / Garage so the three "mark"
+  checks (#21/#22/#23) each have their own untouched precondition and don't consume each other's.
+  `RentalInspectionItem`/`PropertyRoom` are not soft-deletable anywhere in this module (checked, not
+  assumed) — left in place under the cleaned-up, now-trashed property/agency, same tolerance the original
+  fixture already extends to `RentalApplicationAssessment`.
+- **Seven new named checks** (#20–#26 in the gate's own header) — Photo notes on/off (client-only, asserts
+  the label flips, same style as the existing gate's own #7), Mark room good, Mark room N/A, All good
+  whole inspection, Add photo(s) (a real Puppeteer file upload, not a synthetic FileList), Next inspection,
+  Auto-pair. Ordered deliberately (§26.5's own header comments state why for each) so no check consumes a
+  precondition a LATER check still needs.
+- **`newPage()` gained an `acceptDialogsMatching` param**, default `[]` (identical behaviour for every
+  existing caller) — `markRoomNa()`/`markAllGood()` are the only two controls in this WHOLE gate that still
+  use a genuine native `window.confirm()`, unlike Approve/Decline (which had theirs removed after the
+  2026-09-16 frozen-tab incident this file's own header documents). A real, per-control allowlist by message
+  substring, not a blanket auto-accept — any dialog not on the list still fails loudly via the same path as
+  before. Not a weakening of the standing policy; named here so it reads as a deliberate, scoped exception,
+  not a regression of it.
+- **Real, existing selectors added, not invented ones assumed** — `data-qa` attributes on all seven controls
+  (`mark-room-good`, `mark-room-na`, `mark-all-good`, `toggle-photo-notes`, `next-inspection`, `auto-pair`,
+  `add-item-photo`), and the tab switch uses the property page's own real `data-prop-tab="inspections"`
+  attribute (checked directly, not guessed).
+
+**Not run end-to-end this round** — Playwright/Puppeteer needs browser binaries this environment doesn't
+have cached, and fetching them requires network access this round chose not to gamble on mid-incident. The
+fixture script itself WAS run for real (§26.5's own note above); the full `.mjs` gate, including these
+seven new checks against a live page with real clicks, is cc5's step next, per Johan's own "cc5 lands and
+verifies" instruction for this round.
+
+### 26.6 Verification this round
+
+`php -l` clean on all five changed/new files. `php artisan view:cache` — compiles every Blade template in
+the app — clean. Real Alpine render gate: local `php artisan serve` against this worktree, fetched
+`/corex/properties/1724` through `scripts/fetch-authenticated-page.php` as a real authenticated user, ran
+`scripts/verify-alpine-render.mjs` against the response — **2130/2130 Alpine attribute expressions compile
+clean**, attribute-scoped per instruction (every attribute on the page, not just the lines touched this
+round); the same pre-existing, unrelated `localStorage`/`document`/`form.getAttribute` findings as every
+prior round, none referencing anything in this diff (checked by name). Did not deploy.

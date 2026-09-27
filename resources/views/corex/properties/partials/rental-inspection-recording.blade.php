@@ -345,7 +345,7 @@
                 <button type="button" @click="toggleAllRooms({{ $sectionJs }})"
                         class="text-xs font-semibold underline" style="color:var(--text-secondary);"
                         x-text="allRoomsOpen({{ $sectionJs }}) ? 'Collapse all' : 'Expand all'"></button>
-                <button type="button" x-show="inspectionProgress({{ $sectionJs }}).recorded < inspectionProgress({{ $sectionJs }}).total"
+                <button type="button" data-qa="mark-all-good" x-show="inspectionProgress({{ $sectionJs }}).recorded < inspectionProgress({{ $sectionJs }}).total"
                         :disabled="markAllGoodBusy" @click="markAllGood({{ $sectionJs }})"
                         class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
                         x-text="markAllGoodBusy ? 'Marking…' : 'All Good — whole inspection'"></button>
@@ -554,7 +554,7 @@
                              rendered on the editable side" convention as the
                              Collapse/Expand photos button just above. --}}
                         <template x-if="group.items.length">
-                            <button type="button" @click="togglePhotoNotesForRoom(group.room)"
+                            <button type="button" data-qa="toggle-photo-notes" @click="togglePhotoNotesForRoom(group.room)"
                                     class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
                                     x-text="arePhotoNotesVisibleForRoom(group.room) ? 'Photo notes: On' : 'Photo notes: Off'"></button>
                         </template>
@@ -564,7 +564,7 @@
                              is worse than not showing it. --}}
                         <template x-if="group.room && roomProgress({{ $sectionJs }}, group).recorded < roomProgress({{ $sectionJs }}, group).total">
                             <div class="flex items-center gap-1">
-                                <button type="button" :disabled="isMarkGoodBusy(group.room?.id)"
+                                <button type="button" data-qa="mark-room-good" :disabled="isMarkGoodBusy(group.room?.id)"
                                         @click="markRoomGood({{ $sectionJs }}, group.room)"
                                         class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
                                         x-text="isMarkGoodBusy(group.room?.id) ? 'Marking…' : 'All Good'"></button>
@@ -572,7 +572,7 @@
                                      strikes ENTIRE ROOMS out with one big N/A."
                                      Only offered when N/A is actually one of
                                      the agency's configured condition states. --}}
-                                <button type="button" x-show="hasNaConditionState()" :disabled="isMarkNaBusy(group.room?.id)"
+                                <button type="button" data-qa="mark-room-na" x-show="hasNaConditionState()" :disabled="isMarkNaBusy(group.room?.id)"
                                         @click="markRoomNa({{ $sectionJs }}, group.room)"
                                         class="text-xs font-semibold px-2 py-1 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
                                         x-text="isMarkNaBusy(group.room?.id) ? 'Marking…' : 'Mark room N/A'"></button>

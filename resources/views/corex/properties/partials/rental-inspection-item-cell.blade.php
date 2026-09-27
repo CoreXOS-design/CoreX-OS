@@ -270,7 +270,7 @@
                             : 'background:var(--surface-2); color:var(--text-secondary);'"
                        :title="pendingUploadTilesFor({{ $inspectionJs }}, item).length ? 'Uploading…' : 'Add photo(s)'">
                     <span>&#128247;</span>
-                    <input type="file" accept="image/*" multiple class="hidden"
+                    <input type="file" data-qa="add-item-photo" accept="image/*" multiple class="hidden"
                            @change="onItemPhotosSelected({{ $inspectionJs }}, item, $event.target.files); $event.target.value = null;">
                 </label>
 @endunless
