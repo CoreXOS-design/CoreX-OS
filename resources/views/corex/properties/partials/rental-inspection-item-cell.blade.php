@@ -97,7 +97,36 @@
                  stripPairCount() docblock in show.blade.php for exactly
                  where Part B's real pair id replaces it, including the two
                  :key bindings and the two x-text badges below. --}}
+@if($readOnly)
             <div class="rir-strip-row">
+@else
+            {{-- AT-433 Part E, 2026-09-27 — drop a desktop file straight onto
+                 this item's strip to upload it, same as the add-tile's own
+                 file picker (onItemPhotosSelected() — one path, not a second
+                 one). Never .prevent unconditionally: stripDragOverTile()/
+                 stripDropOnTile() only call preventDefault() when
+                 dataTransfer.types actually contains 'Files', so a drag this
+                 screen doesn't own passes through completely untouched. That
+                 matters here specifically because cc6's own pairing drag
+                 (photoDraggedForPairing()/pairDropOnPredecessor(), read
+                 directly off QA1 before writing this) can pass a drag
+                 through this exact row on its way to the predecessor cell's
+                 own drop tiles — its own discipline is identical (never
+                 .prevent unless pairDragActive), so the two never fight over
+                 the same event. They don't even share a target element
+                 (pairing drops only on the read-only/predecessor side,
+                 above, one @if branch up) but this stays type-gated anyway
+                 rather than relying on that alone. Affordance reuses
+                 dragOverRoom's own dashed-outline convention
+                 (rental-inspection-recording.blade.php), applied to THIS
+                 row's own existing box — no new absolutely-positioned child,
+                 the exact bug class the add-tile/strip-overlap fix removed. --}}
+            <div class="rir-strip-row"
+                 :style="stripFileDragOverItemId === item.id ? 'outline:2px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);' : ''"
+                 @dragover="stripDragOverTile($event, item.id)"
+                 @dragleave="stripDragLeaveTile()"
+                 @drop="stripDropOnTile($event, {{ $inspectionJs }}, item)">
+@endif
 {{-- FIX, 2026-09-26 — the first draft of this block nested two sibling
      <template x-if> tags (photo / NO MATCH) inside this <template x-for>.
      x-for requires exactly ONE root element per iteration to clone, same
