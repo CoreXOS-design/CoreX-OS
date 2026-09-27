@@ -87,9 +87,31 @@
     {{-- §27.1.2 — the global "Photos: shown/hidden" toggle wraps this whole
          photo block (never just the room-level thumbnail-count control,
          which is unchanged and still exists alongside this). Hiding it
-         reclaims the row for the condition-button block to its left. --}}
-    <div style="display:flex; align-items:stretch; flex:1; min-width:0;" x-show="photosVisible">
-        <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:0; position:relative;">
+         reclaims the row for the condition-button block to its left.
+
+         BUG FIX, 2026-09-27 (Johan, property 5294 inspection 33 — 32 real
+         tagged photos, none visible). .rir-strip-row is `position:absolute;
+         height:100%` (rental-inspection-recording.blade.php) — an
+         absolutely-positioned-only child contributes NOTHING to its
+         containing block's own auto-height calculation, so this wrapper's
+         real height came ENTIRELY from being cross-axis-stretched by a
+         SIBLING (the condition-buttons column, via the outer `items-stretch`
+         row) or by the compare-grid's OTHER column. `min-height:0` on both
+         divs below explicitly removed the one thing that could have put a
+         floor under that: with no reliably-taller sibling in every layout
+         (confirmed collapsing on a freshly-seeded first-inspection fixture,
+         property 21034/inspection 34, same "in" type + no predecessor shape
+         as 5294/33), the strip silently collapsed to 0x0 and clipped every
+         tile — data was always fine, only the box was empty. `min-height`
+         is now `4rem` (64px, exactly `.rir-strip-tile`'s own height — read
+         from that class, not guessed) on both divs below — a real,
+         unconditional floor that never depends on stretch/siblings for
+         height, in EVERY layout: first inspection, compare-with-predecessor,
+         room-level strip, Photos shown. Never changed: tile size/position,
+         absolute positioning, overflow behaviour — this is a floor, not a
+         redesign. --}}
+    <div style="display:flex; align-items:stretch; flex:1; min-width:0; min-height:4rem;" x-show="photosVisible">
+        <div style="display:block; flex:1; align-self:stretch; min-width:0; min-height:4rem; position:relative;">
             {{-- AT-433 Part A, 2026-09-26 — photo strip. Tiles come from
                  stripTilesForInspection()/stripTilesFor() in show.blade.php,
                  each { index, photo }: photo null means "shorter side"

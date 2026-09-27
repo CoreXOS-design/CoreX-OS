@@ -5484,3 +5484,62 @@ passing (18 assertions): default-state payload now includes `tray_tile_size => '
 preferences; an unknown value (`'huge'`) clamps to `'small'`; the existing unknown-key-rejected and
 per-user-scoping tests are unaffected. Real-render tile measurement (48×48 in Small, 86×64 in Large)
 recorded in the landing commit's own report.
+
+---
+
+## 30. Photo strip collapsing to 0×0 — first inspection, no predecessor (2026-09-27)
+
+Johan, property 5294, inspection 33 (real move-in, 32 real photos, all tagged to real observations —
+data confirmed correct in every way): every `.rir-strip-row` measured `clientHeight: 0` (`scrollHeight`
+64, tiles 86×64) — the photos were never missing, the box holding them was invisible.
+
+### 30.1 Root cause
+
+`.rir-strip-row` (`rental-inspection-recording.blade.php`) is `position:absolute; top:0; left:0; right:0;
+bottom:0; height:100%`. An absolutely-positioned element contributes NOTHING to its containing block's
+own auto-height calculation — CSS spec, not a bug in Chromium. Its containing block
+(`rental-inspection-item-cell.blade.php`'s own wrapper, `display:block; flex:1; align-self:stretch;
+min-width:0; min-height:0; position:relative;`) therefore had no normal-flow content of its own to size
+against; its real height came entirely from being cross-axis-stretched (`align-items:stretch`) by
+whatever ELSE was in that row. `min-height:0` on both wrapper divs explicitly zeroed out the one thing
+that could have put a floor under that — so whenever the stretch context didn't hand it a real height
+(reproduced on a freshly-seeded fixture, property 21034/inspection 34: `type='in'`,
+`previous_inspection_id NULL`, 2 items, 3 tagged photos — same shape as 5294/33), the strip and every
+ancestor up to the compare-row measured 0×0, and the tiles inside clipped to nothing despite being real,
+correctly-tagged, correctly-loaded images.
+
+Checked via `git log -L` on both the wrapper line and `.rir-strip-row`'s own CSS rule: neither has ever
+had any OTHER value — this shipped this way from AT-433 Part A's first commit (`7b42a167f`) and the
+shared item-cell partial's own first commit (`73d8969cb`). Not a regression from a later change; a
+latent design gap that had simply never been hit by this exact combination (first inspection, heavily
+tagged, room reopened) until now.
+
+### 30.2 Fix — a real min-height floor, not a redesign
+
+```css
+/* was: min-height:0 on both divs */
+min-height:4rem;   /* = .rir-strip-tile's own height (64px), read from that class, not guessed */
+```
+
+Applied to BOTH wrapper divs (the outer `display:flex` one and the inner `position:relative` one) in
+`rental-inspection-item-cell.blade.php`. A `min-height` is an unconditional floor — it holds regardless
+of whether a sibling column happens to be taller this time, so it protects every layout that shares this
+one partial: first inspection (no predecessor), compare-with-predecessor, and (per the partial's own
+`$readOnly` toggle) both the read-only and live/editable cells. Tile size, absolute positioning, overflow
+behaviour, and the already-safe room-level strip (`rir-room-photo-tile`, real CSS Grid, never had this
+bug) are all unchanged.
+
+### 30.3 Verified
+
+`php -l` clean. Whole-app `php artisan view:cache` clean. Fixture built as user 365 (Tinker, real Eloquent
+creates — not raw SQL) on property 21034 ("12 Fixture Lane", agency 1, previously empty — never 5294,
+never 5792, never user 22): a lease, one room, two items, one `type='in'` inspection with
+`previous_inspection_id NULL`, three photos tagged to its observations (reusing an existing on-disk image
+file, no new upload). `listing_type` had to be corrected to `'rental'` on this fixture — the Inspections
+tab doesn't render at all otherwise, a real gap in the repro, not the bug under investigation. Real
+authenticated Puppeteer measurement, qatesting1.corexos.co.za, user 365 (never Johan's own live user 22
+on 5294): **before the fix**, every `.rir-strip-row` on this fixture measured `0×0`, matching Johan's own
+report exactly. **After the fix**, re-measured on the same fixture plus, separately, on property 5792's
+own real chain (inspection 32 tail / inspection 29 predecessor, predecessor has real tagged photos) to
+confirm the already-working compare-layout did not regress — see this fix's own landing commit for the
+exact pixel heights recorded on both.
