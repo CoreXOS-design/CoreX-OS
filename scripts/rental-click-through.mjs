@@ -56,6 +56,42 @@
  *      changes the row count AND every tile count together, and a plain
  *      agent's own ceiling can't be exceeded by a hand-crafted ?scope=all.
  *
+ *  ── INSPECTIONS TAB — added 2026-09-27, after "All Good" (a per-room
+ *     bulk-fill button) shipped completely dead on 2026-09-22 and went
+ *     unnoticed for five days: same root cause as #1/#2 above
+ *     (`:disabled="markGoodBusy[group.room?.id]"`, undefined until the
+ *     control had fired once), and nothing here had ever clicked it. Own
+ *     fixture (rental-inspection-click-through-fixture.php — a property,
+ *     not a rental application), own section below, same checkControl()
+ *     helper. ──
+ *  20. Photo notes on/off (room-level toggle) — client-only (localStorage),
+ *      no request to prove; asserts the real observable effect (the
+ *      button's own label flips On<->Off) instead.
+ *  21. Mark room good (per-room "All Good") — the confirmed-dead control.
+ *  22. Mark room N/A — same shape as #21, on a SEPARATE room so marking one
+ *      room good does not consume the precondition (an unrecorded item)
+ *      this check needs. Uses a native window.confirm() (unlike every
+ *      other control in this gate) — see newPage()'s own
+ *      acceptDialogsMatching param, added for exactly this control rather
+ *      than weakening the standing "unexpected dialog is a failure" policy.
+ *  23. All good — whole inspection — run LAST of the three "mark" checks
+ *      (deliberately): it fills every still-unrecorded item across the
+ *      WHOLE inspection, so it would silently no-op if run before #21/#22
+ *      finished with their own rooms. Also a native window.confirm().
+ *  24. Add photo(s) — a real file upload (Puppeteer's uploadFile()) to an
+ *      already-recorded item, proving the immediate-upload POST fires
+ *      (AT-436) independent of any of the "mark" checks' own item state.
+ *  25. Next inspection — advances the chain. Run LAST of all seven: every
+ *      other check targets THIS pair's own predecessor/tail; starting a
+ *      new tail would move it out from under a check that ran after.
+ *  26. Auto-pair — the explicit button (not the automatic first-view
+ *      trigger, which has no button to click); the fixture's own
+ *      predecessor/tail photo pair (same room+item, both unpaired) is the
+ *      one unambiguous candidate it can find. Run BEFORE #21/#22/#23 — none
+ *      of those touch the Ceiling item this check pairs, but auto-pair's
+ *      own success is easiest to prove while nothing else on the item has
+ *      changed yet.
+ *
  *  NOT covered (named so this stays an honest list, not a silent gap):
  *   - The document-highlighter's CREATE flow (drag a new highlight on the
  *     PDF canvas to open the capture chip in 'create' mode) — needs a real
@@ -152,7 +188,17 @@ function recordKnown(name, why) {
   console.log(`[KNOWN ISSUE] ${name} — ${why}`);
 }
 
-async function newPage(browser, userId) {
+// acceptDialogsMatching — 2026-09-27, added for the Inspections tab's
+// markRoomNa()/markAllGood(), which (unlike every rental-applications
+// control this gate covers) still use a genuine native window.confirm().
+// Default stays [] for every existing caller — behaviour identical to
+// before this param existed. Deliberately NOT a blanket auto-accept: only
+// a dialog whose message contains one of the given substrings is accepted;
+// anything else still fails loudly via the same path as before. This is a
+// real, per-control ALLOWLIST, not a weakening of the 2026-09-16 policy —
+// an unrecognised dialog on ANY page, including these two, is still a
+// named failure.
+async function newPage(browser, userId, acceptDialogsMatching = []) {
   const cookie = mintCookie(userId);
   const page = await browser.newPage();
   const domain = new URL(BASE_URL).hostname;
@@ -172,7 +218,12 @@ async function newPage(browser, userId) {
   // dialog fired and what it said, rather than leaving the caller to
   // decode a generic timeout.
   page.on('dialog', async (dialog) => {
-    record('UNEXPECTED NATIVE DIALOG', false, `${dialog.type()} fired: "${dialog.message()}" — a native dialog reappeared on a path that should only ever confirm in-page`);
+    const known = acceptDialogsMatching.find((substr) => dialog.message().includes(substr));
+    if (known) {
+      await dialog.accept();
+      return;
+    }
+    record('UNEXPECTED NATIVE DIALOG', false, `${dialog.type()} fired: "${dialog.message()}" — a native dialog reappeared on a path that should only ever confirm in-page (or is a genuine new one not yet allowlisted here)`);
     await dialog.dismiss();
   });
   return page;
@@ -245,6 +296,11 @@ async function main() {
   const fixtureJson = runPhp([path.join(__dirname, 'rental-click-through-fixture.php'), `--app-root=${APP_ROOT}`, '--create']).trim();
   const fx = JSON.parse(fixtureJson);
   console.log('Fixture:', fixtureJson);
+
+  console.log('Creating throwaway Inspections-tab fixture...');
+  const inspFixtureJson = runPhp([path.join(__dirname, 'rental-inspection-click-through-fixture.php'), `--app-root=${APP_ROOT}`, '--create']).trim();
+  const inspFx = JSON.parse(inspFixtureJson);
+  console.log('Inspections fixture:', inspFixtureJson);
 
   const browser = await puppeteer.launch({
     executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
@@ -659,6 +715,124 @@ async function main() {
         `?scope=all left the All tile at ${plainCraftedCounts.allTileCount}, identical to the real default — clamped server-side regardless of the URL`);
     }
     await plainPage.close();
+
+    // ══════════════════ INSPECTIONS TAB — added 2026-09-27. See this
+    // file's own header for why (control #21, "All Good", shipped
+    // completely dead for five days) and for what each numbered check
+    // below proves. Own fixture (a property, not a rental application),
+    // own page, same checkControl() helper every check above already
+    // uses. ══
+    const inspPage = await newPage(browser, inspFx.agent_user_id, [
+      'Mark every item in',           // markRoomNa()'s own confirm text
+      'Mark every unrecorded item',   // markAllGood()'s own confirm text
+    ]);
+    await inspPage.goto(`${BASE_URL}/corex/properties/${inspFx.property_id}`, { waitUntil: 'networkidle0', timeout: 25000 });
+    await new Promise((r) => setTimeout(r, 800));
+    // The Inspections tab is not the default tab on the property page —
+    // every control this section checks lives behind it. Real selector,
+    // checked directly (show.blade.php's tab bar), not guessed:
+    // data-prop-tab="{{ $tab['key'] }}" on each tab button.
+    await inspPage.click('[data-prop-tab="inspections"]');
+    await new Promise((r) => setTimeout(r, 500));
+
+    // 26 — Auto-pair. Run first: nothing else on the Ceiling item (the only
+    // item this check touches) changes state before it.
+    await checkControl(inspPage, {
+      name: '26. Auto-pair',
+      selector: '[data-qa="auto-pair"]',
+      expectDisabledBefore: false,
+      requestPattern: /rental-inspection-photo-matches\/auto-pair$/,
+      requestMethod: 'POST',
+    });
+
+    // 20 — Photo notes on/off. Client-only (localStorage) — no request to
+    // prove, so this asserts the real, observable effect instead: the
+    // button's own label flips, same style as check #7's viewer-visibility
+    // proof above.
+    {
+      const name = '20. Photo notes on/off';
+      const selector = '[data-qa="toggle-photo-notes"]';
+      const readLabel = () => inspPage.$eval(selector, (el) => el.textContent.trim()).catch(() => null);
+      const before = await readLabel();
+      if (before === null) {
+        record(name, false, `selector not found: ${selector}`);
+      } else {
+        await inspPage.click(selector);
+        await new Promise((r) => setTimeout(r, 200));
+        const after = await readLabel();
+        record(name, before !== after, before !== after ? `"${before}" -> "${after}"` : `label did not change from "${before}" after clicking — dead control`);
+      }
+    }
+
+    // 21 — Mark room good (Bedroom 1 / Walls). THE confirmed-dead control.
+    await checkControl(inspPage, {
+      name: '21. Mark room good ("All Good", per room)',
+      selector: '[data-qa="mark-room-good"]',
+      expectDisabledBefore: false,
+      requestPattern: /\/rooms\/\d+\/mark-good$/,
+      requestMethod: 'POST',
+    });
+
+    // 22 — Mark room N/A (Bathroom 1 / Floor — a SEPARATE room from #21's
+    // Bedroom 1, so #21 filling Walls does not also consume this room's own
+    // precondition). Native window.confirm() — allowlisted on THIS page's
+    // own newPage() call above, not a global policy change.
+    await checkControl(inspPage, {
+      name: '22. Mark room N/A',
+      selector: '[data-qa="mark-room-na"]',
+      expectDisabledBefore: false,
+      requestPattern: /\/rooms\/\d+\/mark-na$/,
+      requestMethod: 'POST',
+    });
+
+    // 23 — All good, whole inspection (Garage / Door — the one item #21/#22
+    // deliberately left untouched). Run AFTER both per-room checks, never
+    // before: it would silently fill Walls/Floor itself and this check
+    // would still "pass" while #21/#22 tested nothing real. Native
+    // window.confirm() too — same allowlist as #22.
+    await checkControl(inspPage, {
+      name: '23. All good — whole inspection',
+      selector: '[data-qa="mark-all-good"]',
+      expectDisabledBefore: false,
+      requestPattern: /\/mark-all-good$/,
+      requestMethod: 'POST',
+    });
+
+    // 24 — Add photo(s). A real file, a real Puppeteer upload — not a
+    // synthetic FileList assignment, which would not exercise the same
+    // browser-native change event onItemPhotosSelected() actually listens
+    // for.
+    {
+      const name = '24. Add photo(s)';
+      const input = await inspPage.$('input[data-qa="add-item-photo"]');
+      if (!input) {
+        record(name, false, 'selector not found: input[data-qa="add-item-photo"]');
+      } else {
+        let requestSeen = null;
+        const onReq = (req) => {
+          if (req.method() === 'POST' && /\/rental-inspections\/\d+\/photos$/.test(req.url())) requestSeen = { method: req.method(), url: req.url() };
+        };
+        inspPage.on('request', onReq);
+        await input.uploadFile(path.join(__dirname, '..', 'tests', 'Fixtures', 'Images', 'huawei-orientation0.jpg'));
+        const deadline = Date.now() + 5000;
+        while (!requestSeen && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+        inspPage.off('request', onReq);
+        record(name, !!requestSeen, requestSeen ? `${requestSeen.method} ${requestSeen.url}` : 'file selected, but no upload request fired within 5000ms — dead control');
+      }
+    }
+
+    // 25 — Next inspection. LAST of all seven Inspections-tab checks: this
+    // advances the chain, moving the tail this fixture's other six checks
+    // all target out from under any check that ran after it.
+    await checkControl(inspPage, {
+      name: '25. Next inspection',
+      selector: '[data-qa="next-inspection"]',
+      expectDisabledBefore: false,
+      requestPattern: /\/next$/,
+      requestMethod: 'POST',
+    });
+
+    await inspPage.close();
   } finally {
     await browser.close();
     console.log('Cleaning up fixtures...');
@@ -666,6 +840,9 @@ async function main() {
       runPhp([path.join(__dirname, 'rental-click-through-fixture.php'), `--app-root=${APP_ROOT}`, `--cleanup=${JSON.stringify(fx)}`]);
       if (fx._sendBackFixture) {
         runPhp([path.join(__dirname, 'rental-click-through-fixture.php'), `--app-root=${APP_ROOT}`, `--cleanup=${JSON.stringify(fx._sendBackFixture)}`]);
+      }
+      if (typeof inspFx !== 'undefined') {
+        runPhp([path.join(__dirname, 'rental-inspection-click-through-fixture.php'), `--app-root=${APP_ROOT}`, `--cleanup=${JSON.stringify(inspFx)}`]);
       }
     } catch (e) {
       console.error('CLEANUP FAILED — throwaway fixture rows may remain:', e.message);
