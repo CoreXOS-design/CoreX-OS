@@ -25,8 +25,14 @@ completed-but-empty inventories to worry about (§12.5) — 7 rows total, 4 canc
 completed. §13 (2026-09-27, same day) rebuilt the capture screen to Johan's approved mockup: a
 room-chip strip with status dots replaces the accordion list, per-line condition chips (a new,
 distinct vocabulary from §8's move-out disposition), a per-line photo strip that uploads the instant
-a file is picked, and "Copy from last inventory" for a re-let property. The move-in-vs-now comparison
-half of the same mockup is a separate, later stage — see its own section once built.
+a file is picked, and "Copy from last inventory" for a re-let property. §14 (2026-09-27, same day)
+rebuilt the move-in-vs-now comparison screen to the same approved mockup: quantities on both sides of
+one line ("4 at move-in, 2 today"), disposition wording aligned to "all there / short / damaged /
+missing" with four distinct badge colours, unchanged lines collapsed to one grey line (a new
+agency-configurable baseline-disposition setting, mirroring Inspections' own baseline-condition
+pattern), an "Only differences" filter, and a brand-new move-out photo side ("No photo taken yet."
+shown explicitly, never hidden, with an immediate-upload control right on the row). All three stages
+of this same-day build are in, in the order Johan set: completion gate, then capture, then comparison.
 
 ---
 
@@ -1573,3 +1579,175 @@ documentation comment, unconditionally, which would have made the naive assertio
 button itself was correctly hidden; caught and fixed before this report, not left as a false-negative-
 proof test); and the settings page saving `condition_states` without wiping the pre-existing
 `disposition_presets` on the same form.
+
+---
+
+## 14. Move-in-vs-now comparison rebuild to Johan's approved mockup — BUILT (2026-09-27)
+
+Third and final stage of this same-day build: **completion gate (§12) → capture (§13) → comparison
+(this section)**, in that order per Johan's own instruction.
+
+### 14.1 Always anchored on the move-in record — already true, confirmed not assumed
+
+**What was asked:** "Always anchored on the MOVE-IN inventory, not the previous one. That is the
+baseline a deposit deduction is argued from. Do not build the inspection screen's mistake of only ever
+showing the immediately previous record."
+
+**Nothing needed changing here.** `RentalInventory::start()` already refuses a second inventory per
+lease, so there is no chain to accidentally walk — `RentalInventoryComparisonService::compare()` reads
+`$line->quantity` directly off the SAME `RentalInventoryLine` row created at move-in, for the whole life
+of the tenancy (§11.7's own investigation established this as a structural advantage over inspections,
+two days before this stage was built). Recorded here as confirmed, not silently assumed — this is the
+one item on Johan's list that required no code change, only verifying it was already true.
+
+### 14.2 Quantities on both sides, one sentence
+
+**What was asked:** "Quantities on BOTH sides of one line — '4 at move-in, 2 today' is the sentence this
+module exists to produce."
+
+Both row shapes (§14.4) render this as that literal sentence — plain text, not split across styled
+`<span>` tags (an earlier draft of this pass split it with a middle-dot separator for visual polish;
+reverted before commit once it broke a straightforward substring check, and because the collapsed
+"no change" row already used plain prose — the two shapes now read as one consistent voice, not two
+different ones for what's structurally the same fact). `quantity_found` displays as `—` (never `0`) when
+genuinely not yet counted — same "null never means zero" discipline §8 already established.
+
+### 14.3 Disposition — a genuinely separate vocabulary from condition, wording aligned to the mockup
+
+**What was asked:** "Disposition per line is its own thing, not a condition: all there / short /
+damaged / missing. Four different outcomes, four different arguments, four different amounts."
+
+This was already architecturally true (§8's own reasoning: disposition grades the move-in/move-out
+DELTA, condition — §13.2, new this same day — grades an item's own state). **What changed is wording
+only**: `RentalInventorySetting::DEFAULT_DISPOSITION_PRESETS` labels realigned to Johan's own wording
+verbatim (`All there` / `Short` / `Damaged` / `Missing`, replacing `Present` / `Short — quantity
+missing` / `Damaged` / `Missing entirely`) — keys unchanged (`present`/`short`/`damaged`/`missing`), so
+no already-stored disposition row or agency customization is affected, only the SHIPPED DEFAULT's
+display text. Four distinct badge colours now back the "four different outcomes" framing:
+`present`=success (green), `short`=warning (amber), `damaged`=orange, `missing`=danger (red) — the
+previous version only distinguished two (present/missing), with short and damaged sharing one generic
+"info" colour.
+
+### 14.4 Unchanged lines collapse to one grey line; the differences carry the colour
+
+**What was asked:** "Unchanged lines collapse to one grey line reading 'no change'. The differences
+carry the colour."
+
+**[design call] "Unchanged" needed its own agency-configurable baseline, mirroring an already-
+established pattern, not inventing a new one.** A purely quantity-based definition ("found count equals
+move-in count") is wrong on its own — a line can be fully present in count AND damaged, which is a real
+finding, not "no change." New `RentalInventorySetting::baseline_disposition_key` (nullable string) +
+`baselineDispositionKeyFor()`, mirroring `RentalInspectionSetting::baseline_condition_key`/
+`baselineConditionKeyFor()` EXACTLY (same resolution order: saved value if it still exists in the
+current preset list → the literal default key if present → the first preset needing no reason → the
+first preset at all) — the identical problem ("which of an agency's own configurable options counts as
+the good one") already had an established, correct answer elsewhere in this codebase; reused, not
+reinvented. Exposed on the settings page as the same `<select>`-bound-to-the-preset-list pattern
+Inspections' own "All Good" bulk-fill baseline picker already uses.
+
+`RentalInventoryComparisonService::compare()` computes `unchanged` per row: the latest finding's
+`disposition_key` equals the agency's baseline key, AND (`quantity_found` is null — not yet
+independently counted — OR it matches the move-in quantity exactly). **Outstanding (no finding recorded
+at all) is explicitly NOT "unchanged"** — a line nobody has checked yet is a different fact from a line
+confirmed fine, and the comparison screen treats them differently (§14.5).
+
+Two visual row shapes in `comparison.blade.php`, replacing the old always-full `<table>` row:
+- **Collapsed** (`unchanged === true`): one grey line — room, description, the qty-pair sentence, "no
+  change" — and nothing else. No photos, no notes, no recorded-by block. Still correctable (the same
+  action a full row has), because a confirmed-fine reading can still be wrong and need fixing later.
+- **Expanded** (everything else — a real difference OR outstanding): the qty pair, the coloured
+  disposition badge (or "Not yet checked"), notes/recorded-by when present, and both photo sides
+  (§14.6). Outstanding rows get the full shape too, not the collapsed one — Johan's own framing ("the
+  agent should see it while they can still take one," §14.6) applies most while a line hasn't been
+  checked yet, which is exactly when it needs to stay visible and actionable, not collapsed away.
+
+**[design call] Switched the whole screen from a `<table>` to a card/list layout.** A `<table>` cell
+can't cleanly hold a photo strip on one row and collapse to a single line of text on another depending
+on that row's own state — a list of `<div>` blocks can. Not a cosmetic choice; the two-shape requirement
+above is what forced it.
+
+### 14.5 "Only differences" — the view an agent hands a tenant
+
+**What was asked:** "'Only differences' filter — that is the view an agent hands a tenant."
+
+A checkbox (`onlyDifferences`, Alpine `x-model`) toggles `x-show` per row, computed server-side per row
+at render time (`$isUnchanged` — a literal `true`/`false` token interpolated into the `x-show`
+expression) and filtered client-side with zero extra requests, since every row's full data is already on
+the page. **Hides collapsed ("unchanged") rows only — an outstanding (not-yet-checked) row still shows
+even with the filter on**, because "only differences" answering "what does the tenant need to know" is a
+different question from "what still needs an agent's attention," and an unchecked line is neither a
+confirmed non-issue nor (yet) a confirmed difference; hiding it under a filter literally named
+"differences" would misrepresent it as resolved.
+
+### 14.6 Showing (never hiding) that the current side has no photo yet
+
+**What was asked:** "Where there is no photo on the current side, SHOW that rather than hiding it. A
+claim with no photo is a weak claim and the agent should see it while they can still take one."
+
+**New capability — there was no move-out-side photo concept anywhere in this codebase before this
+stage.** Every photo captured through §0b-§13 is inherently a move-in photo (taken during the capture
+walk). New `rental_inventory_photos.side` column (`move_in` default — every existing row is one, by
+construction — or `move_out`), new `RentalInventoryLine::moveInPhotos()`/`moveOutPhotos()` relations
+(the SAME `photos()` many-to-many, just scoped by `side`), and a new endpoint —
+`RentalInventoryRecordingController::storeLineMoveOutPhoto()`
+(`POST .../lines/{line}/move-out-photos`) — that uploads AND tags to the line in ONE request, the same
+"no staging, ever" contract §13.3 established for capture-time per-line photos, reusing the SAME
+`PropertyImageStorer` pipeline and client-batching contract, not a second implementation.
+
+Every expanded row (§14.4) renders BOTH sides side by side: "Move-in" (unchanged from §11.8/§13, fixed
+40-44px thumbnails) and "Today" (new) — when the current side has zero photos, it shows **"No photo
+taken yet."** in the danger colour, not a blank space, with an "Add photo" upload control right there on
+the same row. Uploading reloads the page on success — the SAME pattern this screen's own disposition
+`save()` already used before this stage, not a second mechanism built for photos specifically; a full
+reload is an acceptable, simple, already-established cost on this particular screen (unlike the capture
+screen, which deliberately never reloads to protect autosave-in-progress state — this screen already
+reloaded after every Save, with no prior objection).
+
+### 14.7 Files
+
+- `database/migrations/2026_10_02_190000_add_side_to_rental_inventory_photos_table.php` (new)
+- `database/migrations/2026_10_02_190100_add_baseline_disposition_key_to_rental_inventory_settings_table.php` (new)
+- `app/Models/RentalInventoryPhoto.php` — `side` column, `SIDE_MOVE_IN`/`SIDE_MOVE_OUT`
+- `app/Models/RentalInventoryLine.php` — `moveInPhotos()`, `moveOutPhotos()`
+- `app/Models/RentalInventorySetting.php` — `DEFAULT_DISPOSITION_PRESETS` label wording, `baseline_disposition_key`, `baselineDispositionKeyFor()`
+- `app/Services/Rentals/RentalInventoryComparisonService.php` — `unchanged` per row, `move_out_photos` per row
+- `app/Http/Controllers/CoreX/RentalInventoryController.php` — `comparison()` eager-loads `lines.moveInPhotos`/`lines.moveOutPhotos`
+- `app/Http/Controllers/CoreX/RentalInventoryRecordingController.php` — new `storeLineMoveOutPhoto()`
+- `app/Http/Controllers/CoreX/RentalInventorySettingsController.php` — `baseline_disposition_key` edit/update
+- `routes/web.php` — `corex.rental-inventories.lines.move-out-photos.store`
+- `resources/views/corex/rental-inventories/comparison.blade.php` — full rebuild: card/list layout, two row shapes, "Only differences" toggle, both photo sides
+- `resources/views/corex/settings/rental-inventory.blade.php` — baseline-disposition-key `<select>`
+- `tests/Feature/RentalInventory/RentalInventoryComparisonRebuildTest.php` (new)
+
+### 14.8 Verification status
+
+`php -l` clean on every changed PHP file. All three touched Blade files (`comparison.blade.php`,
+`settings/rental-inventory.blade.php`, `capture.blade.php` unaffected this stage) compile to valid PHP
+via the app's own Blade compiler. The four attribute-scoped Blade sweeps (Standard −1u) were run against
+every attribute this stage touched or added — clean this time on the first pass (no clobber, no
+comment-in-attribute, no literal `"` inside `x-data`, no multi-root templates), unlike §13's own pass
+which caught two real clobber bugs; the sweep script itself is the same one, run the same way, so a
+clean result here is evidence the check itself still works, not evidence it was skipped.
+
+Deploy remains forbidden for this task, so the same substitution as §12.7/§13.8 applies: no real-browser
+click-through, no `verify-alpine-render.mjs` against the (unmodified) deployed page. Proof is 12 new
+PHPUnit tests, real HTTP throughout, covering: `unchanged` computed correctly for a matching-baseline
+finding, a contradictory finding (baseline disposition but a mismatched count — correctly NOT
+unchanged), a damaged-but-fully-present finding (correctly NOT unchanged even though the count matches),
+and an outstanding line (correctly NOT unchanged); the move-out photo endpoint tagging immediately and
+staying genuinely separate from move-in photos on the same line (both directions checked); the 404 for a
+foreign line; the real rendered page showing "No photo taken yet." when appropriate, correctly
+collapsing an unchanged line to prose while keeping a real difference in full detail (checked against
+the literal rendered sentence, not a synthetic value), and rendering the "Only differences" control; and
+the settings page saving `baseline_disposition_key` correctly, including falling back to a sane default
+when the saved key no longer exists in that same save's own preset list. All 44 tests across
+`tests/Feature/RentalInventory/` pass together (30 + 13 + 12 minus 11 already counted — see §13.8's own
+tally for the running total's components).
+
+One test-writing mistake was made and caught before this report, not after: an early draft of the
+qty-pair rendering used styled `<span>` elements with a middle-dot separator, which broke a literal
+substring check because the numbers and words were split across HTML tag boundaries — `assertSee()`
+checks the raw response body, not what a browser visually renders, so a tag boundary in the middle of an
+intended sentence defeats it even though a human reading the page would see one continuous phrase. Fixed
+by rendering the sentence as plain text (§14.2) rather than adjusting the test to tolerate a shape the
+mockup didn't actually ask for.

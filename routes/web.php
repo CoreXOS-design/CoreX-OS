@@ -3361,6 +3361,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.attach');
         Route::delete('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'detachLinePhoto'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.detach');
+        // §14 — the move-out (current) side's own photo evidence, from the
+        // comparison screen. Uploads AND tags to this line in ONE request.
+        Route::post('/{rentalInventory}/lines/{line}/move-out-photos', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLineMoveOutPhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.move-out-photos.store');
     });
 
     // .ai/specs/rental-work-orders.md §3a/§6a — Rental Fault Reports, its own

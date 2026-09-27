@@ -13580,7 +13580,7 @@ CREATE TABLE `rental_inventory_lines` (
   `room_label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `quantity` int unsigned DEFAULT '1',
   `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `condition_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `condition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `is_retired` tinyint(1) NOT NULL DEFAULT '0',
   `created_by_user_id` bigint unsigned DEFAULT NULL,
@@ -13605,6 +13605,7 @@ CREATE TABLE `rental_inventory_photos` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_inventory_id` bigint unsigned NOT NULL,
   `property_room_id` bigint unsigned DEFAULT NULL,
+  `side` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'move_in',
   `storage_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_size_bytes` bigint unsigned DEFAULT NULL,
   `uploaded_by_user_id` bigint unsigned DEFAULT NULL,
@@ -13657,6 +13658,7 @@ CREATE TABLE `rental_inventory_settings` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `disposition_presets` json DEFAULT NULL,
+  `baseline_disposition_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `condition_states` json DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -18080,3 +18082,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1463,'2026_10_03_2
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1464,'2026_10_03_210100_add_photo_note_classifications_to_rental_inspection_settings_table',372);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1465,'2026_10_02_180000_add_condition_states_to_rental_inventory_settings_table',373);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1466,'2026_10_02_180100_add_condition_key_to_rental_inventory_lines_table',373);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1467,'2026_10_02_190000_add_side_to_rental_inventory_photos_table',374);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1468,'2026_10_02_190100_add_baseline_disposition_key_to_rental_inventory_settings_table',374);

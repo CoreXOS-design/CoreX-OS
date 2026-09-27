@@ -35,7 +35,7 @@
     @endif
 
     <form method="POST" action="{{ route('corex.settings.rental-inventory.update') }}" class="space-y-4"
-          x-data="{ presets: {{ Js::from($dispositionPresets) }}, conditionStates: {{ Js::from($conditionStates) }} }">
+          x-data="{ presets: {{ Js::from($dispositionPresets) }}, conditionStates: {{ Js::from($conditionStates) }}, baseline: {{ Js::from($baselineDispositionKey) }} }">
         @csrf
 
         <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
@@ -95,6 +95,22 @@
                 <button type="button"
                         @click="presets.push({ key: 'custom_' + Date.now(), label: '', requires_notes: false })"
                         class="corex-btn-outline text-xs">+ Add an option</button>
+
+                {{-- §14 — the comparison screen's "unchanged lines collapse
+                     to one grey line" rule needs to know which option means
+                     nothing is wrong, never hardcoded to the word
+                     "All there". Same pattern as the Inspections tab's own
+                     "All Good" bulk-fill baseline picker. --}}
+                <div class="pt-2" style="border-top:1px solid var(--border);">
+                    <label class="block text-xs font-semibold mb-1" style="color: var(--text-secondary);">
+                        "Unchanged" on the move-out comparison means this option
+                    </label>
+                    <select name="baseline_disposition_key" x-model="baseline" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <template x-for="preset in presets" :key="preset.key">
+                            <option :value="preset.key" x-text="preset.label"></option>
+                        </template>
+                    </select>
+                </div>
             </div>
         </div>
 

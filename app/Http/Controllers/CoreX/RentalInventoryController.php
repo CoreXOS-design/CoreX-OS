@@ -164,12 +164,12 @@ class RentalInventoryController extends Controller
         abort_unless($rentalInventory->status === RentalInventory::STATUS_COMPLETED, 400,
             'The move-out comparison is only available once the inventory itself is completed.');
 
-        // §12/§11.8 investigation — the move-in photos an agent tagged to a
-        // line during capture are the actual evidence this document exists
-        // to produce; eager-loaded here so the comparison view can show them
-        // instead of leaving them invisible on the one screen whose whole
-        // purpose is comparing move-in against move-out.
-        $rentalInventory->load(['property', 'lease.tenants.contact', 'lines.photos']);
+        // §12/§11.8/§14 — both sides of the evidence: the move-in photos an
+        // agent tagged during capture, AND the move-out photos taken from
+        // this comparison screen itself (§14, new) — eager-loaded here so
+        // the comparison view can show both instead of leaving either
+        // invisible on the one screen whose whole purpose is comparing them.
+        $rentalInventory->load(['property', 'lease.tenants.contact', 'lines.moveInPhotos', 'lines.moveOutPhotos']);
 
         return view('corex.rental-inventories.comparison', [
             'inventory' => $rentalInventory,

@@ -23,6 +23,7 @@ class RentalInventorySetting extends Model
     protected $fillable = [
         'agency_id',
         'disposition_presets',
+        'baseline_disposition_key',
         'condition_states',
     ];
 
@@ -37,13 +38,17 @@ class RentalInventorySetting extends Model
      * this codebase (e.g. RentalInspectionSetting::refusalReasonPresetsFor()'s
      * own fallback). `requires_notes` on damaged/missing: quantity alone
      * doesn't explain WHAT happened; present/short are self-evident from
-     * the quantity comparison itself.
+     * the quantity comparison itself. Labels match Johan's own wording from
+     * §14's approved comparison mockup verbatim ("all there / short /
+     * damaged / missing") — keys are unchanged from before that mockup, so
+     * this is a label-only realignment, not a breaking change to any
+     * already-stored disposition row or agency customization.
      */
     public const DEFAULT_DISPOSITION_PRESETS = [
-        ['key' => 'present', 'label' => 'Present', 'requires_notes' => false],
-        ['key' => 'short', 'label' => 'Short — quantity missing', 'requires_notes' => false],
+        ['key' => 'present', 'label' => 'All there', 'requires_notes' => false],
+        ['key' => 'short', 'label' => 'Short', 'requires_notes' => false],
         ['key' => 'damaged', 'label' => 'Damaged', 'requires_notes' => true],
-        ['key' => 'missing', 'label' => 'Missing entirely', 'requires_notes' => true],
+        ['key' => 'missing', 'label' => 'Missing', 'requires_notes' => true],
     ];
 
     public static function dispositionPresetsFor(?int $agencyId): array
@@ -62,6 +67,38 @@ class RentalInventorySetting extends Model
         $preset = collect(self::dispositionPresetsFor($agencyId))->firstWhere('key', $dispositionKey);
 
         return (bool) ($preset['requires_notes'] ?? false);
+    }
+
+    /**
+     * §14 — "unchanged lines collapse to one grey line" needs to know
+     * which of the agency's OWN disposition presets means "nothing wrong,"
+     * the same problem RentalInspectionSetting::baselineConditionKeyFor()
+     * already solves for condition states — mirrored here, not
+     * reinvented. Never hardcoded to the literal key 'present': an agency
+     * that renamed or reordered its own preset list still gets a sane
+     * resolution.
+     */
+    public const DEFAULT_BASELINE_DISPOSITION_KEY = 'present';
+
+    public static function baselineDispositionKeyFor(?int $agencyId): string
+    {
+        $presets = self::dispositionPresetsFor($agencyId);
+
+        $saved = null;
+        if ($agencyId) {
+            $saved = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('baseline_disposition_key');
+        }
+        if (is_string($saved) && $saved !== '' && collect($presets)->contains('key', $saved)) {
+            return $saved;
+        }
+
+        if (collect($presets)->contains('key', self::DEFAULT_BASELINE_DISPOSITION_KEY)) {
+            return self::DEFAULT_BASELINE_DISPOSITION_KEY;
+        }
+
+        $noReasonNeeded = collect($presets)->first(fn ($p) => empty($p['requires_notes']));
+
+        return $noReasonNeeded['key'] ?? ($presets[0]['key'] ?? self::DEFAULT_BASELINE_DISPOSITION_KEY);
     }
 
     /**
