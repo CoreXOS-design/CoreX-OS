@@ -4844,7 +4844,8 @@
             {{-- Inspection items — §0.6, the agent adds spaces/meters per property;
                  never the advertised marketing room list above. --}}
             <div class="prop-section">
-                <button type="button" class="prop-section-toggle" @click="toggle('items')">
+                {{-- §28 — chevron moved left, matching every other header on this tab. --}}
+                <button type="button" class="prop-section-toggle prop-section-toggle-chevron-left" @click="toggle('items')">
                     <h3 class="prop-section-heading">
                         <span class="prop-section-heading-text">Inspection Items</span>
                         <span class="ml-2 text-xs" style="color:var(--text-muted);" x-text="'(' + activeItems().length + ')'"></span>
@@ -5039,8 +5040,19 @@
                  alignment-is-automatic reasoning), never resorted or
                  filtered differently between them. --}}
                 <div class="prop-section">
-                    <div class="flex items-center flex-wrap" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <button type="button" class="prop-section-toggle" @click="toggle('inspection')" style="border-bottom:0; width:auto; flex:1 1 auto; min-width:0;">
+                    {{-- §28, 2026-09-27 — Johan, property 5792: "a shitty like 2
+                         and a half lines... fix that it all sits in line. its
+                         wasted space and the collapse arrow sits uncomfortably
+                         in the middle of it all." One line at desktop widths
+                         (lg: / 1024px+): chevron left (prop-section-toggle-
+                         chevron-left, resources/css/corex.css), title+status
+                         flexing to fill the middle, controls flex-none so they
+                         never get squeezed, lg:flex-nowrap on the row and both
+                         controls groups so Start/select never drop to their
+                         own line. Below 1024px, wrapping is allowed exactly as
+                         before. --}}
+                    <div class="flex items-center gap-2 flex-wrap lg:flex-nowrap" style="background:var(--surface-2); border-bottom:1px solid var(--border);">
+                        <button type="button" class="prop-section-toggle prop-section-toggle-chevron-left" @click="toggle('inspection')" style="border-bottom:0; width:auto; flex:1 1 auto; min-width:0; padding-top:0.375rem; padding-bottom:0.375rem;">
                             <h3 class="prop-section-heading">
                                 <span class="prop-section-heading-text">Inspection</span>
                                 {{-- Same "never the coerced literal undefined" fix
@@ -5080,14 +5092,14 @@
                                  sides existing — auto-pair needs a predecessor
                                  AND a tail to compare, same precondition
                                  runAutoPair() itself checks. --}}
-                            <div x-show="chainTail && chainPredecessor" x-cloak class="flex items-center gap-2 flex-wrap pr-3 py-1.5">
+                            <div x-show="chainTail && chainPredecessor" x-cloak class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
                                 <button type="button" data-qa="auto-pair" :disabled="autoPairBusy" @click="runAutoPair()"
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
                                         title="Link any obviously-matching photos between this inspection and its predecessor.">
                                     <span x-text="autoPairBusy ? 'Pairing…' : 'Auto-pair'"></span>
                                 </button>
                             </div>
-                            <div x-show="chainTail" x-cloak class="flex items-center gap-2 flex-wrap pr-3 py-1.5">
+                            <div x-show="chainTail" x-cloak class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
                                 <span x-show="nextError" x-cloak class="text-xs" style="color:#ef4444;" x-text="nextError"></span>
                                 <span class="text-xs font-semibold" style="color:var(--text-secondary);"
                                       title="Compares against this inspection's own recorded condition, room by room.">Next inspection:</span>
@@ -5618,7 +5630,8 @@
             {{-- Custom sections --}}
             <template x-for="sec in data.custom" :key="sec.id">
                 <div class="prop-section">
-                    <button type="button" class="prop-section-toggle" @click="toggle(sec.id)">
+                    {{-- §28 — chevron moved left, matching every other header on this tab. --}}
+                    <button type="button" class="prop-section-toggle prop-section-toggle-chevron-left" @click="toggle(sec.id)">
                         <h3 class="prop-section-heading">
                             <span class="prop-section-heading-text" x-text="sec.name"></span>
                             <span class="ml-2 text-xs" style="color:var(--text-muted);"

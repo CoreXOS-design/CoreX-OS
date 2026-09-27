@@ -5299,3 +5299,69 @@ investigation only ever ran `git show origin/QA1:<path>` into a scratch file, ne
 a working-tree edit). Printable-form/OMR interaction with this filter, and any mobile-app/API surface for
 these three controls (the checklist-must-be-fetched principle, §14.3, would apply identically if this
 ever reaches the app) are both unconsidered here — named, not silently assumed out.
+
+---
+
+## 28. Inspections tab section-header layout — chevron left, one line at desktop (2026-09-27)
+
+Johan, property 5792, measuring the real screen: the "Inspection" section header — `button.prop-section-
+toggle` (title + chain-tail status + chevron) beside a controls row (Auto-pair, "Next inspection:" label,
+type select, Start) — wrapped into "a shitty like 2 and a half lines... its wasted space and the collapse
+arrow sits uncomfortably in the middle of it all." Root cause: the header row (`flex items-center flex-
+wrap`) and both controls groups (each its own `flex items-center gap-2 flex-wrap`) all allowed wrapping,
+and the toggle button's own `flex:1 1 auto` let it consume the whole row width before any control got a
+chance to sit beside it.
+
+### 28.1 Fix — one new CSS modifier, never the shared base classes
+
+`.prop-section-toggle`/`.prop-section-chevron`/`.prop-section-heading` (`resources/css/corex.css`) are used
+on FOUR other section headers on this same property page (Identity, Pricing & Costs, Property Details,
+Mandate & Assignment — all on the Info tab) and by a completely different screen,
+`resources/views/corex/rental-inventories/partials/_related-inventories.blade.php`. Johan's ask was scoped
+to "this tab" — editing the base classes would have silently changed those five untouched surfaces too.
+Fixed with one new, additive modifier class instead:
+
+```css
+.prop-section-toggle-chevron-left { flex-direction: row-reverse; }
+.prop-section-toggle-chevron-left .prop-section-chevron { margin-left: 0; margin-right: 0.5rem; }
+```
+
+`flex-direction: row-reverse` flips the toggle button's two DOM children (`h3.prop-section-heading` then
+`svg.prop-section-chevron`) into chevron-first visual order with no HTML reordering needed; the base
+`.prop-section-chevron` rule's `margin-left: auto` (which pushes it flush right in the ORIGINAL row
+direction) is overridden back to a small fixed `margin-right` gap, since CSS margins are physical and
+don't reverse with `flex-direction`. Applied to exactly the three headers on the Inspections tab that use
+this component: **Inspection Items**, **Inspection** (the reported one), and the **custom photo sections**
+(`x-for="sec in data.custom"`, real, agency-named sections — this is what Johan saw as "Ad Hoc"/"test
+inspection": his own real custom-section names on property 5792, not separate hardcoded labels).
+
+### 28.2 The "Inspection" header itself — nowrap at desktop, controls right-aligned
+
+- Outer row: `flex items-center flex-wrap` → `flex items-center gap-2 flex-wrap lg:flex-nowrap` (Tailwind's
+  default `lg` breakpoint is 1024px, matching the ask exactly — wrapping stays allowed below it).
+- Both controls groups (Auto-pair; Next inspection/select/Start): added `flex-none lg:flex-nowrap`, so
+  neither shrinks to fight the title for space nor drops its own children (the select/Start pair) onto a
+  second line at desktop widths.
+- Toggle button already had `flex:1 1 auto; min-width:0` (an inline override, pre-existing) so it fills
+  the middle and yields space to the controls first when the row is tight — this is exactly why the
+  controls read as right-aligned with no `margin-left:auto`/`justify-content` needed: the flexible title
+  area absorbs the row, the fixed-width controls sit at its natural end.
+- Row-height fix, found only once wrapping stopped exposing it: both controls' wrapping `<div>`s carried
+  their own `py-1.5` AROUND a button/select that already had its own `py-1.5` — invisible while broken
+  across 2.5 lines, but once single-line, this doubled padding made the controls row 42–46px tall against
+  the toggle button's 28px, an uneven header. Removed the wrapper `py-1.5` (kept `pr-3`); height now comes
+  from each control's own padding only, same as the toggle button's.
+
+### 28.3 Verified
+
+`php -l` clean. Whole-app `php artisan view:cache` clean. Real authenticated fetch (isolated worktree,
+own throwaway `hfc_dash_test_*` schema — never the shared QA1 database, per Rule 18) +
+`scripts/verify-alpine-render.mjs`: 2031 Alpine attribute expressions, zero new syntax errors, identical
+pre-existing `form.getAttribute`/scope-gap warning set before and after (confirmed via `git stash` on
+`show.blade.php`/`corex.css` and a byte-for-byte diff of the console-error list). Real headless-Chrome
+measurement at 1440px viewport, using a seeded chain (completed In-inspection predecessor + a Routine
+tail with all 28 items recorded — the exact `Routine — draft · 28/28` text Johan's own screen showed):
+chevron confirmed left of the title text; all three header children's vertical positions land within a
+3px band (one line, not wrapped) at a measured row height of **35px** (target "~36px"). Four real Puppeteer
+clicks (CDP-dispatched, not synthetic): title toggles the section, chevron toggles the section, Auto-pair
+does NOT toggle it, the Next-inspection select does NOT toggle it — all four pass.

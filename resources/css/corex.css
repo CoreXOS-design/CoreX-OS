@@ -639,6 +639,15 @@ html.dark .corex-sidebar-logo .corex-logo-accent {
 .prop-section-chevron.is-open { transform: rotate(90deg); }
 .prop-section-body { padding: 1rem; }
 
+/* .ai/specs/rental-inspections.md §28 — Inspections tab section headers
+   (2026-09-27). Johan: the collapse chevron reads better on the left, and
+   should match across every section header on this tab. Additive modifier
+   only — .prop-section-toggle/.prop-section-chevron above are untouched,
+   since other screens (e.g. rental-inventories' _related-inventories.blade.php)
+   still use the base classes unmodified and must render exactly as before. */
+.prop-section-toggle-chevron-left { flex-direction: row-reverse; }
+.prop-section-toggle-chevron-left .prop-section-chevron { margin-left: 0; margin-right: 0.5rem; }
+
 /* Secondary (inside-section) heading — small uppercase muted, no left bar. */
 .prop-subsection-heading {
     font-size: 0.6875rem;
