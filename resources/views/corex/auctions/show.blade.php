@@ -8,6 +8,9 @@
             <p class="text-sm text-gray-500">{{ $auction->reference }} · {{ ucwords(str_replace('_', ' ', $auction->status)) }} · {{ $auction->starts_at?->format('d M Y H:i') }}</p>
         </div>
         <div class="flex gap-2">
+            @permission('auctions.bidders.view')
+            <a href="{{ route('corex.auctions.bidders.index', $auction) }}" class="corex-btn-outline">Bidder Register</a>
+            @endpermission
             @permission('auctions.edit')
             <a href="{{ route('corex.auctions.edit', $auction) }}" class="corex-btn-outline">Edit</a>
             @endpermission

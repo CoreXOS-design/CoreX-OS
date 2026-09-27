@@ -4034,6 +4034,23 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/lots/{lot}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'decline'])->middleware('permission:auctions.edit')->name('lots.decline');
         Route::post('/lots/{lot}/passed-in', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'passedIn'])->middleware('permission:auctions.edit')->name('lots.passed-in');
         Route::post('/lots/{lot}/withdraw', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'withdraw'])->middleware('permission:auctions.edit')->name('lots.withdraw');
+
+        // AT-432 Phase 2 (.ai/specs/auctions.md §7 screens 5-6, §10.2) — the
+        // Bidder Register and staff-side registration/approval. The register
+        // is always OF an auction (§8.3), so it's nested under {auction}.
+        Route::prefix('{auction}/bidders')->middleware('permission:auctions.bidders.view')->name('bidders.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'index'])->name('index');
+            Route::get('/create', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'create'])->middleware('permission:auctions.bidders.approve')->name('create');
+            Route::post('/', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'store'])->middleware('permission:auctions.bidders.approve')->name('store');
+        });
+        Route::get('/bidders/{bidder}', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'show'])->middleware('permission:auctions.bidders.view')->name('bidders.show');
+        Route::post('/bidders/{bidder}/verify-fica', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'verifyFica'])->middleware('permission:auctions.bidders.verify_fica')->name('bidders.verify-fica');
+        Route::post('/bidders/{bidder}/deposit', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'recordDeposit'])->middleware('permission:auctions.bidders.deposits')->name('bidders.deposit');
+        Route::post('/bidders/{bidder}/deposit/refund', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'refundDeposit'])->middleware('permission:auctions.bidders.deposits')->name('bidders.deposit.refund');
+        Route::post('/bidders/{bidder}/rules-signed', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'markRulesSigned'])->middleware('permission:auctions.bidders.approve')->name('bidders.rules-signed');
+        Route::post('/bidders/{bidder}/approve', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'approve'])->middleware('permission:auctions.bidders.approve')->name('bidders.approve');
+        Route::post('/bidders/{bidder}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'decline'])->middleware('permission:auctions.bidders.approve')->name('bidders.decline');
+        Route::post('/bidders/{bidder}/withdraw', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'withdraw'])->middleware('permission:auctions.bidders.approve')->name('bidders.withdraw');
     });
 
     // AT-432 (.ai/specs/auctions.md §7 screen 13) — Settings → Auctions.
