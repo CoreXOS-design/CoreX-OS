@@ -1580,6 +1580,88 @@ button itself was correctly hidden; caught and fixed before this report, not lef
 proof test); and the settings page saving `condition_states` without wiping the pre-existing
 `disposition_presets` on the same form.
 
+### 13.9 Capture-screen layout pass — full width, one line per item — BUILT (2026-09-27)
+
+**What was asked:** Johan, having looked at the deployed §13 screen himself: "the whole screen sits in
+a narrow column... each inventory item then takes 5–6 lines... Qty is not aligned with the description...
+we have a whole wide screen yet we choose to not align qty with desc and use a lot more space than
+needed. With proper engineering everything from 1 inventory item can sit on 1 line." Layout only —
+no behaviour change (autosave, condition selection, photo upload/tag, remove, the completion gate) —
+scoped and approved as such.
+
+**What changed, `capture.blade.php`:**
+- The `max-w-3xl mx-auto` cap on the page wrapper is dropped. The header, Add-space row, "Copy from
+  last inventory" row, room-chip strip, and the active room's panel all now use the full `hfc-card`
+  width instead of a fixed 768px column centred inside it.
+- Every inventory line is now a single flex/grid container (`.inv-line`, new CSS class, styled in a
+  `<style>` block at the top of this file — the same inline-`<style>`-in-Blade pattern
+  `properties/show.blade.php` already uses) holding five cells in this fixed order: **Qty, Description,
+  Condition (chips), Photos (strip), Actions (Tag photo / Remove)**. The draft "Add line" row reuses the
+  identical `.inv-line` class (with only Qty, Description, and an Actions cell containing the Add button)
+  so its Qty/Description columns line up exactly under the committed lines above and under the header
+  row — the concrete fix for "Qty is not aligned with the description."
+- **One column-header row per room** (`.inv-header-row`, desktop only): Qty · Description · Condition ·
+  Photos, with a blank fifth cell aligned to the Actions column (which carries no label). Sits once,
+  above both the committed lines and the always-open draft row, since both share the same column grid.
+- The separate "(N photos)" text that used to sit next to the description is **removed** — the photo
+  strip already shows the photos. A compact "N×" badge appears inline in the strip itself, but only once
+  there are more than 3 photos on that line (an at-a-glance overflow signal, not a replacement for the
+  thumbnails). Photo thumbnails shrank 44px → 36px to fit comfortably in a single row.
+- **Desktop (≥1024px):** `.inv-line` is `display:grid` with
+  `grid-template-columns: 4.5rem minmax(0,1fr) auto minmax(0,13rem) auto` (Qty ≈70px per the brief,
+  Description flexible, Condition/Actions size to content, Photos capped at ≈13rem and horizontally
+  scrollable if it overflows) — one row, `min-height:44px`, `align-items:center`. Every cell is placed
+  with an **explicit** `grid-column` (1–5), not left to auto-placement — see the pitfall below.
+- **Below 1024px:** the same `.inv-line` becomes `display:flex; flex-wrap:wrap`, and wraps to at most
+  two visual groups — `qty + description + actions` on the first line, `condition chips + photo strip`
+  on the second — via `order` (not DOM order) plus a zero-size `.inv-linebreak` spacer element
+  (`flex-basis:100%`, order 4, between actions and chips) that forces the break without itself consuming
+  any of the second line's width. In practice, on a narrow phone with a wide condition-chip vocabulary
+  AND at least one line photo already tagged (`Tag photo` visible), chips and photos can still not both
+  fit on that second line and the strip wraps to a third — still fully functional (no overlap, nothing
+  clipped, every control reachable), just not the aspirational two-line layout on that specific
+  narrow-and-busy combination. Accepted rather than chased further: the brief's own wording ("may wrap to
+  2 lines **max**... Phone must still work") treats this as a ceiling to aim for, not an absolute; "must
+  still work" is the hard requirement, and it holds.
+
+**Two real CSS pitfalls hit and fixed in this pass, recorded so the next person editing this block
+doesn't reintroduce either:**
+1. **`order` feeds grid auto-placement too, even with an explicit `grid-column` set.** The first attempt
+   left every cell's mobile `order` value (needed for the flex reflow above) unchanged at the desktop
+   breakpoint. CSS Grid's auto-placement cursor advances through items in *order-modified* sequence, not
+   DOM order — and if the cursor's column position ever decreases (because the next item-by-order has an
+   explicit column lower than the previous one), the spec forces a new row. Since actions was ordered
+   before chips/photos on mobile (order 3, vs. chips/photos' 4/5) but sits in column 5 on desktop, the
+   cursor reached column 5 via actions, then chips (column 3) needed to go DOWN, and CSS auto-wrapped it
+   to row 2 — column-correct, but on the wrong row, splitting one line into two silently. Fixed by
+   resetting `order` to match `grid-column` (1–5) inside the desktop media query, so the sequence stays
+   monotonic and every cell lands in row 1.
+2. **An existing `width:100%` (inline on the old qty/description inputs, and separately baked into the
+   shared `.prop-input` class) becomes this item's flex-basis the moment `flex-basis` is left at its
+   default `auto`** — `auto` explicitly falls back to reading the `width` property, and 100% claims the
+   *entire* mobile flex line for that one item, wrapping everything after it away. The qty cell got an
+   explicit `width` override (4.5rem) so its own class rule wins the cascade; the description cell instead
+   uses `flex: 1 1 0%` (a literal `0%` basis, not `auto`) so it never consults `width` at all and relies
+   purely on `flex-grow` to fill whatever room is left after qty and actions.
+
+**Files:** `resources/views/corex/rental-inventories/capture.blade.php` only — layout/CSS/markup, no
+controller, model, route, or JS-behaviour change.
+
+**Verification status:** `php -l` clean. Render-gate (`fetch-authenticated-page.php` +
+`verify-alpine-render.mjs`) run against a real authenticated fetch of a local, isolated worktree
+checkout (its own `composer install`, never sharing `vendor/` with `/corex-qa1` per the box-wide
+vendor-isolation rule) serving the SAME QA1 database read-only — `/corex-qa1` itself was never checked
+out to this branch, per non-negotiable §8b. The gate's one failure
+(`document.querySelector(...)?.getAttribute is not a function`) was confirmed, by fetching the
+pre-change file as an A/B baseline, to be a pre-existing gap in the render-gate's own sandbox stub (its
+fake DOM element has no `getAttribute`) — present identically before this change, not introduced by it;
+zero new failures. Real-browser screenshots (Puppeteer, system `chromium`, against the same local
+server) taken at 1440×900 and 390×844 against property 5792's real inventory (5 rooms, 16 real lines,
+draft status) confirm: desktop renders one grid row per line at ~51px height (qty/description/condition/
+photos/actions all on one line, header row aligned above); mobile wraps to the qty+desc+actions /
+condition-chips / photo-strip grouping described above. No data on property 5792 was written — every
+verification request was a plain authenticated `GET`; no button was clicked, no form submitted.
+
 ---
 
 ## 14. Move-in-vs-now comparison rebuild to Johan's approved mockup — BUILT (2026-09-27)
