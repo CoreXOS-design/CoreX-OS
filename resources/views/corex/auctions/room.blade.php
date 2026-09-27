@@ -32,19 +32,31 @@
 
                 <div class="grid grid-cols-3 gap-4 text-center">
                     <div>
-                        <div class="text-xs text-gray-500">Current Bid</div>
-                        <div class="text-3xl font-bold">{{ $currentHighBid ? 'R '.number_format($currentHighBid->amount, 0) : '—' }}</div>
-                        @if($currentHighBid)<div class="text-xs text-gray-500">Paddle {{ $currentHighBid->bidder?->paddle_number }} — {{ $currentHighBid->bidder?->contact?->full_name }}</div>@endif
+                        <div class="text-xs text-gray-500">
+                            Current Bid
+                            @if($currentHighBid && $currentHighBid->channel !== 'in_room')
+                                <span id="room-online-badge" class="ml-1 px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold">ONLINE</span>
+                            @else
+                                <span id="room-online-badge" class="ml-1 px-1.5 py-0.5 rounded bg-blue-600 text-white text-[10px] font-semibold hidden">ONLINE</span>
+                            @endif
+                        </div>
+                        <div id="room-current-bid" class="text-3xl font-bold">{{ $currentHighBid ? 'R '.number_format($currentHighBid->amount, 0) : '—' }}</div>
+                        <div id="room-current-bid-detail" class="text-xs text-gray-500">
+                            @if($currentHighBid)Paddle {{ $currentHighBid->bidder?->paddle_number }} — {{ $currentHighBid->bidder?->contact?->full_name }}@endif
+                        </div>
                     </div>
                     <div>
                         <div class="text-xs text-gray-500">Next Increment</div>
-                        <div class="text-3xl font-bold">{{ $suggestedNextBid !== null ? 'R '.number_format($suggestedNextBid, 0) : '—' }}</div>
+                        <div id="room-next-increment" class="text-3xl font-bold">{{ $suggestedNextBid !== null ? 'R '.number_format($suggestedNextBid, 0) : '—' }}</div>
                     </div>
                     <div>
                         <div class="text-xs text-gray-500">Bidders</div>
-                        <div class="text-3xl font-bold">{{ $bidderCount }}</div>
+                        <div id="room-bidder-count" class="text-3xl font-bold">{{ $bidderCount }}</div>
                     </div>
                 </div>
+                @if($auction->bidding_mode !== 'in_room' && $lot && in_array($lot->status, ['open_for_bids', 'under_the_hammer']))
+                <div id="room-online-notice" class="text-xs text-gray-500 hidden">Live feed — updates every 5s. An online bid just landed; refresh the page before knocking down.</div>
+                @endif
 
                 @if($canSeeReserve)
                 <div class="text-sm text-gray-500">Reserve: {{ $lot->reserve_price ? 'R '.number_format($lot->reserve_price, 0) : 'No reserve' }}</div>
@@ -106,7 +118,7 @@
             {{-- Bid history --}}
             <div class="rounded border p-4">
                 <h2 class="font-medium mb-2 text-sm">Bid History</h2>
-                <div class="flex flex-col gap-1 text-sm max-h-96 overflow-y-auto">
+                <div id="room-bid-history" class="flex flex-col gap-1 text-sm max-h-96 overflow-y-auto">
                     @forelse($bidHistory as $bid)
                     <div class="flex justify-between border-b py-1 {{ $bid->isRetracted() ? 'opacity-40 line-through' : '' }}">
                         <span>#{{ $bid->bidder?->paddle_number }} ({{ $bid->channel }})</span>
@@ -127,4 +139,60 @@
         </div>
     @endif
 </div>
+
+@if($auction->bidding_mode !== 'in_room' && $lot && in_array($lot->status, ['open_for_bids', 'under_the_hammer']))
+<script>
+// AT-432 Phase 4 (§11.4) — hybrid Sale Room: poll the catalogued bid feed
+// so an online/proxy bid appears live without the clerk reloading the
+// page. Plain setInterval + fetch — "no new realtime infrastructure"
+// (§11.2). Never touches the bid-entry form or the fall-of-hammer
+// controls; those still act on the server-rendered state on submit.
+(function () {
+    const feedUrl = @json(route('api.v1.auctions.lots.feed', $lot->id));
+    const noticeEl = document.getElementById('room-online-notice');
+    let lastBidId = {{ $currentHighBid?->id ?? 'null' }};
+
+    function fmt(amount) {
+        return 'R ' + Math.round(amount).toLocaleString('en-ZA');
+    }
+
+    async function poll() {
+        let data;
+        try {
+            data = await window.CoreX.api.fetch(feedUrl);
+        } catch (e) {
+            return; // transient network hiccup — try again next tick
+        }
+
+        document.getElementById('room-current-bid').textContent = data.current_bid ? fmt(data.current_bid.amount) : '—';
+        document.getElementById('room-current-bid-detail').textContent = data.current_bid ? ('Paddle ' + (data.current_bid.bidder_paddle_number ?? '?')) : '';
+        document.getElementById('room-next-increment').textContent = data.suggested_next_bid !== null ? fmt(data.suggested_next_bid) : '—';
+        document.getElementById('room-bidder-count').textContent = data.distinct_bidder_count;
+
+        const badge = document.getElementById('room-online-badge');
+        const isOnlineLeading = !!data.current_bid && data.current_bid.channel !== 'in_room';
+        badge.classList.toggle('hidden', !isOnlineLeading);
+
+        const newestId = (data.recent_bids && data.recent_bids[0]) ? data.recent_bids[0].id : null;
+        if (newestId !== null && newestId !== lastBidId) {
+            lastBidId = newestId;
+            if (noticeEl && isOnlineLeading) {
+                noticeEl.classList.remove('hidden');
+            }
+            const history = document.getElementById('room-bid-history');
+            if (history) {
+                history.innerHTML = data.recent_bids.map(function (b) {
+                    return '<div class="flex justify-between border-b py-1">'
+                        + '<span>#' + (b.bidder_paddle_number ?? '?') + ' (' + b.channel + ')</span>'
+                        + '<span>' + fmt(b.amount) + '</span>'
+                        + '</div>';
+                }).join('') || '<p class="text-gray-500">No bids yet.</p>';
+            }
+        }
+    }
+
+    setInterval(poll, 5000);
+})();
+</script>
+@endif
 @endsection

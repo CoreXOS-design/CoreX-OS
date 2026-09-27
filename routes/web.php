@@ -432,6 +432,19 @@ Route::middleware('auth')->group(function () {
 
         Route::get('/branding',        [\App\Http\Controllers\Api\V1\BrandingController::class, 'show'])->name('branding.show');
 
+        // Auctions — live bid feed (AT-432 Phase 4, .ai/specs/auctions.md
+        // §11.2/§11.4/§14.3) — THE one catalogued bid-feed route, polled by
+        // the hybrid Sale Room today and, in Phase 5, the public lot page.
+        // Registered here, not in routes/api.php: bootstrap/app.php strips
+        // Sanctum's EnsureFrontendRequestsAreStateful from the `api` group
+        // (see the syndication-panel route above), so a cookie-authed
+        // browser fetch from the Sale Room would 401 there. The URI still
+        // starts with api/, so it appears in the Admin → API catalogue
+        // (NN #7). AuctionLot's BelongsToAgency global scope enforces
+        // agency scoping on the route-model binding itself.
+        Route::get('/auctions/lots/{lot}/feed', [\App\Http\Controllers\Api\V1\Auctions\AuctionLotFeedController::class, 'show'])
+            ->middleware(['permission:access_auctions', 'agency.required', 'feature:auctions'])->name('auctions.lots.feed');
+
         // ── Agency Access Authorization (cross-agency consent flow) ──
         // See .ai/specs/agency-access-authorization-spec.md
         Route::prefix('agency-access')->name('agency-access.')->group(function () {
