@@ -744,6 +744,36 @@ return [
 
         // ── Diagnostics ──
         ['key' => 'view_photo_upload_report', 'label' => 'View Photo Upload Report',  'section' => 'system', 'type' => 'access', 'module' => 'diagnostics', 'sort_order' => 90],
+
+        // ── Auctions (AT-432) — .ai/specs/auctions.md §20 ──
+        // Feature-flagged off by default (config/corex-features.php 'auctions') —
+        // an agency that does not auction sees nothing regardless of these grants.
+        // BUG FIX (2026-09-27): these 20 entries were originally inserted AFTER
+        // this array's closing bracket, landing as top-level numeric-keyed
+        // siblings of 'permissions' in the outer config array instead of inside
+        // it — corex:sync-permissions read `config('corex-permissions.permissions')`
+        // and never saw them, so every auctions.* permission key was invisible to
+        // the sync command and would never have existed in nexus_permissions.
+        ['key' => 'access_auctions',                 'label' => 'Access Auctions',                    'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 1],
+        ['key' => 'auctions.view',                   'label' => 'View',                               'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 2],
+        ['key' => 'auctions.create',                 'label' => 'Create',                             'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 3],
+        ['key' => 'auctions.edit',                   'label' => 'Edit',                               'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 4],
+        ['key' => 'auctions.archive',                'label' => 'Archive',                            'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 5],
+        ['key' => 'auctions.publish',                'label' => 'Publish Catalogue',                  'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 6],
+        ['key' => 'auctions.reserve.view',           'label' => 'View Reserve Prices',                'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 7],
+        ['key' => 'auctions.reserve.edit',           'label' => 'Set Reserve Prices',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 8],
+        ['key' => 'auctions.bidders.view',           'label' => 'View Bidder Register',               'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 9],
+        ['key' => 'auctions.bidders.view_all',       'label' => "View All Branches' Bidders",         'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 10],
+        ['key' => 'auctions.bidders.approve',        'label' => 'Approve Bidders / Issue Paddles',    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 11],
+        ['key' => 'auctions.bidders.verify_fica',    'label' => 'Verify Bidder FICA',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 12],
+        ['key' => 'auctions.bidders.deposits',       'label' => 'Record & Refund Deposits',           'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 13],
+        ['key' => 'auctions.room.operate',           'label' => 'Operate the Sale Room',              'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 14],
+        ['key' => 'auctions.bid.record',             'label' => 'Record Bids',                        'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 15],
+        ['key' => 'auctions.bid.retract',            'label' => 'Retract a Bid',                      'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 16],
+        ['key' => 'auctions.hammer',                 'label' => 'Knock Down a Lot',                   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 17],
+        ['key' => 'auctions.results.view',           'label' => 'View Results',                       'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 18],
+        ['key' => 'auctions.results.export',         'label' => 'Export Results',                     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 19],
+        ['key' => 'auctions.manage_settings',        'label' => 'Manage Auction Settings',            'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 20],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -751,30 +781,6 @@ return [
     // These do NOT overwrite existing role_permissions.
     // To change live permissions, use the Role Manager UI.
     // ──────────────────────────────────────────────────────────
-
-    // ── Auctions (AT-432) — .ai/specs/auctions.md §20 ──
-    // Feature-flagged off by default (config/features.php 'auctions') — an
-    // agency that does not auction sees nothing regardless of these grants.
-    ['key' => 'access_auctions',                 'label' => 'Access Auctions',                    'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 1],
-    ['key' => 'auctions.view',                   'label' => 'View',                               'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 2],
-    ['key' => 'auctions.create',                 'label' => 'Create',                             'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 3],
-    ['key' => 'auctions.edit',                   'label' => 'Edit',                               'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 4],
-    ['key' => 'auctions.archive',                'label' => 'Archive',                            'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 5],
-    ['key' => 'auctions.publish',                'label' => 'Publish Catalogue',                  'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 6],
-    ['key' => 'auctions.reserve.view',           'label' => 'View Reserve Prices',                'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 7],
-    ['key' => 'auctions.reserve.edit',           'label' => 'Set Reserve Prices',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 8],
-    ['key' => 'auctions.bidders.view',           'label' => 'View Bidder Register',               'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 9],
-    ['key' => 'auctions.bidders.view_all',       'label' => "View All Branches' Bidders",         'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 10],
-    ['key' => 'auctions.bidders.approve',        'label' => 'Approve Bidders / Issue Paddles',    'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 11],
-    ['key' => 'auctions.bidders.verify_fica',    'label' => 'Verify Bidder FICA',                 'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 12],
-    ['key' => 'auctions.bidders.deposits',       'label' => 'Record & Refund Deposits',           'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 13],
-    ['key' => 'auctions.room.operate',           'label' => 'Operate the Sale Room',              'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 14],
-    ['key' => 'auctions.bid.record',             'label' => 'Record Bids',                        'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 15],
-    ['key' => 'auctions.bid.retract',            'label' => 'Retract a Bid',                      'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 16],
-    ['key' => 'auctions.hammer',                 'label' => 'Knock Down a Lot',                   'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 17],
-    ['key' => 'auctions.results.view',           'label' => 'View Results',                       'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 18],
-    ['key' => 'auctions.results.export',         'label' => 'Export Results',                     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 19],
-    ['key' => 'auctions.manage_settings',        'label' => 'Manage Auction Settings',            'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 20],
 
     'role_defaults' => [
         'super_admin' => '*', // Owner role — gets all permissions

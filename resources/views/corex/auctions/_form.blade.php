@@ -16,6 +16,14 @@
     @csrf
     @if($isEdit) @method('PUT') @endif
 
+    @if(!$isEdit && ($prefillProperty ?? null))
+        {{-- §9 steps 1-2 combined — see AuctionController::store()'s attachPropertyAsLot() call. --}}
+        <input type="hidden" name="property_id" value="{{ $prefillProperty->id }}">
+        <div class="sm:col-span-2 rounded bg-blue-50 text-blue-800 px-4 py-2 text-sm">
+            This auction will start with <strong>{{ $prefillProperty->buildDisplayAddress() }}</strong> as Lot 1.
+        </div>
+    @endif
+
     <div>
         <label class="block text-xs text-gray-500">Reference *</label>
         <input type="text" name="reference" value="{{ old('reference', $auction->reference) }}" required maxlength="40" class="corex-input w-full" placeholder="AUC-2026-014">

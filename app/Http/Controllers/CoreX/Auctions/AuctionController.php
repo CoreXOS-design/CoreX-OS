@@ -81,9 +81,21 @@ class AuctionController extends Controller
         ]);
     }
 
-    public function create()
+    /**
+     * §9 steps 1-2, the "create one inline for this property" path: reached
+     * from the property show page's "Send to Auction" link
+     * (?property_id=X). $prefillProperty is validated here (own agency,
+     * exists) so the form can never silently attach a property from another
+     * tenant — the actual attach still only happens in store(), after the
+     * auction itself is created, exactly as addLot() would do it separately.
+     */
+    public function create(Request $request)
     {
         $agencyId = (int) auth()->user()->effectiveAgencyId();
+        $prefillProperty = null;
+        if ($propertyId = $request->query('property_id')) {
+            $prefillProperty = Property::where('id', $propertyId)->where('agency_id', $agencyId)->first();
+        }
 
         return view('corex.auctions.create', [
             'auction' => new Auction(),
@@ -92,6 +104,7 @@ class AuctionController extends Controller
             'internalAuctioneers' => User::query()->where('agency_id', $agencyId)->orderBy('name')->get(),
             'auctioneerMode' => AgencyAuctionSettings::auctioneerModeFor($agencyId),
             'biddingModesEnabled' => AgencyAuctionSettings::biddingModesEnabledFor($agencyId),
+            'prefillProperty' => $prefillProperty,
         ]);
     }
 
@@ -104,6 +117,18 @@ class AuctionController extends Controller
         $data['created_by_id'] = auth()->id();
 
         $auction = Auction::create($data);
+
+        // §9 steps 1-2 combined: a property carried in from the "Send to
+        // Auction" link becomes Lot 1 of the just-created auction, in the
+        // SAME request — never a property flagged sale_method='auction'
+        // with no lot behind it. Re-validated against this agency (never
+        // trust the hidden field alone).
+        if ($propertyId = $request->input('property_id')) {
+            $property = Property::where('id', $propertyId)->where('agency_id', $agencyId)->first();
+            if ($property) {
+                $this->attachPropertyAsLot($auction, $property, $request->only(['reserve_price', 'guide_price_min', 'guide_price_max', 'opening_bid']));
+            }
+        }
 
         return redirect()->route('corex.auctions.show', $auction)->with('status', 'Auction created — add lots below, then publish the catalogue when ready.');
     }
@@ -177,8 +202,22 @@ class AuctionController extends Controller
             'opening_bid' => 'nullable|numeric|min:0',
         ]);
 
-        $property = Property::findOrFail($validated['property_id']);
+        $property = Property::where('id', $validated['property_id'])->where('agency_id', $auction->agency_id)->firstOrFail();
 
+        $lot = $this->attachPropertyAsLot($auction, $property, $validated);
+
+        return redirect()->route('corex.auctions.show', $auction)->with('status', "Lot #{$lot->lot_number} added.");
+    }
+
+    /**
+     * The one place a property becomes an auction lot. Used by both addLot()
+     * (attaching to an existing auction from the catalogue builder) and
+     * store() (the "create one inline for this property" path from the
+     * property show page) — a single implementation so the two entry points
+     * can never drift apart on what "attach" actually does.
+     */
+    private function attachPropertyAsLot(Auction $auction, Property $property, array $priceFields): AuctionLot
+    {
         $nextLotNumber = (int) ($auction->lots()->max('lot_number') ?? 0) + 1;
 
         $lot = AuctionLot::create([
@@ -186,16 +225,16 @@ class AuctionController extends Controller
             'auction_id' => $auction->id,
             'property_id' => $property->id,
             'lot_number' => $nextLotNumber,
-            'reserve_price' => $validated['reserve_price'] ?? null,
-            'guide_price_min' => $validated['guide_price_min'] ?? null,
-            'guide_price_max' => $validated['guide_price_max'] ?? null,
-            'opening_bid' => $validated['opening_bid'] ?? null,
+            'reserve_price' => $priceFields['reserve_price'] ?? null,
+            'guide_price_min' => $priceFields['guide_price_min'] ?? null,
+            'guide_price_max' => $priceFields['guide_price_max'] ?? null,
+            'opening_bid' => $priceFields['opening_bid'] ?? null,
         ]);
 
         $property->sale_method = 'auction';
         $property->save();
 
-        return redirect()->route('corex.auctions.show', $auction)->with('status', "Lot #{$lot->lot_number} added.");
+        return $lot;
     }
 
     /** Only a lot that never catalogued may be removed here — a published lot is withdrawn instead (AuctionLotController). */
