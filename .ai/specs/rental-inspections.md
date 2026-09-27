@@ -3394,6 +3394,69 @@ No migration. No new backend "recorded" call site touched — Stage 1's audit al
 
 ---
 
+## 20.25 The AT-436 "ghost row" scare — traced, not the code, and fixed anyway (2026-09-27, cc)
+
+**Numbering note:** §20.24 is claimed by `insp-photo-strip-file-drop-2026-09-27` (AT-433 Part E), pushed but not
+yet merged to QA1 at the time this was written — filed as 20.25 to avoid the collision proactively, same
+caveat pattern as prior rounds.
+
+cc5 found a real `rental_inspection_photos` row (id 120, property 5792) whose `storage_path` pointed at a file
+that does not exist on disk — reported as data loss, correlated with AT-436's backend landing on QA1
+(b7ee63e15) at 2026-09-26 16:55, and escalated as urgent: "we replaced a bug that lost photos on reload with a
+bug that records a photo and stores nothing."
+
+**Traced, confirmed from evidence, and the correlation did not hold.** `storePhotos()`
+(RentalInspectionRecordingController.php:799-812) already calls `PropertyImageStorer::store()` and uses its
+return value to build `RentalInspectionPhoto::create()` — store-then-record, identical line order for both the
+pre-AT-433 `$observationId`-direct branch and the new `$itemId → currentOrPendingObservationFor()` branch. No
+code-level difference in write ordering between old and new paths; the storage path is built only from
+`$propertyId`, never from the observation. Enumerated every photo created since 2026-09-26 16:55 (25 rows) and
+checked each on disk, not just the two that fit the theory: **22 of 25 exist and serve.** The three that
+don't are two unrelated, identified causes, neither of which is AT-436's write path failing:
+
+- **Id 120** — a testing artifact. A `php artisan serve` process run from an isolated worktree, `.env` pointed
+  at the real `corex_qa1` database for a genuine-upload verification, wrote its file to that worktree's own
+  separate `storage/app/public/` rather than `/corex-qa1`'s. The row landed in the shared database; the file
+  landed on a filesystem that no longer exists (the worktree was later removed). See STANDARDS.md Rule 18 —
+  this exact incident is why it now exists.
+- **Ids 110/111** — an automated gate/smoke-test writing a literal fixture path (`/gate-fixture/ceiling.jpg`)
+  directly into the real QA1 database against a synthetic "Gate Fixture Property" (id 21056), never meant to
+  have a real file behind it. Not Johan's data, unrelated to AT-436.
+
+Confirmed live, not inferred: POSTed a real photo to the live `storePhotos()` endpoint on `qatesting1.corexos.co.za`
+before any fix was deployed — file landed on disk, served 200. Uploads were not failing at the time of the
+report.
+
+**Property 5792, checked end to end per Johan's own instruction ("look at the whole of property 5792 the way
+he sees it"):** every LIVE (non-deleted) photo row on the property — 108 rows — checked against disk.
+**Zero missing** once id 120 (below) is accounted for. Whatever else was rendering as broken on that screen
+was not a missing-file/storage-path problem across the rest of the property.
+
+**Photo id 120 soft-deleted** (`RentalInspectionPhoto::find(120)->delete()` — the model's own `SoftDeletes`
+trait, `deleted_at` set, confirmed absent from a live re-fetch of the tab-data payload). Ids 110/111 left
+untouched — they sit on the fixture property, not Johan's. No hard deletes, per standing rule.
+
+**The class fix, landed regardless of cause:** `PropertyImageStorer::store()` — the one shared point every
+caller (rental inspections, the marketing gallery, the mobile API) gets a URL back from — now verifies the
+file exists and is non-empty on the same disk instance, immediately after the initial write and again after
+`downscale()` (which overwrites in place and could otherwise leave a corrupted/truncated file passing the
+first check). Throws before returning a URL if either check fails, so the caller's `::create()` is never
+reached — no row to roll back, because nothing was written. Three new tests
+(`tests/Feature/Images/PropertyImageStorerTest.php`): the happy path still returns a URL whose file verifiably
+exists; a path that never landed is refused, not handed back; a zero-byte file is refused too.
+
+**The testing-practice fix:** STANDARDS.md Rule 18 — a local worktree's own dev server must never point at a
+shared database. The same root shape as the `/corex-qa1`-checkout incident the Conductor & Lane Intake
+Protocol already exists to prevent: an isolated resource (a worktree's filesystem, a worktree's checked-out
+branch) mixed with a shared one (the QA1 database, the QA1 deploy target), trusted to behave like one
+coherent environment. Two sound ways to exercise a real write against real data from now on, never a mix:
+against the shared environment itself in place, or against a fully isolated throwaway schema.
+
+Landed on QA1 (merge commit `551666fb9`, fast-forwarded into `/corex-qa1`, `php8.2-fpm` reloaded, no
+migration). Re-verified post-deploy with one more live upload — still lands on disk correctly.
+
+---
+
 ## 21. Add an item to an EXISTING room (2026-09-22, cc1) — there was no way to do this at all
 
 Johan, verbatim, looking at property 4862's Inspection Items panel: *"I want to add lets say bic to
