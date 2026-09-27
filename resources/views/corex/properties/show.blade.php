@@ -5831,6 +5831,11 @@
                 // `insp.photos` arrives already populated by tabPayloadFor()'s
                 // eager load — untagged (tray), room-tagged, or item-tagged.
                 dragOverRoom: null,
+                // AT-433 Part E, 2026-09-27 — which item's strip (by item id)
+                // a desktop file is currently being dragged over, for the
+                // dashed-outline affordance. Same single-scalar shape as
+                // dragOverRoom above (only one strip can be hovered at once).
+                stripFileDragOverItemId: null,
                 // §24.6, AT-433 Part B — a drag-to-pair is in progress
                 // (photoDraggedForPairing() below started it). Read by the
                 // predecessor (read-only) cell's tile to decide whether to
@@ -6679,6 +6684,42 @@
                     if (insp.observations.some(o => o.id === observation.id)) return;
                     observation.photos = observation.photos || [];
                     insp.observations.push(observation);
+                },
+
+                // AT-433 Part E, 2026-09-27 — drop a desktop file onto an
+                // item's own strip to upload it, same call as the add-tile's
+                // file picker (onItemPhotosSelected() above) — one path, not
+                // a second one. Never .prevent unconditionally: only when
+                // dataTransfer.types actually contains 'Files', so a drag
+                // this handler doesn't own passes through completely
+                // untouched. That matters specifically because cc6's own
+                // pairing drag (photoDraggedForPairing()/pairDropOnPredecessor()
+                // above, read directly off QA1 before writing this) can pass
+                // a drag through this same tail-side row on its way to the
+                // predecessor cell's own drop tiles one column over — its
+                // own discipline is identical (never .prevent unless
+                // pairDragActive), so the two never fight over the same
+                // event even though they don't share a target element.
+                // 'Files' is the one type string a genuine OS file drag
+                // always carries and an in-page dragstart(setData(...)) call
+                // (cc6's pairing drag, or the existing tag-to-room drag) can
+                // never produce, so the two are mutually exclusive by
+                // construction — if a drag somehow carried both, Files wins
+                // the tie: a real, visibly-dragged file takes priority over
+                // any same-drag internal payload.
+                stripDragOverTile(event, itemId) {
+                    if (!Array.from(event.dataTransfer.types || []).includes('Files')) return;
+                    event.preventDefault();
+                    this.stripFileDragOverItemId = itemId;
+                },
+                stripDragLeaveTile() {
+                    this.stripFileDragOverItemId = null;
+                },
+                async stripDropOnTile(event, section, item) {
+                    if (!Array.from(event.dataTransfer.types || []).includes('Files')) return;
+                    event.preventDefault();
+                    this.stripFileDragOverItemId = null;
+                    await this.onItemPhotosSelected(section, item, event.dataTransfer.files);
                 },
 
                 // ── Inspections-tab rebuild, 2026-09-22 — ONE quiet save

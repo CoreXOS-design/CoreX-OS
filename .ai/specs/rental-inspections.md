@@ -3394,11 +3394,114 @@ No migration. No new backend "recorded" call site touched — Stage 1's audit al
 
 ---
 
-## 20.25 The AT-436 "ghost row" scare — traced, not the code, and fixed anyway (2026-09-27, cc)
+## 20.24 AT-433 Part E — drop a desktop file onto an item's strip to upload it (built, 2026-09-27, cc)
 
-**Numbering note:** §20.24 is claimed by `insp-photo-strip-file-drop-2026-09-27` (AT-433 Part E), pushed but not
-yet merged to QA1 at the time this was written — filed as 20.25 to avoid the collision proactively, same
-caveat pattern as prior rounds.
+The investigation-only round (`spec-inspection-strip-file-drop-2026-09-26`, its own branch) never landed on QA1 — this
+section is the build, written against what actually shipped, superseding that round's predictions with what was
+verified true. Johan's ask: "dropping a photo file from the desktop onto an ITEM'S photo strip uploads it to that
+item. Today only the room heading accepts a drop, so an agent who drops where they are looking gets nothing."
+
+### 20.24.1 One dispatcher, branched on `dataTransfer.types` — read against cc6's LANDED code, not assumed
+
+cc6's pairing drag (`insp-photo-notes-2026-09-26`/QA1 merge history, `photoDraggedForPairing()`/`pairDragOverTile()`/
+`pairDropOnPredecessor()`, show.blade.php) was read directly in this checkout before writing a line here. Its
+`@dragover`/`@drop` handlers live on the **read-only predecessor cell's individual tiles**
+(`rental-inspection-item-cell.blade.php`'s `@if($readOnly)` branch) — never on the tail/editable side at all. The
+tail side's `.rir-strip-row` had no drag handling whatsoever before this round. So the two features don't even share
+a target element — but the type-gate is still applied on this side anyway, both because Johan asked for it explicitly
+and because a drag genuinely can pass over the tail strip on its way to the predecessor cell one column over, and
+that pass-through must be inert.
+
+New `.rir-strip-row` (tail/editable side only, `@unless`-equivalent via a duplicated `@if($readOnly)/@else` on the
+row's own opening tag — the row's tile CONTENTS were already branched this way, only the opening tag needed
+splitting):
+
+```
+@dragover="stripDragOverTile($event, item.id)"
+@dragleave="stripDragLeaveTile()"
+@drop="stripDropOnTile($event, {{ $inspectionJs }}, item)"
+```
+
+`stripDragOverTile()`/`stripDropOnTile()` (show.blade.php) both start with the same guard:
+`if (!Array.from(event.dataTransfer.types || []).includes('Files')) return;` — no `.prevent` Alpine modifier used
+anywhere (that would call `preventDefault()` unconditionally); `event.preventDefault()` is called manually, only
+inside that guard. A genuine OS file drag always carries the `'Files'` type; an in-page `dragstart(setData(...))`
+call (cc6's pairing drag, or the pre-existing tag-to-room drag `dropOnRoom()`) can never produce it — mutually
+exclusive by construction, verified live (below), not just argued. If a drag somehow carried both, `Files` wins:
+checked first, unconditionally — a real, visibly-dragged file always takes priority over any same-drag internal
+payload.
+
+### 20.24.2 Same path, not a second one
+
+`stripDropOnTile()`'s file branch is one line: `await this.onItemPhotosSelected(section, item, event.dataTransfer.files);`
+— the exact function the add-tile's `<input type=file>` already calls. Since AT-436 (§20.22/20.23) shipped first,
+that function no longer branches on whether the item has a condition — every file always posts immediately,
+so a drop on an unrecorded item behaves identically to picking the file: upload now, PENDING tile, real thumbnail
+when the POST returns, a failed upload shows Retry. No new upload path, no new staging, nothing Part E owns beyond
+routing a `drop` event into the same call an existing control already makes.
+
+### 20.24.3 Affordance — the row's own box, no new child
+
+`stripFileDragOverItemId` (show.blade.php, single scalar, same shape as the pre-existing `dragOverRoom`) drives a
+`:style` binding added to `.rir-strip-row` itself:
+
+```
+:style="stripFileDragOverItemId === item.id ? 'outline:2px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent);' : ''"
+```
+
+Identical dashed-outline/tint values to `dragOverRoom`'s own convention on the room heading (`rental-inspection-
+recording.blade.php`) — reused deliberately, not reinvented, so an agent who already knows what that signal means
+on the room heading reads the same thing on the item strip. No new element — the row already exists and had no
+`:style` binding before this round, so there is no clobber risk (checked: nothing else on this element sets a
+static `style` attribute). This is exactly the constraint the overlap fix (§20.20 follow-up) established: never an
+absolutely-positioned child back inside `.rir-strip-row`. Nothing was added as a child at all here — only a style
+toggle on the row's own existing box.
+
+### 20.24.4 Room-heading drop — unchanged, confirmed by diff
+
+`dropOnRoom()` and its `dragOverRoom`/`@dragover`/`@drop` wiring are untouched — checked via `git diff`, zero lines
+changed in that function or its call sites. Johan's ruling stands unargued: it is a different, valid gesture (tag
+an already-uploaded, untagged photo to a room) solving a different problem than Part E (upload a new file directly
+to an item).
+
+### 20.24.5 Verified live — drag, not click, and coexistence proven, not assumed
+
+Per standing rule 2398bfd99 (Alpine render gate before push) plus Johan's explicit "drag the real thing in a browser
+before you call it done": built and served from an isolated worktree (`composer install` + `npm run build` +
+`php artisan serve`, own vendor and own compiled assets, this repo's own `fetch-authenticated-page.php` pointed at
+that local server rather than QA1 — the same pattern cc3's Part C round used for the identical reason: this branch
+was never deployed to QA1). `scripts/verify-alpine-render.mjs` against a real authenticated fetch: **1986 Alpine
+attribute expressions, all compile clean** — same pre-existing, unrelated failure set as every prior round on this
+page (two inline `x-data` blocks unconnected to rental inspections, one script-eval issue), nothing new.
+
+Real drag verified with a genuine `DataTransfer` carrying an actual `File` object (not a stand-in string),
+dispatched as real `dragover`/`drop` `DragEvent`s at the live `.rir-strip-row` element in a real Chromium page —
+never a direct call to `stripDropOnTile()` itself:
+
+- A `text/plain` JSON payload (cc6's own pairing-drag shape, `[999999]`) dragged over the tail strip: **no outline
+  shown, no upload, no tile created.** Confirms coexistence by observation, not assumption — the exact thing Johan
+  asked to see checked rather than read and moved past.
+- A real `File` dragged over the same strip: the dashed-outline/tint affordance appeared, matching the `:style`
+  string above exactly.
+- Dropped: uploaded through the real endpoint, a real photo tile rendered after the batch settled.
+- Reloaded: the dropped photo was still there — the actual persistence promise, not just a client-side illusion.
+- Zero new console errors (64 present, all four identical pre-existing `featureCategoryTab`/`catDef`/`features is
+  not defined` messages already tied to the unrelated Features/amenities picker component, confirmed against the
+  same baseline every prior round in this file has already ruled out).
+
+### 20.24.6 Files touched this round
+
+- `resources/views/corex/properties/partials/rental-inspection-item-cell.blade.php` — `.rir-strip-row`'s opening
+  tag split into an `@if($readOnly)/@else`, the editable branch gaining the drop handlers and affordance `:style`
+- `resources/views/corex/properties/show.blade.php` — new `stripFileDragOverItemId` state, `stripDragOverTile()`,
+  `stripDragLeaveTile()`, `stripDropOnTile()`
+
+No migration. No change to `dropOnRoom()`, `photoDraggedForPairing()`, `pairDragOverTile()`, or
+`pairDropOnPredecessor()`.
+
+---
+
+## 20.25 The AT-436 "ghost row" scare — traced, not the code, and fixed anyway (2026-09-27, cc)
 
 cc5 found a real `rental_inspection_photos` row (id 120, property 5792) whose `storage_path` pointed at a file
 that does not exist on disk — reported as data loss, correlated with AT-436's backend landing on QA1
