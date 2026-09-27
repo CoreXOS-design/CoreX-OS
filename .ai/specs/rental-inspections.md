@@ -5032,3 +5032,77 @@ the app — clean. Real Alpine render gate: local `php artisan serve` against th
 clean**, attribute-scoped per instruction (every attribute on the page, not just the lines touched this
 round); the same pre-existing, unrelated `localStorage`/`document`/`form.getAttribute` findings as every
 prior round, none referencing anything in this diff (checked by name). Did not deploy.
+
+---
+
+## 27. The compare viewer and the strip now read ONE source, not two that happened to agree (2026-09-27)
+
+§26.4 unified the pairing ORDER between the strip and the compare viewer. It did not unify the underlying
+photo SOURCE each side reads from — reported honestly at the time, not discovered later. Johan: "Build the
+source unification now; it is the part that matters."
+
+### 27.1 The defect, confirmed against real data
+
+`compareViewerPhotosForSide()` (item-kind) read `conditionForInspection(insp, itemId).photos` —
+`conditionForInspection()` reduces an item's observations to the SINGLE LATEST one by `created_at`, so
+`.photos` was only ever that one observation's own photos. The strip's own `itemPhotosForInspection()`
+instead aggregates `.photos` across EVERY observation ever recorded for the item on that inspection — a
+real difference the moment an item has more than one observation, which AT-436's "photograph first, rate
+afterward" workflow makes the NORMAL case, not a rare one: photos land on an earlier observation, the
+condition tap creates/updates a later one, and the viewer showed zero photos for an item the strip showed
+several for.
+
+Reproduced on real, pre-existing data — property 5792, inspection 14, item 627 (Ceiling): two observations,
+`49` (created 2026-09-22 13:48:49, photos 44/46) and `55` (created 2026-09-23 06:23:43, no photos of its
+own). `conditionForInspection()` picks `55` (the later one) — its `.photos` is empty. Traced directly via
+Tinker against the real, unmodified models (not a reimplementation): the OLD read returns `[]` (count 0);
+`itemPhotosForInspection()` returns `[44, 46]` (count 2). Photos 44/46 were uploaded 2026-09-22 13:47:17–19
+— four days before the 2026-09-26 16:55 ghost-row window cc4's fix (§20.25, `551666fb9`) closed — and both
+rows survived that fix's own ghost cleanup sweep (still present, not soft-deleted), the two facts this round
+treats as its confidence that they are real files, not a ghost row. **Not independently verified by
+fetching the file from `/corex-qa1`'s own disk** — this worktree has no access to that storage location, and
+per the current worktree-only rule this round does not touch that checkout even to read from it; confidence
+here rests on timestamp + survival-through-cleanup, not a direct disk check.
+
+### 27.2 The fix — one function, not a second aggregation
+
+Johan's own question: is there a genuine reason the viewer needs a different set? No. `chainTail.observations`
+is kept live-current by `_mergeObservation()` (AT-436) after every upload — the same data
+`itemPhotosForInspection()` already reads directly, for either side, with no observation-id plumbing needed.
+`compareViewerPhotosForSide()`'s item-kind branch now calls `itemPhotosForInspection(insp, itemId)` for
+BOTH `chainPredecessor` and `chainTail` — one function, the same one the strip's own read-only cell already
+used, not two that happened to agree. `compareViewerChipCounts()` (the "2 / 1" IN/CURRENT chip on each item
+pill) had the identical defect via the identical call — `conditionForInspection(insp, itemId).photos.length`
+— fixed the same way in the same pass: left unfixed, the chip could read "0" for an item the viewer it
+labels now correctly shows photos for, the exact half-fixed state this round exists to close out. Room-kind
+is unchanged (`roomPhotosForInspection()` never had this defect).
+
+**Deliberately NOT touched**: the strip's own TAIL cell still reads `itemPhotosFor(section, item)` via
+`photoUploader(section)`'s own cache, not `itemPhotosForInspection()` directly — that path is tightly
+coupled to the live select/tag/untag controls (`isSelected()`/`toggleSelected()`), a separate concern from
+"which photos does this item have" that this round does not touch. Both call sites already produce the same
+AGGREGATION (every observation, not just the latest) — `itemPhotosFor()` just draws it from the uploader's
+own separately-mutated cache rather than `insp.observations` directly. That the strip's tail cell and the
+viewer's tail side now read from two different (but currently-equivalent) stores, while the viewer's own
+two sides and the strip's own predecessor cell all read the identical function, is named here as a real,
+narrower asymmetry than the one just closed — not assumed away.
+
+### 27.3 Verification
+
+Traced directly against real, unmodified models via Tinker (§27.1) — not a reimplementation, not the
+fixture used for the click-through gate (whose photos are placeholder paths, never real files, and have
+since been cleaned up). `php -l` clean. `php artisan view:cache` clean. Real Alpine render gate — local
+`php artisan serve`, `scripts/fetch-authenticated-page.php` against `/corex/properties/1724` as a real
+authenticated user, `scripts/verify-alpine-render.mjs` against the response: **2130/2130 Alpine attribute
+expressions compile clean**, identical count to §26.6 (this fix changed two function bodies, not the
+attribute surface), nothing in the pre-existing, unrelated warning set references anything in this diff.
+Did not deploy.
+
+### 27.4 Handoff — the click-through gate has never run
+
+`scripts/rental-click-through.mjs`'s seven new Inspections-tab checks (#20–26, §26.5) have never executed.
+This environment has no cached Playwright/Puppeteer-compatible Chromium install and this round does not
+fetch one over the network. **cc5 runs this**: `php8.2 scripts/rental-click-through.mjs [--app-root=/corex-qa1]
+[--base-url=https://qatesting1.corexos.co.za] [--php-bin=php8.2]` — same invocation as the rest of this
+file's own coverage, no new flags. The script creates and cleans up its own throwaway fixture
+(`rental-inspection-click-through-fixture.php`) automatically; nothing manual is needed beyond running it.

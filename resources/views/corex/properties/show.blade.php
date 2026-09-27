@@ -6176,17 +6176,44 @@
                 // A carousel PER SIDE (Johan, 2026-09-24 — replacing the
                 // earlier single shared strip): every photo for the current
                 // room/item, scoped to THAT side's own inspection
-                // (chainPredecessor for left, chainTail for right) — reuses
-                // cc3's own roomPhotosForInspection()/conditionForInspection()
-                // rather than a second, parallel data path. The storage_path
-                // guard is what stops a stray/broken entry rendering as a
-                // blank tile.
+                // (chainPredecessor for left, chainTail for right).
+                //
+                // FIX, 2026-09-27 (Johan) — item-kind used to read
+                // conditionForInspection(insp, itemId).photos: that resolves
+                // to the LATEST observation only (it reduces to one row by
+                // created_at), so its .photos is just that one observation's
+                // own photos. The strip's own itemPhotosForInspection()
+                // instead aggregates .photos across EVERY observation ever
+                // recorded for the item on that inspection — a real
+                // difference the instant an item has more than one
+                // observation, which AT-436's own "photograph first, rate
+                // afterward" workflow makes the NORMAL case, not a rare one:
+                // photos land on an earlier observation, the condition tap
+                // creates/updates a later one, and conditionForInspection()
+                // then shows zero photos for an item the strip shows several
+                // for. Now calls the SAME itemPhotosForInspection() the
+                // strip's own read-only cell already uses — one function,
+                // not two that happened to agree — for BOTH sides: chainTail
+                // works here too, not just chainPredecessor, because
+                // _mergeObservation() (AT-436) already keeps
+                // chainTail.observations current after every upload, the
+                // same live data this function reads directly. Deliberately
+                // NOT touched: the strip's own TAIL cell keeps reading
+                // itemPhotosFor()/photoUploader(section) — that path is
+                // tightly coupled to the live select/tag/untag controls
+                // (isSelected()/toggleSelected()), a separate concern from
+                // "which photos does this item have" that this fix does not
+                // touch. Room-kind is unchanged — roomPhotosForInspection()
+                // was never the function with this defect. The storage_path
+                // guard is unchanged — what stops a stray/broken entry
+                // rendering as a blank tile is a separate concern from which
+                // photos are considered in the first place.
                 compareViewerPhotosForSide(side) {
                     const insp = side === 'left' ? this.chainPredecessor : this.chainTail;
                     if (!insp) return [];
                     const photos = this.compareViewer.kind === 'room'
                         ? this.roomPhotosForInspection(insp, this.compareViewer.roomId)
-                        : ((this.conditionForInspection(insp, this.compareViewer.itemId) || {}).photos || []);
+                        : this.itemPhotosForInspection(insp, this.compareViewer.itemId);
                     return (photos || []).filter(p => p && p.storage_path);
                 },
                 // §24.11, AT-433 Part B follow-up, 2026-09-27 — pairs first
@@ -6414,11 +6441,18 @@
                     this.compareViewerResetZoom();
                 },
                 // The chip's own "2 / 1" count — IN side / CURRENT side.
+                // FIX, 2026-09-27 (Johan) — same defect as
+                // compareViewerPhotosForSide() just above, same fix: this
+                // used conditionForInspection(insp, itemId).photos.length,
+                // the latest-observation-only count, so a re-recorded item's
+                // chip could read "0" while the carousel it opens shows real
+                // photos. Now the same itemPhotosForInspection() call, so
+                // the chip and the viewer it labels can never disagree.
                 compareViewerChipCounts(itemId) {
                     const countFor = (insp) => {
                         if (!insp) return 0;
                         if (!itemId) return this.roomPhotosForInspection(insp, this.compareViewer.roomId).length;
-                        return ((this.conditionForInspection(insp, itemId) || {}).photos || []).length;
+                        return this.itemPhotosForInspection(insp, itemId).length;
                     };
                     return countFor(this.chainPredecessor) + ' / ' + countFor(this.chainTail);
                 },
