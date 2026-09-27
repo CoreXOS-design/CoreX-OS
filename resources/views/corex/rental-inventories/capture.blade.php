@@ -642,11 +642,35 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         // not separate tabs, it's just quick navigation to get to that
         // section."
         activeRoomId: null,
-        // Initial pill highlight only (the scrollspy observer corrects
-        // this within a frame of real scroll position once it starts
-        // observing) — same "needs attention first" priority as before:
-        // first not-opened room, else first part-done, else just the
-        // first room.
+        // §13.14 fix, 2026-09-27 — conductor's real-browser report:
+        // "Bedroom 2" was highlighted on load while "Bedroom 1" (the
+        // genuinely topmost room, scrollTop 0) sat at the top of the
+        // screen. Root cause, found by checking exactly what the
+        // conductor asked to check — "stored/remembered room" vs "the
+        // scrollspy's own first callback": it was the FORMER. This used
+        // to call pickInitialActiveRoom() (below), which picks by
+        // COMPLETION STATUS ("needs attention first" — first not-opened
+        // room, else first part-done) — a "remembered preference" that
+        // has nothing to do with scroll position and can name ANY room
+        // in the list, not necessarily the first one. The doc comment
+        // right here claimed "the scrollspy observer corrects this
+        // within a frame of real scroll position" — that assumption
+        // doesn't reliably hold in practice (IntersectionObserver's own
+        // initial callback timing/ordering isn't something this screen
+        // controls closely enough to depend on for correctness). Fixed
+        // by not depending on it at all: on load, with nothing scrolled
+        // yet, the FIRST room in DOM order IS what's genuinely visible
+        // at the top of the panel — so that's what gets set directly,
+        // synchronously, with no dependency on any async correction.
+        initFirstActiveRoom() {
+            this.activeRoomId = this.rooms.length ? this.rooms[0].id : null;
+        },
+        // Kept for copyFromLastInventory()'s own use below — after a bulk
+        // copy (a discrete action, not a page load), landing attention on
+        // whatever most needs it is still a reasonable, separate choice
+        // from "what's visible right now." Same "needs attention first"
+        // priority as before: first not-opened room, else first
+        // part-done, else just the first room.
         pickInitialActiveRoom() {
             if (!this.rooms.length) { this.activeRoomId = null; return; }
             const notOpened = this.rooms.find(r => this.roomStatus(r.id) === 'not_opened');
@@ -797,7 +821,7 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 l.quantity = this.normalizeQtyDisplay(l.quantity);
                 this.lineSnapshots[l.id] = { quantity: l.quantity, description: l.description };
             });
-            this.pickInitialActiveRoom();
+            this.initFirstActiveRoom();
             // §13.11/§13.12 — the sticky tab-bar+pill-strip group's REAL
             // rendered height, published as a CSS custom property so
             // every room panel's scroll-margin-top (set in the <style>

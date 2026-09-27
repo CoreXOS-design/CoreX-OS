@@ -1943,6 +1943,46 @@ fixed. `php -l` clean. Render-gate: 0 new failures (the one surviving `document.
 every prior round's baseline). Zero console errors. No data on property 5294 or any other `corex_qa1`
 row was written at any point.
 
+### 13.14 On-load pill highlight, round 3 — a "remembered preference," not scroll position — BUILT (2026-09-27)
+
+**What was reported:** pill-click scrolling itself was now confirmed correct (real click on Garden 1 on
+property 5294: `.prop-tab-panel.scrollTop` `0`→`2700`, heading at `284px`). One thing left: on load, with
+"Bedroom 1" genuinely the top room (`top: 504`) and "Bedroom 2" below it (`top: 1124`), scrollTop `0`, the
+"Bedroom 2" pill was highlighted instead. The conductor's own instruction named the exact thing to check:
+"whether the initial active pill comes from a stored/remembered room or from the scrollspy's first
+intersection callback."
+
+**Root cause, confirmed by checking exactly that.** It was the former. `init()` called
+`pickInitialActiveRoom()`, which picks by COMPLETION STATUS — first not-opened room, else first
+part-done, else just the first — a "needs attention first" priority carried over from §13.1's OLD
+single-active-room-tab design, where landing on the room most needing work made sense because clicking a
+pill SWITCHED which room was even visible. §13.11 changed the model (every room renders stacked; a pill
+click just scrolls) but this one call site never got updated to match — it kept naming whichever room
+most needs attention, which can be ANY room in the list, regardless of which one is actually at the top
+of the screen. The doc comment on `activeRoomId` even claimed "the scrollspy observer corrects this
+within a frame of real scroll position" — an assumption that doesn't reliably hold in practice, and isn't
+something this screen should depend on for correctness in the first place: `IntersectionObserver`'s own
+initial-callback timing and ordering isn't a contract this page controls closely enough to lean on.
+
+**Fixed by not depending on the scrollspy for the initial state at all.** New `initFirstActiveRoom()` —
+`this.activeRoomId = this.rooms.length ? this.rooms[0].id : null` — sets the highlight synchronously in
+`init()`, from the one fact that's actually true at page-load time: with nothing scrolled yet, the FIRST
+room in DOM order genuinely IS what's visible at the top of the panel. `pickInitialActiveRoom()` itself is
+kept, unchanged, for its one remaining call site (`copyFromLastInventory()`) — landing attention on
+whatever most needs work after a bulk copy is a distinct, reasonable choice tied to a discrete USER
+ACTION, not to "what does the screen currently show," so it wasn't touched.
+
+**Files:** `resources/views/corex/rental-inventories/capture.blade.php` only.
+
+**Verification status — real `corex_qa1` database, property 5792, user 365
+(`qa1-browser-verify@corexos.local`), read-only GET only (no clicks needed to verify this one).** Real
+headless Chrome (Puppeteer, system `chromium`, 1440×900): on load, `panelScrollTop: 0` and the active pill
+read directly from the DOM was `"Kitchen"` — `pillOrder[0]` and the room whose heading measured the
+smallest `top` (`490.5px`, ahead of Bedroom 1's `1251.6px`, Bedroom 2's `1699.2px`, Study's `2095.7px`,
+Garage's `2703.8px`) — confirmed fixed. `php -l` clean. Render-gate: 0 new failures (same pre-existing
+sandbox-stub gap as every prior round). Zero console errors. No data on property 5294 or any other
+`corex_qa1` row was written at any point.
+
 ---
 
 ## 14. Move-in-vs-now comparison rebuild to Johan's approved mockup — BUILT (2026-09-27)
