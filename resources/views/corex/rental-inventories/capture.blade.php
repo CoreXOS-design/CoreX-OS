@@ -659,24 +659,23 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         // deployed page: scrollToRoom() fired but NOTHING moved (window.
         // scrollY stayed 0 AND the target's own on-screen position was
         // unchanged — not just "scrolled the wrong container", genuinely
-        // inert). The previous version trusted the browser's own
-        // scrollIntoView({block:'start'}) to find whichever ancestor
-        // actually has the overflow and to respect this page's
-        // scroll-margin-top automatically. Whatever the exact cause on
-        // the real page (this screen doesn't control whether its own
-        // .prop-tab-panel or the app shell's #appScroll <main> ends up
-        // being the one with real overflow — that depends on how the
-        // surrounding height chain resolves there, not on anything this
-        // file decides), relying on that built-in behaviour turned out
-        // fragile. Replaced with an explicit, manually-computed scroll:
-        // find the real scrolling ancestor by walking up and checking
-        // computed overflow-y + actual scrollHeight > clientHeight (never
-        // assumed to be a specific selector), then set its scrollTop (or
-        // window.scrollTo for the plain-document case) directly. This
-        // has no dependency on the browser's own ancestor-detection or
-        // on scroll-margin-top interacting correctly with a sticky
-        // ancestor — both plausible, neither provable without reproducing
-        // cc1's exact real-page conditions.
+        // inert. §13.13 fix, 2026-09-27 — cc1's SECOND real-browser
+        // report, this time against the real property shell (5792, not
+        // a fixture): the round-1 fix's ancestor-walk (starting from
+        // #inv-sticky-shell's parent) never landed on .prop-tab-panel on
+        // the real page, even though cc1's own direct measurement
+        // confirmed .prop-tab-panel IS the one genuinely-scrollable
+        // element there (scrollHeight 3354 > clientHeight 614). Rather
+        // than keep debugging WHY that walk failed on a page this
+        // environment can't reproduce read-write, this version stops
+        // pretending the scroll container is a mystery to be
+        // rediscovered: .prop-tab-panel IS the intended scroll container
+        // by design (§13.10 built it that way on purpose — the app
+        // shell's own "only the tab panel scrolls" pattern, reused
+        // verbatim from properties/show.blade.php). Goes straight to
+        // that known selector first; the walk survives only as a
+        // defensive fallback if that selector somehow isn't genuinely
+        // scrollable.
         scrollToRoom(id) {
             this.activeRoomId = id;
             const el = document.getElementById('room-panel-' + id);
@@ -691,22 +690,26 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 container.scrollTo({ top, behavior: 'smooth' });
             }
         },
-        // Walks up from the sticky shell's own parent looking for the
-        // element that's ACTUALLY scrollable (overflow-y auto/scroll AND
-        // real overflow, scrollHeight > clientHeight) — never assumed to
-        // be .prop-tab-panel specifically, since whether that div's own
-        // overflow-y:auto ends up being the one with genuine overflow (as
-        // opposed to the app shell's own #appScroll <main>, id set in
-        // layouts/corex.blade.php) depends on how the surrounding page's
-        // height chain resolves in the real deployed layout, not on
-        // anything decided here. Falls back to #appScroll (present on
-        // every corex-content page) and finally to window.
+        // §13.13 fix — .prop-tab-panel is the KNOWN, named scroll
+        // container this screen builds (§13.10), checked first by an
+        // actual scrollability test (scrollHeight > clientHeight), not
+        // rediscovered by walking up from an arbitrary starting point.
+        // The walk (from the sticky shell's own parent, checking BOTH
+        // `overflow` and `overflow-y` computed values — round 1 only
+        // checked `overflow-y`, which the real page's failure suggests
+        // may not have been the actual property in effect there) and the
+        // #appScroll/window fallbacks stay only as defensive layers for
+        // whatever this page's own selector can't explain.
         _scrollContainer() {
+            const panel = document.querySelector('.prop-tab-panel');
+            if (panel && panel.scrollHeight > panel.clientHeight + 1) return panel;
             let el = document.getElementById('inv-sticky-shell')?.parentElement ?? null;
             while (el && el !== document.documentElement && el !== document.body) {
-                const style = getComputedStyle(el);
-                if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
-                    return el;
+                if (el.scrollHeight > el.clientHeight + 1) {
+                    const style = getComputedStyle(el);
+                    if (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.overflow === 'auto' || style.overflow === 'scroll') {
+                        return el;
+                    }
                 }
                 el = el.parentElement;
             }
@@ -853,15 +856,34 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         // -60% bottom margin is untouched: a room barely peeking in at
         // the very bottom of the screen still shouldn't steal the
         // highlight from the one actually being read.
+        //
+        // §13.13 fix — `root` is now explicitly `.prop-tab-panel`
+        // (conductor: "Scrollspy must observe with root = that same
+        // panel"), not the default `null` (browser viewport). Two real
+        // consequences, not just cosmetic: (1) IntersectionObserver only
+        // ever fires for a target whose scroll ancestor chain actually
+        // includes `root` — with `root: null` a target nested inside a
+        // scrollable panel the observer doesn't know about can still be
+        // observed, but its reported intersection can desync from what a
+        // person actually sees scroll past, exactly the "Bedroom 2
+        // highlighted while Bedroom 1 is visibly at the top" shape cc1
+        // reported; (2) rootMargin's `-60%` is a percentage OF THE ROOT's
+        // own size — against the real viewport (900px+) that's a very
+        // different pixel value than against this panel's actual
+        // clientHeight (614px, per cc1's own measurement), which changes
+        // how trigger-happy the "next room" hand-off is. Reuses
+        // _scrollContainer() (the same element scrollToRoom() scrolls) so
+        // the two can't name a different container from each other again.
         _setupScrollSpy() {
             if (!this.rooms.length || typeof IntersectionObserver === 'undefined') return;
+            const container = this._scrollContainer();
             const observer = new IntersectionObserver((entries) => {
                 const visible = entries.filter(e => e.isIntersecting);
                 if (!visible.length) return;
                 visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
                 const id = Number(visible[0].target.dataset.roomId);
                 if (id) this.activeRoomId = id;
-            }, { rootMargin: `-${this._stickyOffsetPx()}px 0px -60% 0px`, threshold: 0 });
+            }, { root: container === window ? null : container, rootMargin: `-${this._stickyOffsetPx()}px 0px -60% 0px`, threshold: 0 });
             this.rooms.forEach(r => {
                 const el = document.getElementById('room-panel-' + r.id);
                 if (el) observer.observe(el);
