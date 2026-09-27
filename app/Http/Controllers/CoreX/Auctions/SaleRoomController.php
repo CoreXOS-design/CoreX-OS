@@ -13,13 +13,22 @@ use App\Services\Auctions\BidService;
 use Illuminate\Http\Request;
 
 /**
- * AT-432 Phase 3 — .ai/specs/auctions.md §11.1. The in-room Sale Room
- * console: one lot at a time, one-keystroke bid entry, running history,
- * a deliberate fall-of-hammer action. Online timed bidding, auto-extend,
- * proxy bidding and the offline-tolerant local queue-and-sync (§11.1's own
- * "the sale room is often a marquee with bad signal" requirement, which
- * needs .ai/specs/offline-draft-persistence.md's pattern adapted) are
- * explicitly Phase 4 / a follow-up — this is the online, in-room path only.
+ * AT-432 Phases 3-4 — .ai/specs/auctions.md §11.1-§11.4. The in-room /
+ * hybrid Sale Room console: one lot at a time, one-keystroke bid entry,
+ * running history, a deliberate fall-of-hammer action. Online timed
+ * bidding, auto-extend, proxy bidding and concurrency locking are Phase 4
+ * (see BidService) and are reflected live here via the polled bid feed
+ * (Api\V1\Auctions\AuctionLotFeedController) for a hybrid/online auction.
+ *
+ * NOT built here: §11.1's "offline-tolerant... bids queue locally and
+ * sync" requirement. That needs `.ai/specs/offline-draft-persistence.md`'s
+ * pattern, but that spec's own header reads "SPEC — await Johan approval.
+ * NO build until assigned" — it is a separate, cross-cutting, unapproved
+ * ticket (AT-165), not an auctions-scoped piece of work, so it cannot be
+ * built as part of AT-432 without Johan approving AT-165 first. Flagged
+ * to Johan rather than built; see the AT-432 build report. Today, a
+ * connection drop mid-sale can lose an unsubmitted bid-entry keystroke on
+ * this screen until the connection returns.
  */
 class SaleRoomController extends Controller
 {
