@@ -3341,6 +3341,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.signatures.store');
         Route::post('/{rentalInventory}/complete', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'complete'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.complete');
+        // §12 — the "nothing in this room" mark the completion gate checks for.
+        Route::post('/{rentalInventory}/rooms/{room}/mark-empty', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'markRoomEmpty'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.rooms.mark-empty');
 
         // §0b — room-tagged photo capture, batched multi-file upload, and
         // optional line-to-photo tagging (the TV serial number example).

@@ -11,7 +11,18 @@ gallery-sized fixed-frame layout) landed 2026-09-22 (cc4) — see §4a for exact
 adopted. §0d (2026-09-24) moved the property's entry point again — off the bottom of the Overview
 tab (where §0a/§0b left it) into its own "Inventory" tab, immediately after Inspections. §0a/§0b's
 "still on the Overview tab" statements are historical (accurate at the time they were written), not
-current — §0d supersedes the tab location only, nothing else in either section changed.
+current — §0d supersedes the tab location only, nothing else in either section changed. §11
+(2026-09-27) investigated Inventory against the lessons learned fixing rental-inspections the same
+week and ranked what to fix first. §12 (2026-09-27) BUILT the completion gate §11.4 found (an
+inventory could be signed "complete" with zero lines/rooms recorded — now refused server-side, in
+`RentalInventory::markCompleted()`, the single choke point every completion path goes through), the
+"nothing in this room" mark §11.4's fix needed (`rental_inventory_room_marks`, the inventory-side
+counterpart to inspections' "Mark room N/A"), §11.2's line-entry data-loss fix (a mouse click away
+from an edited cell, with no Tab/Enter first, previously discarded the edit — now closed with
+`@blur`/`visibilitychange`/`beforeunload`), and §11.8's move-in-photos-on-comparison fix (the
+already-linked data now actually renders). QA1 was checked directly and carries zero
+completed-but-empty inventories to worry about (§12.5) — 7 rows total, 4 cancelled, 3 draft, 0
+completed.
 
 ---
 
@@ -1149,3 +1160,197 @@ falsely marked done by a long scroll, an agent just spends more time finding thi
 - For the move-out comparison screen, once photos are wired in (§11.8), does Johan want a filter for
   "only short/damaged/missing" lines on THIS screen specifically, given it's the one place a large
   furnished property's handful of real findings are currently buried in a full list of "present" rows?
+
+---
+
+## 12. The completion gate, plus §11's #1 and #3 priorities — BUILT (2026-09-27)
+
+Johan's brief for this build closed §11.12's first open question and ruled it decided, not a
+question: *"an inventory is what a tenant gets charged against at move-out, and one that says
+'complete' with nothing captured is worse than no inventory, because it looks authoritative."*
+Built first, ahead of everything else in this pass, per that instruction.
+
+**Then, in priority order from §11.10 — with one adjustment, stated here rather than silently
+reordered:** §11.10 ranked (1) the line-entry data-loss gap, (2) the completion gate, (3) wiring
+move-in photos into the comparison. Since (2) is the mandatory fix above, this pass built the
+NEXT two most important things by that same ranking — (1) and (3) — rather than re-doing (2) a
+second time under a different heading. Chosen for the reason §11.10 itself gives: (1) is a LIVE
+data-loss bug in a shipped, actively-used feature (the same class of bug that had just cost real
+testing time on inspections days earlier, reintroduced in a field added after that lesson was
+learned) and (3) makes the actual evidence this document exists to produce — the move-in photos —
+visible on the one screen whose whole purpose is comparing move-in against move-out. §11.5 (room
+navigation on a long screen) ranks below both, per §11.10's own reasoning: it is a workflow-friction
+problem, not a data-loss or false-completeness problem, and was left for a later pass.
+
+### 12.1 The completion gate — `RentalInventory::markCompleted()`
+
+Two new checks, both server-side, both throwing `\LogicException` with a plain-language message
+before the pre-existing signature gate ever runs (so the more fundamental problem — nothing was
+ever recorded — surfaces first, not last):
+
+1. **At least one active line must exist anywhere on the inventory** — `$this->lines()->count() ===
+   0` refuses outright. `lines()` already excludes retired rows (§3.3), so an inventory whose only
+   line was added in error and then removed is correctly treated as having nothing recorded, not as
+   "it had something once."
+2. **Every non-retired room the property has must have been visited** — `RentalInventory::
+   unvisitedRooms()` (new) returns every `PropertyRoom` that has neither an active line
+   (`property_room_id`) nor a `RentalInventoryRoomMark` (§12.2 below). Non-empty → refused, naming
+   the room(s) by label in the exception message ("Cannot complete: Bedroom 1 has not been checked
+   yet…") so an agent knows exactly what to go back and do, per STANDARDS.md's "No Silent Locks"
+   rule (say why, offer the path forward) — not a bare 409 with no explanation.
+
+A property with genuinely zero rooms (never had a space added) is still caught by check 1 — there
+is nothing for check 2 to find unvisited, but there is also nothing recorded, so the zero-lines
+refusal fires first. Proven directly:
+`test_a_property_with_zero_rooms_is_still_blocked_by_the_zero_lines_gate`.
+
+**Single choke point, confirmed not assumed.** Grepped the whole codebase for every call site of
+`markCompleted()`: exactly one —
+`RentalInventoryRecordingController::complete()` (`POST /corex/rental-inventories/{inventory}/
+complete`), which is itself the only route wired to it. There is no API, bulk-action, or admin path
+that reaches completion any other way, so gating the model method itself is gating every path that
+exists today and every path added later that calls it, not a one-off controller check that a second
+caller could bypass.
+
+**Not a disabled button — the instruction was explicit that the server check is the requirement,
+not a client-side courtesy.** The existing "Complete" button on `rental-inventories/show.blade.php`
+is unchanged (still always clickable); its existing `catch` block already surfaces whatever message
+`markCompleted()` throws inline on the page (`lifecycleError`), so the new refusal messages reach
+the agent through the same mechanism the old signature-refusal messages already used — no new UI
+plumbing needed for that half.
+
+### 12.2 `rental_inventory_room_marks` — the "nothing in this room" state
+
+New table, new model `RentalInventoryRoomMark`, one row per (inventory, room) an agent has
+explicitly confirmed empty — the exact distinction the brief asked for: *"A room nobody opened is
+not the same as an empty room, and the difference is the whole point."* Same shape as the
+inspection screen's "Mark room N/A" (`RentalInspectionRecordingController::markRoomNa()`), adapted
+because an inventory room has no checklist items to write a per-item observation against — there is
+nothing to mark N/A except the room itself, so it gets its own row instead.
+
+```
+rental_inventory_room_marks
+  id, agency_id, rental_inventory_id, property_room_id
+  marked_empty_by_user_id, marked_empty_at
+  timestamps
+  unique(rental_inventory_id, property_room_id)
+```
+
+`POST /corex/rental-inventories/{inventory}/rooms/{room}/mark-empty`
+(`corex.rental-inventories.rooms.mark-empty`) — `updateOrCreate()`, so marking an already-marked
+room again just refreshes who/when rather than erroring or duplicating. **No "unmark" endpoint,
+deliberately** — the same one-way shape rental-inspections' own `markRoomNa()` has. If an agent
+later adds a real item to a marked room, the room satisfies the completion gate through that line
+instead; the earlier mark simply stops being the thing doing the work, with no need to remove it.
+
+**Capture screen UI:** a "Nothing in this room" text control appears only while a room has zero
+items (`capture.blade.php`); once marked, it's replaced by a "✓ Nothing in this room" indicator, and
+the room heading's item/photo-count row gains a "Marked empty" badge — one more state those counts
+could not express on their own (BUILD_STANDARD's "any count on screen must mean what's rendered
+beneath it" holds unchanged: the badge is a THIRD fact alongside the two counts, never a
+replacement for either).
+
+### 12.3 The line-entry data-loss fix — §11.2's #1 priority
+
+§11.2's finding, restated: the spreadsheet-grid line entry (§4c) had exactly one way to reach the
+server — a keydown-intercepted Tab/Enter/arrow-boundary — and nothing else. A mouse click away from
+an edited cell to any other control on the page (Tag photo, Remove, a different room, Add photo(s),
+Back to property) discarded the edit with zero warning, because no `@blur`, `beforeunload`, or
+`visibilitychange` handler existed anywhere in the file. Fixed with exactly those three hooks,
+matching the investigation's own diagnosis of what was missing — no fourth mechanism invented:
+
+- **`@blur` on every qty/description cell** (existing lines AND the trailing draft row) — commits
+  through the SAME `commitRow()`/`commitExistingLineIfDirty()`/`commitDraftRow()` paths the keydown
+  contract already used, not a second save path. Covers the actual reported scenario: clicking a
+  different control mid-page, with no Tab/Enter in between.
+- **`visibilitychange`/`beforeunload`**, registered once in `init()` — cover the case `@blur` can't:
+  the tab is closed, the browser is backed out of, or the app is switched away from on a phone,
+  while a cell still has focus. Neither of those is a keydown, so a keydown-only contract could
+  never see them. `flushDirtyLines()` walks every line whose current value differs from its
+  last-saved snapshot, plus any trailing draft row with a non-empty description, and sends each with
+  `fetch(..., { keepalive: true })` — the one fetch option that lets a request actually survive the
+  page going away, which a plain `fetch()` does not guarantee.
+- **A same-value double-commit guard** (`_pendingLineCommits`), needed because adding `@blur`
+  introduced a new race the keydown-only version never had: committing via Tab/Enter/arrow calls
+  `.focus()` on the next cell, which synchronously fires `blur` on the cell just left — so the SAME
+  edit could now trigger two near-simultaneous PUTs with identical values (the first's response
+  hasn't landed yet to update the snapshot the second checks against). Keyed by line id → the
+  in-flight request's own value signature, not a bare busy flag, so a genuine second edit (different
+  values) is never suppressed, only an exact duplicate of one already in flight.
+
+Not built: a visible "unsaved changes" indicator, or a confirm-before-navigate prompt. Neither was
+asked for, and the fix above closes the actual data-loss gap (the edit now reaches the server
+through more paths, not just more paths to notice it didn't) rather than warning about a problem
+that no longer occurs.
+
+### 12.4 Move-in photos on the move-out comparison — §11.8's priority
+
+§11.8's finding: `RentalInventoryLine::photos()` was a working, fully-populated relation with zero
+consumers — `comparison.blade.php` never rendered an `<img>` tag anywhere, despite every move-in
+photo an agent tagged during capture sitting in the database, correctly linked. Fixed by connecting
+the existing data, not by building anything new:
+
+- `RentalInventoryController::comparison()` eager-loads `lines.photos` (was `lines` alone).
+- `RentalInventoryComparisonService::compare()` adds a `photos` key to every row — `[{id,
+  storage_path}, …]`, always an array (empty for a line nobody photographed, never null/omitted, so
+  a line with no photos renders zero thumbnails instead of throwing).
+- `comparison.blade.php` renders each row's photos as fixed 40×40 thumbnails linking to the
+  original in a new tab — plain `<img>`/`<a>`, not the capture surface's own gallery/tagger
+  machinery, because a line worth photographing at all is rarely photographed more than a couple of
+  times on this document; no clip/expand control was needed or built.
+
+No currency, no deposit figure, nothing stored — unchanged from §8's original design; this pass only
+makes existing, already-linked evidence visible.
+
+### 12.5 Already-completed-but-empty inventories on QA1 — checked, none exist
+
+Checked directly against `corex_qa1` (read-only `SELECT`, no `migrate`, per Standard −1g — this
+worktree cannot and did not touch that schema): **zero inventories are in `status = 'completed'` on
+QA1 at all.** The full status breakdown is 4 `cancelled`, 3 `draft`, 0 `completed`, 0 of anything
+else — 7 rows total. There is nothing sitting completed-but-empty to migrate, backfill, or flag, and
+nothing on QA1 was changed by this finding (Standard −1q — QA1's own rows are fixture data, and in
+this instance the question is moot regardless, since the set this pass would need to act on is
+empty). No recommendation needed beyond: nothing to do here.
+
+### 12.6 Files
+
+- `database/migrations/2026_10_02_170000_create_rental_inventory_room_marks_table.php` (new)
+- `app/Models/RentalInventoryRoomMark.php` (new)
+- `app/Models/RentalInventory.php` — `roomMarks()`, `unvisitedRooms()`, `markCompleted()` gated
+- `app/Http/Controllers/CoreX/RentalInventoryRecordingController.php` — `markRoomEmpty()`
+- `app/Http/Controllers/CoreX/RentalInventoryCaptureController.php` — passes `roomMarksForJs`
+- `app/Http/Controllers/CoreX/RentalInventoryController.php` — `comparison()` eager-loads `lines.photos`
+- `app/Services/Rentals/RentalInventoryComparisonService.php` — `photos` per row
+- `routes/web.php` — `corex.rental-inventories.rooms.mark-empty`
+- `resources/views/corex/rental-inventories/capture.blade.php` — room-mark UI, `@blur`/
+  `visibilitychange`/`beforeunload` commit paths
+- `resources/views/corex/rental-inventories/comparison.blade.php` — move-in photo thumbnails
+- `tests/Feature/RentalInventory/RentalInventoryCompletionGateTest.php` (new)
+- `tests/Feature/RentalInventory/RentalInventoryComparisonPhotosTest.php` (new)
+
+### 12.7 Verification status
+
+All PHP passes `php -l`. Both changed Blade files compile to valid PHP via the app's own Blade
+compiler (checked directly, not assumed). The four attribute-scoped Blade sweeps (Standard −1u) were
+run by hand against every attribute this pass touched or added — no `:style`/static-`style`
+co-location, no comment inside a quoted Alpine attribute, no literal `"` inside `x-data` (this pass
+never touches that attribute), no multi-root `<template x-if>`/`x-for>` (both new templates wrap
+exactly one element each). New PHPUnit coverage: the zero-lines refusal (including with signatures
+already obtained, and with only a retired line present), the unvisited-room refusal (naming the
+room), completion succeeding once every room has a line or a mark, completion succeeding with lines
+alone and no marks at all, a zero-room property still caught by the zero-lines gate, the mark-empty
+endpoint's idempotency and its own agency/property scoping (404 for a foreign room), the `complete`
+endpoint's plain-language 409 body, and the comparison service/page actually rendering a tagged
+move-in photo while a photo-less line renders none.
+
+**What this pass could not do, per Standard −1s/−1u, flagged rather than silently skipped:** this
+pass was explicitly told not to deploy, and Standard −1u's own render-gate commands
+(`fetch-authenticated-page.php` + `verify-alpine-render.mjs`) fetch the ACTUALLY DEPLOYED
+`qatesting1.corexos.co.za` page through real nginx/php-fpm — they cannot see code that has not been
+deployed there. Running them against the currently-deployed site would only re-check the OLD,
+unmodified `capture.blade.php`, which would prove nothing about this branch's own changes and would
+misrepresent an old-code pass as new-code verification. The manual attribute-scoped sweep above is
+the substitute available without deploying; the real render-gate pass against the deployed page is
+still needed once this branch lands on QA1, per the standard's own "who runs it and when."
+`scripts/rental-click-through.mjs`/`rental-smoke.mjs` were not run for the identical reason — they
+also require a real deployed server and are the same "runs after landing" class of gate.

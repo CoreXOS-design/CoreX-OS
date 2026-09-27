@@ -49,6 +49,7 @@ class RentalInventoryCaptureController extends Controller
 
         $linesForJs = collect();
         $photosForJs = collect();
+        $roomMarksForJs = collect();
 
         if ($inventory) {
             $inventory->load([
@@ -56,6 +57,7 @@ class RentalInventoryCaptureController extends Controller
                 'lines.photos',
                 'photos' => fn ($q) => $q->orderByDesc('created_at'),
                 'photos.uploadedBy',
+                'roomMarks',
             ]);
 
             // Built here, not inline inside @json() in the view: Blade's @json
@@ -78,6 +80,11 @@ class RentalInventoryCaptureController extends Controller
                 'storage_path' => $p->storage_path,
                 'lines' => $p->lines->pluck('id'),
             ])->values();
+
+            // §12 — the completion gate's "nothing in this room" state,
+            // surfaced here so the capture screen can show it and offer the
+            // mark-empty control per room.
+            $roomMarksForJs = $inventory->roomMarks->map(fn ($m) => ['property_room_id' => $m->property_room_id])->values();
         }
 
         $roomsForJs = $rooms->map(fn ($r) => ['id' => $r->id, 'label' => $r->label])->values();
@@ -89,6 +96,7 @@ class RentalInventoryCaptureController extends Controller
             'roomsForJs' => $roomsForJs,
             'linesForJs' => $linesForJs,
             'photosForJs' => $photosForJs,
+            'roomMarksForJs' => $roomMarksForJs,
             // Johan: "we specced inventory being blank then you can create
             // the spaces same as with inspections." Reuses
             // RentalInspectionRecordingController::storeItem() (kind=space)

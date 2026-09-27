@@ -128,6 +128,15 @@
                 <button type="button" class="w-full flex items-center justify-between gap-3 px-4 py-3" @click="toggleRoom(room.id)">
                     <span class="text-sm font-semibold" x-text="room.label"></span>
                     <span class="flex items-center gap-2 text-xs shrink-0" style="color: var(--text-muted);">
+                        {{-- §12 — a room's item/photo counts already mean
+                             exactly what's rendered beneath them (linesFor()/
+                             roomPhotos() are the SAME calls the list and the
+                             gallery use); this badge adds the one state those
+                             counts can't express on their own — "checked,
+                             confirmed empty" vs. "not checked yet." --}}
+                        <template x-if="!linesFor(room.id).length && isRoomMarkedEmpty(room.id)">
+                            <span class="ds-badge ds-badge-muted">Marked empty</span>
+                        </template>
                         <span x-text="linesFor(room.id).length + ' item' + (linesFor(room.id).length === 1 ? '' : 's')"></span>
                         <span>·</span>
                         <span x-text="photoUploader().roomPhotos(room.id).length + ' photo' + (photoUploader().roomPhotos(room.id).length === 1 ? '' : 's')"></span>
@@ -163,12 +172,14 @@
                                 <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="line.quantity"
                                        class="prop-input" style="width:100%;"
                                        :data-row="'line-' + line.id" data-cell="qty"
-                                       @keydown="onCellKeydown($event, room, 'line', line, 'qty')">
+                                       @keydown="onCellKeydown($event, room, 'line', line, 'qty')"
+                                       @blur="commitRow(room, 'line', line)">
                                 <div class="min-w-0">
                                     <input type="text" x-model="line.description"
                                            class="prop-input w-full"
                                            :data-row="'line-' + line.id" data-cell="description"
-                                           @keydown="onCellKeydown($event, room, 'line', line, 'description')">
+                                           @keydown="onCellKeydown($event, room, 'line', line, 'description')"
+                                           @blur="commitRow(room, 'line', line)">
                                     <template x-if="line.photos && line.photos.length">
                                         <span class="text-xs ml-1" style="color: var(--text-muted);" x-text="'(' + line.photos.length + ' photo tag' + (line.photos.length === 1 ? '' : 's') + ')'"></span>
                                     </template>
@@ -180,7 +191,28 @@
                                 </div>
                             </div>
                         </template>
-                        <p x-show="!linesFor(room.id).length" class="text-xs py-1" style="color: var(--text-muted);">No items yet.</p>
+                        <div x-show="!linesFor(room.id).length" class="flex items-center justify-between gap-2 py-1">
+                            <p class="text-xs" style="color: var(--text-muted);">No items yet.</p>
+                            {{-- §12 — the room-level counterpart to a line: an
+                                 explicit "I checked, there's nothing here"
+                                 confirmation, the same shape as rental-
+                                 inspections' "Mark room N/A". Only offered
+                                 while the room genuinely has no items — once
+                                 a real item exists the room already satisfies
+                                 the completion gate through that line, and
+                                 marking it empty too would just be
+                                 contradictory. No "unmark": same one-way
+                                 shape as inspections' own control. --}}
+                            <template x-if="!isRoomMarkedEmpty(room.id)">
+                                <button type="button" tabindex="-1" :disabled="markRoomBusy[room.id]"
+                                        @click="markRoomEmpty(room)"
+                                        class="text-xs font-semibold shrink-0" style="color: var(--text-secondary);"
+                                        x-text="markRoomBusy[room.id] ? 'Marking…' : 'Nothing in this room'"></button>
+                            </template>
+                            <template x-if="isRoomMarkedEmpty(room.id)">
+                                <span class="text-xs font-semibold shrink-0" style="color: var(--ds-green,#16a34a);">&#10003; Nothing in this room</span>
+                            </template>
+                        </div>
                     </div>
 
                     {{-- Add line — spreadsheet-grid capture (Johan,
@@ -205,11 +237,13 @@
                         <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="newLine[room.id].quantity" placeholder="Qty"
                                class="prop-input" style="width:100%;"
                                data-row="draft" data-cell="qty"
-                               @keydown="onCellKeydown($event, room, 'draft', null, 'qty')">
+                               @keydown="onCellKeydown($event, room, 'draft', null, 'qty')"
+                               @blur="commitRow(room, 'draft', null)">
                         <input type="text" x-model="newLine[room.id].description" placeholder="e.g. White wooden headboard"
                                class="prop-input"
                                data-row="draft" data-cell="description"
-                               @keydown="onCellKeydown($event, room, 'draft', null, 'description')">
+                               @keydown="onCellKeydown($event, room, 'draft', null, 'description')"
+                               @blur="commitRow(room, 'draft', null)">
                         <button type="submit" tabindex="-1" :disabled="lineBusy[room.id]"
                                 class="text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9); padding:0.375rem 0.75rem; justify-self:end;">Add</button>
                     </form>
@@ -321,6 +355,11 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         spaceStoreUrl,
         rooms: @json($roomsForJs),
         lines: @json($linesForJs),
+        // §12 — the completion gate's "nothing in this room" state. A Set of
+        // property_room_ids an agent has explicitly confirmed empty, the
+        // same distinction rental-inspections' markRoomNa() draws per room.
+        markedEmptyRoomIds: new Set(@json($roomMarksForJs).map(m => Number(m.property_room_id))),
+        markRoomBusy: {},
 
         openRooms: {},
         newLine: {},
@@ -332,6 +371,20 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         lineSavedFlash: {},
         lineSaveError: {},
         lineSnapshots: {},
+        // §11.2/§12 investigation, 2026-09-27 — an existing line's commit can
+        // now fire twice in quick succession: once explicitly (a keydown-
+        // driven Tab/Enter/arrow commit) and once implicitly (the native
+        // `blur` that same focus change also triggers, now wired to commit
+        // too — see the new @blur bindings below, added to close the exact
+        // gap that investigation found: a mouse click away from an edited
+        // cell, with no Tab/Enter in between, previously discarded the edit
+        // with zero warning). Both calls see the same not-yet-saved values,
+        // because the first call's PUT is still in flight when blur fires,
+        // so without this guard both would send an identical, redundant
+        // request. Keyed by line id -> the in-flight request's own value
+        // signature, not a bare busy boolean, so a GENUINE second edit
+        // (different values) is never suppressed.
+        _pendingLineCommits: {},
         newSpace: { space_type: '', label: '' },
         spaceBusy: false,
         spaceError: '',
@@ -351,6 +404,65 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
             this.lines.forEach(l => {
                 l.quantity = this.normalizeQtyDisplay(l.quantity);
                 this.lineSnapshots[l.id] = { quantity: l.quantity, description: l.description };
+            });
+            // §11.2 investigation, 2026-09-27 — closing an existing item's
+            // edit down to the ONE commit path this grid already had (a
+            // Tab/Enter/arrow-boundary keydown) meant leaving the page
+            // entirely (closing the tab, hitting back, switching apps on a
+            // phone) while still focused in a cell never fired that path,
+            // and silently discarded the edit. `visibilitychange`/
+            // `beforeunload` are the two hooks a keydown-only contract can
+            // never cover, because neither one is a keydown — the tab is
+            // simply gone. `keepalive: true` on the flush request (see
+            // flushDirtyLines()) is what lets that request actually survive
+            // the page going away, which a plain fetch() does not guarantee.
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden') this.flushDirtyLines();
+            });
+            window.addEventListener('beforeunload', () => this.flushDirtyLines());
+        },
+        // §11.2 — every existing line whose current value differs from its
+        // last-saved snapshot, PLUS any trailing draft row with an
+        // un-submitted description, each sent as a best-effort keepalive
+        // request so it survives the page unloading mid-request (a plain
+        // fetch() gives no such guarantee once the tab is actually closing —
+        // `keepalive: true` is what lets the browser finish sending it).
+        flushDirtyLines() {
+            this.lines.forEach(line => {
+                const description = (line.description || '').trim();
+                if (!description) return;
+                const quantity = this.normalizeQtyDisplay(line.quantity);
+                const snap = this.lineSnapshots[line.id] || { quantity, description: line.description };
+                if (snap.quantity === quantity && snap.description === description) return;
+                fetch(`${this.baseUrl}/lines/${line.id}`, {
+                    method: 'PUT',
+                    keepalive: true,
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ property_room_id: line.property_room_id, quantity: this.qtyForPayload(quantity), description }),
+                }).then(() => { this.lineSnapshots[line.id] = { quantity, description }; }).catch(() => {});
+            });
+            // The trailing draft row has the identical gap (§11.2): typed but
+            // never committed, and about to disappear along with the tab.
+            // Same request shape commitDraftRow() itself fires, just also
+            // reachable from the unload path.
+            Object.keys(this.newLine).forEach(roomId => {
+                const form = this.newLine[roomId];
+                const description = (form.description || '').trim();
+                if (!description) return;
+                const payload = { property_room_id: Number(roomId), quantity: this.qtyForPayload(form.quantity), description };
+                this.newLine[roomId] = { quantity: '', description: '' };
+                fetch(`${this.baseUrl}/lines`, {
+                    method: 'POST',
+                    keepalive: true,
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                }).then(async (res) => {
+                    if (!res.ok) return;
+                    const line = await res.json();
+                    const quantity = this.normalizeQtyDisplay(line.quantity);
+                    this.lines.push({ id: line.id, property_room_id: line.property_room_id, quantity, description: line.description, photos: [] });
+                    this.lineSnapshots[line.id] = { quantity, description: line.description };
+                }).catch(() => {});
             });
         },
         // Extracted so a room added live via addSpace() (never present at
@@ -601,6 +713,13 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 return;
             }
             if (snap.quantity === quantity && snap.description === description) return;
+            // §11.2/§12 — a keydown commit and the @blur it triggers a moment
+            // later (see the comment on _pendingLineCommits above) both reach
+            // this point with the identical, not-yet-saved values. Skip the
+            // second one rather than fire a redundant duplicate PUT.
+            const signature = quantity + '|' + description;
+            if (this._pendingLineCommits[line.id] === signature) return;
+            this._pendingLineCommits[line.id] = signature;
             try {
                 const res = await fetch(`${this.baseUrl}/lines/${line.id}`, {
                     method: 'PUT',
@@ -616,6 +735,29 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 this.flashSaved(room.id);
             } catch (e) {
                 this.lineSaveError[room.id] = true;
+            } finally {
+                delete this._pendingLineCommits[line.id];
+            }
+        },
+        // §12 — "nothing in this room," the explicit counterpart to a room
+        // with real lines in it. Idempotent: marking an already-marked room
+        // again just refreshes who/when server-side; client state doesn't
+        // change. No "unmark" control — same one-way shape as rental-
+        // inspections' own markRoomNa(); if the agent later adds a real
+        // item, the room satisfies the completion gate through that line
+        // instead, and the earlier mark simply stops mattering.
+        isRoomMarkedEmpty(roomId) { return this.markedEmptyRoomIds.has(Number(roomId)); },
+        async markRoomEmpty(room) {
+            this.markRoomBusy[room.id] = true;
+            try {
+                const res = await fetch(`${this.baseUrl}/rooms/${room.id}/mark-empty`, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                });
+                if (!res.ok) return;
+                this.markedEmptyRoomIds.add(Number(room.id));
+            } finally {
+                this.markRoomBusy[room.id] = false;
             }
         },
         async retireLine(line) {

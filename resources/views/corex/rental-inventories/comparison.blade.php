@@ -34,7 +34,27 @@
                 @foreach($rows as $row)
                 <tr style="border-bottom: 1px solid var(--border);" data-qa="comparison-row-{{ $row['line_id'] }}">
                     <td class="px-4 py-2" style="color: var(--text-muted);">{{ $row['room_label'] }}</td>
-                    <td class="px-4 py-2">{{ $row['description'] }}</td>
+                    <td class="px-4 py-2">
+                        {{ $row['description'] }}
+                        {{-- §11.8 investigation, 2026-09-27 — the move-in
+                             photos an agent tagged to this line during
+                             capture (already sitting in the database,
+                             correctly linked, with zero consumers until
+                             now). Fixed-size thumbnails, not the capture
+                             surface's own gallery/tagger — a line worth
+                             photographing at all is rarely photographed more
+                             than a couple of times, so no clip/expand
+                             machinery is needed here. --}}
+                        @if(count($row['photos']))
+                            <div class="flex items-center gap-1 pt-1 flex-wrap">
+                                @foreach($row['photos'] as $photo)
+                                    <a href="{{ $photo['storage_path'] }}" target="_blank" rel="noopener" title="Move-in photo">
+                                        <img src="{{ $photo['storage_path'] }}" alt="Move-in photo" class="rounded-md object-cover" style="width:40px; height:40px; border:1px solid var(--border);">
+                                    </a>
+                                @endforeach
+                            </div>
+                        @endif
+                    </td>
                     <td class="px-4 py-2">{{ $row['quantity_at_move_in'] }}</td>
                     <td class="px-4 py-2">
                         @if($row['outstanding'])

@@ -21,12 +21,19 @@ class RentalInventoryComparisonService
      * latest move-out finding if one has been recorded, and a plain-English
      * summary — never a computed charge, never a currency figure.
      *
+     * §11.8 investigation, 2026-09-27 — `photos` is the move-in evidence
+     * already tagged to this line during capture (RentalInventoryLine::
+     * photos(), a working belongsToMany populated by the capture screen's
+     * own tagger). Nothing new is captured here; this only surfaces data
+     * that was already sitting in the database with zero consumers.
+     *
      * @return array<int, array{
      *   line_id: int, room_label: string, description: string,
      *   quantity_at_move_in: int, quantity_found: ?int,
      *   quantity_delta: ?int, disposition_key: ?string,
      *   disposition_label: ?string, notes: ?string, recorded_at: ?string,
      *   recorded_by: ?string, outstanding: bool,
+     *   photos: array<int, array{id: int, storage_path: string}>,
      * }>
      */
     public function compare(RentalInventory $inventory): array
@@ -71,6 +78,10 @@ class RentalInventoryComparisonService
                 'recorded_by' => $finding?->recordedByUser?->name,
                 // No finding recorded at all yet — distinct from "recorded, found present."
                 'outstanding' => $finding === null,
+                // §11.8 — the move-in photos this line was tagged to during
+                // capture. Never null/omitted (an empty array renders as no
+                // thumbnails, exactly right for a line nobody photographed).
+                'photos' => $line->photos->map(fn ($p) => ['id' => $p->id, 'storage_path' => $p->storage_path])->values()->all(),
             ];
         })->all();
     }

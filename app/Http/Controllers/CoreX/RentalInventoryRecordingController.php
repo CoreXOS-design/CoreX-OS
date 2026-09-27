@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\PropertyRoom;
 use App\Models\RentalInventory;
 use App\Models\RentalInventoryLine;
 use App\Models\RentalInventoryLineDisposition;
+use App\Models\RentalInventoryRoomMark;
 use App\Models\RentalInventorySignature;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -110,6 +112,34 @@ class RentalInventoryRecordingController extends Controller
         }
 
         return response()->json($disposition, 201);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/rooms/{room}/mark-empty —
+     * §12: the completion gate needs to tell "nobody opened this room" apart
+     * from "this room genuinely has nothing in it" — the same distinction
+     * rental-inspections' markRoomNa() makes, but recorded as its own row
+     * (RentalInventoryRoomMark) rather than a per-item observation, because
+     * an inventory room has no checklist items to write one against.
+     * Idempotent: marking an already-marked room just refreshes who/when.
+     */
+    public function markRoomEmpty(Request $request, RentalInventory $rentalInventory, PropertyRoom $room): JsonResponse
+    {
+        abort_if((int) $room->property_id !== (int) $rentalInventory->property_id, 404);
+
+        $mark = RentalInventoryRoomMark::updateOrCreate(
+            [
+                'rental_inventory_id' => $rentalInventory->id,
+                'property_room_id' => $room->id,
+            ],
+            [
+                'agency_id' => $rentalInventory->agency_id,
+                'marked_empty_by_user_id' => $request->user()->id,
+                'marked_empty_at' => now(),
+            ]
+        );
+
+        return response()->json($mark, 201);
     }
 
     /**

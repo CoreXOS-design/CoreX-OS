@@ -87,6 +87,12 @@ class RentalInventory extends Model
         return $this->hasMany(RentalInventoryPhoto::class);
     }
 
+    /** §12 — every room an agent has explicitly confirmed has nothing in it. */
+    public function roomMarks(): HasMany
+    {
+        return $this->hasMany(RentalInventoryRoomMark::class);
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
@@ -186,8 +192,55 @@ class RentalInventory extends Model
             ->exists();
     }
 
+    /**
+     * §12 — every non-retired PropertyRoom belonging to this inventory's
+     * property that has neither an active line nor an explicit "nothing in
+     * this room" mark (RentalInventoryRoomMark). A room nobody opened is not
+     * the same as a room an agent actually checked and found empty, and
+     * markCompleted() below refuses until this returns empty.
+     */
+    public function unvisitedRooms(): \Illuminate\Support\Collection
+    {
+        $rooms = PropertyRoom::where('property_id', $this->property_id)
+            ->where('is_retired', false)
+            ->orderBy('sort_order')->orderBy('id')
+            ->get();
+
+        $roomIdsWithLines = $this->lines()->whereNotNull('property_room_id')->pluck('property_room_id')->unique();
+        $roomIdsMarkedEmpty = $this->roomMarks()->pluck('property_room_id')->unique();
+
+        return $rooms->reject(fn (PropertyRoom $room) => $roomIdsWithLines->contains($room->id)
+            || $roomIdsMarkedEmpty->contains($room->id))->values();
+    }
+
+    /**
+     * §12, Johan — decided, not a question: an inventory is what a tenant
+     * gets charged against at move-out, and one that says "complete" with
+     * nothing captured is worse than no inventory at all, because it looks
+     * authoritative. Two gates enforced here, server-side, so no other path
+     * (API, bulk action, anything that ever calls this method) can bypass
+     * them by skipping a disabled button:
+     *   1. At least one line must exist anywhere on the inventory.
+     *   2. Every room the property has must have been visited — either it
+     *      has a line, or it carries an explicit "nothing in this room" mark
+     *      (unvisitedRooms() above). A room nobody opened is not an empty
+     *      room.
+     * Checked before the existing signature gate below so the more
+     * fundamental problem (nothing was ever recorded) surfaces first.
+     */
     public function markCompleted(): void
     {
+        if ($this->lines()->count() === 0) {
+            throw new \LogicException('Cannot complete: nothing has been recorded yet. Add at least one item, or mark each room as having nothing in it, before completing this inventory.');
+        }
+
+        $unvisited = $this->unvisitedRooms();
+        if ($unvisited->isNotEmpty()) {
+            $names = $unvisited->pluck('label')->implode(', ');
+            $verb = $unvisited->count() === 1 ? 'has' : 'have';
+            throw new \LogicException("Cannot complete: {$names} {$verb} not been checked yet. Add items to it, or mark it as having nothing in it, before completing this inventory.");
+        }
+
         $outstanding = $this->outstandingSignatories();
         if ($outstanding->isNotEmpty()) {
             $first = $outstanding->first();
