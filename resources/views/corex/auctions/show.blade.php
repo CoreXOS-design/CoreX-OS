@@ -11,6 +11,9 @@
             @permission('auctions.bidders.view')
             <a href="{{ route('corex.auctions.bidders.index', $auction) }}" class="corex-btn-outline">Bidder Register</a>
             @endpermission
+            @permission('auctions.room.operate')
+            <a href="{{ route('corex.auctions.room.show', $auction) }}" class="corex-btn-outline">Sale Room</a>
+            @endpermission
             @permission('auctions.edit')
             <a href="{{ route('corex.auctions.edit', $auction) }}" class="corex-btn-outline">Edit</a>
             @endpermission

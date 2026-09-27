@@ -92,6 +92,21 @@ class AuctionLot extends Model
         return $this->belongsTo(Deal::class);
     }
 
+    public function winningBidder(): BelongsTo
+    {
+        return $this->belongsTo(AuctionBidder::class, 'winning_bidder_id');
+    }
+
+    public function winningBid(): BelongsTo
+    {
+        return $this->belongsTo(AuctionBid::class, 'winning_bid_id');
+    }
+
+    public function bids(): HasMany
+    {
+        return $this->hasMany(AuctionBid::class);
+    }
+
     public function statusHistory(): HasMany
     {
         return $this->hasMany(AuctionLotStatusHistory::class)->orderByDesc('created_at');

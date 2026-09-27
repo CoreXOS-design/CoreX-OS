@@ -122,6 +122,38 @@ class AuctionLotStatusService
         return $this->transition($lot, $toStatus, $actorId, $extra);
     }
 
+    /**
+     * AT-432 Phase 3 — the real Sale Room path: resolve the fall of the
+     * hammer from the actual bid log (BidService) rather than a manually
+     * entered price/bidder pair. Marks the winning AuctionBid `is_winning`
+     * in the SAME transaction as the status transition, so a lot can never
+     * end up `sold` with no bid marked winning or vice versa.
+     *
+     * @throws \RuntimeException when the lot has no active bid to knock down
+     */
+    public function recordHammerFromCurrentBid(AuctionLot $lot, ?\DateTimeInterface $hammerAt = null, ?int $actorId = null): AuctionLot
+    {
+        $bidService = new BidService();
+        $winningBid = $bidService->currentHighBid($lot);
+
+        if (! $winningBid) {
+            throw new \RuntimeException("Lot #{$lot->id} has no active bid — nothing to knock down. Use markPassedIn() instead.");
+        }
+
+        return DB::transaction(function () use ($lot, $winningBid, $hammerAt, $actorId) {
+            $winningBid->update(['is_winning' => true]);
+
+            return $this->recordHammer(
+                $lot,
+                (float) $winningBid->amount,
+                $hammerAt,
+                $actorId,
+                $winningBid->id,
+                $winningBid->auction_bidder_id,
+            );
+        });
+    }
+
     /** Seller confirms a below-reserve hammer (§6.2: sold_subject_to_confirmation → sold). */
     public function confirmSaleBelowReserve(AuctionLot $lot, ?int $actorId = null): AuctionLot
     {

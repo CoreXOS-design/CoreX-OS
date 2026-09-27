@@ -71,6 +71,30 @@
     </div>
     @endpermission
 
+    @if($lot->status === 'passed_in' && $topUnderBidders->isNotEmpty())
+    <div class="rounded border border-amber-200 bg-amber-50 p-4">
+        <h2 class="font-medium mb-2">Top Under-Bidders — §12.3</h2>
+        <p class="text-sm text-gray-600 mb-2">Every one of these bid but did not win — the strongest, most qualified leads this passed-in lot produced. Negotiate from the top down.</p>
+        <table class="w-full text-sm">
+            <thead><tr class="text-left text-gray-500"><th>Paddle</th><th>Bidder</th><th>Highest Bid</th><th></th></tr></thead>
+            <tbody>
+                @foreach($topUnderBidders as $bid)
+                <tr class="border-t">
+                    <td class="py-1">{{ $bid->bidder?->paddle_number }}</td>
+                    <td>{{ $bid->bidder?->contact?->full_name }}</td>
+                    <td>R {{ number_format($bid->amount, 0) }}</td>
+                    <td>
+                        @if($bid->bidder?->contact)
+                        <a href="{{ route('corex.contacts.show', $bid->bidder->contact) }}" class="corex-btn-outline text-xs">Open Contact</a>
+                        @endif
+                    </td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+    @endif
+
     <div>
         <h2 class="font-medium mb-2">History</h2>
         <table class="w-full text-sm border-collapse">

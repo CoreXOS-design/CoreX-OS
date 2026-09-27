@@ -4,6 +4,7 @@ namespace App\Http\Controllers\CoreX\Auctions;
 
 use App\Http\Controllers\Controller;
 use App\Models\AgencyAuctionSettings;
+use App\Models\AuctionBid;
 use App\Models\AuctionLot;
 use App\Models\PropertySettingItem;
 use App\Services\Auctions\AuctionLotStatusService;
@@ -31,6 +32,16 @@ class AuctionLotController extends Controller
             'canSeeReserve' => AgencyAuctionSettings::reserveVisibilityFor($agencyId) === 'published'
                 || auth()->user()->hasPermission('auctions.reserve.view'),
             'statusLabels' => PropertySettingItem::auctionLotStatusLabelsFor($agencyId),
+            // §12.3 — "surfaces the top under-bidder with their number so the
+            // agent can negotiate from a known position." Task auto-creation
+            // for every registered bidder is a follow-up (needs a generic
+            // task/reminder mechanism this build did not need to touch
+            // elsewhere yet); this is the safely-buildable half — visibility.
+            'topUnderBidders' => $lot->status === AuctionLot::STATUS_PASSED_IN
+                ? AuctionBid::where('auction_lot_id', $lot->id)->whereNull('retracted_at')
+                    ->with('bidder.contact')->orderByDesc('amount')->limit(5)->get()
+                    ->unique('auction_bidder_id')->values()
+                : collect(),
         ]);
     }
 

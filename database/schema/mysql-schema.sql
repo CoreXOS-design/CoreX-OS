@@ -1709,6 +1709,46 @@ CREATE TABLE `auction_bidders` (
   CONSTRAINT `auction_bidders_fica_verified_by_id_foreign` FOREIGN KEY (`fica_verified_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `auction_bids`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `auction_bids` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `agency_id` bigint unsigned NOT NULL,
+  `auction_id` bigint unsigned NOT NULL,
+  `auction_lot_id` bigint unsigned NOT NULL,
+  `auction_bidder_id` bigint unsigned NOT NULL,
+  `amount` decimal(15,2) NOT NULL,
+  `channel` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `placed_at` datetime(3) NOT NULL,
+  `is_proxy` tinyint(1) NOT NULL DEFAULT '0',
+  `proxy_max` decimal(15,2) DEFAULT NULL,
+  `recorded_by_id` bigint unsigned DEFAULT NULL,
+  `is_winning` tinyint(1) NOT NULL DEFAULT '0',
+  `retracted_at` datetime DEFAULT NULL,
+  `retracted_by_id` bigint unsigned DEFAULT NULL,
+  `retracted_reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(45) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  `deleted_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `auction_bids_agency_id_foreign` (`agency_id`),
+  KEY `auction_bids_auction_id_foreign` (`auction_id`),
+  KEY `auction_bids_auction_bidder_id_foreign` (`auction_bidder_id`),
+  KEY `auction_bids_recorded_by_id_foreign` (`recorded_by_id`),
+  KEY `auction_bids_retracted_by_id_foreign` (`retracted_by_id`),
+  KEY `auction_bids_lot_placed_idx` (`auction_lot_id`,`placed_at`),
+  KEY `auction_bids_lot_amount_idx` (`auction_lot_id`,`amount`),
+  CONSTRAINT `auction_bids_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `auction_bids_auction_bidder_id_foreign` FOREIGN KEY (`auction_bidder_id`) REFERENCES `auction_bidders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `auction_bids_auction_id_foreign` FOREIGN KEY (`auction_id`) REFERENCES `auctions` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `auction_bids_auction_lot_id_foreign` FOREIGN KEY (`auction_lot_id`) REFERENCES `auction_lots` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `auction_bids_recorded_by_id_foreign` FOREIGN KEY (`recorded_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `auction_bids_retracted_by_id_foreign` FOREIGN KEY (`retracted_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `auction_lot_status_history`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -1772,11 +1812,13 @@ CREATE TABLE `auction_lots` (
   KEY `auction_lots_agency_status_idx` (`agency_id`,`status`),
   KEY `auction_lots_auction_property_idx` (`auction_id`,`property_id`),
   KEY `auction_lots_winning_bidder_id_foreign` (`winning_bidder_id`),
+  KEY `auction_lots_winning_bid_id_foreign` (`winning_bid_id`),
   CONSTRAINT `auction_lots_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `auction_lots_auction_id_foreign` FOREIGN KEY (`auction_id`) REFERENCES `auctions` (`id`) ON DELETE CASCADE,
   CONSTRAINT `auction_lots_confirmed_by_id_foreign` FOREIGN KEY (`confirmed_by_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `auction_lots_deal_id_foreign` FOREIGN KEY (`deal_id`) REFERENCES `deals` (`id`) ON DELETE SET NULL,
   CONSTRAINT `auction_lots_property_id_foreign` FOREIGN KEY (`property_id`) REFERENCES `properties` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `auction_lots_winning_bid_id_foreign` FOREIGN KEY (`winning_bid_id`) REFERENCES `auction_bids` (`id`) ON DELETE SET NULL,
   CONSTRAINT `auction_lots_winning_bidder_id_foreign` FOREIGN KEY (`winning_bidder_id`) REFERENCES `auction_bidders` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -16896,3 +16938,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1358,'2026_09_27_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1359,'2026_09_27_090500_backfill_auction_property_setting_items',260);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1360,'2026_09_27_190000_create_auction_bidders_table',261);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1361,'2026_09_27_190100_add_winning_bidder_fk_to_auction_lots_table',261);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1362,'2026_09_27_220000_create_auction_bids_table',262);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1363,'2026_09_27_220100_add_winning_bid_fk_to_auction_lots_table',262);

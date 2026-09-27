@@ -4017,6 +4017,16 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'create'])->middleware('permission:auctions.create')->name('create');
         Route::post('/', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'store'])->middleware('permission:auctions.create')->name('store');
+
+        // AT-432 Phase 3 (.ai/specs/auctions.md §7 screen 8, §8.4) — Results.
+        // MUST be registered before the '/{auction}' wildcard below — Laravel
+        // matches routes in registration order, so '/results' would otherwise
+        // be swallowed by '/{auction}' (confirmed: it resolved to
+        // corex.auctions.show with $auction bound to the literal string
+        // "results" until this was moved above the wildcard).
+        Route::get('/results', [\App\Http\Controllers\CoreX\Auctions\AuctionResultController::class, 'index'])->middleware('permission:auctions.results.view')->name('results');
+        Route::get('/results/export', [\App\Http\Controllers\CoreX\Auctions\AuctionResultController::class, 'export'])->middleware('permission:auctions.results.export')->name('results.export');
+
         Route::get('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'show'])->name('show');
         Route::get('/{auction}/edit', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'edit'])->middleware('permission:auctions.edit')->name('edit');
         Route::put('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'update'])->middleware('permission:auctions.edit')->name('update');
@@ -4051,6 +4061,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/bidders/{bidder}/approve', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'approve'])->middleware('permission:auctions.bidders.approve')->name('bidders.approve');
         Route::post('/bidders/{bidder}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'decline'])->middleware('permission:auctions.bidders.approve')->name('bidders.decline');
         Route::post('/bidders/{bidder}/withdraw', [\App\Http\Controllers\CoreX\Auctions\AuctionBidderController::class, 'withdraw'])->middleware('permission:auctions.bidders.approve')->name('bidders.withdraw');
+
+        // AT-432 Phase 3 (.ai/specs/auctions.md §7 screen 7, §11.1) — the Sale Room.
+        Route::prefix('{auction}/room')->middleware('permission:auctions.room.operate')->name('room.')->group(function () {
+            Route::get('/', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'show'])->name('show');
+            Route::post('/lots/{lot}/open', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'openForBids'])->name('open');
+            Route::post('/lots/{lot}/hammer/start', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'startHammer'])->name('hammer.start');
+            Route::post('/lots/{lot}/bid', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'placeBid'])->middleware('permission:auctions.bid.record')->name('bid');
+            Route::post('/lots/{lot}/bid/retract', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'retractBid'])->middleware('permission:auctions.bid.retract')->name('bid.retract');
+            Route::post('/lots/{lot}/hammer/knock-down', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'knockDown'])->middleware('permission:auctions.hammer')->name('hammer.knock-down');
+            Route::post('/lots/{lot}/hammer/pass-in', [\App\Http\Controllers\CoreX\Auctions\SaleRoomController::class, 'passIn'])->middleware('permission:auctions.hammer')->name('hammer.pass-in');
+        });
     });
 
     // AT-432 (.ai/specs/auctions.md §7 screen 13) — Settings → Auctions.

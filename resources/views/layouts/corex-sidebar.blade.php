@@ -1197,10 +1197,17 @@
                 <a href="{{ route('corex.auctions.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.properties.index') || (request()->routeIs('corex.properties.*') && session('corex.lens.auctions', false)) ? 'active' : '' }}">Properties</a>
                 @endpermission
 
-                {{-- Bidder Register / Sale Room / Results (§7 screens 5, 7, 8) are
-                     Phase 2/3 (§21) — their nav entries land in the same prompt as
-                     the screens themselves, per CLAUDE.md Non-negotiable #2. No
-                     placeholder link here for a page that doesn't exist yet. --}}
+                {{-- AT-432 Phase 3 — Results is genuinely auction-independent (it
+                     already lists every auction's concluded lots), so it gets a
+                     real top-level entry per §7.1. Bidder Register and Sale Room
+                     (§7 screens 5, 7) deliberately do NOT get one — both need an
+                     auction context to mean anything (you cannot "operate the
+                     sale room" without first picking which auction), so they are
+                     reached from the auction's own catalogue-builder page
+                     (corex.auctions.show) instead, where that link already lives. --}}
+                @permission('auctions.results.view')
+                <a href="{{ route('corex.auctions.results') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.results') ? 'active' : '' }}">Results</a>
+                @endpermission
 
                 @permission('auctions.manage_settings')
                 <a href="{{ route('corex.settings.auctions.show') }}" class="corex-nav-subitem {{ request()->routeIs('corex.settings.auctions.*') ? 'active' : '' }}">Auction Settings</a>
