@@ -935,6 +935,32 @@ pre-push step for this one class of change, not something only discovered once J
 
 ---
 
+## Standard −1v — `/corex-qa1` is the live QA1 deploy target, not scratch space; all lane work happens in a worktree (2026-09-27, Johan, standing policy — see CLAUDE.md non-negotiable #8b for the full rule)
+
+A reflog trace on 2026-09-27 found the same pattern repeated at least four times over 26-27 Sep:
+a lane `git checkout`s its own feature/investigation branch directly inside `/corex-qa1` — the exact
+directory `scripts/qa-deploy.sh` builds and serves to live QA1 traffic — works there, and usually (not
+always) checks back out to `QA1` when done. The one cycle that didn't self-correct left QA1 silently
+stranded on `inventory-investigation-2026-09-27`, and the deploy before that had already built and served
+cc4's unreviewed `fix-inspection-photo-upload-immediate-2026-09-26` branch — neither visible to
+`origin/QA1`, neither caught by the deploy script itself. Only found because a diagnosis compared
+deployed `HEAD` against `origin/QA1`'s real tip by hand.
+
+**The full rule is CLAUDE.md non-negotiable #8b — read it there.** In one line: `/corex-qa1` stays on
+branch `QA1`, permanently, and the only git operation ever run inside it is the fast-forward pull
+`qa-deploy.sh` itself performs. Every lane's actual work — features, fixes, investigations, spec-only
+commits — happens in a worktree under `/mnt/HC_Volume_103099143/corex-worktrees/<branch-name>`, never
+by switching what's checked out in the deploy directory itself.
+
+**Why this is a Standard entry too, not just a CLAUDE.md line:** a rule six lanes have to remember by
+reading it once will be broken again by Wednesday — see Standard −1u immediately above for the same
+lesson learned the same way, twice in one week. Before this rule is trusted to hold on memory alone,
+see whether it can be enforced structurally instead (a pre-checkout hook, or `qa-deploy.sh` asserting
+`git rev-parse --abbrev-ref HEAD` is exactly `QA1` and aborting loudly otherwise) — documentation is the
+floor here, not the ceiling.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
