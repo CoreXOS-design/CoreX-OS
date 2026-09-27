@@ -1887,6 +1887,62 @@ removed from the private schema after verification. No data on property 5294 (or
 property) was touched at any point, and no session was minted for user 22 — this task used the same
 isolated private-schema fixture property as §13.10/§13.11.
 
+### 13.13 Pill scroll + scrollspy, round 2 — verified against the real property shell, not a fixture — BUILT (2026-09-27)
+
+**What was reported:** §13.12's fix passed on its own private-schema fixture but STILL failed on the real
+QA1 page (property 5294, read-only measurement by cc1): clicking a pill left `.prop-tab-panel.scrollTop`
+at `0` and the target room's own on-screen position unchanged; on load, with "Bedroom 1" genuinely at the
+top, "Bedroom 2" was highlighted instead. cc1's own measurement confirmed `.prop-tab-panel` IS the real,
+sole scrolling element on that page (`scrollHeight: 3354`, `clientHeight: 614`) — §13.12's ancestor-walk
+(starting from `#inv-sticky-shell`'s parent and checking `overflow-y` + `scrollHeight > clientHeight` at
+each level up) simply wasn't landing on it there, for a reason this environment's own private-schema
+fixture never reproduced.
+
+**Fix — stop rediscovering the container, name it.** `.prop-tab-panel` is not a mystery element to be
+found generically; it's the exact, known container this screen was built around (§13.10, reusing
+`properties/show.blade.php`'s own "only the tab panel scrolls" pattern verbatim). `_scrollContainer()` now
+checks `document.querySelector('.prop-tab-panel')` FIRST, by an actual scrollability test
+(`scrollHeight > clientHeight`) — the walk-from-`#inv-sticky-shell` logic survives only as a defensive
+fallback, and now checks BOTH `overflow` and `overflow-y` computed values (round 1 checked only
+`overflow-y`, which the real page's failure suggests may not have been the actual property Tailwind's
+`overflow-y-auto` utility resolves to there).
+
+**Second fix, conductor's own explicit instruction — the scrollspy `IntersectionObserver` now passes
+`root: <the same .prop-tab-panel _scrollContainer() returns>` explicitly**, not the default `root: null`
+(browser viewport). Two real, not cosmetic, consequences: an observer only reliably tracks a target
+relative to its OWN scroll ancestor when that ancestor IS the declared root; and `rootMargin`'s `-60%`
+bottom margin is a percentage of the ROOT's own size — against the real viewport (900px+) that's a
+materially different pixel value than against this panel's actual `clientHeight` (614–722px across the
+properties measured), which changes how trigger-happy the "next room" hand-off is. `scrollToRoom()` and
+`_setupScrollSpy()` both call the SAME `_scrollContainer()` now, so the scroll target and the scrollspy
+trigger zone can never name a different container from each other again.
+
+**A known, inherent boundary quirk, left as-is — not one of the reported bugs.** Scrolling to the very
+LAST room in the list can end with the SECOND-TO-LAST room's pill highlighted instead, because the last
+room's panel can't reach a canonical "top of viewport" position once the container is already at its
+maximum `scrollTop` — a common, generally-accepted scrollspy trade-off (the same shape many sites' own
+in-page nav has for their final section), not something this pass chased further: it doesn't affect which
+room's CONTENT is shown, only which pill is lit a moment sooner/later at the very end of the list, and
+wasn't among the three concretely reported failures.
+
+**Files:** `resources/views/corex/rental-inventories/capture.blade.php` only.
+
+**Verification status — against the REAL `corex_qa1` database, property 5792, user 365
+(`qa1-browser-verify@corexos.local`, a dedicated verification account — never user 22), per the
+conductor's explicit instruction for this round ("not a fixture layout"). Read-only throughout: GET
+navigation and clicks only, zero forms submitted, zero writes.** Confirmed via real headless Chrome
+(Puppeteer, system `chromium`, 1440×900): `.prop-tab-panel` found with `scrollHeight: 2809`,
+`clientHeight: 722` (genuinely scrollable, matching the shape cc1 described); **on load**, the active pill
+read directly from the DOM was `"Kitchen"` — the genuinely topmost of the 5 real rooms
+(`Kitchen/Bedroom 1/Bedroom 2/Study/Garage`) — confirmed fixed; **clicking "Bedroom 2"** (a middle room,
+avoiding the documented last-room boundary case above) moved `.prop-tab-panel.scrollTop` from `0` to
+`1429` and the room's own heading from `top: 1699px` to `top: 270px` on screen — a real, matching ~1429px
+shift — and the active pill afterward read back as `"Bedroom 2"`, exactly the clicked room — confirmed
+fixed. `php -l` clean. Render-gate: 0 new failures (the one surviving `document.querySelector(...)
+?.getAttribute` construction error is the same pre-existing sandbox-stub gap confirmed identical across
+every prior round's baseline). Zero console errors. No data on property 5294 or any other `corex_qa1`
+row was written at any point.
+
 ---
 
 ## 14. Move-in-vs-now comparison rebuild to Johan's approved mockup — BUILT (2026-09-27)
