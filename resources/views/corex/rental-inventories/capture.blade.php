@@ -137,16 +137,31 @@
     .inv-cell-photos { order: 6; display: flex; align-items: center; gap: 0.375rem; overflow-x: auto; flex-wrap: nowrap; flex: 1 1 auto; min-width: 0; }
     @media (min-width: 1024px) {
         .inv-linebreak { display: none; }
+        /* §13.12 fix, 2026-09-27 — the Condition/Photos column headers
+           didn't line up with the chips/photos below them. Root cause:
+           `.inv-header-row` and `.inv-line` are each their OWN separate
+           CSS Grid container — an `auto` track sizes to that INSTANCE's
+           own content, not shared across sibling grid containers. The
+           header row's "Condition"/(blank) cells are short text, so its
+           auto columns rendered narrower than a data row's (4 chip
+           buttons / Tag photo+Remove), and every row's own auto columns
+           could ALSO differ slightly from each other depending on which
+           condition state was selected. Fixed widths (12.5rem for
+           chips, matched to 4 condition buttons at their widest;
+           7.5rem for actions, matched to "Tag photo" + "Remove") make
+           every grid instance on the page compute the IDENTICAL column
+           layout regardless of instance or content — the actual fix;
+           these values must stay in sync between the two rules below. */
         .inv-header-row {
             display: grid;
-            grid-template-columns: 4.5rem minmax(0,1fr) auto minmax(0,13rem) auto;
+            grid-template-columns: 4.5rem minmax(0,1fr) 12.5rem minmax(0,13rem) 7.5rem;
             gap: 0.5rem;
             padding: 0 0 0.375rem 0;
             border-bottom: 1px solid var(--border);
         }
         .inv-line {
             display: grid;
-            grid-template-columns: 4.5rem minmax(0,1fr) auto minmax(0,13rem) auto;
+            grid-template-columns: 4.5rem minmax(0,1fr) 12.5rem minmax(0,13rem) 7.5rem;
             gap: 0.5rem;
             align-items: center;
             min-height: 44px;
@@ -640,17 +655,74 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
             if (partDone) { this.activeRoomId = partDone.id; return; }
             this.activeRoomId = this.rooms[0].id;
         },
-        // §13.11 — clicking a pill scrolls to that room's panel and marks
-        // it active immediately (before the scrollspy observer's own
-        // callback would otherwise catch up, which can lag a frame or two
-        // behind a smooth-scroll animation). scroll-margin-top (set via
-        // --inv-sticky-offset, updateStickyOffset() below) is what keeps
-        // the panel's own heading clear of the sticky tab-bar + pill-strip
-        // group above it — scrollIntoView({block:'start'}) respects that
-        // automatically, no manual pixel offset math needed here.
+        // §13.12 fix, 2026-09-27 — cc1's report from a real click on the
+        // deployed page: scrollToRoom() fired but NOTHING moved (window.
+        // scrollY stayed 0 AND the target's own on-screen position was
+        // unchanged — not just "scrolled the wrong container", genuinely
+        // inert). The previous version trusted the browser's own
+        // scrollIntoView({block:'start'}) to find whichever ancestor
+        // actually has the overflow and to respect this page's
+        // scroll-margin-top automatically. Whatever the exact cause on
+        // the real page (this screen doesn't control whether its own
+        // .prop-tab-panel or the app shell's #appScroll <main> ends up
+        // being the one with real overflow — that depends on how the
+        // surrounding height chain resolves there, not on anything this
+        // file decides), relying on that built-in behaviour turned out
+        // fragile. Replaced with an explicit, manually-computed scroll:
+        // find the real scrolling ancestor by walking up and checking
+        // computed overflow-y + actual scrollHeight > clientHeight (never
+        // assumed to be a specific selector), then set its scrollTop (or
+        // window.scrollTo for the plain-document case) directly. This
+        // has no dependency on the browser's own ancestor-detection or
+        // on scroll-margin-top interacting correctly with a sticky
+        // ancestor — both plausible, neither provable without reproducing
+        // cc1's exact real-page conditions.
         scrollToRoom(id) {
             this.activeRoomId = id;
-            document.getElementById('room-panel-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const el = document.getElementById('room-panel-' + id);
+            if (!el) return;
+            const offset = this._stickyOffsetPx();
+            const container = this._scrollContainer();
+            if (container === window) {
+                const top = Math.max(0, el.getBoundingClientRect().top + window.scrollY - offset);
+                window.scrollTo({ top, behavior: 'smooth' });
+            } else {
+                const top = Math.max(0, container.scrollTop + el.getBoundingClientRect().top - container.getBoundingClientRect().top - offset);
+                container.scrollTo({ top, behavior: 'smooth' });
+            }
+        },
+        // Walks up from the sticky shell's own parent looking for the
+        // element that's ACTUALLY scrollable (overflow-y auto/scroll AND
+        // real overflow, scrollHeight > clientHeight) — never assumed to
+        // be .prop-tab-panel specifically, since whether that div's own
+        // overflow-y:auto ends up being the one with genuine overflow (as
+        // opposed to the app shell's own #appScroll <main>, id set in
+        // layouts/corex.blade.php) depends on how the surrounding page's
+        // height chain resolves in the real deployed layout, not on
+        // anything decided here. Falls back to #appScroll (present on
+        // every corex-content page) and finally to window.
+        _scrollContainer() {
+            let el = document.getElementById('inv-sticky-shell')?.parentElement ?? null;
+            while (el && el !== document.documentElement && el !== document.body) {
+                const style = getComputedStyle(el);
+                if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 1) {
+                    return el;
+                }
+                el = el.parentElement;
+            }
+            const appScroll = document.getElementById('appScroll');
+            if (appScroll && appScroll.scrollHeight > appScroll.clientHeight + 1) return appScroll;
+            return window;
+        },
+        // The sticky tab-bar+pill-strip group's REAL rendered height,
+        // read fresh every time rather than trusting the CSS custom
+        // property to have been set yet (updateStickyOffset() publishes
+        // the same number for scroll-margin-top's use, on a $nextTick
+        // delay — this reads the DOM directly so scrollToRoom/scrollspy
+        // never race that).
+        _stickyOffsetPx() {
+            const shell = document.getElementById('inv-sticky-shell');
+            return shell ? shell.offsetHeight : 160;
         },
         // §13 — the chip's status dot. [design call, flagged rather than
         // silently assumed]: Inventory has no per-item checklist the way
@@ -723,17 +795,28 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 this.lineSnapshots[l.id] = { quantity: l.quantity, description: l.description };
             });
             this.pickInitialActiveRoom();
-            // §13.11 — the sticky tab-bar+pill-strip group's REAL rendered
-            // height, published as a CSS custom property so every room
-            // panel's scroll-margin-top (set in the <style> block) stays
-            // correct even if that group's height changes (a longer
-            // property address wrapping to 2 lines, a narrower phone,
-            // etc.) — measured, never guessed. $nextTick because the pill
-            // strip's own x-show/x-for need one render pass to have real
-            // dimensions.
-            this.$nextTick(() => this._updateStickyOffset());
+            // §13.11/§13.12 — the sticky tab-bar+pill-strip group's REAL
+            // rendered height, published as a CSS custom property so
+            // every room panel's scroll-margin-top (set in the <style>
+            // block) stays correct even if that group's height changes (a
+            // longer property address wrapping to 2 lines, a narrower
+            // phone, etc.) — measured, never guessed. $nextTick because
+            // the pill strip's own x-show/x-for need one render pass to
+            // have real dimensions. §13.12 fix: _setupScrollSpy() moved
+            // into this SAME $nextTick, after the offset measurement —
+            // it previously ran synchronously here, one tick BEFORE
+            // _updateStickyOffset(), so its rootMargin used a hardcoded
+            // guess instead of the real value. On the real deployed page
+            // (taller identity strip / longer address than this branch's
+            // own private-schema test fixture had) that guess undershot
+            // the sticky group's true height, which is very likely why
+            // cc1 saw "Bedroom 2" highlighted on load instead of the
+            // genuinely-topmost "Bedroom 1".
+            this.$nextTick(() => {
+                this._updateStickyOffset();
+                this._setupScrollSpy();
+            });
             window.addEventListener('resize', () => this._updateStickyOffset());
-            this._setupScrollSpy();
             // §11.2 investigation, 2026-09-27 — closing an existing item's
             // edit down to the ONE commit path this grid already had (a
             // Tab/Enter/arrow-boundary keydown) meant leaving the page
@@ -754,16 +837,22 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
             const el = document.getElementById('inv-sticky-shell');
             if (el) document.documentElement.style.setProperty('--inv-sticky-offset', el.offsetHeight + 'px');
         },
-        // §13.11 — "scrolling updates the active pill." rootMargin biases
-        // toward the room panel sitting just below the sticky group (a
-        // generous static -150px top margin, matched loosely to that
-        // group's typical height rather than the exact live value — a
-        // few px of slop here only affects WHICH pill highlights a moment
-        // earlier/later than perfectly exact, never which room's content
-        // shows, so it doesn't need the same precision scroll-margin-top
-        // does) and a -60% bottom margin so a room barely peeking in at
-        // the very bottom of the screen doesn't steal the highlight from
-        // the one actually being read.
+        // §13.11/§13.12 — "scrolling updates the active pill." rootMargin
+        // biases toward the room panel sitting just below the sticky
+        // group. §13.12 fix: this used to be a hardcoded -150px guess —
+        // cc1 reported "Bedroom 2" highlighted on load with "Bedroom 1"
+        // genuinely at the top, and a rootMargin that under-reserves the
+        // sticky group's real height (this branch's own private-schema
+        // test fixture had a much shorter identity strip than a real
+        // property) is exactly the failure shape: the topmost room's
+        // panel gets excluded from the shrunk observation zone while the
+        // next one down qualifies. Now reads the SAME real, measured
+        // height _stickyOffsetPx() and scrollToRoom() both use, so the
+        // scroll target and the scrollspy trigger zone can't drift apart
+        // from each other the way two independent guesses could. The
+        // -60% bottom margin is untouched: a room barely peeking in at
+        // the very bottom of the screen still shouldn't steal the
+        // highlight from the one actually being read.
         _setupScrollSpy() {
             if (!this.rooms.length || typeof IntersectionObserver === 'undefined') return;
             const observer = new IntersectionObserver((entries) => {
@@ -772,7 +861,7 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
                 const id = Number(visible[0].target.dataset.roomId);
                 if (id) this.activeRoomId = id;
-            }, { rootMargin: '-150px 0px -60% 0px', threshold: 0 });
+            }, { rootMargin: `-${this._stickyOffsetPx()}px 0px -60% 0px`, threshold: 0 });
             this.rooms.forEach(r => {
                 const el = document.getElementById('room-panel-' + r.id);
                 if (el) observer.observe(el);
