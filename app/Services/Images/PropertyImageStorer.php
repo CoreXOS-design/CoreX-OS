@@ -31,7 +31,9 @@ class PropertyImageStorer
      */
     public function store(UploadedFile $file, int $propertyId): string
     {
+        $disk = Storage::disk('public');
         $path = $file->store("properties/{$propertyId}", 'public');
+        $this->assertStored($disk, $path, 'immediately after the initial write');
 
         // Bake EXIF orientation into the original before downscaling. downscale()
         // re-encodes large captures with GD, which strips the EXIF orientation
@@ -39,9 +41,10 @@ class PropertyImageStorer
         // be saved sideways. Doing it first means downscale() (and every derived
         // thumbnail) works from upright pixels. No-op for upright/non-JPEG.
         app(ImageOrientationNormalizer::class)
-            ->normalizeInPlace(Storage::disk('public')->path($path));
+            ->normalizeInPlace($disk->path($path));
 
         $this->downscale($path);
+        $this->assertStored($disk, $path, 'after downscale()');
 
         $url = Storage::url($path);
 
@@ -51,6 +54,34 @@ class PropertyImageStorer
         app(PropertyThumbnailService::class)->generateForUrl($url);
 
         return $url;
+    }
+
+    /**
+     * AT-436 incident, 2026-09-27 — property 5792, cc5: a photo record whose
+     * file does not exist on disk. Traced: storePhotos() (RentalInspection
+     * RecordingController) already calls store() BEFORE RentalInspectionPhoto
+     * ::create() on both the pre- and post-AT-433 code paths — the row was
+     * never written ahead of the file. The actual cause of the one real
+     * ghost row found was a QA1 dev-server process running from a different
+     * filesystem root than the one the site is actually served from: the
+     * write genuinely succeeded, on a disk this app wasn't reading back
+     * from — Flysystem's own write-failure exception (which already exists
+     * for a literal failed write) can't catch that, because nothing failed.
+     * This is the class fix Johan asked for regardless: this service is the
+     * ONE place every caller (rental inspections, the marketing gallery, the
+     * mobile API — see this class's own docblock) stores an image, so a
+     * verified-on-THIS-disk check here closes the "row committed, file not
+     * there" failure mode everywhere at once, for whatever future reason
+     * might produce it, not just this one. Throwing here means the caller's
+     * RentalInspectionPhoto::create() (or any other model write built on
+     * this URL) is never reached — no row, no rollback needed, because
+     * nothing was written yet.
+     */
+    private function assertStored(\Illuminate\Contracts\Filesystem\Filesystem $disk, string $path, string $when): void
+    {
+        if (! $disk->exists($path) || $disk->size($path) < 1) {
+            throw new \RuntimeException("PropertyImageStorer: \"{$path}\" does not exist (or is empty) on disk {$when} — refusing to hand back a URL for a photo record to point at nothing.");
+        }
     }
 
     /**
