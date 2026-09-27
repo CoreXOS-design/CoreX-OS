@@ -8,6 +8,7 @@ use App\Models\PropertyRoom;
 use App\Models\RentalInventory;
 use App\Models\RentalInventoryLine;
 use App\Models\RentalInventoryPhoto;
+use App\Models\RentalInventorySetting;
 use App\Services\Images\PropertyImageStorer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -49,6 +50,7 @@ class RentalInventoryCaptureController extends Controller
 
         $linesForJs = collect();
         $photosForJs = collect();
+        $roomMarksForJs = collect();
 
         if ($inventory) {
             $inventory->load([
@@ -56,6 +58,7 @@ class RentalInventoryCaptureController extends Controller
                 'lines.photos',
                 'photos' => fn ($q) => $q->orderByDesc('created_at'),
                 'photos.uploadedBy',
+                'roomMarks',
             ]);
 
             // Built here, not inline inside @json() in the view: Blade's @json
@@ -69,6 +72,7 @@ class RentalInventoryCaptureController extends Controller
                 'property_room_id' => $l->property_room_id,
                 'quantity' => $l->quantity,
                 'description' => $l->description,
+                'condition_key' => $l->condition_key,
                 'photos' => $l->photos->pluck('id'),
             ])->values();
 
@@ -78,9 +82,20 @@ class RentalInventoryCaptureController extends Controller
                 'storage_path' => $p->storage_path,
                 'lines' => $p->lines->pluck('id'),
             ])->values();
+
+            // §12 — the completion gate's "nothing in this room" state,
+            // surfaced here so the capture screen can show it and offer the
+            // mark-empty control per room.
+            $roomMarksForJs = $inventory->roomMarks->map(fn ($m) => ['property_room_id' => $m->property_room_id])->values();
         }
 
         $roomsForJs = $rooms->map(fn ($r) => ['id' => $r->id, 'label' => $r->label])->values();
+
+        // §13 — "Copy from last inventory" only ever shows when a real prior
+        // inventory exists for this property; the server-side endpoint is
+        // the actual gate (404s with a plain message otherwise), this is
+        // just so the button isn't offered when it can only ever fail.
+        $hasPriorInventory = $inventory && $inventory->priorInventory() !== null;
 
         return view('corex.rental-inventories.capture', [
             'property' => $property,
@@ -89,6 +104,12 @@ class RentalInventoryCaptureController extends Controller
             'roomsForJs' => $roomsForJs,
             'linesForJs' => $linesForJs,
             'photosForJs' => $photosForJs,
+            'roomMarksForJs' => $roomMarksForJs,
+            'hasPriorInventory' => $hasPriorInventory,
+            // §13 — the capture-time condition chip vocabulary, agency-
+            // configurable (RentalInventorySetting::conditionStatesFor()),
+            // never hardcoded.
+            'conditionStates' => $inventory ? RentalInventorySetting::conditionStatesFor($inventory->agency_id) : [],
             // Johan: "we specced inventory being blank then you can create
             // the spaces same as with inspections." Reuses
             // RentalInspectionRecordingController::storeItem() (kind=space)
@@ -110,16 +131,31 @@ class RentalInventoryCaptureController extends Controller
      * max_file_uploads=20): one request, N files, N results, each file
      * independently idempotent via client_idempotency_key so a retried
      * batch never double-uploads a file that actually landed.
+     *
+     * §13, Johan's approved mockup — "Photos are a horizontal strip on the
+     * line, and a photo uploads THE MOMENT it is selected. No staging,
+     * ever." `rental_inventory_line_id` is optional: when present (the
+     * per-line "add photo" control), every photo in this batch is uploaded
+     * AND tagged to that line in this same request — upload and tag are one
+     * action, not upload-then-open-a-tagger. Absent (the per-room "Add
+     * photo(s)" control), behaviour is unchanged from before this pass.
      */
     public function storePhotos(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
+            'rental_inventory_line_id' => ['nullable', 'integer', 'exists:rental_inventory_lines,id'],
             'photos' => ['required', 'array', 'min:1', 'max:10'],
             'photos.*' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
             'client_idempotency_keys' => ['nullable', 'array'],
             'client_idempotency_keys.*' => ['nullable', 'uuid'],
         ]);
+
+        $line = null;
+        if (! empty($validated['rental_inventory_line_id'])) {
+            $line = RentalInventoryLine::find($validated['rental_inventory_line_id']);
+            abort_if(! $line || (int) $line->rental_inventory_id !== (int) $rentalInventory->id, 404);
+        }
 
         $storer = app(PropertyImageStorer::class);
         $created = [];
@@ -136,15 +172,21 @@ class RentalInventoryCaptureController extends Controller
 
             $url = $storer->store($file, $rentalInventory->property_id);
 
-            $created[] = RentalInventoryPhoto::create([
+            $photo = RentalInventoryPhoto::create([
                 'agency_id' => $rentalInventory->agency_id,
                 'rental_inventory_id' => $rentalInventory->id,
-                'property_room_id' => $validated['property_room_id'] ?? null,
+                'property_room_id' => $validated['property_room_id'] ?? $line?->property_room_id,
                 'storage_path' => $url,
                 'file_size_bytes' => $file->getSize(),
                 'uploaded_by_user_id' => $request->user()->id,
                 'client_idempotency_key' => $clientKey,
             ]);
+
+            if ($line) {
+                $line->photos()->syncWithoutDetaching([$photo->id => ['agency_id' => $line->agency_id]]);
+            }
+
+            $created[] = $photo;
         }
 
         // §4a — the shared uploader (public/js/corex-photo-batch-uploader.js)

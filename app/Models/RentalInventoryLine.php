@@ -28,6 +28,7 @@ class RentalInventoryLine extends Model
         'room_label',
         'quantity',
         'description',
+        'condition_key',
         'sort_order',
         'is_retired',
         'created_by_user_id',
@@ -58,6 +59,18 @@ class RentalInventoryLine extends Model
     public function photos(): BelongsToMany
     {
         return $this->belongsToMany(RentalInventoryPhoto::class, 'rental_inventory_line_photos');
+    }
+
+    /** §14 — the move-in evidence, the baseline a deposit deduction is argued from. */
+    public function moveInPhotos(): BelongsToMany
+    {
+        return $this->photos()->where('side', RentalInventoryPhoto::SIDE_MOVE_IN);
+    }
+
+    /** §14 — "where there is no photo on the current side, show that rather than hiding it." */
+    public function moveOutPhotos(): BelongsToMany
+    {
+        return $this->photos()->where('side', RentalInventoryPhoto::SIDE_MOVE_OUT);
     }
 
     /** §8 — every move-out finding ever recorded against this line, oldest first. Never edited, never deleted. */

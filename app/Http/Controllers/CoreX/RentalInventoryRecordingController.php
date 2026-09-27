@@ -3,10 +3,14 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\PropertyRoom;
 use App\Models\RentalInventory;
 use App\Models\RentalInventoryLine;
 use App\Models\RentalInventoryLineDisposition;
+use App\Models\RentalInventoryPhoto;
+use App\Models\RentalInventoryRoomMark;
 use App\Models\RentalInventorySignature;
+use App\Services\Images\PropertyImageStorer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -35,6 +39,10 @@ class RentalInventoryRecordingController extends Controller
             // never silently defaulted.
             'quantity' => ['nullable', 'integer', 'min:0'],
             'description' => ['required', 'string'],
+            // §13 — the move-in condition chip. Optional: the lazy-but-valid
+            // shortcut (type quantity + description, move on) must still
+            // work end to end, so a line is never blocked on picking one.
+            'condition_key' => ['nullable', 'string', 'max:60'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
         ]);
 
@@ -60,6 +68,7 @@ class RentalInventoryRecordingController extends Controller
             'room_label' => ['nullable', 'required_without:property_room_id', 'string', 'max:100'],
             'quantity' => ['nullable', 'integer', 'min:0'],
             'description' => ['required', 'string'],
+            'condition_key' => ['nullable', 'string', 'max:60'],
         ]);
 
         if (! empty($validated['property_room_id']) && empty($validated['room_label'])) {
@@ -110,6 +119,120 @@ class RentalInventoryRecordingController extends Controller
         }
 
         return response()->json($disposition, 201);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/rooms/{room}/mark-empty —
+     * §12: the completion gate needs to tell "nobody opened this room" apart
+     * from "this room genuinely has nothing in it" — the same distinction
+     * rental-inspections' markRoomNa() makes, but recorded as its own row
+     * (RentalInventoryRoomMark) rather than a per-item observation, because
+     * an inventory room has no checklist items to write one against.
+     * Idempotent: marking an already-marked room just refreshes who/when.
+     */
+    public function markRoomEmpty(Request $request, RentalInventory $rentalInventory, PropertyRoom $room): JsonResponse
+    {
+        abort_if((int) $room->property_id !== (int) $rentalInventory->property_id, 404);
+
+        $mark = RentalInventoryRoomMark::updateOrCreate(
+            [
+                'rental_inventory_id' => $rentalInventory->id,
+                'property_room_id' => $room->id,
+            ],
+            [
+                'agency_id' => $rentalInventory->agency_id,
+                'marked_empty_by_user_id' => $request->user()->id,
+                'marked_empty_at' => now(),
+            ]
+        );
+
+        return response()->json($mark, 201);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/copy-from-last — §13,
+     * Johan's approved mockup: "a furnished flat is re-let with the same
+     * contents, and re-typing forty lines is the work we are supposed to be
+     * doing for them." Copies every active line from the property's most
+     * recent OTHER inventory (RentalInventory::priorInventory()) into this
+     * one. 404s with a plain message when no prior inventory exists — this
+     * control is only ever shown on the capture screen when one does, but
+     * the server is the real gate, not the button being hidden.
+     */
+    public function copyFromLastInventory(Request $request, RentalInventory $rentalInventory): JsonResponse
+    {
+        $prior = $rentalInventory->priorInventory();
+        if (! $prior) {
+            return response()->json(['message' => 'This property has no earlier inventory to copy from.'], 404);
+        }
+
+        $lines = $rentalInventory->copyLinesFrom($prior, $request->user());
+
+        return response()->json(['lines' => $lines->values()], 201);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/lines/{line}/move-out-photos
+     * — §14, Johan's approved comparison mockup: "Where there is no photo on
+     * the current side, SHOW that rather than hiding it. A claim with no
+     * photo is a weak claim and the agent should see it while they can
+     * still take one." Uploads AND tags to this line in ONE request, same
+     * "no staging, ever" contract as the capture screen's own per-line
+     * strip (§13.3) — the SAME PropertyImageStorer pipeline, SAME
+     * client-batching contract, just `side = move_out` and no dependency on
+     * a disposition row existing yet (a disposition is recorded separately,
+     * via storeLineDisposition() above; a photo is evidence taken the
+     * moment the agent is standing there, whether or not they've typed a
+     * note yet).
+     */
+    public function storeLineMoveOutPhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
+    {
+        abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+
+        $validated = $request->validate([
+            'photos' => ['required', 'array', 'min:1', 'max:10'],
+            'photos.*' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+            'client_idempotency_keys' => ['nullable', 'array'],
+            'client_idempotency_keys.*' => ['nullable', 'uuid'],
+        ]);
+
+        $storer = app(PropertyImageStorer::class);
+        $created = [];
+
+        foreach ($validated['photos'] as $i => $file) {
+            $clientKey = $validated['client_idempotency_keys'][$i] ?? null;
+            if ($clientKey) {
+                $existing = RentalInventoryPhoto::where('client_idempotency_key', $clientKey)->first();
+                if ($existing) {
+                    $created[] = $existing;
+                    continue;
+                }
+            }
+
+            $url = $storer->store($file, $rentalInventory->property_id);
+
+            $photo = RentalInventoryPhoto::create([
+                'agency_id' => $rentalInventory->agency_id,
+                'rental_inventory_id' => $rentalInventory->id,
+                'property_room_id' => $line->property_room_id,
+                'side' => RentalInventoryPhoto::SIDE_MOVE_OUT,
+                'storage_path' => $url,
+                'file_size_bytes' => $file->getSize(),
+                'uploaded_by_user_id' => $request->user()->id,
+                'client_idempotency_key' => $clientKey,
+            ]);
+
+            $line->photos()->syncWithoutDetaching([$photo->id => ['agency_id' => $line->agency_id]]);
+
+            $created[] = $photo;
+        }
+
+        return response()->json([
+            'photos' => collect($created)->map(fn (RentalInventoryPhoto $p) => [
+                'id' => $p->id,
+                'storage_path' => $p->storage_path,
+            ])->values(),
+        ], 201);
     }
 
     /**

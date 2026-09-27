@@ -11,15 +11,24 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 /**
  * .ai/specs/rental-inventory.md §0b — a photo uploaded against one room of
  * the property. Soft-deletable, same as every other evidence record here.
+ * §14 — `side` distinguishes a move-in photo (every one captured before
+ * this column existed, and the default for every new one from the capture
+ * screen) from a move-out photo (taken from the comparison screen, tagged
+ * straight to a line) — same table, same storage pipeline, same tagging
+ * pivot for both; never a second photo model.
  */
 class RentalInventoryPhoto extends Model
 {
     use BelongsToAgency, SoftDeletes;
 
+    public const SIDE_MOVE_IN = 'move_in';
+    public const SIDE_MOVE_OUT = 'move_out';
+
     protected $fillable = [
         'agency_id',
         'rental_inventory_id',
         'property_room_id',
+        'side',
         'storage_path',
         'file_size_bytes',
         'uploaded_by_user_id',

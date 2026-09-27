@@ -87,6 +87,12 @@ class RentalInventory extends Model
         return $this->hasMany(RentalInventoryPhoto::class);
     }
 
+    /** §12 — every room an agent has explicitly confirmed has nothing in it. */
+    public function roomMarks(): HasMany
+    {
+        return $this->hasMany(RentalInventoryRoomMark::class);
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
@@ -149,6 +155,59 @@ class RentalInventory extends Model
         return self::currentFor($lease) ?? self::start($property, $lease, $by);
     }
 
+    /**
+     * §13, Johan's approved mockup — "a furnished flat is re-let with the
+     * same contents, and re-typing forty lines is the work we are supposed
+     * to be doing for them." The most recent OTHER (non-cancelled) inventory
+     * for the SAME property, excluding this one — a prior tenancy's own
+     * inventory, since RentalInventory::start() refuses a second inventory
+     * per lease. Ordered by id desc (not completed_at) deliberately: a
+     * property mid-way through a still-open prior tenancy has no completed
+     * date yet, and "the last thing recorded here" is still the useful
+     * starting point to copy from even if that record itself never reached
+     * completed status.
+     */
+    public function priorInventory(): ?self
+    {
+        return self::where('property_id', $this->property_id)
+            ->where('id', '!=', $this->id)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * §13 — copies every active line from $source into $this, quantity +
+     * description + condition_key (the condition is copied as a STARTING
+     * POINT for the agent to confirm or correct, never asserted as this
+     * tenancy's own verified condition — Johan's own framing is "re-typing
+     * is the work we're saving them," not "skip re-checking the goods").
+     * Deliberately does NOT copy photos: a photo is evidence of what this
+     * move-in actually looked like, and copying an old photo forward would
+     * misrepresent today's condition as something it was never verified
+     * against. Additive only — never touches $this's own existing lines,
+     * so running it twice, or after already adding some items by hand, only
+     * ever adds more, never overwrites or duplicates-detects (the agent
+     * removes an unwanted copied line the same way they remove any other).
+     *
+     * @return \Illuminate\Support\Collection<int, RentalInventoryLine>
+     */
+    public function copyLinesFrom(self $source, User $by): \Illuminate\Support\Collection
+    {
+        return $source->lines->map(function (RentalInventoryLine $line) use ($by) {
+            return RentalInventoryLine::create([
+                'agency_id' => $this->agency_id,
+                'rental_inventory_id' => $this->id,
+                'property_room_id' => $line->property_room_id,
+                'room_label' => $line->room_label,
+                'quantity' => $line->quantity,
+                'description' => $line->description,
+                'condition_key' => $line->condition_key,
+                'created_by_user_id' => $by->id,
+            ]);
+        });
+    }
+
     /** Every tenant on the lease, plus the landlord if resolvable, who does NOT yet have a live disposition. */
     public function outstandingSignatories(): \Illuminate\Support\Collection
     {
@@ -186,8 +245,55 @@ class RentalInventory extends Model
             ->exists();
     }
 
+    /**
+     * §12 — every non-retired PropertyRoom belonging to this inventory's
+     * property that has neither an active line nor an explicit "nothing in
+     * this room" mark (RentalInventoryRoomMark). A room nobody opened is not
+     * the same as a room an agent actually checked and found empty, and
+     * markCompleted() below refuses until this returns empty.
+     */
+    public function unvisitedRooms(): \Illuminate\Support\Collection
+    {
+        $rooms = PropertyRoom::where('property_id', $this->property_id)
+            ->where('is_retired', false)
+            ->orderBy('sort_order')->orderBy('id')
+            ->get();
+
+        $roomIdsWithLines = $this->lines()->whereNotNull('property_room_id')->pluck('property_room_id')->unique();
+        $roomIdsMarkedEmpty = $this->roomMarks()->pluck('property_room_id')->unique();
+
+        return $rooms->reject(fn (PropertyRoom $room) => $roomIdsWithLines->contains($room->id)
+            || $roomIdsMarkedEmpty->contains($room->id))->values();
+    }
+
+    /**
+     * §12, Johan — decided, not a question: an inventory is what a tenant
+     * gets charged against at move-out, and one that says "complete" with
+     * nothing captured is worse than no inventory at all, because it looks
+     * authoritative. Two gates enforced here, server-side, so no other path
+     * (API, bulk action, anything that ever calls this method) can bypass
+     * them by skipping a disabled button:
+     *   1. At least one line must exist anywhere on the inventory.
+     *   2. Every room the property has must have been visited — either it
+     *      has a line, or it carries an explicit "nothing in this room" mark
+     *      (unvisitedRooms() above). A room nobody opened is not an empty
+     *      room.
+     * Checked before the existing signature gate below so the more
+     * fundamental problem (nothing was ever recorded) surfaces first.
+     */
     public function markCompleted(): void
     {
+        if ($this->lines()->count() === 0) {
+            throw new \LogicException('Cannot complete: nothing has been recorded yet. Add at least one item, or mark each room as having nothing in it, before completing this inventory.');
+        }
+
+        $unvisited = $this->unvisitedRooms();
+        if ($unvisited->isNotEmpty()) {
+            $names = $unvisited->pluck('label')->implode(', ');
+            $verb = $unvisited->count() === 1 ? 'has' : 'have';
+            throw new \LogicException("Cannot complete: {$names} {$verb} not been checked yet. Add items to it, or mark it as having nothing in it, before completing this inventory.");
+        }
+
         $outstanding = $this->outstandingSignatories();
         if ($outstanding->isNotEmpty()) {
             $first = $outstanding->first();
