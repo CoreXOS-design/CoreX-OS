@@ -66,6 +66,9 @@ class PropertyController extends Controller
         // down, AFTER the query string is read — see $listingType below.
         $indexRouteName = $request->route()->getName();
         $isRentalEntry  = $indexRouteName === 'corex.rentals.properties.index';
+        // AT-432 — same lock mechanism, the OTHER axis (sale_method, not
+        // listing_type) per .ai/specs/auctions.md §2/§8.2.
+        $isAuctionEntry = $indexRouteName === 'corex.auctions.properties.index';
 
         // AT-401 — remembers which lens the user most recently entered
         // Properties through, so the sidebar can keep highlighting "Rentals →
@@ -76,6 +79,10 @@ class PropertyController extends Controller
         // used for the listing_type lock above — that always derives from the
         // route name itself, never from session state.
         session(['corex.lens.properties' => $isRentalEntry]);
+        // AT-432 — the fourth lens (see M14's comment on the third, just
+        // below): a property opened FROM Auctions → Properties returns
+        // there and lights up the Auctions sidebar panel, not Real Estate.
+        session(['corex.lens.auctions' => $isAuctionEntry]);
         // Prod-audit 2026-09-16 (M14) — the third lens. A property opened FROM
         // Imported Stock returns there (Back link + sidebar highlight), not to
         // Properties, where the row is by construction not listed. Kept as a
@@ -91,15 +98,19 @@ class PropertyController extends Controller
         // redirected to the canonical URL so links, chips and pagination all
         // carry the state. This replaces the previous behaviour that silently
         // reset to "my listings" on any nav that dropped ?agent_id=.
-        // One list, three entry points (Properties, Rentals -> Properties, Imported Stock) and
-        // three saved-filter sets, so a pick on one list never bleeds into another (AT-401 / AT-419).
+        // One list, FOUR entry points (Properties, Rentals -> Properties, Imported Stock,
+        // Auctions -> Properties) and four saved-filter sets, so a pick on one list never
+        // bleeds into another (AT-401 / AT-419 / AT-432).
         $SESSION_KEY = $importedStock
             ? 'corex.properties.imported_stock.filters'
-            : ($isRentalEntry ? 'corex.rentals.properties.filters' : 'corex.properties.filters');
+            : ($isRentalEntry ? 'corex.rentals.properties.filters'
+                : ($isAuctionEntry ? 'corex.auctions.properties.filters' : 'corex.properties.filters'));
         $FILTER_KEYS = [
             'status', 'search', 'listing_type', 'property_type', 'category',
             'mandate_type', 'branch_id', 'price_min', 'price_max',
             'beds_min', 'baths_min', 'sort', 'dir', 'agent_ids',
+            // AT-432 — §8.2's own additions: auction, lot status, reserve met.
+            'sale_method', 'auction_id', 'lot_status', 'reserve_met',
         ];
 
         // Explicit reset — "Clear all" / "Clear filters" hit ?clear=1.
@@ -137,6 +148,17 @@ class PropertyController extends Controller
         if ($isRentalEntry) {
             $listingType = 'rental';
         }
+
+        // AT-432 — the same lock, applied to sale_method instead of
+        // listing_type: ?sale_method=private_treaty on this entry point is
+        // overridden exactly as the rental lock overrides listing_type above.
+        $saleMethod = $request->query('sale_method', '');
+        if ($isAuctionEntry) {
+            $saleMethod = 'auction';
+        }
+        $auctionIdFilter = $request->query('auction_id', '');
+        $lotStatusFilter = $request->query('lot_status', '');
+        $reserveMetFilter = $request->query('reserve_met', '');
         $propertyType   = $request->query('property_type', '');
         $category       = $request->query('category', '');
         $mandateType    = $request->query('mandate_type', '');
@@ -287,6 +309,17 @@ class PropertyController extends Controller
             $query->where('status', $status);
         }
         if ($listingType !== '')   $query->where('listing_type', $listingType);
+        // AT-432 (.ai/specs/auctions.md §8.2) — the lock above; the three
+        // lens-only additions (auction, lot status, reserve met) apply ONLY
+        // through a real join to auction_lots, never a bare column guess.
+        if ($saleMethod !== '')   $query->where('sale_method', $saleMethod);
+        if ($auctionIdFilter !== '' || $lotStatusFilter !== '' || $reserveMetFilter !== '') {
+            $query->whereHas('auctionLots', function ($q) use ($auctionIdFilter, $lotStatusFilter, $reserveMetFilter) {
+                if ($auctionIdFilter !== '') $q->where('auction_id', (int) $auctionIdFilter);
+                if ($lotStatusFilter !== '') $q->where('status', $lotStatusFilter);
+                if ($reserveMetFilter !== '') $q->where('reserve_met', $reserveMetFilter === '1');
+            });
+        }
         if ($propertyType !== '') {
             // 2026-08-20 audit — also match legacy/imported labels for the same
             // type (Property::propertyTypeSynonyms), so older and P24-imported

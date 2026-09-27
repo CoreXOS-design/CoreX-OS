@@ -212,6 +212,17 @@
         || (request()->routeIs('corex.contacts.show') && session('corex.lens.contacts', false))
     ) {
         $activeGroup = 'rental-applications';
+    } elseif (
+        // AT-432 — same lens-highlighting mechanism as Rentals above (AT-401),
+        // on the auctions.* route family and the session('corex.lens.auctions')
+        // flag PropertyController::index() sets on the way in. Placed BEFORE
+        // the generic real-estate matcher below (which would otherwise claim
+        // corex.properties.* first).
+        request()->routeIs('corex.auctions.*')
+        || request()->routeIs('corex.settings.auctions.*')
+        || (request()->routeIs('corex.properties.*') && session('corex.lens.auctions', false))
+    ) {
+        $activeGroup = 'auctions';
     } elseif (request()->routeIs(
         'prospecting.*',
         'market-intelligence.*',
@@ -1147,6 +1158,57 @@
             </div>
         </div>
         @endif
+
+        {{-- ═══════════════════════════════════════════
+             AUCTIONS (expandable group) — AT-432, .ai/specs/auctions.md §7.1
+             Feature-flagged AND permission-gated: an agency that does not
+             auction sees nothing here at all. Alpine group key 'auctions'.
+             Mirrors the Rentals panel above exactly (same push()/pop() +
+             corex-nav-group-toggle + lens pattern) — copy that fix, don't
+             rediscover it, per §7.1's own instruction.
+             ═══════════════════════════════════════════ --}}
+        @feature('auctions')
+        @if($user && $user->hasPermission('access_auctions'))
+        <div>
+            <button type="button" @click="push('auctions')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'auctions' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75 16.5 12l-6.75 6.75-2.25-2.25M3 21l3-3m12.75-15L21 5.25m-3.75 3.75L21 5.25m-8.303 8.303 2.652 2.652M5.25 5.25l3.879 3.879" />
+                </svg>
+                <span>Auctions</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'auctions' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('auctions') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Auctions</div>
+
+                <a href="{{ route('corex.auctions.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.index', 'corex.auctions.show', 'corex.auctions.create', 'corex.auctions.edit', 'corex.auctions.lots.show') ? 'active' : '' }}">Auction Diary</a>
+
+                {{-- Entry point into the SAME Properties screen as Real Estate →
+                     Properties, sale_method locked to 'auction' server-side
+                     (PropertyController::index(), by route name). Stays
+                     highlighted on a property opened from this list
+                     (session('corex.lens.auctions') — set on the way in). --}}
+                @permission('properties.view')
+                <a href="{{ route('corex.auctions.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.auctions.properties.index') || (request()->routeIs('corex.properties.*') && session('corex.lens.auctions', false)) ? 'active' : '' }}">Properties</a>
+                @endpermission
+
+                {{-- Bidder Register / Sale Room / Results (§7 screens 5, 7, 8) are
+                     Phase 2/3 (§21) — their nav entries land in the same prompt as
+                     the screens themselves, per CLAUDE.md Non-negotiable #2. No
+                     placeholder link here for a page that doesn't exist yet. --}}
+
+                @permission('auctions.manage_settings')
+                <a href="{{ route('corex.settings.auctions.show') }}" class="corex-nav-subitem {{ request()->routeIs('corex.settings.auctions.*') ? 'active' : '' }}">Auction Settings</a>
+                @endpermission
+            </div>
+        </div>
+        @endif
+        @endfeature
 
         {{-- ═══════════════════════════════════════════
              COMMUNICATION (expandable group)

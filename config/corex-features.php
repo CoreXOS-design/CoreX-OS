@@ -449,4 +449,14 @@ return [
         'settings_section' => null, 'route_prefixes' => ['admin/marketing-suppressions'], 'global_flag' => null,
     ],
 
+    // ── Auctions (AT-432) ──
+    'auctions' => [
+        'label' => 'Auctions', 'category' => 'Listings & Marketing',
+        'explain' => 'The third route to sell a property alongside private-treaty sale and rental — scheduling an auction, cataloguing lots, and recording the result.',
+        'affects' => 'Whether the Auctions menu, the "On Auction" catalogue tools, and Settings → Auctions appear at all. Off means no change whatsoever for an agency that does not auction; nothing already recorded is deleted.',
+        'default' => false, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['access_auctions'], 'sidebar_section' => 'auctions',
+        'settings_section' => null, 'route_prefixes' => ['corex/auctions', 'corex/settings/auctions'], 'global_flag' => 'auctions',
+    ],
+
 ];

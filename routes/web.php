@@ -4002,6 +4002,46 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware(['permission:access_properties', 'agency.required'])
         ->name('corex.rentals.properties.index');
 
+    // AT-432 (.ai/specs/auctions.md §7 screen 1, §8.2) — Auctions → Properties.
+    // Same PropertyController::index() as corex.properties.index, detected by
+    // route NAME, forcing sale_method='auction' after the query string is
+    // read — the exact AT-401 lens mechanism above, on the OTHER axis
+    // (sale_method, not listing_type) per §2's governing rule.
+    Route::get('/auctions/properties', [\App\Http\Controllers\CoreX\PropertyController::class, 'index'])
+        ->middleware(['permission:access_properties', 'agency.required', 'feature:auctions'])
+        ->name('corex.auctions.properties.index');
+
+    // AT-432 — Auction Diary, the catalogue builder, and lot-level actions.
+    // §21 Phase 1 scope only: no bidder/bid routes yet (Phase 2/3).
+    Route::prefix('auctions')->middleware(['permission:access_auctions', 'agency.required', 'feature:auctions'])->name('corex.auctions.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'create'])->middleware('permission:auctions.create')->name('create');
+        Route::post('/', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'store'])->middleware('permission:auctions.create')->name('store');
+        Route::get('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'show'])->name('show');
+        Route::get('/{auction}/edit', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'edit'])->middleware('permission:auctions.edit')->name('edit');
+        Route::put('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'update'])->middleware('permission:auctions.edit')->name('update');
+        Route::delete('/{auction}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'archive'])->middleware('permission:auctions.archive')->name('archive');
+        Route::post('/{auction}/restore', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'restore'])->middleware('permission:auctions.archive')->name('restore');
+        Route::post('/{auction}/lots', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'addLot'])->middleware('permission:auctions.create')->name('lots.add');
+        Route::delete('/{auction}/lots/{lot}', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'removeLot'])->middleware('permission:auctions.edit')->name('lots.remove');
+        Route::post('/{auction}/publish', [\App\Http\Controllers\CoreX\Auctions\AuctionController::class, 'publish'])->middleware('permission:auctions.publish')->name('publish');
+
+        Route::get('/lots/{lot}', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'show'])->name('lots.show');
+        Route::post('/lots/{lot}/open-for-bids', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'openForBids'])->middleware('permission:auctions.edit')->name('lots.open');
+        Route::post('/lots/{lot}/start-hammer', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'startHammer'])->middleware('permission:auctions.hammer')->name('lots.hammer.start');
+        Route::post('/lots/{lot}/record-hammer', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'recordHammer'])->middleware('permission:auctions.hammer')->name('lots.hammer.record');
+        Route::post('/lots/{lot}/confirm', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'confirm'])->middleware('permission:auctions.edit')->name('lots.confirm');
+        Route::post('/lots/{lot}/decline', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'decline'])->middleware('permission:auctions.edit')->name('lots.decline');
+        Route::post('/lots/{lot}/passed-in', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'passedIn'])->middleware('permission:auctions.edit')->name('lots.passed-in');
+        Route::post('/lots/{lot}/withdraw', [\App\Http\Controllers\CoreX\Auctions\AuctionLotController::class, 'withdraw'])->middleware('permission:auctions.edit')->name('lots.withdraw');
+    });
+
+    // AT-432 (.ai/specs/auctions.md §7 screen 13) — Settings → Auctions.
+    Route::prefix('settings/auctions')->middleware(['permission:auctions.manage_settings', 'agency.required', 'feature:auctions'])->name('corex.settings.auctions.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CoreX\Auctions\AuctionSettingsController::class, 'show'])->name('show');
+        Route::post('/', [\App\Http\Controllers\CoreX\Auctions\AuctionSettingsController::class, 'update'])->name('update');
+    });
+
     // AT-401 — Rentals → Rental Pipeline. Same BuyerPipelineController::index()
     // as command-center.buyers.pipeline, detected by route name, forcing
     // lead_type='rental' after the query string is read — same lock
