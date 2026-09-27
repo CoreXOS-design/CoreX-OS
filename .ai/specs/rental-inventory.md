@@ -845,3 +845,307 @@ pattern in the ALREADY-LANDED `rental-inventories/show.blade.php:257` (the signi
 @json(...)` line) was found by the same code-reading, not independently re-verified by re-rendering
 that page — reported, not fixed, per CLAUDE.md non-negotiable #2 (that file is out of this task's
 scope).
+
+---
+
+## 11. Investigation — applying the inspection lessons to Inventory (2026-09-27)
+
+**Investigation only. No code changed.** Johan's brief: take what was learned fixing rental-inspections
+over the two days before this (photo strips, the immediate-upload data-loss fix, misleading counts,
+"recorded means assessed," navigation on a long screen, rapid-entry friction, the move-in baseline, and
+things that were already half-built) and ask the same eight questions of Inventory, backed by the actual
+current code, not by re-reading the inspections story and assuming it transfers. Every finding below was
+read directly from the files cited — capture.blade.php, show.blade.php, comparison.blade.php in full;
+RentalInventory.php, RentalInventoryLine.php, RentalInventoryLineDisposition.php,
+RentalInventoryComparisonService.php, RentalInventoryCaptureController.php,
+RentalInventoryRecordingController.php in full — cross-checked by two independent research passes that
+read the same files and reached the same conclusions.
+
+### 11.1 Q1 — Photos as strips, not stacks
+
+**Already correct, by a different mechanism than inspections used.** Inspections' fix was a per-ITEM
+horizontal strip (`rental-inspection-item-cell.blade.php`'s `.rir-strip-row`) because inspections have a
+1-photo-set-per-item cardinality. Inventory's photo-to-line relationship is deliberately many-to-many —
+one photo can illustrate several line items (`RentalInventoryLine::photos()`,
+`app/Models/RentalInventoryLine.php:58-61`, a `belongsToMany` via the `rental_inventory_line_photos`
+pivot) — so there is no "one item's photo gallery" to stack in the first place. What Inventory has instead
+is a ROOM-level gallery (`capture.blade.php:239-250`): `grid-cols-3 sm:grid-cols-5`, `aspect-ratio:1/1`,
+`object-cover`, clipped by COUNT to the first 3 with a "Show all N" disclosure
+(`capture.blade.php:252-255`) — the same count-clipped-grid pattern rental-inspections settled on for its
+own room-level gallery (§4a.1 of this spec already records the adoption). **The "one photo fills the
+screen" stacking bug structurally cannot recur here** — confirmed, not assumed, by reading the actual
+markup.
+
+The one real gap at this level: a LINE's own tagged photos render only as a text count, `"(N photo
+tags)"` (`capture.blade.php:172-174`) — no thumbnail is shown inline next to the line. Seeing WHICH photos
+are tagged to a line requires opening the tagger modal (`openTagger()`, `capture.blade.php:631`). This is
+a minor discoverability gap, not the stacking defect Johan named — flagged for completeness, not scored
+as a Q1 finding.
+
+### 11.2 Q2 — Nothing is lost, ever (answered from the code first, per the brief)
+
+**Photos: fixed, and correctly adopted.** Every photo upload posts immediately and unconditionally —
+`capture.blade.php:259`, the file input's `@change` calls `photoUploader().uploadFiles(...)` the instant a
+file is picked, no branch on whether the room/line has anything recorded yet, no client-only staging
+object anywhere in the photo path. This is the exact shape of the AT-433/436 fix inspections just shipped
+(`b7ee63e15`, `2cc8951f9`), and Inventory already had it from its original §4a build — never had the
+inspections bug to begin with, because inventory's photos were never routed through a "wait for an
+observation to exist" gate the way inspections' were.
+
+**Line item text (quantity/description): NOT fixed — a live, currently-shipped data-loss bug of the exact
+same shape, in a field that was added AFTER the inspections lesson was learned.** The spreadsheet-grid
+line entry (§4c above, built 2026-09-25/26 — three days before the inspections photo-loss bug was found
+and fixed on 2026-09-26/27) binds an existing line's `quantity`/`description` directly to Alpine's
+in-memory `lines` array via plain `x-model` (`capture.blade.php:163,168`), and the draft row's fields the
+same way against `newLine[room.id]` (`capture.blade.php:205,209`). The ONLY thing that ever sends either
+to the server is `onCellKeydown()` (`capture.blade.php:488-552`), which intercepts exactly
+Tab/Enter/ArrowLeft/ArrowRight/ArrowUp/ArrowDown at specific caret-boundary conditions, or the draft row's
+native form submit (`capture.blade.php:204`, fired by Enter or a click on "Add").
+
+**Grepped the whole file for every other possible commit trigger: zero matches for `@blur`,
+`beforeunload`, `visibilitychange`, `@click.away`.** There is no fallback commit path at all. A
+completely ordinary action — typing a correction into an existing item's quantity or description, then
+clicking a DIFFERENT control with the mouse (Tag photo, Remove, a different room's heading, "Add
+photo(s)", "Back to property", or simply scrolling to the next room and clicking into its own fields)
+instead of pressing Tab/Enter — never commits that edit. The input's value updates on screen (Alpine's
+`x-model` is live), so there is no visual difference between an edit that saved and one that didn't; reload,
+navigate away, or close the tab, and the correction is gone with zero warning. This is the identical
+failure mode the inspections fix (§20.22/§20.23 of `rental-inspections.md`) exists to close — data that
+lives only in browser memory, destroyed by navigating away — reintroduced in a different field of the
+same module, after the lesson had already been learned once this week.
+
+**This is the single most important finding in this investigation, per the brief's own instruction to
+answer it first.**
+
+### 11.3 Q3 — Counts must mean what they show
+
+Inventory's room header does NOT have the inspection bug (a count claiming more than the strip below it
+can display). `linesFor(room.id).length` (`capture.blade.php:131`) is the exact array the item list below
+iterates (`capture.blade.php:161`) — same function, no clipping, cannot diverge. The photo count
+(`capture.blade.php:133`) is the exact same call the "Show all N" disclosure reads
+(`capture.blade.php:255`) and the exact array the 3-photo-clipped grid slices from
+(`capture.blade.php:240`) — the grid visually clips to 3, but the true count is always both stated
+correctly AND fully reachable via "Show all N." Cross-checked directly: inspections' own room-header count
+sums item photos *plus* general room photos while its gallery beneath renders only the general ones
+(`rental-inspection-recording.blade.php:469-484`, a documented, deliberate mismatch, not a bug) — Inventory
+has no such split source, so this class of mismatch cannot occur here either.
+
+**There is no inventory-wide or per-room "recorded/total" progress metric anywhere** — confirmed by
+reading `capture.blade.php` and `RentalInventory.php` in full: no equivalent of inspections'
+`roomProgress()`/`inspectionProgress()` exists. This means there is no place for a misleading completion
+percentage to exist — but it also means there is no completion visibility at all before signing, which is
+the more serious problem raised in §11.4 below.
+
+### 11.4 Q4 — Recorded means assessed
+
+**A real, confirmed bug — more severe in consequence than the inspections version, because inventory has
+no partial-completion state to fall back on: it is either signed-and-done or it is not, and nothing gates
+that "done" status on anything having actually been recorded.**
+
+`RentalInventory::markCompleted()` (`app/Models/RentalInventory.php:189-208`) gates completion on exactly
+two things: every tenant/landlord has a signature-or-refusal disposition
+(`outstandingSignatories()`, lines 152-179), and the agent has signed (`hasAgentSignature()`, lines
+181-187). **It never checks that a single `RentalInventoryLine` exists, that any room has an item in it,
+or that any photo was taken.** `RentalInventoryRecordingController::complete()`
+(`app/Http/Controllers/CoreX/RentalInventoryRecordingController.php:163-172`) calls `markCompleted()`
+directly with no additional guard. The "Complete" button on the signing screen
+(`resources/views/corex/rental-inventories/show.blade.php:230-232`) carries no `:disabled` binding tied
+to line or room count either — the only gate visible anywhere is `allRequiredPartiesDispositioned`
+(show.blade.php:283-287), which governs only whether the AGENT's own Sign button appears, and is entirely
+orthogonal to whether anything was actually inventoried.
+
+Concretely: an agent can open a brand-new property's Inventory tab, add zero rooms, add zero items,
+click through to "Signatures & complete," get every tenant and the landlord to sign (nothing server-side
+stops a tenant signing a blank record if asked to), sign as agent, and the system marks the record
+`STATUS_COMPLETED` — the exact status the move-out comparison and every future legal use of this document
+treats as "the finished move-in record." Where inspections' bug was "a row exists but nobody graded it"
+(partial data misread as complete), inventory's is "zero rows exist and the system still calls the whole
+document done." The genuine equivalent of an inspection's "unrecorded item" is a ROOM with zero
+`RentalInventoryLine` rows, or an inventory with zero rooms at all — and nothing currently counts or
+surfaces that anywhere before signing is allowed to proceed.
+
+**The move-out (comparison) side does NOT have this bug — it was built correctly from the start.**
+`RentalInventoryComparisonService::compare()` (`app/Services/Rentals/RentalInventoryComparisonService.php:73`)
+explicitly sets `'outstanding' => $finding === null`, never defaulting an unrecorded line to "present, no
+issue," and `comparison.blade.php:40-41` renders that as "Not yet checked," visibly distinct from a real
+finding. This is exactly the discipline inspections had to retrofit across 8 call sites after the fact;
+Inventory's comparison half already has it, per this spec's own §8 design (cc5's recommendation, Johan's
+approval, 2026-10-01) — worth stating plainly as something that does NOT need fixing.
+
+### 11.5 Q5 — Navigation on a long screen
+
+Neither inspections nor Inventory has Johan's tabs/show-hide-photos/filter-for-attention pattern yet —
+confirmed by grep, zero hits for "space tabs" / "room tabs" / "show/hide photo" / "filter... attention"
+anywhere in `rental-inspections.md`. Johan's words this morning frame this as a forward ask he wants built,
+not something already shipped on inspections that Inventory is merely failing to match. Inspections
+currently ship a room-accordion list (collapses once populated, §20.7/§0b.2 of this file's sibling spec)
+with a per-room "Expand all/Collapse all" master control added later (§20.11) — not a literal tab bar.
+
+Inventory's `capture.blade.php` has the same underlying shape, MINUS the one navigation aid inspections
+already added: a flat `x-for="room in rooms"` list (`capture.blade.php:126`), each room an accordion
+(`toggleRoom()`, line 379) that opens by default only while empty (`_initRoomState()`, lines 360-361) — but
+**no "Expand all/Collapse all" control exists anywhere on this page** (unlike inspections' §20.11 fix), no
+jump-to-room links, no tab bar, and no filter of any kind.
+`RentalInventoryCaptureController::show()` (lines 45-48) loads every non-retired `PropertyRoom` for the
+whole property in one query with no pagination — an 11-room furnished house renders all 11 accordions in
+one flat scroll, with less navigation help than inspections currently offers for the same shape of screen.
+
+There is no way at all to filter for "only items with a shortfall/damage/missing disposition." That
+concept (`disposition_key`) exists only on the move-out comparison page, which is itself a flat,
+unfiltered, unpaginated table (`comparison.blade.php:34`, a bare `@foreach($rows as $row)` with no filter
+control). An agent reviewing a move-out on a large furnished property scrolls the ENTIRE line list to find
+the handful of "short"/"damaged"/"missing" rows among everything marked "present" — precisely Johan's
+concern, and arguably sharper here than on inspections, per his own framing: "a furnished house inventory
+is longer than an inspection."
+
+### 11.6 Q6 — Friction in rapid entry
+
+**This is a genuine win, not a gap — Inventory does not have the friction Johan found and fixed on
+inspections, and does not need the same fix here.** The quantity field starts genuinely blank
+(`_initRoomState()`, `capture.blade.php:362-366`, comment citing Johan's own 2026-10-02 instruction
+verbatim) — never pre-filled with 1, so there is nothing to delete before typing a real count. The
+keyboard grid contract (`onCellKeydown()`, lines 488-552) lets an agent add one item with exactly: type
+quantity → Tab (native, moves to description, no interception needed since it already lands correctly) →
+type description → Enter (commits, lands pre-selected on the next row's quantity, ready to type
+immediately). **For ten items: ten repetitions of type → Tab → type → Enter — every keystroke is either
+data entry or one of two navigation keys, zero mouse clicks, zero per-item confirms, zero click-to-open
+steps.** Removing an item does show a `confirm()` dialog (`capture.blade.php:622`), but that sits on the
+destructive path, which is the legitimate "prevent" half of the prevent-or-absorb rule (BUILD_STANDARD
+§3) — not the class of friction Johan flagged, which was specifically about the ADD path.
+
+Net: Inventory's line-entry already sits ahead of where inspections' own condition-recording UI stood
+before its 2026-09-22 rebuild. The defect that DOES need fixing in this same code is the data-loss risk in
+§11.2 above — a different bug in the same feature, not the friction complaint this question asks about.
+
+### 11.7 Q7 — The move-in baseline
+
+Inspections compare only against the chain's next inspection
+(`RentalInspection::compareRightFor()`/`mostRecentFor()`, `rental-inspections.md` §20.15.2) — as the chain
+grows (in → out → ad hoc → out again), the original move-in photos become reachable only by walking
+backward through however many links now separate them from the current comparison pair. This is Johan's
+named complaint about inspections.
+
+**Inventory does not have this problem, confirmed directly in code, not assumed from this spec's own
+prose.** `RentalInventory::start()` (`app/Models/RentalInventory.php:119-131`) refuses a second inventory
+for the same lease outright, and `currentFor(Lease $lease)` (lines 111-117) resolves exactly one inventory
+per lease — there is no chain, ever. `RentalInventoryComparisonService::compare()` reads
+`quantity_at_move_in` directly off `$line->quantity`
+(`app/Services/Rentals/RentalInventoryComparisonService.php:64`) — the SAME `RentalInventoryLine` row
+created at move-in, every time, for the whole life of the tenancy. There is exactly one baseline,
+permanently, and it can never become buried behind later links because no later links exist. This is a
+genuine structural advantage Inventory already has over Inspections — recorded here plainly as something
+that does NOT need fixing, not a gap to close.
+
+Can an agent actually view move-in vs now side by side? **Yes for the DATA, no for the PHOTOS.**
+`comparison.blade.php`'s table shows "Qty at move-in" and "Move-out finding" as adjacent columns on the
+same row (lines 28-29, 36-54) — text data is fully comparable, side by side, today. Photos are a different
+story — see §11.8.
+
+### 11.8 Q8 — Already half-built
+
+**Confirmed, exact match to the pattern named in the brief.** `comparison.blade.php` was read in full (119
+lines): it never renders a photo anywhere — no `<img>` tag, no reference to `photoUploader()`, no
+reference to `rental_inventory_photos` or `rental_inventory_line_photos`, at all, in the whole file. This
+is precisely "an in-vs-out comparison page with no photos," the same shape already found twice on
+inspections this week.
+
+**The data to fix it already exists and is already wired one level down — nothing here needs building
+from scratch, only connecting.** `RentalInventoryLine::photos()` (`app/Models/RentalInventoryLine.php:58-61`)
+is a working `belongsToMany` to `RentalInventoryPhoto`, already populated by the capture screen's own
+tagger (`capture.blade.php`'s `openTagger()`/`toggleTag()`) — every move-in photo an agent tags to a line
+during capture is sitting in the database, correctly linked, right now.
+`RentalInventoryComparisonService::compare()` already loads `$inventory->lines`
+(`RentalInventoryComparisonService.php:40`) — it would only need to eager-load `.photos` on that
+collection and add them to its returned array for every move-in photo to become available to the
+comparison view. The move-in photos an agent took during capture — the actual evidence this whole
+document exists to produce, per this spec's own §0 — are invisible on the one screen whose entire purpose
+is to compare move-in against move-out.
+
+**No second instance of "an in-anchored payload with zero consumers" was found.** The models, controllers,
+and views read for this investigation (listed in the preamble to §11) showed no other dormant-but-complete
+data path of that shape. Stated plainly rather than force-fitting a second example that isn't there.
+
+### 11.9 The screens today, start to finish
+
+1. Property → **Inventory** tab (`resources/views/corex/properties/show.blade.php:1436`, gated only on
+   `!$isNew`, never on `listing_type` — confirmed, §0d's rule is still in place) → includes
+   `partials/_related-inventories.blade.php`, a single link, no list, no create step.
+2. That link resolves `GET /corex/properties/{property}/inventory` →
+   `RentalInventoryCaptureController::show()` — calls `RentalInventory::resolveOrStartFor()`, which
+   transparently creates the inventory row on first visit if the property has an active lease, or renders
+   an honest "no active lease yet" message if not (`capture.blade.php:68-74`).
+3. Agent adds a room via the always-visible "Add space" form (`capture.blade.php:104-124`) — posts to the
+   SAME `RentalInspectionRecordingController::storeItem()` (kind=space) endpoint the Inspection Items panel
+   uses; a room created here is immediately visible to Inspections too.
+4. Agent adds line items via the spreadsheet-grid trailing row (`capture.blade.php:204-215`) —
+   `POST {baseUrl}/lines` (`corex.rental-inventories.lines.store`).
+5. Agent adds room photos (`capture.blade.php:259`) — `POST {baseUrl}/photos`
+   (`corex.rental-inventories.photos.store`), and optionally tags a photo to one or more lines via the
+   tagger modal (`capture.blade.php:282-309`) — `POST/DELETE {baseUrl}/lines/{line}/photos/{photo}`.
+6. "Signatures & complete →" (`capture.blade.php:86`) → `GET /corex/rental-inventories/{inventory}`
+   (`corex.rental-inventories.show`) → the signing screen (`rental-inventories/show.blade.php`): every
+   tenant and the landlord Sign or Refuse, the agent signs last, then "Complete"
+   (`show.blade.php:230-232`) → `POST {baseUrl}/complete` → `RentalInventory::markCompleted()` — **no gate
+   on line/room count anywhere in this chain, per §11.4.**
+7. Once `STATUS_COMPLETED`, "Move-out comparison" becomes reachable from the same show page
+   (`show.blade.php:33`) → `GET /corex/rental-inventories/{inventory}/comparison` — a flat table of every
+   line, move-in quantity next to the latest move-out finding or "Not yet checked," with a Record/Correct
+   action per row — **no photos anywhere on this page, per §11.8.**
+
+No dead ends were found in this chain — every step above reaches a real, working next step. The gaps
+found are correctness/completeness gaps (§11.2, §11.4, §11.8), not broken navigation.
+
+### 11.10 The three things that would most improve it, in order
+
+1. **Close the line-entry data-loss gap (§11.2).** This is the highest priority because it is a LIVE bug
+   in a shipped, actively-used feature, it is the exact class of defect that just cost real testing time
+   and trust on inspections days ago, and it silently discards an agent's own correction with zero warning
+   — the person doing the work has no way to know it happened.
+2. **Gate `markCompleted()` on at least one recorded line existing (§11.4).** A signed-but-empty inventory
+   is a worse outcome than an unassessed inspection item: it is a document real tenants and landlords sign
+   their names to, that the system then treats as the finished, legally-relevant move-in record, with
+   nothing in it. This is a data-integrity fix, not a UX nicety — the whole reason this document exists is
+   to be trustworthy evidence.
+3. **Wire move-in photos into the move-out comparison screen (§11.7/§11.8).** The reason Johan called this
+   document "evidence" is the photos, not just the text — a text-only comparison table defeats the purpose
+   of having photographed the move-in at all, and the underlying data to fix this already exists and is
+   already correctly linked; it needs only to be displayed.
+
+Room navigation for a long property (§11.5) is real and worth fixing, but ranks below these three because
+it is a workflow-friction problem, not a data-loss or integrity problem — nothing is silently lost or
+falsely marked done by a long scroll, an agent just spends more time finding things.
+
+### 11.11 What NOT to copy from inspections — where the analogy breaks
+
+- **No condition vocabulary at move-in.** Inspections' one-tap condition button has no Inventory
+  equivalent at capture time, correctly — a move-in line is a description of what's there, not a graded
+  state, and this spec's own §1/§4 already reasoned through why quantity + free text is the whole shape.
+  The disposition vocabulary DOES map at move-out (`disposition_key`, a small closed set similar to
+  condition states) — and that part was already, correctly, reused in spirit (agency-configurable
+  `{key, label, requires_notes}`, §8.1) without copying inspections' own storage column, per this spec's
+  own §8 item 2 reasoning.
+- **No event chain, by design.** Inspections have a genuine repeatable chain (in → out → ad hoc → out
+  again) and built real machinery to align two independently-flippable photo sets across that chain
+  (drag-to-pair, auto-pair, independently-flippable left/right carousels). Inventory is deliberately
+  produced ONCE per lease (`RentalInventory::start()` refuses a second one) — there is no second photo
+  shoot to align against the first, so none of that pairing/matching machinery has anything to solve here.
+  The comparison need for Inventory is "move-in photo next to today's text finding," not "align two photo
+  sets taken at different times" — a simpler problem than inspections solved, not the same one.
+- **Item-level photo strips don't fit Inventory's data model.** Covered in §11.1 — the many-to-many
+  line-to-photo tag relationship means there is no natural "this item's own photo set" to render as a
+  strip; the room-level gallery plus an explicit per-line tag list (already built) is the correct shape for
+  this module, not a strip inspections would recognise.
+
+### 11.12 Open questions for Johan — flagged, not decided here
+
+- Should `markCompleted()` refuse to complete an inventory with zero recorded lines (or zero rooms with
+  items), the way §11.4 suggests, or should an agent be allowed to sign off a genuinely-empty or
+  partially-empty property (e.g. a property let unfurnished after being previously furnished)? A hard
+  refusal is one option; a confirmation step naming exactly what's empty before allowing sign-off is
+  another. This is a business call about what "complete" is allowed to mean, not an engineering detail.
+- Does Johan want the room-navigation improvement (tabs / show-hide-photos / filter-for-attention, §11.5)
+  built for Inventory now, or held until the same pattern is settled for Inspections first, so both
+  surfaces land on one design rather than two independently-designed ones?
+- For the move-out comparison screen, once photos are wired in (§11.8), does Johan want a filter for
+  "only short/damaged/missing" lines on THIS screen specifically, given it's the one place a large
+  furnished property's handful of real findings are currently buried in a full list of "present" rows?
