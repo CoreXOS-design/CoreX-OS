@@ -10,7 +10,7 @@
     // on; the controller passes that route's own name.
     $indexRoute = $indexRouteName ?? 'corex.properties.index';
 @endphp
-<div class="w-full h-full flex flex-col corex-props-v2"
+<div class="w-full h-full flex flex-col corex-props-v2" data-list-collapse
      x-data="{
         view: localStorage.getItem('prop_view') || 'grid',
 
@@ -57,12 +57,18 @@
      }"
      x-init="$watch('view', v => localStorage.setItem('prop_view', v))">
 
+    {{-- Header, tiles and filters fold into the slim bar below while the list is
+         scrolled (spec: list-collapse-on-scroll.md). The wrapper carries the header's
+         break-out-of-<main> negative margins so nothing is clipped while it folds. --}}
+    <div data-list-collapse-top class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6">
+    <div class="lc-top__inner px-4 lg:px-6">
+
     {{-- Header — flat bar at the top of the page (AT-336 Fix 1). NOT sticky: it
          sits in normal flow and scrolls away with the content. Negative margins
          break it out of <main>'s padding so the bottom border spans the full width
          and it sits flush at the top. No card fill, no rounded corners, no shadow,
          no brand block — neutral chrome only. --}}
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0"
+    <div class="-mx-4 lg:-mx-6 px-6 py-3.5 flex-shrink-0"
          style="border-bottom: 1px solid var(--border);">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-properties-intro">
@@ -733,8 +739,25 @@
 
     </div>
 
+    </div>{{-- /.lc-top__inner --}}
+    </div>{{-- /[data-list-collapse-top] --}}
+
+    @php
+        $barChips = [];
+        foreach ($chips as $chip) {
+            if (isset($chip['url'])) { $chipHref = $chip['url']; }
+            else { $params = $chipBase; unset($params[$chip['key']]); $chipHref = route($indexRoute, $params); }
+            $barChips[] = ['label' => $chip['label'], 'url' => $chipHref];
+        }
+        $barTotal = $properties->total();
+    @endphp
+    <x-list-collapse-bar
+        :title="($importedStock ?? false) ? 'Imported Stock' : 'Properties'"
+        :summary="number_format($barTotal) . ' ' . ($barTotal === 1 ? 'property' : 'properties')"
+        :chips="$barChips" />
+
     {{-- Scroll region — everything from here down scrolls; header, tiles and filters stay put. --}}
-    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5">
+    <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll mt-4 space-y-5" data-list-collapse-scroll>
 
     {{-- Flash --}}
     @if(session('success'))
