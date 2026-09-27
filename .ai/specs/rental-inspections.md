@@ -3261,6 +3261,139 @@ it's the same file at the same moment of availability.
 
 ---
 
+## 20.23 AT-436 — Stage 2: the Blade/JS side of "a photo uploads immediately" (2026-09-27, cc)
+
+Completes §20.22 (Stage 1, backend) — same bug, same fix, the client half. Built the moment `show.blade.php`
+was free of cc3's Part C work.
+
+### 20.23.1 `onItemPhotosSelected()` — no staging branch left at all
+
+Before: an item with no recorded condition staged picked files in `obsField(...).photos` (plain `File` objects,
+in-memory only — the exact data-loss bug §20.22 exists to fix) and uploaded them only once `_commitObservation()`
+created a real observation. After: every file always calls `photoUploader(section).uploadFiles(files, {
+rental_inspection_item_id: item.id })` — one call, no branch, no knowledge of whether the item has a condition
+yet. The server (`currentOrPendingObservationFor()`, §20.22.4) resolves that. `obsField()`'s default shape lost
+its now-meaningless `photos: []` key; `_commitObservation()` lost the ~15-line dead block that used to upload
+`stagedPhotos` on commit — with nothing ever staging a file client-side any more, that block could never run.
+
+**The wiring gap this surfaced, fixed alongside it:** `itemPhotosFor()` resolves a photo through
+`insp.observations` (filtered to the item, then `photoUploader().itemPhotos(obsIds)`) — it has no way to know
+about an observation the CURRENT request just created server-side. Extended `storePhotos()`'s JSON response
+with a top-level `observation` key (the resolved-or-created one, `null` when neither an item nor an
+observation id was given) and added `uploadFiles()`'s third, optional `onBatchDone` argument
+(`public/js/corex-photo-batch-uploader.js`) — called with `(responseBody, entry)` once a batch's POST succeeds,
+stored ON the entry so `retryBatch(entry)` keeps calling it on every retry, not just the first attempt. A new
+`_mergeObservation(section, observation)` folds it into `insp.observations` (a no-op if the id is already
+there, which is every case except a photo landing on an item with no observation at all before this exact
+request) — this is the ONLY reason the just-uploaded photo shows up in the strip without a reload.
+
+### 20.23.2 The PENDING tile: from "waiting for you" to "uploading right now"
+
+`stagedPhotosFor()` is gone — nothing stages a file any more, so there was nothing left for it to read. Replaced
+by `pendingUploadTilesFor(section, item)`: reads `photoUploader(section).uploadBatches` directly (the SAME array
+the untagged tray's own "Uploading… N%" / failed-with-retry row already reads, `rental-inspection-recording.
+blade.php`'s tray section — not a second upload-tracking mechanism), filtered to this item's own batches
+(`extraFields.rental_inspection_item_id === item.id`) that aren't `'done'`, flattened to one entry per FILE
+(`{file, batch}`) so a mixed batch still renders one tile per photo, each carrying its own batch's shared
+status/error.
+
+**A failed upload says so and offers a retry — it never silently vanishes** (Johan's own words: "which is the
+entire defect we are fixing"). The tile's label is a `<button>`, not a `<span>`: `disabled` while `status !==
+'failed'` (PENDING, non-interactive — native `disabled`, no `pointer-events` hack needed) and a real, clickable
+`Retry` calling `photoUploader(section).retryBatch(entry.batch)` when `status === 'failed'`, `:title` carrying
+the exact server error. `retryBatch()` re-runs the SAME batch (same files, same `extraFields`) — a genuine
+retry of the same upload, not a new one, and since `onBatchDone` is stored on the entry (§20.23.1), a
+successful retry still merges the observation and revokes the preview URL exactly as a first-try success would.
+
+**The add-tile's own tint/tooltip** used to read `obsField(...).photos.length` (the staged-and-waiting queue) —
+that queue no longer exists, so it now reads `pendingUploadTilesFor(...).length`: highlighted while genuinely
+uploading, tooltip "Uploading…" instead of the old (now false) "saves once this item is recorded".
+
+**Constraint honoured:** no absolutely-positioned element went back into `.rir-strip-row` — the retry/PENDING
+button is `position:absolute` *within* its own `.rir-strip-tile` (which already has `position:relative` via the
+existing `relative` utility class), the exact same pattern the tile's own Select/tag/untag buttons already use.
+Nothing was added as a sibling of the row itself.
+
+**Preserved unchanged, confirmed still correct:** cc6's pairing-drag guard on an id-less photo
+(`pairDropOnPredecessor()`, show.blade.php — "This photo is still uploading — it can be paired once it has
+finished.") needed no change at all. It was written for a staged file with no server id; a file mid-upload also
+has no server id, for the identical reason, and cc6's own message already describes the CORRECT AT-436 meaning
+verbatim, by coincidence, not by editing it — checked directly, not assumed.
+
+### 20.23.3 `roomProgress()`/`inspectionProgress()` — the SAME correction as the 8 backend sites
+
+Both used to do `group.items.filter(i => this.conditionFor(section, i.id))` — truthy on the whole observation
+OBJECT. A photo-anchor observation (§20.22's `CONDITION_PENDING`, an empty string) is a real, truthy object, so
+before this fix, adding a photo to an unrecorded item would have made every "N/28 recorded" counter, "All
+Good"'s visibility gate, and the room-auto-collapse-on-complete logic all believe that item was assessed the
+instant a photo landed on it — the exact false-completion risk named on the backend side, now closed on the
+one screen Johan actually reads the number from. Fixed to `this.conditionFor(section, i.id)?.condition` —
+empty string is already falsy, so this needed no new constant, matching `selectedConditionFor()`'s own
+(already-correct) pattern one function up. `_collapseRoomIfCompleteById()`, the room-open toggle, and the tray
+header's own progress text all consume `roomProgress()`/`inspectionProgress()`'s return value rather than
+recomputing "recorded" themselves — fixing the two source functions was the whole fix, confirmed by reading
+every caller, not assumed from the function names.
+
+### 20.23.4 Re-checked the whole file for the same class of bug — found exactly these two, no others
+
+Grepped every `conditionFor(section, ...)` call site in `show.blade.php` (six total): `onItemPhotosSelected`'s
+old branch (removed, §20.23.1), `selectedConditionFor()` (already correct — `?.condition || null`),
+`roomProgress()`/`inspectionProgress()` (fixed, above), `itemChoicesFor()` (returns `observationId` for photo
+destination pickers — correctly treats ANY observation, pending or real, as a valid place to file a photo; not
+a "recorded" check, no bug), and `ensureObservationFor()` (a DIFFERENT, pre-existing, out-of-scope surface —
+see below). No other independent "is this item recorded" computation exists anywhere else in the file — every
+other progress/completion display reads `roomProgress()`/`inspectionProgress()`'s own output.
+
+**Found, not touched — a different surface, a different root cause, pre-dates AT-433/436:**
+`ensureObservationFor()` (show.blade.php, 2026-09-22 — the "drag an untagged room photo onto an item" / "Move
+to…" viewer feature) creates a NEW observation with the agency's `baselineConditionKey` — a REAL condition,
+immediately — for an item with nothing recorded, rather than a photo-anchor row. This is the OPPOSITE risk
+direction from the bug this round fixes (it over-records with a real value on first touch, rather than
+under-recording with an empty one) and is a genuinely different gesture (re-filing an EXISTING, already-
+uploaded photo, never a NEW upload) — not part of AT-433/436's named scope. Flagged here per the standing
+report-don't-fix rule; Johan's call whether this deserves its own round.
+
+### 20.23.5 Verification
+
+`php -l` clean on all five changed files; `node --check` clean on the JS file. `php artisan view:clear` +
+a real authenticated fetch (`scripts/fetch-authenticated-page.php`, property 5792) + `scripts/verify-alpine-
+render.mjs` per standing rule 2398bfd99 — run against BOTH this round's diff and the pre-diff baseline (Stage 1
+only, via a temporary `git stash`) to isolate what this round actually changed: identical pre-existing failures
+on both (two `localStorage`/`document`-referencing inline `x-data` blocks unrelated to rental inspections —
+sidebar collapse, the readiness widget — plus a `form.getAttribute` script-eval issue and several WARN-only
+scope-gap heuristics on the spaces/showdays/contact-linking/wellbeing-report areas of this same large property
+page), none of it new. The specific number the standing rule names — Alpine expression syntax errors (check 4,
+the actual "every Alpine attribute value... compiles clean" pass/fail signal) — is **zero**, both before and
+after: 1929 expressions baseline, 1934 with this round's five new bindings, all compiling clean either way. The
+gate's OVERALL exit code is still non-zero on this page regardless of this round's diff (pre-existing,
+unrelated failures) — reported exactly as that, not glossed over as a pass.
+
+Five backend tests already covered §20.22's invariants (Stage 1). One assertion added to the first of those
+(`test_uploading_a_photo_to_an_unrecorded_item_creates_a_pending_observation_the_item_is_not_recorded`) checks
+the new `observation` response key directly, since without it this round's client-side merge has nothing to
+merge. Run in the same isolated worktree pattern as Stage 1 (QA1's own `vendor/` has no dev dependencies) — all
+green, no new baseline failures.
+
+### 20.23.6 Files touched this round
+
+- `resources/views/corex/properties/show.blade.php` — `onItemPhotosSelected()` rewritten, `_commitObservation()`
+  loses its dead staged-photo block, `obsField()` loses `photos: []`, `stagedPhotosFor()` replaced by
+  `pendingUploadTilesFor()`, new `_mergeObservation()`, `roomProgress()`/`inspectionProgress()` fixed
+- `resources/views/corex/properties/partials/rental-inspection-item-cell.blade.php` — the staged-photo tile
+  block replaced with the pending-upload/failed-retry tile; the add-tile's tint/tooltip re-pointed at
+  `pendingUploadTilesFor()`
+- `resources/views/corex/properties/partials/rental-inspection-recording.blade.php` — `.rir-strip-pending-label`
+  reworked as a real (disableable) button; new `.rir-strip-pending-failed`
+- `public/js/corex-photo-batch-uploader.js` — `uploadFiles()`/`_cpu_uploadBatch()` gain the optional
+  `onBatchDone` callback, stored on the batch entry
+- `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` — `storePhotos()`'s response gains the
+  `observation` key
+- `tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php` — one new assertion
+
+No migration. No new backend "recorded" call site touched — Stage 1's audit already covered all eight.
+
+---
+
 ## 21. Add an item to an EXISTING room (2026-09-22, cc1) — there was no way to do this at all
 
 Johan, verbatim, looking at property 4862's Inspection Items panel: *"I want to add lets say bic to

@@ -776,7 +776,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
 
-        $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
+        $response = $this->postJson(route('corex.rental-inspections.photos.store', $inspection), [
             'rental_inspection_item_id' => $item->id,
             'photos' => [UploadedFile::fake()->image('damp-patch.jpg')],
         ])->assertStatus(201);
@@ -784,6 +784,12 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $observation = RentalInspectionObservation::where('rental_inspection_item_id', $item->id)->sole();
         $this->assertSame(RentalInspectionObservation::CONDITION_PENDING, $observation->condition);
         $this->assertSame(1, RentalInspectionPhoto::where('rental_inspection_observation_id', $observation->id)->count());
+        // AT-436, 2026-09-27 — the client can only fold a brand-new
+        // photo-anchor observation into insp.observations (so
+        // itemPhotosFor() finds the photo without a reload) if the response
+        // actually carries it.
+        $response->assertJsonPath('observation.id', $observation->id);
+        $response->assertJsonPath('observation.condition', RentalInspectionObservation::CONDITION_PENDING);
 
         // The exact invariant Johan required: this item must not count as
         // recorded anywhere, even though a real observation row now exists.

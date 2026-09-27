@@ -65,21 +65,27 @@
 
             // ── Upload ──────────────────────────────────────────────────
             uploadBusy: false,
-            uploadBatches: [], // [{files, status: 'pending'|'uploading'|'done'|'failed', error, extraFields}]
+            uploadBatches: [], // [{files, status: 'pending'|'uploading'|'done'|'failed', error, extraFields, onBatchDone}]
 
-            async uploadFiles(fileList, extraFields) {
+            // AT-436, 2026-09-27 — onBatchDone is an OPTIONAL 3rd arg, called
+            // with (responseBody, entry) once a batch's POST succeeds. Stored
+            // ON the entry (not passed separately to _cpu_uploadBatch) so
+            // retryBatch(entry) below — which only ever receives the entry
+            // itself — keeps calling the same callback on every retry, not
+            // just the first attempt. Existing 2-arg callers are unaffected.
+            async uploadFiles(fileList, extraFields, onBatchDone) {
                 const files = Array.from(fileList || []);
                 if (!files.length) return;
                 const MAX_FILE = 50 * 1024 * 1024;
                 const tooBig = files.find(f => f.size > MAX_FILE);
                 if (tooBig) {
-                    this.uploadBatches.push({ files: [tooBig], status: 'failed', error: `"${tooBig.name}" is over the 50MB per-photo limit.`, extraFields });
+                    this.uploadBatches.push({ files: [tooBig], status: 'failed', error: `"${tooBig.name}" is over the 50MB per-photo limit.`, extraFields, onBatchDone });
                     return;
                 }
                 const batches = window.planUploadBatches(files, 10, 40 * 1024 * 1024);
                 this.uploadBusy = true;
                 for (const batchFiles of batches) {
-                    this.uploadBatches.push({ files: batchFiles, status: 'uploading', error: null, extraFields });
+                    this.uploadBatches.push({ files: batchFiles, status: 'uploading', error: null, extraFields, onBatchDone });
                     // Mutate the entry AS READ BACK from the reactive array, never the raw
                     // object literal just pushed — Alpine/Vue's reactivity only intercepts
                     // property writes through its own proxy, so setting .status on the
@@ -131,6 +137,7 @@
                         if (xhr.status >= 200 && xhr.status < 300 && Array.isArray(body.photos)) {
                             entry.status = 'done';
                             this.photos.push(...body.photos);
+                            if (typeof entry.onBatchDone === 'function') entry.onBatchDone(body, entry);
                             return resolve();
                         }
                         entry.status = 'failed';

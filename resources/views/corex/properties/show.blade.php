@@ -6434,35 +6434,57 @@
                     this.compareViewerUntaggedSelected = {};
                 },
 
-                // Item 1 — the item camera control: multiple files, tagged
-                // to this item (and, via the controller's own item->room
-                // resolution, its room too) at upload time. An item with no
-                // observation yet has nothing to tag a photo TO (the
-                // endpoint requires a real observation id) — those files
-                // are staged on the pending obsField() the same way a
-                // single photo already was, and uploaded together once
-                // _commitObservation() creates the observation.
+                // AT-436, 2026-09-27, Johan (property 5792 — a staged photo
+                // was silently lost on reload): "adding a photo uploads it.
+                // Immediately. Always. Whether or not a condition has been
+                // recorded on that item." No staging branch any more — this
+                // is the ONE thing this function does, every time. The
+                // server (currentOrPendingObservationFor(),
+                // RentalInspectionRecordingController::storePhotos()) finds
+                // the item's own observation on this inspection if one
+                // exists, real or a prior photo-anchor row, or creates a
+                // photo-anchor one — this function never needs to know
+                // which case it is.
+                //
+                // Each file gets a preview URL up front, read directly off
+                // the File object rather than a separate keyed cache — a
+                // File isn't a plain object, so it passes through untouched
+                // by this page's reactivity wrapping. pendingUploadTilesFor()
+                // below reads photoUploader().uploadBatches directly for the
+                // strip's own pending tile (uploading / failed-with-retry),
+                // so nothing here needs its own separate "is this done yet"
+                // bookkeeping. _mergeObservation() folds a brand-new
+                // photo-anchor observation into insp.observations the
+                // moment the upload confirms one exists — without it,
+                // itemPhotosFor() (which resolves obsIds from
+                // insp.observations, not from the uploader's own photos
+                // array) would never find the just-uploaded photo until a
+                // full reload re-fetched tabPayloadFor().
                 async onItemPhotosSelected(section, item, fileList) {
                     if (!fileList || !fileList.length) return;
                     const files = Array.from(fileList);
-                    const existing = this.conditionFor(section, item.id);
-                    if (existing) {
-                        await this.photoUploader(section).uploadFiles(files, { rental_inspection_observation_id: existing.id });
-                    } else {
-                        // Item 2, 2026-09-26 — staged this side of the strip
-                        // is the ONLY feedback the agent gets that anything
-                        // happened (this.photos itself only ever holds
-                        // uploaded server photos), so each file gets a
-                        // preview URL up front, read directly off the File
-                        // object rather than a separate keyed cache — a File
-                        // isn't a plain object, so it passes through
-                        // untouched by this page's reactivity wrapping.
-                        // Revoked in _commitObservation() once the batch
-                        // upload it was standing in for finishes.
-                        files.forEach(f => { f._corexPreviewUrl = URL.createObjectURL(f); });
-                        const form = this.obsField(section, item.id);
-                        form.photos = (form.photos || []).concat(files);
-                    }
+                    files.forEach(f => { f._corexPreviewUrl = URL.createObjectURL(f); });
+                    await this.photoUploader(section).uploadFiles(files, { rental_inspection_item_id: item.id }, (body, entry) => {
+                        this._mergeObservation(section, body.observation);
+                        (entry.files || []).forEach(f => {
+                            if (f._corexPreviewUrl) { URL.revokeObjectURL(f._corexPreviewUrl); f._corexPreviewUrl = null; }
+                        });
+                    });
+                },
+
+                // AT-436, 2026-09-27 — the ONLY place a photo-upload response's
+                // observation gets folded into local state. A no-op if
+                // insp.observations already has this id (the common case:
+                // the item already had a real or pending observation, so the
+                // server reused it and the client already knows about it) —
+                // only a BRAND NEW photo-anchor row is actually new here.
+                _mergeObservation(section, observation) {
+                    if (!observation) return;
+                    const insp = this.currentInspection(section);
+                    if (!insp) return;
+                    if (insp.observations.some(o => o.id === observation.id)) return;
+                    observation.photos = observation.photos || [];
+                    insp.observations.push(observation);
                 },
 
                 // ── Inspections-tab rebuild, 2026-09-22 — ONE quiet save
@@ -6904,7 +6926,7 @@
                 isObsBusy(section, itemId) { return !!this.obsBusy[this._obsKey(section, itemId)]; },
                 obsField(section, itemId) {
                     const key = this._obsKey(section, itemId);
-                    return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '', photos: [] });
+                    return this.obsForm[key] || (this.obsForm[key] = { condition: '', notes: '' });
                 },
                 // Item 3, 2026-09-22 — what the condition-button row shows as
                 // selected: a not-yet-committed tap (still waiting on a
@@ -6959,11 +6981,12 @@
                 },
                 // The ONE path an observation is actually recorded through —
                 // called by onConditionTap() (immediate) and onNotesInput()
-                // (debounced), never by a button click. The observation POST
-                // and any staged photo upload are two separate _autosave()
-                // calls, deliberately: if the photo step fails, Retry only
-                // re-uploads the photo — the observation itself already
-                // saved and must never be re-posted (§3.1, append-only).
+                // (debounced), never by a button click. AT-436, 2026-09-27 —
+                // no longer uploads anything itself: a photo already posts
+                // the moment it's picked (onItemPhotosSelected), whether or
+                // not a condition has been recorded on the item yet, so
+                // there is nothing left here to upload on commit — this
+                // function's only job is the condition/notes POST.
                 async _commitObservation(section, item) {
                     const key = this._obsKey(section, item.id);
                     const form = this.obsField(section, item.id);
@@ -6971,7 +6994,6 @@
                     if (this.conditionRequiresNotes(form.condition) && !form.notes.trim()) return;
                     clearTimeout(this._debounceTimers['notes_' + key]);
                     const insp = this.currentInspection(section);
-                    const stagedPhotos = form.photos || [];
                     this.obsBusy[key] = true;
                     let observation = null;
                     await this._autosave(async () => {
@@ -6986,34 +7008,27 @@
                     });
                     this.obsBusy[key] = false;
                     if (!observation) return; // POST failed — _autosave already surfaced it with Retry.
-                    this.obsForm[key] = { condition: '', notes: '', photos: [] };
+                    this.obsForm[key] = { condition: '', notes: '' };
                     this._collapseRoomIfComplete(section, item);
-                    // Item 1, 2026-09-22 — a photo (or several) picked before
-                    // this item had an observation to attach to is staged
-                    // here (onItemPhotosSelected below); now that one exists,
-                    // upload them all tagged to it, through the same shared
-                    // batch uploader/endpoint every other photo control uses.
-                    if (stagedPhotos.length) {
-                        // Not wrapped in _autosave — uploadFiles() tracks
-                        // its own per-batch status/retry UI (the tray's
-                        // upload-progress list) and never throws, so it has
-                        // nothing useful to report through the single
-                        // saved/failed banner; a failed batch stays visibly
-                        // retryable in its own UI regardless.
-                        await this.photoUploader(section).uploadFiles(stagedPhotos, { rental_inspection_observation_id: observation.id });
-                        // The pending strip tile's preview URL (see
-                        // onItemPhotosSelected) is only needed until the
-                        // real, uploaded photo takes its place.
-                        stagedPhotos.forEach(f => { if (f._corexPreviewUrl) URL.revokeObjectURL(f._corexPreviewUrl); });
-                    }
                 },
 
-                // Item 2, 2026-09-26 — files picked but not yet uploaded
-                // (see onItemPhotosSelected); the strip's own pending tile
-                // reads this directly, never itemPhotosFor(), since these
-                // have no server photo id yet.
-                stagedPhotosFor(section, item) {
-                    return this.obsField(section, item.id).photos || [];
+                // AT-436, 2026-09-27 — every photo upload still in flight or
+                // failed for this item, flattened to one entry per FILE (not
+                // per batch — a batch's own status/error is carried through
+                // on each entry so a mixed batch still shows the same state
+                // per tile it would if uploaded one at a time). Reads
+                // photoUploader().uploadBatches directly rather than a
+                // separate keyed cache — that array IS the one place upload
+                // state already lives (§20.13). Replaces stagedPhotosFor()
+                // (removed with the staging model it existed for) — a
+                // pending tile now means "uploading right now", never
+                // "waiting for you to do something else".
+                pendingUploadTilesFor(section, item) {
+                    const uploader = this.photoUploader(section);
+                    if (!uploader) return [];
+                    return uploader.uploadBatches
+                        .filter(b => b.status !== 'done' && b.extraFields && Number(b.extraFields.rental_inspection_item_id) === item.id)
+                        .flatMap(batch => batch.files.map(file => ({ file, batch })));
                 },
                 // Item 6 — every photo ever attached to any observation this
                 // item has this inspection (not just the latest one), so a
@@ -7028,7 +7043,16 @@
                 // the whole inspection.
                 roomProgress(section, group) {
                     const total = group.items.length;
-                    const recorded = group.items.filter(i => this.conditionFor(section, i.id)).length;
+                    // AT-436, 2026-09-27 — recorded means a REAL condition is
+                    // set, not merely that an observation row exists: a
+                    // photo-anchor observation (RentalInspectionObservation
+                    // ::CONDITION_PENDING, an empty string) now gets created
+                    // the moment a photo is added, with nobody having
+                    // assessed the item. Checking .condition (falsy for an
+                    // empty string) rather than the whole object's
+                    // truthiness is the fix — same correction as the 8
+                    // backend sites in .ai/specs/rental-inspections.md §20.22.
+                    const recorded = group.items.filter(i => this.conditionFor(section, i.id)?.condition).length;
                     const itemPhotos = group.items.reduce((sum, i) => sum + this.itemPhotosFor(section, i).length, 0);
                     // Item 2, 2026-09-22 — the room's own general shots
                     // (roomPhotosFor) count toward the heading total too, not
@@ -7237,7 +7261,11 @@
                 },
                 inspectionProgress(section) {
                     const items = this.activeItems();
-                    return { recorded: items.filter(i => this.conditionFor(section, i.id)).length, total: items.length };
+                    // AT-436, 2026-09-27 — same correction as roomProgress()
+                    // above: .condition, not the observation object's own
+                    // truthiness (a photo-anchor row is a truthy object with
+                    // an empty condition).
+                    return { recorded: items.filter(i => this.conditionFor(section, i.id)?.condition).length, total: items.length };
                 },
                 // §24, AT-433 Part B — the comparison row's photo strip
                 // (rental-inspection-item-cell.blade.php), replacing Part

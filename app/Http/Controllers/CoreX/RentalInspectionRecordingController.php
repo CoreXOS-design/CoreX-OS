@@ -754,6 +754,12 @@ class RentalInspectionRecordingController extends Controller
         $roomId = isset($validated['property_room_id']) ? (int) $validated['property_room_id'] : null;
         $observationId = $validated['rental_inspection_observation_id'] ?? null;
         $itemId = $validated['rental_inspection_item_id'] ?? null;
+        // AT-436, 2026-09-27 — returned in the response below whenever this
+        // request resolved or created one, so the client can merge it into
+        // its own insp.observations without a full page reload: a BRAND NEW
+        // photo-anchor observation (currentOrPendingObservationFor() below)
+        // has never been seen by the client before this exact request.
+        $observation = null;
 
         if ($observationId) {
             $observation = RentalInspectionObservation::findOrFail($observationId);
@@ -806,7 +812,7 @@ class RentalInspectionRecordingController extends Controller
             ]);
         }
 
-        return response()->json(['photos' => $created], 201);
+        return response()->json(['photos' => $created, 'observation' => $observation], 201);
     }
 
     /**
