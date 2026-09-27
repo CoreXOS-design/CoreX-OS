@@ -5032,3 +5032,270 @@ the app — clean. Real Alpine render gate: local `php artisan serve` against th
 clean**, attribute-scoped per instruction (every attribute on the page, not just the lines touched this
 round); the same pre-existing, unrelated `localStorage`/`document`/`form.getAttribute` findings as every
 prior round, none referencing anything in this diff (checked by name). Did not deploy.
+
+---
+
+## 27. Recording-screen navigation — space nav, photo show/hide, problem filter (2026-09-27, investigation & spec only — NO CODE)
+
+**Scope of this section:** Johan asked for the navigation/filtering layer the recording screen is
+missing — the same "search/sort/filter" design standard BUILD_STANDARD §1b already requires for list
+screens, applied to a form screen instead. His own words, verbatim: "The inspection screen. I know what
+we are still missing. shall I call it crud? like with the photo compare - top spaces to quick navigate
+to. maybe a tick to show / hide photos, maybe a tick to show all or only problem spaces. you know, a
+proper navigation of the inspection screen. a small inspection is a scroll. a large inspection is a
+proper scroll." Nothing below is built. This is investigation and proposal only, per instruction, so
+Johan can rule on the open questions before any lane touches code.
+
+### 27.0 Process finding, stated first because it changes what "the file" means
+
+**`resources/views/corex/properties/show.blade.php` on `Staging` is NOT the screen Johan is describing.**
+Confirmed directly: `origin/Staging` is 330 commits behind `origin/QA1` and carries zero commits QA1
+doesn't have (`git log --oneline origin/Staging..origin/QA1` = 330; the reverse = 0). The entire
+rental-inspections module — the recording screen, the compare viewer, the settings page, every model and
+migration this section references — exists only on `origin/QA1` and its feature branches; it has never
+been merged to `Staging`. On `Staging`'s own checkout, `resources/views/corex/properties/show.blade.php`
+contains only the old flat "In Inspection"/"Out Inspection" image-gallery sections (18 matches, lines
+~4390-4800) — pre-dating this whole rebuild.
+
+Every file/line reference below is against **`origin/QA1`**, read via `git show origin/QA1:<path>`
+(never checked out, never merged — this investigation touched nothing on disk in this checkout). This
+also means this spec file itself, `.ai/specs/rental-inspections.md`, does not exist on `Staging` at all
+— its §§1-24 above were pulled from `origin/QA1` onto this branch in the same commit as this section, so
+the file is internally consistent (this section's own cross-references to §17.1/§20/§20.14 resolve to
+real content) rather than starting a duplicate, divergent copy. Flagged loudly rather than silently: the
+two lanes Johan said are "inside `properties/show.blade.php` right now" must be working against QA1 (or
+a branch rebased on it), not `Staging` — worth Johan confirming, since this file cannot be the one they
+are editing if they are looking at a Staging checkout.
+
+### 27.1 What already exists — the four reuse points, confirmed by reading the code
+
+**1. Space navigation.** The pattern Johan is pointing at is real and already shipped, but only inside
+the compare-viewer MODAL (§20.17.3), not on the recording screen itself:
+
+- `compareViewerRoomTabs()` (`show.blade.php:6281-6283`) is simply `this.roomGroups().filter(g =>
+  g.room)` — it reuses the SAME room grouping the recording screen's own vertical list already builds
+  from (`roomGroups()`, `show.blade.php:6541-6570`), so a top nav strip on the recording screen would
+  need no new data source, only a new rendering of data that already exists.
+- The strip markup (`show.blade.php:5240-5250`, the "SPACE row"): a `<div class="flex items-center gap-1
+  overflow-x-auto">` of `<button>` tabs, one per room, active tab gets a class swap
+  (`.cv-space-tab-active`, CSS at `:82-83` — a 2px cyan bottom border, no background change). Below it, a
+  second identical-pattern row (`:5256-5272`, the "ITEM row") does the same for the selected room's items.
+- **The room set is identical for In and Out** — `roomGroups()` is built from `this.items` (property-wide
+  `rental_inspection_items`), not from either section's own observations, so a top nav strip built the
+  same way would show the same tabs regardless of which section (In/Out/ad-hoc) is the current tail; only
+  a room's `recorded/total` badge differs per section (`roomProgress(section, group)`,
+  `show.blade.php:7029-7038`).
+- **Mobile is already answered by this exact pattern, not a separate design question** — see §27.5.
+
+**2. Photo show/hide — a real control exists, but it is not the control Johan is asking for.** Two
+distinct, already-shipped mechanisms, easy to conflate and worth naming precisely:
+
+- **Per-item strip expand/collapse** — `itemStripExpanded: {}` (`show.blade.php:7346`), keyed by item id
+  only (not by section/side — the code comment at `:7336-7345` states this explicitly: "toggling from
+  either cell... moves both sides together"), persisted client-side to `localStorage('hfc.inspStripExpanded')`
+  (`_persistStripExpanded()`, `:7360-7362`; restored in `init()`, `:7367-7371`). Its ONLY effect is how
+  many thumbnails a strip shows — `stripVisibleCount()`/`stripMoreCount()` (`:7327-7335`) cap it at 4
+  when collapsed, uncapped when expanded (`isItemStripExpanded()`, `:7347`). The strip's presence — the
+  `flex-1 min-w-0 overflow-x-auto` block plus its always-present "add photo(s)" tile (§20.14.4/R2,
+  `rental-inspection-item-cell.blade.php`) — is unconditional; this flag never removes it.
+- **Room-level "master switch" for that same flag** — `allItemStripsOpenInRoom(group)` /
+  `toggleAllItemStrips(group)` (`show.blade.php:7352-7359`), rendered as a button literally labelled
+  "Expand photos"/"Collapse photos" (`rental-inspection-recording.blade.php:524-528`) next to each room
+  heading. This is the "room-level control" the task named. It sets `itemStripExpanded[i.id]` for every
+  item in that ONE room in one call — the exact building block a global version needs, just scoped to one
+  room today.
+- **The gap**: neither control ever makes the photo area disappear. Johan's ask — "an agent recording
+  conditions gets a dense screen" — needs the item row's right-hand photo block (and the room's own R1
+  photo gallery, §20.14.3) to not be rendered at all, so the left condition-button block can take the full
+  row width. That is a different axis (presence vs. count) from what `itemStripExpanded` controls today.
+  **My reading: this is not simply "promote the existing room-level button to the top" — the existing
+  button's mechanism (4-vs-all thumbnail count) doesn't produce the density Johan described. It needs a
+  new, separate boolean** (proposed name: `photosVisible`, default `true`, one flag for the whole screen,
+  no per-room/per-item variant) that wraps BOTH photo blocks (`x-show="photosVisible"` around the item
+  strip block and the room R1 gallery block) so hiding it visibly reclaims the row's width for condition
+  buttons and labels. **Open question for Johan, §27.6.1**, since he named these two controls himself and
+  should confirm before one is folded into the other.
+- Where it would live: a single toggle in the same top bar as the new space-nav strip (§27.1.1), reusing
+  the identical toggle-button visual language the compare viewer's Single/Compare segmented control
+  already uses (`show.blade.php:5219-5224`, `.compare-viewer-mode-btn`/`-active`) rather than inventing a
+  third visual style for a binary switch on this same screen.
+
+**3. The condition vocabulary is real, agency-configurable, and already exposed to JS — but has no
+"is this a problem" flag today.** `RentalInspectionSetting::DEFAULT_CONDITION_STATES`
+(`app/Models/RentalInspectionSetting.php:175-184`) ships Good/Fair/Damaged/Not working/Missing/Other/N/A
+— exactly Johan's own list plus N/A — each row shaped `{key, label, requires_notes}`. Resolved per-agency
+via `conditionStatesFor()` (`:541-554`), delivered to the client as `config.inspectionData.condition_states`
+(`show.blade.php:5745`) and read everywhere as `this.conditionStates` (`:6829` sets it; `:52-53` of
+`rental-inspection-item-cell.blade.php` renders the two-column condition-button grid directly from it —
+"any length, never a hardcoded count or split," per §20.14.4). **`requires_notes` is the only per-state
+flag that exists, and it answers a different question** ("does picking this need a typed reason") from
+what Johan is asking ("does this condition mean the space needs attention") — `fair` ships with
+`requires_notes => false` in the shipped default, yet Johan's own proposed problem-list includes Fair.
+The two flags are genuinely orthogonal and neither can stand in for the other.
+
+**A hardcoded-word precedent already exists and is exactly the anti-pattern the task told me to avoid**
+— worth flagging as a sibling defect, not fixed here per SCOPE LOCK: `compareViewerConditionClass()`
+(`show.blade.php:6329-6332`) colours a condition pill by checking `conditionKey === 'good'` and
+`conditionKey.indexOf('damag') !== -1` directly, with everything else falling into one "needs a look"
+bucket. This works only by accident for an agency that keeps the shipped English keys; it would silently
+mis-colour (or mis-flag, if reused for a filter) any agency that reduced or renamed its condition set
+(Retha's own Good/OK/Bad, named in §17.1, has no `damag`-containing key at all). **The new problem-filter
+must not extend this pattern** — see §27.2.
+
+**4. "Not yet recorded" is already a real, distinct data state, not something to invent.**
+`roomProgress(section, group)` (`show.blade.php:7029-7038`) already computes `recorded` as `group.items
+.filter(i => this.conditionFor(section, i.id))` — an item with no observation on the current section is
+already a first-class, already-computed case (it drives every "X/Y recorded" heading and the room
+auto-collapse rule, §20.7). A three-way filter needs no new per-item state; it needs a read of the same
+`conditionFor()` result the screen already computes for every item, every render.
+
+### 27.2 Proposal — the problem filter must derive from settings, per Johan's own instruction
+
+**New per-condition-state flag, following the exact existing pattern** (`requires_notes` is already
+exactly this shape — one more boolean per row, same JSON column, same settings form):
+
+- `needs_attention` (bool), added to every row of `RentalInspectionSetting::DEFAULT_CONDITION_STATES`
+  and to `conditionStatesFor()`'s validated shape. Shipped defaults, matching Johan's own stated starting
+  position exactly: `good => false`, `n_a => false`, `fair => true`, `damaged => true`, `not_working =>
+  true`, `missing => true`, `other => true`.
+- New resolver `RentalInspectionSetting::conditionNeedsAttentionFor(?int $agencyId, string $conditionKey):
+  bool`, mirroring `conditionRequiresNotesFor()` (`:565-570`) line for line — an unknown/removed key
+  defaults to `true` (same "an unknown state is never silently waved through" reasoning already used for
+  `requires_notes`), so a stale filter never hides something the agent should still see.
+- Settings UI: one more checkbox column on the existing condition-states editor
+  (`resources/views/corex/settings/rental-inspections.blade.php:315-343`) — same row, same
+  `states[i]` Alpine array, same hidden-field-carries-key discipline already in place for `requires_notes`
+  at `:342-343`. An agency that renames "Good" to "OK" (Retha's set) or adds a brand-new state neither
+  CoreX nor Retha shipped ("Excellent," say) sets this flag explicitly per row — there is no derivation
+  from the label text, exactly per the task's instruction not to key off hardcoded words.
+- Client-side: `itemNeedsAttention(section, item)` — reads the item's current condition key, looks it up
+  in `this.conditionStates` (already resolved client-side the same way `conditionRequiresNotes()`
+  already does at `show.blade.php:6925-6928`), returns its `needs_attention` flag. An item with no
+  observation yet is NOT "needs attention" under this function — it is the third bucket, §27.3.
+
+This is additive to the existing `condition_states` shape — no migration touches `requires_notes` or any
+existing row's `key`/`label`; every already-recorded observation is unaffected (the flag lives on the
+condition-state DEFINITION, never on the observation row itself).
+
+### 27.3 The three-way filter — agreeing with Johan's instinct, with the reasoning made explicit
+
+**All / Needs attention / Not yet recorded**, single-select (not three independent checkboxes), because
+every item is in exactly one of these three buckets at any moment, never zero and never more than one:
+recorded-and-fine, recorded-and-flagged, or not recorded at all. A pair of independent checkboxes
+("show problems" + "show unrecorded") would let both switch off at once, silently hiding the entire
+screen with no explanation — exactly the class of bug BUILD_STANDARD §1b calls a "real empty state"
+requirement violation ("no results for this filter" must always be reachable and always explained, never
+an accidental all-hidden state with no visible cause). A single three-way control can never produce that
+trap: one of the three is always selected, "All" is always available as the un-filter, and empty is only
+ever the truthful "you filtered to X and there is currently nothing in X."
+
+- **Filtering by item, not by room** — a room shows in the vertical list (and its top-nav tab is enabled,
+  not greyed) if it has AT LEAST ONE item in the selected bucket; within a visible room, only matching
+  items render. This matches the existing, Johan-approved principle for this exact table ("Stop rendering
+  two lists... render ONE list of rows," §20's own comment at `rental-inspection-recording.blade.php:665-680`)
+  — the filter narrows which rows exist, it does not invent a second rendering path.
+  - Filtering hides/dims a room from the top nav strip in the same reasoning the compare viewer's item
+    chips already show a count per chip (`compareViewerChipCounts()`) — a filtered-empty room's tab
+    should show a `0` or grey state rather than disappear outright, so the agent isn't left wondering
+    where a room went; **open question, §27.6.4**, since disappearing vs. greying is a real UX call.
+  - A filtered-to-match room is force-opened (overriding `roomOpenOverride`/the auto-collapse default,
+    §20.7) while a non-"All" filter is active, so the filter is never fighting the room's own collapse
+    state to show what it just promised to show.
+- **Which side does the filter apply to?** The recording screen renders BOTH cells of every item row
+  (predecessor read-only, tail editable) from the SAME `x-for`, per §20's "one list, two cells" rule
+  above. The filter should read the TAIL side's condition (the side being actively worked), and hide/show
+  the WHOLE row (both cells) together — never split a row so only one cell reacts, which would break the
+  "Kitchen Ceiling is structurally beside Kitchen Ceiling" guarantee that same section is built to
+  protect.
+
+### 27.4 Files this would touch, if Johan approves (not built — named for the next lane)
+
+- `app/Models/RentalInspectionSetting.php` — `needs_attention` added to `DEFAULT_CONDITION_STATES`,
+  `conditionNeedsAttentionFor()` resolver.
+- `resources/views/corex/settings/rental-inspections.blade.php` — one checkbox column on the existing
+  condition-states editor.
+- `resources/views/corex/properties/show.blade.php` — new top-of-tab nav bar (space strip, reusing
+  `roomGroups()`/the `.cv-space-tab` visual language); new `photosVisible` flag + toggle button; new
+  `filterMode` state (`'all'|'attention'|'unrecorded'`) + three-way control; `itemNeedsAttention()`,
+  `roomHasAttentionItem()`, `itemMatchesFilter()` helper methods; scroll-to-room on tab click (needs a
+  DOM anchor — room headings in the partial below currently carry no `id`, so this also touches that
+  file).
+- `resources/views/corex/properties/partials/rental-inspection-recording.blade.php` — room heading gets
+  an `id` anchor for the nav strip to scroll to; the room-level "Expand photos/Collapse photos" button
+  (`:524-528`) either removed in favour of the new global toggle or kept as a genuinely different,
+  narrower control (§27.6.1); every room/item render gated additionally on `itemMatchesFilter()`.
+- `resources/views/corex/properties/partials/rental-inspection-item-cell.blade.php` — photo block wrapped
+  in `x-show="photosVisible"`.
+- `database/migrations/` — one migration, additive JSON shape only (no column rename, no data
+  migration — `needs_attention` is a new key inside the existing `condition_states` JSON, defaulted by
+  `conditionStatesFor()`'s own read-time fallback exactly as `requires_notes` already is).
+- Per CLAUDE.md §10a: `needs_attention` is a per-row flag on an ALREADY-not-wizard-wired setting
+  (`condition_states` itself is tracked as a gap since §20.9) — this proposal does not newly break wizard
+  coverage, but does not fix the pre-existing gap either; Johan's call on priority, same as §20.9 already
+  flags.
+
+### 27.5 Mobile — answered by the reuse, not a new design question
+
+Johan asked whether room tabs wrap into four lines on a small screen. They do not, because the pattern
+being reused already solves this: the compare viewer's space row (`show.blade.php:5240-5250`) is
+`overflow-x-auto` with `flex-nowrap` implied by `flex items-center gap-1` and no `flex-wrap` class — it
+scrolls horizontally, never wraps, and every tab carries `cv-touch` (a 44px minimum tap target, per
+§20.17.6's accessibility rule). A new top nav strip built the identical way inherits this for free. The
+existing R1 photo-gallery breakpoints (`grid-cols-3 sm:grid-cols-5`) and the compare viewer's own mobile
+single-panel fallback (`compareViewerMobileSide`, `:5277-5279`, `sm:hidden`) are further evidence this
+screen's author already designs mobile-first for this exact class of control — nothing about the new nav
+strip needs a different answer.
+
+### 27.6 Open questions for Johan — restated together, not scattered
+
+1. **§27.1.2** — is "Show/hide photos" a genuinely new global control (my recommendation, since the
+   existing room-level button's mechanism — thumbnail count — doesn't produce the density Johan
+   described), or should the existing per-room "Expand photos/Collapse photos" button be removed entirely
+   once the new global toggle exists (my recommendation, to avoid two controls that sound like they do
+   the same thing but don't)?
+2. **§27.3** — three-way single-select (All/Needs attention/Not yet recorded), confirmed as your own
+   instinct — proceeding on this unless you say otherwise.
+3. **§27.3** — a room that the filter empties out: hide its top-nav tab entirely, or grey it with a `0`
+   count? (I lean grey-with-count, so the agent always sees every real room and never wonders where one
+   went; open either way.)
+4. **§27.1.2** — when photos are shown (`photosVisible = true`), should the per-item 4-thumbnail cap
+   (`itemStripExpanded`) stay as a second, separate density control, or should "show photos" always mean
+   "show all of them" and the 4-cap distinction be dropped? (Dropping it is one fewer control for the
+   agent to learn; keeping it preserves today's shipped behaviour for anyone already used to it.)
+5. **§27.4** — is `needs_attention` (my proposed name) the right label for the new per-condition-state
+   flag, or does Johan want different wording on the settings screen itself (this is copy, not
+   engineering, and belongs to him per CLAUDE.md §8)?
+
+### 27.7 What's remembered per user vs. resets every visit — the honest current state, and the proposal
+
+**Nothing on this screen is remembered per USER today — only per BROWSER, and only for one of the three
+controls in play.** Confirmed by reading the code, not assumed:
+
+| Control | Persisted? | Mechanism | Scope |
+|---|---|---|---|
+| Per-item photo-strip expand (`itemStripExpanded`) | **Yes** | `localStorage('hfc.inspStripExpanded')` (`show.blade.php:7360-7362`, restored in `init()` `:7367-7371`) | This browser/device only — not the CoreX user account. Explicitly noted in the code's own comment (`:7339-7341`): "No per-user preference endpoint exists for this screen." |
+| Room open/collapsed override (`roomOpenOverride`) | **No** | In-memory Alpine state only | Resets to the computed default (open unless fully recorded, §20.7) on every page load |
+| Sidebar collapse on this tab (`sbCollapsed`, §20.14.5) | **Yes** | `localStorage('hfc.propSidebar.collapsed')` | This browser/device only, same caveat as above |
+
+**Proposal for the three new controls in this section** — follow the existing precedent exactly rather
+than inventing a heavier mechanism: `photosVisible` and `filterMode` persist to `localStorage`
+(`hfc.inspPhotosVisible`, `hfc.inspFilterMode`), same as `itemStripExpanded`/`sbCollapsed` already do;
+the selected room tab does NOT persist (resets to whichever room is first/open on every visit, matching
+`roomOpenOverride`'s own reset-on-reload behaviour) — a remembered room selection from a DIFFERENT
+inspection or property would be actively wrong the next time this screen opens, which is exactly the
+"filter persists and hides most of the screen next time, with no obvious reason" bug the task warned
+against. **Named as a limitation, not silently treated as solved**: because this is `localStorage`, it
+is per-device, not per-CoreX-user — an agent recording on their phone and reviewing on a desktop sees the
+defaults on each, not a synced preference. Building real per-user persistence (a settings row, an API
+round-trip) is a materially bigger change than anything else in this section and is not proposed here;
+flagged so Johan can decide if the localStorage answer is good enough or if this needs to go on a
+separate ticket.
+
+### 27.8 Out of scope for this investigation
+
+No code was written. Nothing in `resources/views/corex/properties/show.blade.php` — on either `Staging`
+or `QA1` — was edited; the two lanes Johan said are inside that file were not touched or blocked (this
+investigation only ever ran `git show origin/QA1:<path>` into a scratch file, never `git checkout`, never
+a working-tree edit). Printable-form/OMR interaction with this filter, and any mobile-app/API surface for
+these three controls (the checklist-must-be-fetched principle, §14.3, would apply identically if this
+ever reaches the app) are both unconsidered here — named, not silently assumed out.
