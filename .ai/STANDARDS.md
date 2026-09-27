@@ -1332,6 +1332,48 @@ FK agency column (that is the FK-1452 on write).
 
 ---
 
+## Rule 18: A Local Worktree Server Never Points at a Shared Database
+
+2026-09-27, property 5792 — a `php artisan serve` process run from an isolated worktree, with its `.env`
+pointed at the real `corex_qa1` database (to exercise a genuine upload against real data during
+verification), created a real `rental_inspection_photos` row in the shared database while writing the actual
+file to that worktree's own, separate `storage/app/public/` — a filesystem that no longer existed once the
+worktree was later removed. The row survived; the file never did anywhere durable. Found live by cc5 as a
+broken thumbnail on Johan's own screen, traced to this exact cause, not assumed (`.ai/specs/rental-
+inspections.md`'s AT-436 photo-storage investigation).
+
+**This is the same root shape as the `/corex-qa1`-checkout incident this file's Conductor & Lane Intake
+Protocol section already exists to prevent** — a write from a place that is NOT the shared, served
+environment, landing in state that IS shared. There, it was a git branch. Here, it is a database row.
+Neither incident required malice or even a mistake in the application code being tested — both came from a
+verification setup that mixed an isolated resource (a worktree's filesystem, a worktree's checked-out branch)
+with a shared one (the QA1 database, the QA1 deploy target) and trusted the mix to behave like a single
+coherent environment. It doesn't: a database row and the file it points at are two halves of one fact, and
+splitting which one lives in shared state from which one lives in local state is enough to produce a ghost
+record with nothing behind it — the exact "row committed, file not there" failure class `PropertyImageStorer`
+now guards against at the write layer, but the verification practice that produces it is the thing to stop
+doing, not just the thing to catch after the fact.
+
+**The rule:** a local worktree's own dev server (`php artisan serve`, or any other locally-run instance) must
+**never** have its `.env` pointed at a shared database — not `corex_qa1`, not `corex_qa2`, not the Staging or
+live databases, not any other lane's. If a change genuinely needs to be exercised with a real upload/write
+against real data, there are exactly two sound ways to do it, and no third:
+
+1. **Test it against the shared environment itself, in place** — QA1's own served checkout
+   (`/corex-qa1`, never checked out to a feature branch — see the Conductor & Lane Intake Protocol above),
+   hit over its real URL, so the database write and the file write land on the SAME filesystem the site
+   actually reads from.
+2. **Test it against a fully isolated throwaway schema** — the same `hfc_dash_test_*` / per-worktree pattern
+   this repo's own `phpunit.xml` already uses for the automated suite, with the worktree's own `.env` pointed
+   at that dedicated schema, never the shared one — exactly the same vendor-isolation principle CLAUDE.md
+   already states for `vendor/`, applied to the database instead: every checkout that writes real rows during
+   verification gets its own, not a shared one.
+
+Never a mix of the two — a local filesystem paired with a shared database is precisely the split that let this
+happen, regardless of which side the next version of this mistake puts the mismatch on.
+
+---
+
 ## Conductor & Lane Intake Protocol
 
 **This applies to the CONDUCTOR FIRST.** The conductor is the most common source of unchained build orders — an aside in conversation becomes a lane spending hours on code nobody specced. The protocol binds the conductor before it binds any lane.
