@@ -5300,6 +5300,47 @@ a working-tree edit). Printable-form/OMR interaction with this filter, and any m
 these three controls (the checklist-must-be-fetched principle, §14.3, would apply identically if this
 ever reaches the app) are both unconsidered here — named, not silently assumed out.
 
+### 27.9 Built, 2026-09-27 — room chips restyled to the inventory pattern, everything on one line
+
+Johan, property 5294, live-testing after §27.1's original ship: the room links read as "a row of plain
+grey text room tabs (.cv-space-tab) + Photos: shown on one line, then the filter on a SECOND line below."
+Asked for the inventory capture screen's own room-chip look (`resources/views/corex/rental-inventories/
+capture.blade.php`) reused verbatim, and everything — chip strip, Photos: shown, the three filter buttons
+— collapsed onto one line.
+
+**Chips** — copied the inventory screen's exact markup shape (`flex items-center gap-1.5 text-xs
+font-semibold px-3 py-1.5 rounded-full shrink-0` pill + an 8×8 `rounded-full` status dot + label), NOT its
+`.cv-space-tab`/`-active` underline styling (unchanged, still used by the separate Compare viewer
+elsewhere on this same page — not touched here). The "0/5" recorded count stays inside the chip, exactly
+as before. The dot's colour is derived from data already printed next to it, not new tracked state:
+red (`#D9534F`) if `roomHasAttentionItem()`, brand-cyan (`#3FC9E6`) if fully recorded
+(`recorded >= total && total > 0`), else muted grey. Inventory's own chip has a genuine "active/selected
+room" state (its screen shows one room panel at a time); inspections has no equivalent — every room
+renders simultaneously and a chip click only scrolls to it (`scrollToInspectionRoom()`, unchanged) — so
+there is deliberately no "filled = active" chip state here. Named as a scoping decision, not a silent
+omission: adding one would mean tracking which room is currently scrolled-to, a new piece of state
+Johan's own "behaviour unchanged" instruction ruled out for this pass.
+
+**One line** — outer row: `flex items-center gap-2 flex-wrap lg:flex-nowrap` (same 1024px breakpoint as
+§28.2). Chip strip: `flex-1 min-w-0 overflow-x-auto` — it absorbs the row and scrolls internally (native
+browser scrollbar, visible by default; nothing in this codebase's CSS hides it) before yielding to the
+two fixed-width controls, same "flexible content area, fixed-width controls stay put" pattern §28.2 used
+for the Inspection header's own controls. Photos: shown/hidden (`compare-viewer-mode-btn`, unchanged) and
+the three filter buttons (`compare-viewer-mode-btn` each) both `flex-none`.
+
+**Segmented filter** — All / Needs attention / Not yet recorded now render inside one bordered,
+`overflow:hidden`, `border-radius:6px` wrapper (`.rir-seg-group`) with `.rir-seg-btn` stripping each
+button's own individual border/radius down to a shared right-hand divider (`border-right:1px solid
+#1E262F`, none on the last child) — reads as one compact control instead of three separate pill buttons.
+New rule, combined-selector (`.rir-seg-btn.compare-viewer-mode-btn`) so it reliably beats that class's own
+single-class border declaration regardless of which `<style>` block the browser applies first. Click
+handlers (`setFilterMode()`) and persistence (§27.7/`RentalInspectionScreenPreference`) unchanged.
+
+**Verified**: `php -l` clean. Whole-app `php artisan view:cache` clean. Real authenticated render + click,
+property 5792, user 365 (fixture, never Johan's own live QA1 session on 5294), qatesting1.corexos.co.za —
+see this feature's own landing commit for the exact pixel measurements (all nav controls' vertical
+band at 1440px, chip-click-still-scrolls confirmation, and a sub-1024px wrap check).
+
 ---
 
 ## 28. Inspections tab section-header layout — chevron left, one line at desktop (2026-09-27)

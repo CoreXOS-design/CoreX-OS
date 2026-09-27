@@ -97,6 +97,16 @@
     .rir-item-photo-tile { display:inline-block; vertical-align:top; width:165px; height:100%; overflow:hidden; background:var(--surface-3); margin-right:0.375rem; }
     .rir-room-photo-tile { aspect-ratio:1/1; background:var(--surface-3); }
     .rir-marquee-rect { position:absolute; border:1px dashed var(--brand-icon,#0ea5e9); background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); pointer-events:none; }
+    /* §27, 2026-09-27 — Johan: All/Needs attention/Not yet recorded reads as
+       ONE compact segmented control, not three separate pill buttons with
+       gaps. Combined selectors (specificity 0,2,0) so this reliably beats
+       .compare-viewer-mode-btn's own single-class border rule (0,1,0)
+       regardless of which <style> block the browser applies first — the
+       buttons keep that class's background/active colouring, only the
+       border/radius/dividers change. */
+    .rir-seg-group { display:flex; align-items:center; border:1px solid #1E262F; border-radius:6px; overflow:hidden; }
+    .rir-seg-btn.compare-viewer-mode-btn { border-top:0; border-bottom:0; border-left:0; border-right:1px solid #1E262F; border-radius:0; }
+    .rir-seg-btn.compare-viewer-mode-btn:last-child { border-right:0; }
     .rir-tray-tile { position:relative; width:3rem; height:3rem; }
     /* §29, 2026-09-27 — Johan, property 5294: "keep them this size and have a
        resize option ... to enlarge them to the same size as the thumbnail
@@ -518,25 +528,49 @@
              crud? like with the photo compare - top spaces to quick
              navigate to. maybe a tick to show / hide photos, maybe a tick
              to show all or only problem spaces... a small inspection is a
-             scroll. a large inspection is a proper scroll.' Reuses the
-             compare viewer's own room-tab pattern (.cv-space-tab, same
-             overflow-x-auto/never-wraps strip) rather than inventing a
-             second visual language. Rendered OUTSIDE the tailReadOnly
-             unless-block above/below — none of these three controls
-             mutate anything, so they render identically (and stay useful)
-             on a completed, read-only inspection too. --}}
-        <div class="flex items-center justify-between gap-2" x-show="activeItems().length">
+             scroll. a large inspection is a proper scroll.'
+
+             §27, 2026-09-27 restyle — Johan, property 5294: the room links
+             read as "plain grey text room tabs" wrapping onto a second
+             line with the filter. Room chips now reuse the rental-
+             inventory capture screen's OWN chip markup verbatim
+             (resources/views/corex/rental-inventories/capture.blade.php —
+             rounded-full pill, 8x8 status dot, never-wraps overflow-x-auto
+             strip with the browser's native/visible scrollbar) rather than
+             the old underline .cv-space-tab look (still used unchanged by
+             the separate Compare viewer elsewhere on this page — not
+             touched here). The dot's colour is derived entirely from data
+             already printed beside it (recorded/total, needs-attention) —
+             no new tracked state, since inspections has no single
+             "active room" concept the way the inventory screen's
+             single-panel view does (behaviour unchanged, per Johan's own
+             instruction: click still scrolls to the room, nothing here
+             switches a panel). Photos: shown/hidden and the three filter
+             buttons (now one compact segmented control, .rir-seg-group)
+             moved onto this SAME line, right of the chip strip — one row
+             at lg:/1024px+ (chip strip is flex:1 min-w-0 and scrolls
+             internally first, so it yields space to the two fixed-width
+             controls rather than pushing them off), wrapping allowed
+             below 1024px exactly as the rest of this tab already does
+             (§28.2). Rendered OUTSIDE the tailReadOnly unless-block
+             above/below — none of these controls mutate anything, so they
+             render identically (and stay useful) on a completed, read-only
+             inspection too. --}}
+        <div class="flex items-center gap-2 flex-wrap lg:flex-nowrap" x-show="activeItems().length">
             <div class="flex-1 min-w-0 overflow-x-auto">
-                <div class="flex items-center gap-1" style="white-space:nowrap;">
+                <div class="flex items-center gap-2 pb-1" style="flex-wrap:nowrap;">
                     <template x-for="group in roomGroups()" :key="'insp-nav-' + (group.room ? group.room.id : 'general')">
                         <button type="button"
-                                class="text-xs font-semibold px-3 cv-touch cv-space-tab"
+                                class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full shrink-0 cv-touch"
                                 :class="!roomMatchesFilter({{ $sectionJs }}, group) ? 'rir-space-tab-empty' : ''"
                                 :disabled="!roomMatchesFilter({{ $sectionJs }}, group)"
+                                :style="'background:var(--surface-2); color:var(--text-secondary); white-space:nowrap;'"
                                 @click="scrollToInspectionRoom({{ $sectionJs }}, group, {{ $tailReadOnly ? 'true' : 'false' }})">
+                            <span class="rounded-full shrink-0"
+                                  :style="'width:8px; height:8px; background:' + (roomHasAttentionItem({{ $sectionJs }}, group) ? '#D9534F' : ((roomProgress({{ $sectionJs }}, group).total && roomProgress({{ $sectionJs }}, group).recorded >= roomProgress({{ $sectionJs }}, group).total) ? '#3FC9E6' : 'var(--text-muted)')) + ';'"
+                                  :title="roomHasAttentionItem({{ $sectionJs }}, group) ? 'Needs attention' : ''"></span>
                             <span x-text="group.room ? group.room.label : 'General'"></span>
                             <span style="opacity:0.7;" x-text="' ' + roomProgress({{ $sectionJs }}, group).recorded + '/' + roomProgress({{ $sectionJs }}, group).total"></span>
-                            <span x-show="roomHasAttentionItem({{ $sectionJs }}, group)" title="Needs attention" style="color:#D9534F;">&#9679;</span>
                         </button>
                     </template>
                 </div>
@@ -550,17 +584,17 @@
                     :class="photosVisible ? 'compare-viewer-mode-btn-active' : ''"
                     @click="togglePhotosVisible()"
                     x-text="photosVisible ? 'Photos: shown' : 'Photos: hidden'"></button>
-        </div>
-        <div class="flex items-center gap-1 flex-wrap" x-show="activeItems().length">
-            <button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md cv-touch compare-viewer-mode-btn"
-                    :class="filterMode === 'all' ? 'compare-viewer-mode-btn-active' : ''"
-                    @click="setFilterMode('all')">All</button>
-            <button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md cv-touch compare-viewer-mode-btn"
-                    :class="filterMode === 'attention' ? 'compare-viewer-mode-btn-active' : ''"
-                    @click="setFilterMode('attention')">Needs attention</button>
-            <button type="button" class="text-xs font-semibold px-3 py-1.5 rounded-md cv-touch compare-viewer-mode-btn"
-                    :class="filterMode === 'unrecorded' ? 'compare-viewer-mode-btn-active' : ''"
-                    @click="setFilterMode('unrecorded')">Not yet recorded</button>
+            <div class="rir-seg-group flex-none">
+                <button type="button" class="text-xs font-semibold px-3 py-1.5 cv-touch compare-viewer-mode-btn rir-seg-btn"
+                        :class="filterMode === 'all' ? 'compare-viewer-mode-btn-active' : ''"
+                        @click="setFilterMode('all')">All</button>
+                <button type="button" class="text-xs font-semibold px-3 py-1.5 cv-touch compare-viewer-mode-btn rir-seg-btn"
+                        :class="filterMode === 'attention' ? 'compare-viewer-mode-btn-active' : ''"
+                        @click="setFilterMode('attention')">Needs attention</button>
+                <button type="button" class="text-xs font-semibold px-3 py-1.5 cv-touch compare-viewer-mode-btn rir-seg-btn"
+                        :class="filterMode === 'unrecorded' ? 'compare-viewer-mode-btn-active' : ''"
+                        @click="setFilterMode('unrecorded')">Not yet recorded</button>
+            </div>
         </div>
 
         {{-- Johan's ruling — a filter that matches nothing must say so in
