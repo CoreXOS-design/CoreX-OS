@@ -25,14 +25,7 @@
     all-rooms-open accordion list (design pass 2, 2026-09-22) with a single
     active room at a time, selected from a horizontal, never-wrapping strip
     of room chips across the top, each carrying a status dot (captured /
-    part done / not opened). NOTE FOR THE RECORD: at the time this was
-    built, no equivalent chip/tab pattern with status dots existed anywhere
-    on the rental-inspections recording screen to reuse verbatim (confirmed
-    by search — that screen ships a room-accordion list with an
-    Expand-all/Collapse-all control, per §11.5's own investigation two days
-    earlier). Built fresh here per the approved mockup; if Johan wants
-    inspections to match, that is a follow-up pass on that screen, not
-    something this pass silently invented a second version of.
+    part done / not opened).
 
     §13 layout pass, 2026-09-27 — Johan: "we have a whole wide screen yet
     we choose to not align qty with desc and use a lot more space than
@@ -43,15 +36,56 @@
     across 4-5 lines. Behaviour (autosave, arrow-key grid nav, condition
     click, photo upload/tag, remove) is unchanged — this pass is markup +
     CSS only; see .ai/specs/rental-inventory.md §13.9 for the full note.
+
+    §13.10, 2026-09-27 — Johan: "on inventory we need to show all the same
+    menu items like on inspections, not just a blank page like it's now."
+    This page now renders inside the SAME property shell
+    (properties/show.blade.php's identity strip + tab bar) via two shared
+    partials (partials/_property-shell-header.blade.php,
+    _property-shell-tabs.blade.php — 'link' mode: every tab except
+    Inventory is a real link to the property page, since this page has
+    none of the other tabs' panels to switch to locally). The page's own
+    "Back to property" button is removed — redundant now that Overview (or
+    any other tab) is one click away. See .ai/specs/rental-inventory.md
+    §13.10 for the full note, including why the header/tab MARKUP moved
+    into partials while a small amount of variable-derivation PHP is
+    deliberately re-computed here rather than shared (that top-of-file
+    derivation in show.blade.php itself stayed in place there because two
+    of its variables are read again later in that same giant file).
+
+    §13.11, 2026-09-27 — Johan, having seen the single-active-room chip
+    strip: "show the spaces like on inspections. It's not separate tabs,
+    it's just quick navigation to get to that section." Every room now
+    renders stacked down the page (like the inspection recording screen's
+    room list) instead of one room's panel at a time; the chip strip is
+    kept, sticky at the top of the scrolling inventory area, and clicking
+    a chip smooth-scrolls to that room's panel rather than switching which
+    panel is visible. See §13.11 in the spec for the scroll-mechanics note
+    (scroll-margin-top + IntersectionObserver scrollspy).
 --}}
 
-@section('content')
+@section('corex-content')
 {{-- §4a — the SAME shared uploader rental-inspections built
      (rental-inspections.md §20.13.4), not a second bespoke one. --}}
 @if($inventory)
 <script src="{{ asset_v('js/corex-photo-batch-uploader.js') }}"></script>
 @endif
 <style>
+    /* §13.10 — property shell adoption. Only the tab PANEL scrolls, same
+       pattern properties/show.blade.php's own restyle already uses
+       (AT-393) — the property header stays visible above it, never
+       scrolling away, no matter how many rooms this inventory has. */
+    .corex-props-v2 .prop-tab-panel { overflow-y: auto; overflow-x: clip; }
+    /* §13.11 — the tab bar + room-pill strip stick TOGETHER as one group
+       (one sticky container, not two independently-offset ones) so
+       nothing needs a hardcoded "height of the thing above me" pixel
+       value. Room panels get their scroll-margin-top set to this group's
+       REAL rendered height via a CSS custom property, updated in JS
+       (updateStickyOffset()) — the 160px fallback only matters for the
+       brief instant before that JS runs. */
+    #inv-sticky-shell { position: sticky; top: 0; z-index: 15; background: var(--surface); }
+    .inv-room-panel { scroll-margin-top: var(--inv-sticky-offset, 160px); }
+
     /* §13.9 layout pass — one inventory line = one row on desktop.
        Mobile/tablet (<1024px) wraps to 2 lines: qty+desc+actions, then
        chips+photos — done with `order` + a forced flex-basis:100% break,
@@ -135,381 +169,434 @@
         .inv-cell-actions { grid-column: 5; order: 5; margin-left: 0; }
     }
 </style>
-<div class="p-4 sm:p-6 space-y-4"
-     @if($inventory) x-data="rentalInventoryCapture({{ $inventory->id }}, {{ $property->id }}, '{{ $spaceStoreUrl ?? '' }}')" @endif>
+@php
+    // §13.10 — the SAME small derivation properties/show.blade.php's own
+    // top-of-file PHP block computes for the identity-strip partial. Recomputed here
+    // (not shared) because show.blade.php's own copy stays in place there
+    // — $thumb and $isMarketable are each read again further down that
+    // giant file, so moving their derivation into a shared location this
+    // page pulls from would need a bigger, riskier change to that file for
+    // no behavioural gain. This block is the ONLY thing duplicated —
+    // _property-shell-header.blade.php's actual MARKUP is not.
+    $isNew = false; // this route only ever resolves an existing property
+    $backToRentals  = (bool) session('corex.lens.properties', false);
+    $backToImported = (bool) session('corex.lens.properties_imported', false)
+        && \Illuminate\Support\Facades\Route::has('corex.properties.imported-stock');
+    $backRoute = $backToImported ? 'corex.properties.imported-stock' : ($backToRentals ? 'corex.rentals.properties.index' : 'corex.properties.index');
+    $backLabel = $backToImported ? 'Back to Imported Stock' : ($backToRentals ? 'Back to Rentals' : 'Back to Properties');
+    $thumb = $property->thumbFor($property->gallery_images_json[0] ?? ($property->dawn_images_json[0] ?? null));
+    $listingTypeLabel = match(strtolower((string) ($property->listing_type ?? 'sale'))) {
+        'rental' => 'For Rent',
+        default  => 'For Sale',
+    };
+    $statusLabel = ucwords(str_replace('_', ' ', (string) ($property->status ?: 'Draft')));
+    $brandPillStyle = 'background:var(--brand-default); color:#fff; border:none;';
+    $sbAddr = $property->buildDisplayAddress();
+    $hasRealAddr = $sbAddr !== '' && $sbAddr !== ($property->title ?? '') && $sbAddr !== 'Unknown Property';
+    $cmpLive    = $readinessReport->snapshotAt !== null;
+    $cmpReady   = $readinessReport->ready && !$cmpLive;
+    $cmpLabel   = $cmpLive ? 'LIVE' : ($cmpReady ? 'READY' : 'BLOCKED');
+    $cmpPillBg  = $cmpLive ? '#10b981' : ($cmpReady ? 'rgba(0,212,170,.18)' : 'rgba(245,158,11,.18)');
+    $cmpPillFg  = $cmpLive ? '#ffffff' : ($cmpReady ? '#047857' : '#b45309');
+@endphp
+<div class="w-full h-full flex flex-col space-y-4 corex-props-v2">
+    @include('corex.properties.partials._property-shell-header', [
+        'property' => $property, 'isNew' => $isNew, 'backRoute' => $backRoute, 'backLabel' => $backLabel,
+        'thumb' => $thumb, 'hasRealAddr' => $hasRealAddr, 'sbAddr' => $sbAddr, 'brandPillStyle' => $brandPillStyle,
+        'listingTypeLabel' => $listingTypeLabel, 'statusLabel' => $statusLabel,
+        'cmpPillBg' => $cmpPillBg, 'cmpPillFg' => $cmpPillFg, 'cmpLabel' => $cmpLabel,
+        'complianceMode' => 'link', 'showSaveButton' => false,
+    ])
 
-    <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-            <h1 class="text-lg font-semibold truncate">Inventory — {{ $property->buildDisplayAddress() }}</h1>
+    {{-- Sec 13.11 - ONE Alpine scope for the whole tab panel: pill strip and stacked room panels share rooms/lines/activeRoomId on their common ancestor. --}}
+    <div class="flex-1 overflow-y-auto prop-tab-panel"
+         @if($inventory) x-data="rentalInventoryCapture({{ $inventory->id }}, {{ $property->id }}, '{{ $spaceStoreUrl ?? '' }}')" @endif>
+        <div id="inv-sticky-shell">
+            @include('corex.properties.partials._property-shell-tabs', [
+                'property' => $property, 'isNew' => $isNew, 'allDriveDocs' => $allDriveDocs, 'coreMatches' => $coreMatches,
+                'mode' => 'link', 'activeTabKey' => 'inventory',
+            ])
+
             @if($inventory)
-                <p class="text-xs mt-0.5" style="color: var(--text-muted);">
-                    <span class="ds-badge {{ $inventory->status === 'completed' ? 'ds-badge-success' : ($inventory->status === 'cancelled' ? 'ds-badge-danger' : 'ds-badge-muted') }}">
-                        {{ ucfirst(str_replace('_', ' ', $inventory->status)) }}
-                    </span>
-                </p>
+            {{-- §13.11 — the room-pill strip, now pure quick-navigation
+                 (scroll-to, not switch-to) — Johan: "it's not separate
+                 tabs, it's just quick navigation to get to that section."
+                 Sticks together with the tab bar above it as one group
+                 (see #inv-sticky-shell); overflow-x-auto + flex-nowrap is
+                 the whole "never wraps" mechanism, same as every other
+                 horizontal strip on this page. --}}
+            <div x-show="rooms.length" class="flex items-center gap-2 overflow-x-auto px-4 sm:px-6 py-2" style="flex-wrap:nowrap; background:var(--surface); border-bottom:1px solid var(--border);">
+                <template x-for="room in rooms" :key="room.id">
+                    {{-- Same :style clobber trap as the dot below — the
+                         "never wraps" white-space rule has to live INSIDE the
+                         one bound :style expression, not as a co-located
+                         static style="..." on this same button. --}}
+                    <button type="button" @click="scrollToRoom(room.id)"
+                            class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full shrink-0"
+                            :style="(room.id === activeRoomId ? 'background:var(--brand-button,#0ea5e9); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary);') + ' white-space:nowrap;'">
+                        {{-- Alpine's :style clobber trap (rental-inspections.md
+                             §22.3b): a bound :style REPLACES the whole style
+                             attribute on every reactive render, so a co-located
+                             static style="..." on the same tag silently
+                             disappears the moment the binding evaluates. The
+                             fixed 8x8 size lives INSIDE the one bound
+                             expression instead, never as a separate static
+                             attribute on this tag. --}}
+                        <span class="rounded-full shrink-0" :style="'width:8px; height:8px; background:' + roomStatusColor(room.id) + ';'"></span>
+                        <span x-text="room.label"></span>
+                    </button>
+                </template>
+            </div>
             @endif
         </div>
-        <a href="{{ route('corex.properties.show', $property) }}" class="corex-btn-outline text-xs shrink-0">Back to property</a>
-    </div>
 
-    @if(!$inventory)
-        {{-- §0a — a property with no active lease has nothing to attach an
-             inventory to yet; honest state, not a silent 404 or crash. --}}
-        <div class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
-            This property has no active lease yet, so there's nothing to attach an inventory to.
-            Start a lease first, then come back here to capture the inventory.
-        </div>
-    @else
-        @if(in_array($inventory->status, ['completed', 'cancelled']))
-            <div class="rounded-md p-3 text-xs" style="background: var(--surface-2); color: var(--text-secondary);">
-                This inventory is {{ $inventory->status }} and read-only here.
-                <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="font-semibold" style="color: var(--brand-button,#0ea5e9);">Open the full record</a>
-                @if($inventory->status === 'completed')
-                    for signatures and the move-out comparison.
+        <div class="p-4 sm:p-6 space-y-4">
+
+            <div class="min-w-0">
+                <h1 class="text-lg font-semibold truncate">Inventory — {{ $property->buildDisplayAddress() }}</h1>
+                @if($inventory)
+                    <p class="text-xs mt-0.5" style="color: var(--text-muted);">
+                        <span class="ds-badge {{ $inventory->status === 'completed' ? 'ds-badge-success' : ($inventory->status === 'cancelled' ? 'ds-badge-danger' : 'ds-badge-muted') }}">
+                            {{ ucfirst(str_replace('_', ' ', $inventory->status)) }}
+                        </span>
+                    </p>
                 @endif
             </div>
-        @else
-            <div class="flex items-center justify-end">
-                <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Signatures &amp; complete →</a>
-            </div>
-        @endif
 
-        {{-- Add space — Johan: "we specced inventory being blank then you can
-             create the spaces same as with inspections." Same write path
-             the Inspection Items section's own "Space (new room)" control
-             uses (RentalInspectionRecordingController::storeItem(), kind=
-             space) — a room created here is the SAME PropertyRoom row
-             inspections sees, not a second space model. Always available,
-             not just when blank — an agent adds more spaces as the walk-
-             through finds them, same as on the inspection side. --}}
-        <div class="rounded-md p-3" style="background: var(--surface-2);">
-            <template x-if="!rooms.length">
-                <p class="text-xs pb-2" style="color: var(--text-secondary);">
-                    This property has no spaces set up yet — add the first one below. Inventory and Inspections share the same room list.
-                </p>
-            </template>
-            <form @submit.prevent="addSpace()" class="flex items-end gap-2 flex-wrap">
-                <div>
-                    <label class="text-xs font-semibold block" style="color: var(--text-secondary);">Room type</label>
-                    <select x-model="newSpace.space_type" class="prop-input" style="max-width:11rem;">
-                        <option value="">Room type…</option>
-                        @foreach($spaceTypes as $spaceType)
-                            <option value="{{ $spaceType }}">{{ $spaceType }}</option>
-                        @endforeach
-                    </select>
+            @if(!$inventory)
+                {{-- §0a — a property with no active lease has nothing to attach an
+                     inventory to yet; honest state, not a silent 404 or crash. --}}
+                <div class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
+                    This property has no active lease yet, so there's nothing to attach an inventory to.
+                    Start a lease first, then come back here to capture the inventory.
                 </div>
-                <div class="flex-1" style="min-width:10rem;">
-                    <label class="text-xs font-semibold block" style="color: var(--text-secondary);">Name</label>
-                    <input type="text" x-model="newSpace.label" placeholder="e.g. Bedroom 1" maxlength="191"
-                           class="prop-input w-full" @keydown.enter.prevent="addSpace()">
-                </div>
-                <button type="submit" :disabled="spaceBusy || !newSpace.label.trim() || !newSpace.space_type"
-                        class="text-xs font-semibold rounded-md text-white px-3 py-1.5" style="background:var(--brand-button,#0ea5e9);"
-                        x-text="spaceBusy ? 'Adding…' : 'Add space'"></button>
-            </form>
-            <p x-show="spaceError" x-cloak class="text-xs pt-1" style="color:#ef4444;" x-text="spaceError"></p>
-        </div>
+            @else
+                @if(in_array($inventory->status, ['completed', 'cancelled']))
+                    <div class="rounded-md p-3 text-xs" style="background: var(--surface-2); color: var(--text-secondary);">
+                        This inventory is {{ $inventory->status }} and read-only here.
+                        <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="font-semibold" style="color: var(--brand-button,#0ea5e9);">Open the full record</a>
+                        @if($inventory->status === 'completed')
+                            for signatures and the move-out comparison.
+                        @endif
+                    </div>
+                @else
+                    <div class="flex items-center justify-end">
+                        <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Signatures &amp; complete →</a>
+                    </div>
+                @endif
 
-        {{-- §13 — "Copy from last inventory." Only rendered when the server
-             confirmed a prior inventory genuinely exists for this property
-             (RentalInventory::priorInventory()) — the endpoint is the real
-             gate either way, this just avoids offering a control that can
-             only ever 404. --}}
-        @if($hasPriorInventory)
-        <div class="flex items-center justify-between gap-2 rounded-md p-3" style="background: var(--surface-2);">
-            <p class="text-xs" style="color: var(--text-secondary);">This property has an earlier inventory on record.</p>
-            <button type="button" :disabled="copyBusy" @click="copyFromLastInventory()"
-                    class="text-xs font-semibold rounded-md px-3 py-1.5 shrink-0" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
-                    x-text="copyBusy ? 'Copying…' : 'Copy from last inventory'"></button>
-        </div>
-        <p x-show="copyError" x-cloak class="text-xs" style="color:#ef4444;" x-text="copyError"></p>
-        @endif
-
-        {{-- §13 — the room strip: a horizontal, NEVER-wrapping row of chips,
-             one per room, each carrying a status dot (captured / part done /
-             not opened — roomStatus() below). Clicking a chip switches the
-             single active-room panel beneath it; this REPLACES the previous
-             all-rooms-open accordion list entirely (§0c/§0b), not
-             alongside it. overflow-x-auto + flex-nowrap is the whole
-             mechanism — no custom scroller, same as every other horizontal
-             strip already on this page (photo galleries, below). --}}
-        <div x-show="rooms.length" class="flex items-center gap-2 overflow-x-auto pb-1" style="flex-wrap:nowrap;">
-            <template x-for="room in rooms" :key="room.id">
-                {{-- Same :style clobber trap as the dot below — the
-                     "never wraps" white-space rule has to live INSIDE the
-                     one bound :style expression, not as a co-located
-                     static style="..." on this same button. --}}
-                <button type="button" @click="selectRoom(room.id)"
-                        class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full shrink-0"
-                        :style="(room.id === activeRoomId ? 'background:var(--brand-button,#0ea5e9); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary);') + ' white-space:nowrap;'">
-                    {{-- Alpine's :style clobber trap (rental-inspections.md
-                         §22.3b): a bound :style REPLACES the whole style
-                         attribute on every reactive render, so a co-located
-                         static style="..." on the same tag silently
-                         disappears the moment the binding evaluates. The
-                         fixed 8x8 size lives INSIDE the one bound
-                         expression instead, never as a separate static
-                         attribute on this tag. --}}
-                    <span class="rounded-full shrink-0" :style="'width:8px; height:8px; background:' + roomStatusColor(room.id) + ';'"></span>
-                    <span x-text="room.label"></span>
-                </button>
-            </template>
-        </div>
-
-        {{-- The single active room's content — everything below is scoped
-             to ONE room at a time now, never several stacked accordions. --}}
-        <template x-if="activeRoom()">
-            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" :data-room-id="activeRoomId">
-                <div class="flex items-center justify-between gap-2">
-                    <h2 class="text-sm font-semibold" x-text="activeRoom().label"></h2>
-                    <span class="text-xs shrink-0" style="color: var(--text-muted);" x-text="linesFor(activeRoomId).length + ' item' + (linesFor(activeRoomId).length === 1 ? '' : 's')"></span>
-                </div>
-
-                {{-- §13.9 — one column header row per room, labelling the
-                     grid columns below so they're not repeated per line;
-                     desktop only (.inv-header-row is display:none below
-                     1024px, since mobile wraps to 2 lines and a header
-                     wouldn't line up with either). The blank 5th cell keeps
-                     it aligned with the actions column, which has no label. --}}
-                <div class="inv-header-row" aria-hidden="true">
-                    <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Qty</span>
-                    <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Description</span>
-                    <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Condition</span>
-                    <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Photos</span>
-                    <span></span>
-                </div>
-
-                {{-- Line items. §0b+2026-09-26 — every committed line is a
-                     live grid cell (arrow-key navigation, onCellKeydown()
-                     below). §13.9 — qty/description/condition-chips/photo-
-                     strip/actions now sit on ONE row on desktop (.inv-line,
-                     >=1024px), wrapping to 2 lines only below that — see
-                     the <style> block above. The separate "(N photos)" text
-                     next to the description is dropped; the strip already
-                     shows the photos, with a small "N×" badge only when the
-                     strip has more photos than comfortably fit (>3). --}}
-                <div>
-                    <template x-for="line in linesFor(activeRoomId)" :key="line.id">
-                        <div class="inv-line text-sm">
-                            {{-- No inline width:100% here (unlike the old
-                                 markup) — that would set an explicit `width`
-                                 on the element, which flexbox's flex-basis:
-                                 auto then reads as this item's flex-basis,
-                                 forcing it to claim the WHOLE mobile flex
-                                 line width and wrap. The .inv-cell-qty/-desc
-                                 classes own sizing in both layouts now. --}}
-                            <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="line.quantity"
-                                   class="prop-input inv-cell-qty"
-                                   :data-row="'line-' + line.id" data-cell="qty"
-                                   @keydown="onCellKeydown($event, activeRoom(), 'line', line, 'qty')"
-                                   @blur="commitRow(activeRoom(), 'line', line)">
-
-                            <input type="text" x-model="line.description"
-                                   class="prop-input inv-cell-desc"
-                                   :data-row="'line-' + line.id" data-cell="description"
-                                   @keydown="onCellKeydown($event, activeRoom(), 'line', line, 'description')"
-                                   @blur="commitRow(activeRoom(), 'line', line)">
-
-                            {{-- Forces the mobile line-break before chips —
-                                 see .inv-linebreak in the <style> block for
-                                 why this can't just be flex-basis:100% on
-                                 .inv-cell-chips itself. --}}
-                            <div class="inv-linebreak" aria-hidden="true"></div>
-
-                            {{-- §13 — condition chips, the agency-configurable
-                                 move-in vocabulary. A plain click sets it —
-                                 no separate save step, matching every other
-                                 control on this page. --}}
-                            <div class="inv-cell-chips">
-                                <template x-for="state in conditionStates" :key="state.key">
-                                    <button type="button" tabindex="-1" @click="setLineCondition(line, state.key)"
-                                            class="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
-                                            :style="line.condition_key === state.key ? 'background:var(--brand-button,#0ea5e9); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary);'"
-                                            x-text="state.label"></button>
-                                </template>
-                            </div>
-
-                            {{-- §13, Johan's approved mockup — "Photos are a
-                                 horizontal strip on the line, and a photo
-                                 uploads THE MOMENT it is selected. No
-                                 staging, ever." A bare file input behind a
-                                 "+" tile, same reasoning as every other
-                                 immediate-upload control on this page: the
-                                 native file picker is free, no custom camera
-                                 UI needed. Uploads AND tags to this line in
-                                 ONE request (storePhotos() with
-                                 rental_inventory_line_id) — never a
-                                 stage-then-tag two-step. §13.9 — thumbnails
-                                 shrunk 44px -> 36px to fit the row; the
-                                 strip itself scrolls (overflow-x-auto) when
-                                 there are more photos than fit, and a "N×"
-                                 badge appears alongside it past 3 photos as
-                                 an at-a-glance overflow signal. --}}
-                            <div class="inv-cell-photos">
-                                <span x-show="photosForLine(line).length > 3" x-cloak class="text-[10px] font-semibold shrink-0" style="color: var(--text-muted);" x-text="photosForLine(line).length + '×'"></span>
-                                <template x-for="photo in photosForLine(line)" :key="photo.id">
-                                    <img :src="photo.storage_path" class="rounded-md object-cover shrink-0" style="width:36px; height:36px; background:var(--surface-3);" alt="Item photo">
-                                </template>
-                                <label class="flex items-center justify-center rounded-md cursor-pointer shrink-0" style="width:36px; height:36px; background:var(--surface-2); border:1px dashed var(--border); font-size:14px; color:var(--text-muted);">
-                                    <span>+</span>
-                                    <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" tabindex="-1"
-                                           @change="uploadPhotoToLine(line, $event.target.files); $event.target.value=''">
-                                </label>
-                            </div>
-
-                            <div class="inv-cell-actions">
-                                {{-- tabindex="-1" on both: mouse-clickable, never a Tab/keyboard stop (§2 of the grid spec). --}}
-                                <button type="button" tabindex="-1" x-show="photoUploader().roomPhotos(activeRoomId).length" @click="openTagger(line)" class="text-xs font-semibold shrink-0" style="color: var(--brand-button,#0ea5e9);">Tag photo</button>
-                                <button type="button" tabindex="-1" @click="retireLine(line)" class="text-xs font-semibold shrink-0" style="color: var(--ds-crimson,#c41e3a);">Remove</button>
-                            </div>
-                        </div>
+                {{-- Add space — Johan: "we specced inventory being blank then you can
+                     create the spaces same as with inspections." Same write path
+                     the Inspection Items section's own "Space (new room)" control
+                     uses (RentalInspectionRecordingController::storeItem(), kind=
+                     space) — a room created here is the SAME PropertyRoom row
+                     inspections sees, not a second space model. Always available,
+                     not just when blank — an agent adds more spaces as the walk-
+                     through finds them, same as on the inspection side. --}}
+                <div class="rounded-md p-3" style="background: var(--surface-2);">
+                    <template x-if="!rooms.length">
+                        <p class="text-xs pb-2" style="color: var(--text-secondary);">
+                            This property has no spaces set up yet — add the first one below. Inventory and Inspections share the same room list.
+                        </p>
                     </template>
-                    <div x-show="!linesFor(activeRoomId).length" class="flex items-center justify-between gap-2 py-1">
-                        <p class="text-xs" style="color: var(--text-muted);">No items yet.</p>
-                        {{-- §12 — the room-level counterpart to a line: an
-                             explicit "I checked, there's nothing here"
-                             confirmation, the same shape as rental-
-                             inspections' "Mark room N/A". Only offered
-                             while the room genuinely has no items — once
-                             a real item exists the room already satisfies
-                             the completion gate through that line, and
-                             marking it empty too would just be
-                             contradictory. No "unmark": same one-way
-                             shape as inspections' own control. --}}
-                        <template x-if="!isRoomMarkedEmpty(activeRoomId)">
-                            <button type="button" tabindex="-1" :disabled="markRoomBusy[activeRoomId]"
-                                    @click="markRoomEmpty(activeRoom())"
-                                    class="text-xs font-semibold shrink-0" style="color: var(--text-secondary);"
-                                    x-text="markRoomBusy[activeRoomId] ? 'Marking…' : 'Nothing in this room'"></button>
-                        </template>
-                        <template x-if="isRoomMarkedEmpty(activeRoomId)">
-                            <span class="text-xs font-semibold shrink-0" style="color: var(--ds-green,#16a34a);">&#10003; Nothing in this room</span>
-                        </template>
-                    </div>
+                    <form @submit.prevent="addSpace()" class="flex items-end gap-2 flex-wrap">
+                        <div>
+                            <label class="text-xs font-semibold block" style="color: var(--text-secondary);">Room type</label>
+                            <select x-model="newSpace.space_type" class="prop-input" style="max-width:11rem;">
+                                <option value="">Room type…</option>
+                                @foreach($spaceTypes as $spaceType)
+                                    <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="flex-1" style="min-width:10rem;">
+                            <label class="text-xs font-semibold block" style="color: var(--text-secondary);">Name</label>
+                            <input type="text" x-model="newSpace.label" placeholder="e.g. Bedroom 1" maxlength="191"
+                                   class="prop-input w-full" @keydown.enter.prevent="addSpace()">
+                        </div>
+                        <button type="submit" :disabled="spaceBusy || !newSpace.label.trim() || !newSpace.space_type"
+                                class="text-xs font-semibold rounded-md text-white px-3 py-1.5" style="background:var(--brand-button,#0ea5e9);"
+                                x-text="spaceBusy ? 'Adding…' : 'Add space'"></button>
+                    </form>
+                    <p x-show="spaceError" x-cloak class="text-xs pt-1" style="color:#ef4444;" x-text="spaceError"></p>
                 </div>
 
-                {{-- Add line — spreadsheet-grid capture (Johan,
-                     2026-09-25/26), §13: ALWAYS open, already ready to type
-                     into — no "add item" click ever stands between the
-                     agent and a blank line. See onCellKeydown() for the
-                     full contract (Tab/Enter/→-at-end commits and moves to
-                     the next row's qty; ←-at-start moves to the previous
-                     row's description; ↑/↓ always move a row in the same
-                     column). This row is always the blank bottom row —
-                     committing resets it in place SYNCHRONOUSLY, before the
-                     save request resolves, so a fast typist filling the
-                     next row never races their own in-flight save. --}}
-                {{-- §13.9 — reuses .inv-line so its Qty/Description columns
-                     line up exactly under the committed lines above (and
-                     under the header row); it has no chips/photos cells,
-                     but the explicit grid-column placement on qty/desc/
-                     actions (not auto-placement) keeps them aligned to the
-                     same columns regardless. --}}
-                <form @submit.prevent="commitDraftRow(activeRoom())" class="inv-line" style="padding-top:0.5rem;">
-                    <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="newLine[activeRoomId].quantity" placeholder="Qty"
-                           class="prop-input inv-cell-qty"
-                           data-row="draft" data-cell="qty"
-                           @keydown="onCellKeydown($event, activeRoom(), 'draft', null, 'qty')"
-                           @blur="commitRow(activeRoom(), 'draft', null)">
-                    <input type="text" x-model="newLine[activeRoomId].description" placeholder="e.g. White wooden headboard"
-                           class="prop-input inv-cell-desc"
-                           data-row="draft" data-cell="description"
-                           @keydown="onCellKeydown($event, activeRoom(), 'draft', null, 'description')"
-                           @blur="commitRow(activeRoom(), 'draft', null)">
-                    <div class="inv-cell-actions">
-                        <button type="submit" tabindex="-1" :disabled="lineBusy[activeRoomId]"
-                                class="text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9); padding:0.375rem 0.75rem;">Add</button>
-                    </div>
-                </form>
-                {{-- §7 — quiet, in-place feedback, never a toast: a
-                     one-line fade that disappears on its own. --}}
-                <p x-show="lineSavedFlash[activeRoomId]" x-cloak x-transition.opacity.duration.400ms
-                   class="text-xs" style="color:#16a34a;">&#10003; Saved</p>
-                <p x-show="lineSaveError[activeRoomId]" x-cloak
-                   class="text-xs" style="color:var(--ds-crimson,#c41e3a);">Couldn't save that item — check your connection and try again.</p>
+                {{-- §13 — "Copy from last inventory." Only rendered when the server
+                     confirmed a prior inventory genuinely exists for this property
+                     (RentalInventory::priorInventory()) — the endpoint is the real
+                     gate either way, this just avoids offering a control that can
+                     only ever 404. --}}
+                @if($hasPriorInventory)
+                <div class="flex items-center justify-between gap-2 rounded-md p-3" style="background: var(--surface-2);">
+                    <p class="text-xs" style="color: var(--text-secondary);">This property has an earlier inventory on record.</p>
+                    <button type="button" :disabled="copyBusy" @click="copyFromLastInventory()"
+                            class="text-xs font-semibold rounded-md px-3 py-1.5 shrink-0" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                            x-text="copyBusy ? 'Copying…' : 'Copy from last inventory'"></button>
+                </div>
+                <p x-show="copyError" x-cloak class="text-xs" style="color:#ef4444;" x-text="copyError"></p>
+                @endif
 
-                {{-- Room-level general photos — unchanged from before this
-                     pass: photos of the room overall, not tied to any one
-                     item (a different concept from the per-line strips
-                     above, which §13 adds alongside this, not instead of
-                     it — the many-to-many line-photo tag still needs a pool
-                     of untagged/general photos to tag FROM via the modal
-                     below). §4a: adopts the SAME batched uploader and the
-                     SAME gallery-sized, count-clipped layout rental-
-                     inspections settled on. --}}
-                <div class="pt-2 space-y-1" style="border-top:1px solid var(--border);">
-                    <template x-if="photoUploader().roomPhotos(activeRoomId).length">
-                        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                            <template x-for="photo in (roomPhotosExpanded[activeRoomId] ? photoUploader().roomPhotos(activeRoomId) : photoUploader().roomPhotos(activeRoomId).slice(0, 3))" :key="photo.id">
-                                <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
-                                    <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer" @click="openTaggerForPhoto(activeRoom(), photo)" alt="Room photo">
-                                    <span x-show="photo.lines && photo.lines.length" class="absolute top-0.5 left-0.5 text-[10px] font-bold text-white rounded-full flex items-center justify-center" style="width:16px; height:16px; background:var(--brand-button,#0ea5e9);" x-text="photo.lines.length"></span>
-                                    <button type="button" tabindex="-1" @click.stop="if (confirm('Archive this photo?')) photoUploader().archivePhoto(photo.id)"
-                                            class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
-                                            style="background:var(--ds-crimson,#c41e3a); color:#fff; line-height:1;" title="Archive">&times;</button>
+                {{-- §13.11 — every room stacked down the page, in the SAME
+                     order the pill strip lists them. Each panel is
+                     addressable by id (room-panel-N) for the pill strip's
+                     scrollToRoom() and the scrollspy observer below. --}}
+                <div class="space-y-4">
+                    <template x-for="room in rooms" :key="room.id">
+                        <div class="inv-room-panel rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);"
+                             :id="'room-panel-' + room.id" :data-room-id="room.id">
+                            <div class="flex items-center justify-between gap-2">
+                                <h2 class="text-sm font-semibold" x-text="room.label"></h2>
+                                <span class="text-xs shrink-0" style="color: var(--text-muted);" x-text="linesFor(room.id).length + ' item' + (linesFor(room.id).length === 1 ? '' : 's')"></span>
+                            </div>
+
+                            {{-- §13.9 — one column header row per room, labelling the
+                                 grid columns below so they're not repeated per line;
+                                 desktop only (.inv-header-row is display:none below
+                                 1024px, since mobile wraps to 2 lines and a header
+                                 wouldn't line up with either). The blank 5th cell keeps
+                                 it aligned with the actions column, which has no label. --}}
+                            <div class="inv-header-row" aria-hidden="true">
+                                <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Qty</span>
+                                <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Description</span>
+                                <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Condition</span>
+                                <span class="text-[11px] font-semibold uppercase" style="color: var(--text-muted); letter-spacing:0.02em;">Photos</span>
+                                <span></span>
+                            </div>
+
+                            {{-- Line items. §0b+2026-09-26 — every committed line is a
+                                 live grid cell (arrow-key navigation, onCellKeydown()
+                                 below). §13.9 — qty/description/condition-chips/photo-
+                                 strip/actions now sit on ONE row on desktop (.inv-line,
+                                 >=1024px), wrapping to 2 lines only below that — see
+                                 the <style> block above. The separate "(N photos)" text
+                                 next to the description is dropped; the strip already
+                                 shows the photos, with a small "N×" badge only when the
+                                 strip has more photos than comfortably fit (>3). --}}
+                            <div>
+                                <template x-for="line in linesFor(room.id)" :key="line.id">
+                                    <div class="inv-line text-sm">
+                                        {{-- No inline width:100% here (unlike the old
+                                             markup) — that would set an explicit `width`
+                                             on the element, which flexbox's flex-basis:
+                                             auto then reads as this item's flex-basis,
+                                             forcing it to claim the WHOLE mobile flex
+                                             line width and wrap. The .inv-cell-qty/-desc
+                                             classes own sizing in both layouts now. --}}
+                                        <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="line.quantity"
+                                               class="prop-input inv-cell-qty"
+                                               :data-row="'line-' + line.id" data-cell="qty"
+                                               @keydown="onCellKeydown($event, room, 'line', line, 'qty')"
+                                               @blur="commitRow(room, 'line', line)">
+
+                                        <input type="text" x-model="line.description"
+                                               class="prop-input inv-cell-desc"
+                                               :data-row="'line-' + line.id" data-cell="description"
+                                               @keydown="onCellKeydown($event, room, 'line', line, 'description')"
+                                               @blur="commitRow(room, 'line', line)">
+
+                                        {{-- Forces the mobile line-break before chips —
+                                             see .inv-linebreak in the <style> block for
+                                             why this can't just be flex-basis:100% on
+                                             .inv-cell-chips itself. --}}
+                                        <div class="inv-linebreak" aria-hidden="true"></div>
+
+                                        {{-- §13 — condition chips, the agency-configurable
+                                             move-in vocabulary. A plain click sets it —
+                                             no separate save step, matching every other
+                                             control on this page. --}}
+                                        <div class="inv-cell-chips">
+                                            <template x-for="state in conditionStates" :key="state.key">
+                                                <button type="button" tabindex="-1" @click="setLineCondition(line, state.key)"
+                                                        class="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
+                                                        :style="line.condition_key === state.key ? 'background:var(--brand-button,#0ea5e9); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary);'"
+                                                        x-text="state.label"></button>
+                                            </template>
+                                        </div>
+
+                                        {{-- §13, Johan's approved mockup — "Photos are a
+                                             horizontal strip on the line, and a photo
+                                             uploads THE MOMENT it is selected. No
+                                             staging, ever." A bare file input behind a
+                                             "+" tile, same reasoning as every other
+                                             immediate-upload control on this page: the
+                                             native file picker is free, no custom camera
+                                             UI needed. Uploads AND tags to this line in
+                                             ONE request (storePhotos() with
+                                             rental_inventory_line_id) — never a
+                                             stage-then-tag two-step. §13.9 — thumbnails
+                                             shrunk 44px -> 36px to fit the row; the
+                                             strip itself scrolls (overflow-x-auto) when
+                                             there are more photos than fit, and a "N×"
+                                             badge appears alongside it past 3 photos as
+                                             an at-a-glance overflow signal. --}}
+                                        <div class="inv-cell-photos">
+                                            <span x-show="photosForLine(line).length > 3" x-cloak class="text-[10px] font-semibold shrink-0" style="color: var(--text-muted);" x-text="photosForLine(line).length + '×'"></span>
+                                            <template x-for="photo in photosForLine(line)" :key="photo.id">
+                                                <img :src="photo.storage_path" class="rounded-md object-cover shrink-0" style="width:36px; height:36px; background:var(--surface-3);" alt="Item photo">
+                                            </template>
+                                            <label class="flex items-center justify-center rounded-md cursor-pointer shrink-0" style="width:36px; height:36px; background:var(--surface-2); border:1px dashed var(--border); font-size:14px; color:var(--text-muted);">
+                                                <span>+</span>
+                                                <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" tabindex="-1"
+                                                       @change="uploadPhotoToLine(line, $event.target.files); $event.target.value=''">
+                                            </label>
+                                        </div>
+
+                                        <div class="inv-cell-actions">
+                                            {{-- tabindex="-1" on both: mouse-clickable, never a Tab/keyboard stop (§2 of the grid spec). --}}
+                                            <button type="button" tabindex="-1" x-show="photoUploader().roomPhotos(room.id).length" @click="openTagger(line)" class="text-xs font-semibold shrink-0" style="color: var(--brand-button,#0ea5e9);">Tag photo</button>
+                                            <button type="button" tabindex="-1" @click="retireLine(line)" class="text-xs font-semibold shrink-0" style="color: var(--ds-crimson,#c41e3a);">Remove</button>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div x-show="!linesFor(room.id).length" class="flex items-center justify-between gap-2 py-1">
+                                    <p class="text-xs" style="color: var(--text-muted);">No items yet.</p>
+                                    {{-- §12 — the room-level counterpart to a line: an
+                                         explicit "I checked, there's nothing here"
+                                         confirmation, the same shape as rental-
+                                         inspections' "Mark room N/A". Only offered
+                                         while the room genuinely has no items — once
+                                         a real item exists the room already satisfies
+                                         the completion gate through that line, and
+                                         marking it empty too would just be
+                                         contradictory. No "unmark": same one-way
+                                         shape as inspections' own control. --}}
+                                    <template x-if="!isRoomMarkedEmpty(room.id)">
+                                        <button type="button" tabindex="-1" :disabled="markRoomBusy[room.id]"
+                                                @click="markRoomEmpty(room)"
+                                                class="text-xs font-semibold shrink-0" style="color: var(--text-secondary);"
+                                                x-text="markRoomBusy[room.id] ? 'Marking…' : 'Nothing in this room'"></button>
+                                    </template>
+                                    <template x-if="isRoomMarkedEmpty(room.id)">
+                                        <span class="text-xs font-semibold shrink-0" style="color: var(--ds-green,#16a34a);">&#10003; Nothing in this room</span>
+                                    </template>
                                 </div>
-                            </template>
-                        </div>
-                    </template>
-                    <div class="flex items-center gap-2 flex-wrap pt-1">
-                        <button type="button" tabindex="-1" x-show="photoUploader().roomPhotos(activeRoomId).length > 3"
-                                @click="roomPhotosExpanded[activeRoomId] = !roomPhotosExpanded[activeRoomId]"
-                                class="text-xs font-semibold underline" style="color:var(--text-secondary);"
-                                x-text="roomPhotosExpanded[activeRoomId] ? 'Show less' : ('Show all ' + photoUploader().roomPhotos(activeRoomId).length)"></button>
-                        <label class="text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer inline-flex items-center gap-1" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
-                            <span>&#128247;</span>
-                            <span>Add photo(s)</span>
-                            <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" @change="photoUploader().uploadFiles($event.target.files, { property_room_id: activeRoomId }); $event.target.value = ''">
-                        </label>
-                    </div>
-                    {{-- Same batch progress/retry rows as the inspections
-                         recording surface — real upload-progress percent,
-                         a batch that fails is independently retryable. --}}
-                    <template x-for="(batch, idx) in photoUploader().uploadBatches.filter(b => b.status !== 'done' && b.extraFields && Number(b.extraFields.property_room_id) === Number(activeRoomId))" :key="idx">
-                        <div class="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md"
-                             :style="batch.status === 'failed' ? 'background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);' : 'background:var(--surface-2);'">
-                            <span :style="batch.status === 'failed' ? 'color:var(--ds-crimson);' : 'color:var(--text-secondary);'"
-                                  x-text="batch.status === 'failed' ? (batch.files.length + ' photo(s) failed — ' + batch.error) : ('Uploading ' + batch.files.length + ' photo(s)… ' + (batch.percent || 0) + '%')"></span>
-                            <button type="button" tabindex="-1" x-show="batch.status === 'failed'" @click="photoUploader().retryBatch(batch)"
-                                    class="text-xs font-semibold underline" style="color:var(--text-secondary);">Retry</button>
-                        </div>
-                    </template>
-                </div>
-            </div>
-        </template>
+                            </div>
 
-        {{-- Tag-to-photo picker — opened per line or per photo; toggling a
-             checkbox tags/untags immediately, same autosave rule as everywhere
-             else on this page. --}}
-        <div x-show="tagger.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style="background: rgba(0,0,0,0.5);" @click.self="tagger.open = false">
-            <div class="w-full sm:max-w-sm rounded-t-lg sm:rounded-lg p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border); max-height: 80vh; overflow-y: auto;">
-                <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold">Tag to a photo</h3>
-                    <button type="button" @click="tagger.open = false" class="text-xs" style="color: var(--text-muted);">Close</button>
+                            {{-- Add line — spreadsheet-grid capture (Johan,
+                                 2026-09-25/26), §13: ALWAYS open, already ready to type
+                                 into — no "add item" click ever stands between the
+                                 agent and a blank line. See onCellKeydown() for the
+                                 full contract (Tab/Enter/→-at-end commits and moves to
+                                 the next row's qty; ←-at-start moves to the previous
+                                 row's description; ↑/↓ always move a row in the same
+                                 column). This row is always the blank bottom row —
+                                 committing resets it in place SYNCHRONOUSLY, before the
+                                 save request resolves, so a fast typist filling the
+                                 next row never races their own in-flight save. §13.9 —
+                                 reuses .inv-line so its Qty/Description columns line up
+                                 exactly under the committed lines above (and under the
+                                 header row); it has no chips/photos cells, but the
+                                 explicit grid-column placement on qty/desc/actions (not
+                                 auto-placement) keeps them aligned to the same columns
+                                 regardless. --}}
+                            <form @submit.prevent="commitDraftRow(room)" class="inv-line" style="padding-top:0.5rem;">
+                                <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="newLine[room.id].quantity" placeholder="Qty"
+                                       class="prop-input inv-cell-qty"
+                                       data-row="draft" data-cell="qty"
+                                       @keydown="onCellKeydown($event, room, 'draft', null, 'qty')"
+                                       @blur="commitRow(room, 'draft', null)">
+                                <input type="text" x-model="newLine[room.id].description" placeholder="e.g. White wooden headboard"
+                                       class="prop-input inv-cell-desc"
+                                       data-row="draft" data-cell="description"
+                                       @keydown="onCellKeydown($event, room, 'draft', null, 'description')"
+                                       @blur="commitRow(room, 'draft', null)">
+                                <div class="inv-cell-actions">
+                                    <button type="submit" tabindex="-1" :disabled="lineBusy[room.id]"
+                                            class="text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9); padding:0.375rem 0.75rem;">Add</button>
+                                </div>
+                            </form>
+                            {{-- §7 — quiet, in-place feedback, never a toast: a
+                                 one-line fade that disappears on its own. --}}
+                            <p x-show="lineSavedFlash[room.id]" x-cloak x-transition.opacity.duration.400ms
+                               class="text-xs" style="color:#16a34a;">&#10003; Saved</p>
+                            <p x-show="lineSaveError[room.id]" x-cloak
+                               class="text-xs" style="color:var(--ds-crimson,#c41e3a);">Couldn't save that item — check your connection and try again.</p>
+
+                            {{-- Room-level general photos — unchanged from before this
+                                 pass: photos of the room overall, not tied to any one
+                                 item (a different concept from the per-line strips
+                                 above, which §13 adds alongside this, not instead of
+                                 it — the many-to-many line-photo tag still needs a pool
+                                 of untagged/general photos to tag FROM via the modal
+                                 below). §4a: adopts the SAME batched uploader and the
+                                 SAME gallery-sized, count-clipped layout rental-
+                                 inspections settled on. --}}
+                            <div class="pt-2 space-y-1" style="border-top:1px solid var(--border);">
+                                <template x-if="photoUploader().roomPhotos(room.id).length">
+                                    <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                                        <template x-for="photo in (roomPhotosExpanded[room.id] ? photoUploader().roomPhotos(room.id) : photoUploader().roomPhotos(room.id).slice(0, 3))" :key="photo.id">
+                                            <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
+                                                <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer" @click="openTaggerForPhoto(room, photo)" alt="Room photo">
+                                                <span x-show="photo.lines && photo.lines.length" class="absolute top-0.5 left-0.5 text-[10px] font-bold text-white rounded-full flex items-center justify-center" style="width:16px; height:16px; background:var(--brand-button,#0ea5e9);" x-text="photo.lines.length"></span>
+                                                <button type="button" tabindex="-1" @click.stop="if (confirm('Archive this photo?')) photoUploader().archivePhoto(photo.id)"
+                                                        class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
+                                                        style="background:var(--ds-crimson,#c41e3a); color:#fff; line-height:1;" title="Archive">&times;</button>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                <div class="flex items-center gap-2 flex-wrap pt-1">
+                                    <button type="button" tabindex="-1" x-show="photoUploader().roomPhotos(room.id).length > 3"
+                                            @click="roomPhotosExpanded[room.id] = !roomPhotosExpanded[room.id]"
+                                            class="text-xs font-semibold underline" style="color:var(--text-secondary);"
+                                            x-text="roomPhotosExpanded[room.id] ? 'Show less' : ('Show all ' + photoUploader().roomPhotos(room.id).length)"></button>
+                                    <label class="text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer inline-flex items-center gap-1" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
+                                        <span>&#128247;</span>
+                                        <span>Add photo(s)</span>
+                                        <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" @change="photoUploader().uploadFiles($event.target.files, { property_room_id: room.id }); $event.target.value = ''">
+                                    </label>
+                                </div>
+                                {{-- Same batch progress/retry rows as the inspections
+                                     recording surface — real upload-progress percent,
+                                     a batch that fails is independently retryable. --}}
+                                <template x-for="(batch, idx) in photoUploader().uploadBatches.filter(b => b.status !== 'done' && b.extraFields && Number(b.extraFields.property_room_id) === Number(room.id))" :key="idx">
+                                    <div class="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded-md"
+                                         :style="batch.status === 'failed' ? 'background:color-mix(in srgb, var(--ds-crimson) 10%, transparent);' : 'background:var(--surface-2);'">
+                                        <span :style="batch.status === 'failed' ? 'color:var(--ds-crimson);' : 'color:var(--text-secondary);'"
+                                              x-text="batch.status === 'failed' ? (batch.files.length + ' photo(s) failed — ' + batch.error) : ('Uploading ' + batch.files.length + ' photo(s)… ' + (batch.percent || 0) + '%')"></span>
+                                        <button type="button" tabindex="-1" x-show="batch.status === 'failed'" @click="photoUploader().retryBatch(batch)"
+                                                class="text-xs font-semibold underline" style="color:var(--text-secondary);">Retry</button>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
                 </div>
-                <template x-if="tagger.mode === 'line'">
-                    <div class="flex flex-wrap gap-2">
-                        <template x-for="photo in tagger.photos" :key="photo.id">
-                            <button type="button" @click="toggleTag(tagger.line, photo)" class="relative shrink-0" style="width:64px; height:64px;">
-                                <img :src="photo.storage_path" class="w-full h-full object-cover rounded-md" :style="isTagged(tagger.line, photo) ? 'border:2px solid var(--brand-button,#0ea5e9);' : 'border:1px solid var(--border);'" alt="Room photo">
-                            </button>
+
+                {{-- Tag-to-photo picker — opened per line or per photo; toggling a
+                     checkbox tags/untags immediately, same autosave rule as everywhere
+                     else on this page. --}}
+                <div x-show="tagger.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style="background: rgba(0,0,0,0.5);" @click.self="tagger.open = false">
+                    <div class="w-full sm:max-w-sm rounded-t-lg sm:rounded-lg p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border); max-height: 80vh; overflow-y: auto;">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold">Tag to a photo</h3>
+                            <button type="button" @click="tagger.open = false" class="text-xs" style="color: var(--text-muted);">Close</button>
+                        </div>
+                        <template x-if="tagger.mode === 'line'">
+                            <div class="flex flex-wrap gap-2">
+                                <template x-for="photo in tagger.photos" :key="photo.id">
+                                    <button type="button" @click="toggleTag(tagger.line, photo)" class="relative shrink-0" style="width:64px; height:64px;">
+                                        <img :src="photo.storage_path" class="w-full h-full object-cover rounded-md" :style="isTagged(tagger.line, photo) ? 'border:2px solid var(--brand-button,#0ea5e9);' : 'border:1px solid var(--border);'" alt="Room photo">
+                                    </button>
+                                </template>
+                            </div>
+                        </template>
+                        <template x-if="tagger.mode === 'photo'">
+                            <div class="space-y-1">
+                                <template x-for="line in tagger.lines" :key="line.id">
+                                    <label class="flex items-center gap-2 py-1 text-sm">
+                                        <input type="checkbox" :checked="isTagged(line, tagger.photo)" @change="toggleTag(line, tagger.photo)">
+                                        <span x-text="line.quantity + 'x ' + line.description"></span>
+                                    </label>
+                                </template>
+                                <p x-show="!tagger.lines.length" class="text-xs" style="color: var(--text-muted);">No items in this room yet.</p>
+                            </div>
                         </template>
                     </div>
-                </template>
-                <template x-if="tagger.mode === 'photo'">
-                    <div class="space-y-1">
-                        <template x-for="line in tagger.lines" :key="line.id">
-                            <label class="flex items-center gap-2 py-1 text-sm">
-                                <input type="checkbox" :checked="isTagged(line, tagger.photo)" @change="toggleTag(line, tagger.photo)">
-                                <span x-text="line.quantity + 'x ' + line.description"></span>
-                            </label>
-                        </template>
-                        <p x-show="!tagger.lines.length" class="text-xs" style="color: var(--text-muted);">No items in this room yet.</p>
-                    </div>
-                </template>
-            </div>
+                </div>
+            @endif
         </div>
-    @endif
+    </div>
 </div>
 @endsection
 
@@ -532,17 +619,19 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         markedEmptyRoomIds: new Set(@json($roomMarksForJs).map(m => Number(m.property_room_id))),
         markRoomBusy: {},
 
-        // §13 — exactly one room's content shows at a time, selected from
-        // the chip strip. Replaces the old openRooms/toggleRoom() accordion
-        // state entirely — see the file's own header comment for why this
-        // isn't a second navigation pattern layered on top of the old one.
+        // §13.11 — every room now renders stacked (x-for over `rooms`),
+        // never one room's panel at a time; activeRoomId here means ONLY
+        // "which pill is highlighted," driven by whichever room the agent
+        // last clicked (scrollToRoom()) or, once scrolling starts, by the
+        // scrollspy observer below — never panel visibility. Johan: "it's
+        // not separate tabs, it's just quick navigation to get to that
+        // section."
         activeRoomId: null,
-        selectRoom(id) { this.activeRoomId = id; },
-        activeRoom() { return this.rooms.find(r => r.id === this.activeRoomId) || null; },
-        // Landing room: the first room nobody has opened yet, else the
-        // first one that's part-done, else just the first room — an agent
-        // walking a property should land somewhere that still needs work,
-        // not have to hunt for it themselves.
+        // Initial pill highlight only (the scrollspy observer corrects
+        // this within a frame of real scroll position once it starts
+        // observing) — same "needs attention first" priority as before:
+        // first not-opened room, else first part-done, else just the
+        // first room.
         pickInitialActiveRoom() {
             if (!this.rooms.length) { this.activeRoomId = null; return; }
             const notOpened = this.rooms.find(r => this.roomStatus(r.id) === 'not_opened');
@@ -550,6 +639,18 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
             const partDone = this.rooms.find(r => this.roomStatus(r.id) === 'part_done');
             if (partDone) { this.activeRoomId = partDone.id; return; }
             this.activeRoomId = this.rooms[0].id;
+        },
+        // §13.11 — clicking a pill scrolls to that room's panel and marks
+        // it active immediately (before the scrollspy observer's own
+        // callback would otherwise catch up, which can lag a frame or two
+        // behind a smooth-scroll animation). scroll-margin-top (set via
+        // --inv-sticky-offset, updateStickyOffset() below) is what keeps
+        // the panel's own heading clear of the sticky tab-bar + pill-strip
+        // group above it — scrollIntoView({block:'start'}) respects that
+        // automatically, no manual pixel offset math needed here.
+        scrollToRoom(id) {
+            this.activeRoomId = id;
+            document.getElementById('room-panel-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         },
         // §13 — the chip's status dot. [design call, flagged rather than
         // silently assumed]: Inventory has no per-item checklist the way
@@ -596,12 +697,7 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         // so without this guard both would send an identical, redundant
         // request. Keyed by line id -> the in-flight request's own value
         // signature, not a bare busy boolean, so a GENUINE second edit
-        // (different values) is never suppressed. This SAME mechanism is
-        // also what makes switching rooms via the chip strip safe: Alpine's
-        // x-if tears down the outgoing room's inputs, which the browser
-        // resolves by blurring whatever was focused first — the existing
-        // @blur handlers commit it exactly as if the agent had tabbed away,
-        // with no extra code needed for the room-switch case specifically.
+        // (different values) is never suppressed.
         _pendingLineCommits: {},
         newSpace: { space_type: '', label: '' },
         spaceBusy: false,
@@ -627,6 +723,17 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 this.lineSnapshots[l.id] = { quantity: l.quantity, description: l.description };
             });
             this.pickInitialActiveRoom();
+            // §13.11 — the sticky tab-bar+pill-strip group's REAL rendered
+            // height, published as a CSS custom property so every room
+            // panel's scroll-margin-top (set in the <style> block) stays
+            // correct even if that group's height changes (a longer
+            // property address wrapping to 2 lines, a narrower phone,
+            // etc.) — measured, never guessed. $nextTick because the pill
+            // strip's own x-show/x-for need one render pass to have real
+            // dimensions.
+            this.$nextTick(() => this._updateStickyOffset());
+            window.addEventListener('resize', () => this._updateStickyOffset());
+            this._setupScrollSpy();
             // §11.2 investigation, 2026-09-27 — closing an existing item's
             // edit down to the ONE commit path this grid already had (a
             // Tab/Enter/arrow-boundary keydown) meant leaving the page
@@ -642,6 +749,34 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 if (document.visibilityState === 'hidden') this.flushDirtyLines();
             });
             window.addEventListener('beforeunload', () => this.flushDirtyLines());
+        },
+        _updateStickyOffset() {
+            const el = document.getElementById('inv-sticky-shell');
+            if (el) document.documentElement.style.setProperty('--inv-sticky-offset', el.offsetHeight + 'px');
+        },
+        // §13.11 — "scrolling updates the active pill." rootMargin biases
+        // toward the room panel sitting just below the sticky group (a
+        // generous static -150px top margin, matched loosely to that
+        // group's typical height rather than the exact live value — a
+        // few px of slop here only affects WHICH pill highlights a moment
+        // earlier/later than perfectly exact, never which room's content
+        // shows, so it doesn't need the same precision scroll-margin-top
+        // does) and a -60% bottom margin so a room barely peeking in at
+        // the very bottom of the screen doesn't steal the highlight from
+        // the one actually being read.
+        _setupScrollSpy() {
+            if (!this.rooms.length || typeof IntersectionObserver === 'undefined') return;
+            const observer = new IntersectionObserver((entries) => {
+                const visible = entries.filter(e => e.isIntersecting);
+                if (!visible.length) return;
+                visible.sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+                const id = Number(visible[0].target.dataset.roomId);
+                if (id) this.activeRoomId = id;
+            }, { rootMargin: '-150px 0px -60% 0px', threshold: 0 });
+            this.rooms.forEach(r => {
+                const el = document.getElementById('room-panel-' + r.id);
+                if (el) observer.observe(el);
+            });
         },
         // §11.2 — every existing line whose current value differs from its
         // last-saved snapshot, PLUS any trailing draft row with an
@@ -744,10 +879,15 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 this.rooms.push({ id: room.id, label: room.label });
                 this._initRoomState({ id: room.id });
                 this.newSpace = { space_type: '', label: '' };
-                // A freshly-added space is exactly the "not opened" room the
-                // agent just asked for — land there immediately rather than
-                // leaving whatever was active before.
-                this.activeRoomId = room.id;
+                // §13.11 — a freshly-added space is exactly the "not
+                // opened" room the agent just asked for; scroll to it (its
+                // panel exists in the DOM one tick after this push) rather
+                // than just marking a pill active with nothing visibly
+                // happening.
+                this.$nextTick(() => {
+                    this._setupScrollSpy();
+                    this.scrollToRoom(room.id);
+                });
             } finally {
                 this.spaceBusy = false;
             }

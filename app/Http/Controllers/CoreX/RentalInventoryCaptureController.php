@@ -9,7 +9,9 @@ use App\Models\RentalInventory;
 use App\Models\RentalInventoryLine;
 use App\Models\RentalInventoryPhoto;
 use App\Models\RentalInventorySetting;
+use App\Services\Compliance\MarketingReadinessService;
 use App\Services\Images\PropertyImageStorer;
+use App\Services\Matching\MatchingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -41,6 +43,20 @@ class RentalInventoryCaptureController extends Controller
      */
     public function show(Request $request, Property $property): View
     {
+        // §13.10 — the property shell (header + tab bar) reused verbatim
+        // from PropertyController::show(), not a second computation:
+        // partials/_property-shell-header.blade.php and
+        // _property-shell-tabs.blade.php need exactly these three the same
+        // way that controller already builds them.
+        $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type']);
+        $readinessReport = app(MarketingReadinessService::class)->statusFor($property);
+        try {
+            $allDriveDocs = $property->documents()->with(['documentType', 'contacts'])->get();
+        } catch (\Exception $e) {
+            $allDriveDocs = collect();
+        }
+        $coreMatches = app(MatchingService::class)->matchesForProperty($property);
+
         $inventory = RentalInventory::resolveOrStartFor($property, $request->user());
 
         $rooms = PropertyRoom::where('property_id', $property->id)
@@ -99,6 +115,9 @@ class RentalInventoryCaptureController extends Controller
 
         return view('corex.rental-inventories.capture', [
             'property' => $property,
+            'readinessReport' => $readinessReport,
+            'allDriveDocs' => $allDriveDocs,
+            'coreMatches' => $coreMatches,
             'inventory' => $inventory,
             'rooms' => $rooms,
             'roomsForJs' => $roomsForJs,

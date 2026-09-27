@@ -192,89 +192,15 @@
             $cmpPillFg  = $cmpLive ? '#ffffff' : ($cmpReady ? '#047857' : '#b45309');
         }
     @endphp
-    <div class="prop-identity-strip flex-shrink-0 rounded-md px-3 py-2 flex items-center gap-3 flex-wrap"
-         style="background:var(--surface); border:1px solid var(--border);">
-        <a href="{{ route($backRoute) }}"
-           class="corex-btn-outline text-xs no-underline inline-flex items-center flex-shrink-0"
-           style="padding-left:0.5rem; padding-right:0.5rem;"
-           title="{{ $backLabel }}" aria-label="{{ $backLabel }}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-            <span class="sr-only">{{ $backLabel }}</span>
-        </a>
-
-        <div class="hidden lg:flex items-center gap-3 min-w-0 flex-1">
-            @if($thumb)
-                <img src="{{ $thumb }}" alt="" class="w-10 h-10 rounded object-cover flex-shrink-0">
-            @else
-                <div class="w-10 h-10 rounded flex items-center justify-center flex-shrink-0" style="background:var(--surface-2);">
-                    <svg class="w-5 h-5" style="color:var(--text-muted);opacity:.4;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"/></svg>
-                </div>
-            @endif
-            <div class="min-w-0 flex-1">
-                <div class="flex items-baseline gap-x-2 min-w-0">
-                    @if($hasRealAddr)
-                        <span class="text-sm font-bold leading-snug truncate" style="color:var(--text-primary);" title="{{ $sbAddr }}">{{ $sbAddr }}</span>
-                        @if($property->title)
-                        <span class="text-xs truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</span>
-                        @endif
-                    @else
-                        <span class="text-sm font-bold leading-snug truncate" style="color:var(--text-primary);" title="{{ $property->title }}">{{ $property->title ?: 'New Property' }}</span>
-                    @endif
-                </div>
-                <div class="flex items-center gap-1.5 flex-wrap mt-0.5">
-                    <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $listingTypeLabel }}</span>
-                    <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
-                    @if(!empty($property->status_label))
-                        <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
-                    @endif
-                    @if($property->isPublished())
-                        <span class="ds-badge ds-badge-success">Published</span>
-                    @endif
-
-                    {{-- AT-238 — WHERE THE PAPER LIVES.
-                         The physical file reference, read straight through from the filing
-                         register. The property stores no copy of it: the register owns the
-                         fact, so a re-numbered file cannot leave a stale reference behind
-                         here. An agent standing on the property record can now see which
-                         file to pull without going and looking it up.
-
-                         Several are normal — an OA and an EA are separate documents — so all
-                         of them are shown. A property with no filing shows NOTHING: an empty
-                         chip is clutter, and absence is already the answer. --}}
-                    @if(!$isNew && $property->filings->isNotEmpty())
-                        @foreach($property->filings as $filing)
-                            <span class="ds-badge ds-badge-info"
-                                  title="Physically filed as {{ $filing->full_reference }} ({{ $filing->document_type }}){{ $filing->expiry_date ? ' — mandate expires ' . $filing->expiry_date->format('d M Y') : '' }}. Read live from the Filing Register.">
-                                {{ $filing->document_type }} · {{ $filing->full_reference }}
-                            </span>
-                        @endforeach
-                    @endif
-                    @if(!$isNew)
-                        <span class="text-sm font-bold ml-1" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</span>
-                    @endif
-                </div>
-            </div>
-        </div>
-        <div class="flex-1 lg:hidden"></div>
-
-        @if(!$isNew)
-        <div class="flex items-center gap-2 flex-shrink-0 ml-auto">
-            <button type="button" @click="complianceModalOpen = true"
-                    class="prop-action-btn prop-action-btn-neutral"
-                    title="View compliance gates and go-live status">
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"/></svg>
-                Compliance Status
-                <span class="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded" style="background:{{ $cmpPillBg }}; color:{{ $cmpPillFg }};">{{ $cmpLabel }}</span>
-            </button>
-
-            <button type="submit" form="prop-update-form" data-prop-save
-                    class="prop-action-btn prop-action-btn-success">
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
-                <span class="prop-save-label">Save Changes</span>
-            </button>
-        </div>
-        @endif
-    </div>
+    {{-- Extracted to partials/_property-shell-header.blade.php (2026-09-27,
+         rental-inventory §13.10) so the standalone inventory capture page
+         can show the identical header without a second copy of this
+         markup. Reads $backRoute/$thumb/$listingTypeLabel/$statusLabel/
+         $brandPillStyle/$sbAddr/$hasRealAddr/$isMarketable/$cmpLabel/
+         $cmpPillBg/$cmpPillFg straight from the top-of-file PHP block just
+         above — deliberately left in place here (unmoved), since $thumb
+         and $isMarketable are each read again further down this same file. --}}
+    @include('corex.properties.partials._property-shell-header')
 
     {{-- Flash + validation messages — only take up space when there is one to show. --}}
     @if(session('success') || session('error') || $errors->any())
@@ -1401,78 +1327,13 @@
     @endif
 
     {{-- Tab bar (shared) — sticky at the top of the scrolling tab panel --}}
-        <div class="flex overflow-x-auto sticky top-0 z-10" style="border-bottom:1px solid var(--border); background:var(--surface);"
-             {{-- AT-402 - the Rental tab follows a live listing_type change on a brand-new property. --}}
-             x-data="{ isRentalListing: document.querySelector('[name=listing_type]')?.value === 'rental' }"
-             x-init="document.querySelector('[name=listing_type]')?.addEventListener('change', e => {
-                 isRentalListing = e.target.value === 'rental';
-                 if (!isRentalListing && activeTab === 'rental') activeTab = 'info';
-             })">
-            @foreach([
-                ['key'=>'overview',  'label'=>'Overview'],
-                ['key'=>'info',      'label'=>'Info'],
-                ['key'=>'gallery',   'label'=>'Gallery'],
-                ['key'=>'rental',    'label'=>'Rental'],
-                ['key'=>'inspections', 'label'=>'Inspections'],
-                ['key'=>'inventory', 'label'=>'Inventory'],
-                ['key'=>'contacts',  'label'=>'Contacts'],
-                ['key'=>'notes',     'label'=>'Notes'],
-                ['key'=>'history',   'label'=>'History'],
-                ['key'=>'drive',        'label'=>'Drive'],
-                ['key'=>'intelligence', 'label'=>'Intelligence'],
-                ['key'=>'core-matches', 'label'=>'Core Matches'],
-            ] as $tab)
-            @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
-                @continue
-            @endif
-            @if($tab['key'] === 'inspections' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
-                @continue
-            @endif
-            {{-- .ai/specs/rental-inventory.md §0a — Johan, 2026-09-22: "it
-                 should be on properties, not only rental properties.
-                 inspections are rentals only, not sales." Unlike Inspections
-                 above, never gated on listing_type — every settled property
-                 gets this tab, sale or rental alike. --}}
-            @if($tab['key'] === 'inventory' && $isNew)
-                @continue
-            @endif
-            {{-- AT-402 — a SETTLED (not new, not type-change-pending) sale
-                 property never renders this button at all, not merely hides
-                 it via x-show: with only x-show, the button (and, more to
-                 the point, the tab's whole content panel + its own <form
-                 action="...rental-details...">) was still shipped in every
-                 property's HTML, sale included — just CSS-hidden. Skipped
-                 entirely here, matching the Rental Images tab's own
-                 @continue above. Still rendered (and left reactive via
-                 x-show below) for $isNew/pending, where the type genuinely
-                 isn't settled yet and the button must appear live the
-                 instant Rental is picked, before any save. --}}
-            @if($tab['key'] === 'rental' && !($isNew || $property->listing_type_pending) && strtolower($property->listing_type ?? '') !== 'rental')
-                @continue
-            @endif
-            <button type="button"
-                    data-prop-tab="{{ $tab['key'] }}"
-                    @click="activeTab = '{{ $tab['key'] }}'"
-                    @if($tab['key'] === 'rental') x-show="isRentalListing" x-cloak @endif
-                    :class="'border-b-2'"
-                    :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon); border-color:var(--brand-icon); background:color-mix(in srgb, var(--brand-icon) 6%, transparent);' : 'color:var(--text-secondary); border-color:transparent; background:transparent;'"
-                    class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none">
-                {{ $tab['label'] }}
-                @if(!$isNew && $tab['key'] === 'contacts' && $property->contacts->count())
-                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon) 20%, transparent);color:var(--brand-icon);">{{ $property->contacts->count() }}</span>
-                @endif
-                @if(!$isNew && $tab['key'] === 'notes' && $property->notes->count())
-                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon) 20%, transparent);color:var(--brand-icon);">{{ $property->notes->count() }}</span>
-                @endif
-                @if(!$isNew && $tab['key'] === 'drive' && $allDriveDocs->count())
-                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon) 20%, transparent);color:var(--brand-icon);">{{ $allDriveDocs->count() }}</span>
-                @endif
-                @if(!$isNew && $tab['key'] === 'core-matches' && $coreMatches->count())
-                <span class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--brand-icon) 20%, transparent);color:var(--brand-icon);">{{ $coreMatches->count() }}</span>
-                @endif
-            </button>
-            @endforeach
-        </div>
+        {{-- Extracted to partials/_property-shell-tabs.blade.php (2026-09-27,
+             rental-inventory §13.10) so the standalone inventory capture
+             page can show the identical tab bar (with Inventory active,
+             every other tab a real link) without a second copy of this
+             markup. Default mode='spa' reproduces this page's own
+             Alpine-switch behaviour exactly — nothing here changes. --}}
+        @include('corex.properties.partials._property-shell-tabs')
 
         {{-- ── OVERVIEW TAB ──────────────────────────────────────────────── --}}
         <div x-show="activeTab === 'overview'" x-cloak class="p-6 space-y-6">
