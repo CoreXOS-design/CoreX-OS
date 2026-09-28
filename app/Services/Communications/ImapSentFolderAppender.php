@@ -45,6 +45,26 @@ class ImapSentFolderAppender
      */
     public function append(CommunicationMailbox $mailbox, string $rawMime): array
     {
+        // §42, 2026-09-28, Johan's ruling, HARD RULE — same real-incident
+        // reasoning as PerMailboxMailTransportBuilder's own fix: gated
+        // HERE, first, on environment config (OutboundMailGuard::
+        // isSendingConfirmed() — the hardcoded, override-proof
+        // production/staging allowlist), never on the override-able
+        // isActive() alone, for the same reason a raw IMAP connection
+        // with real credentials is too dangerous to leave standing on an
+        // indirect/overridable check. connect() below (the actual real
+        // socket) is never reached when this returns early.
+        if (! OutboundMailGuard::isSendingConfirmed()) {
+            Log::warning('IMAP SENT-FOLDER APPEND SIMULATED (non-sending environment)', [
+                'app_env' => config('app.env'),
+                'app_url' => config('app.url'),
+                'mailbox_id' => $mailbox->id,
+                'real_imap_host' => $mailbox->imap_host,
+            ]);
+
+            return ['ok' => false, 'reason' => 'simulated', 'detail' => null];
+        }
+
         if (OutboundMailGuard::isActive()) {
             // 2026-09-09 — was 'blocked_non_production', but isActive() can now
             // also be true on production (a super admin forced interception on
