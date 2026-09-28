@@ -46,10 +46,11 @@
             <thead>
                 <tr style="background:var(--surface-2); border-bottom:1px solid var(--border);">
                     <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:4%;">Item</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:22%;">Description</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:12%;">Status</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:18%;">Description</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:10%;">Status</th>
                     <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Why</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:18%;">Remediation</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:16%;">Remediation</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:18%;">Fix it</th>
                 </tr>
             </thead>
             <tbody>
@@ -63,7 +64,18 @@
                             {{ $row->status === 'pending' ? 'Not yet available' : ucfirst($row->status) }}
                         </span>
                     </td>
-                    <td class="px-4 py-3 align-top" style="color:var(--text-secondary);">{{ $row->why }}</td>
+                    <td class="px-4 py-3 align-top" style="color:var(--text-secondary);">
+                        {{ $row->why }}
+                        @if($row->document)
+                            <div class="mt-1.5 text-xs rounded-md px-2 py-1.5" style="background:var(--surface-2); color:var(--text-muted);">
+                                <div class="font-semibold" style="color:var(--text-secondary);">{{ $row->document->name }}</div>
+                                <div>Uploaded {{ $row->document->uploaded_at->format('d M Y') }}
+                                    @if($row->document->expires_at) &bull; Expires {{ $row->document->expires_at->format('d M Y') }} @endif
+                                </div>
+                                <a href="{{ route('my-portal.agency-documents.download', $row->document->provision_id) }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">View / Download</a>
+                            </div>
+                        @endif
+                    </td>
                     <td class="px-4 py-3 align-top">
                         @if(in_array($row->status, ['amber', 'red']))
                             <form method="POST" action="{{ route('admin.ppra-inspection-pack.gap-notes.store') }}" class="flex flex-col gap-1.5">
@@ -79,6 +91,41 @@
                                     {{ $row->gap_note ? 'Update' : 'Set remediation date' }}
                                 </button>
                             </form>
+                        @else
+                            <span class="text-xs" style="color:var(--text-muted);">—</span>
+                        @endif
+                    </td>
+                    <td class="px-4 py-3 align-top">
+                        @if($row->status === 'red' && !is_null($row->upload_configs) && count($row->upload_configs))
+                            <form method="POST" action="{{ route('compliance.agency-settings.store') }}" enctype="multipart/form-data" class="flex flex-col gap-1.5">
+                                @csrf
+                                <input type="hidden" name="effective_from" value="{{ now()->toDateString() }}">
+                                @if(count($row->upload_configs) > 1)
+                                    <select name="document_type_config_id" class="text-xs rounded-md px-2 py-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                        @foreach($row->upload_configs as $uc)
+                                            <option value="{{ $uc->id }}">{{ $uc->name }}</option>
+                                        @endforeach
+                                    </select>
+                                @else
+                                    <input type="hidden" name="document_type_config_id" value="{{ $row->upload_configs[0]->id }}">
+                                @endif
+                                <input type="file" name="document" required accept=".pdf,.jpg,.jpeg,.png"
+                                       class="text-xs" style="color:var(--text-primary);">
+                                @if($row->upload_configs[0]->has_expiry ?? true)
+                                    <input type="date" name="effective_until" placeholder="Expiry date"
+                                           class="text-xs rounded-md px-2 py-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                @endif
+                                <button type="submit" class="corex-btn-primary text-xs self-start">
+                                    {{ str_contains($row->why, 'expired') ? 'Replace' : 'Upload' }}
+                                </button>
+                            </form>
+                        @elseif($row->item === 'f')
+                            <div class="flex flex-col gap-1">
+                                <a href="{{ route('admin.ppra-inspection-pack.practitioner-register.pdf') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export PDF</a>
+                                <a href="{{ route('admin.ppra-inspection-pack.practitioner-register.csv') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export CSV</a>
+                            </div>
+                        @elseif($row->item === 'g')
+                            <a href="{{ route('admin.ppra-inspection-pack.letterhead') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Generate sample letterhead</a>
                         @else
                             <span class="text-xs" style="color:var(--text-muted);">—</span>
                         @endif

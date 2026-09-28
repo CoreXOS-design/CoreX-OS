@@ -156,7 +156,13 @@
                 {{ $row->why }}
             </p>
 
-            @if($row->evidence)
+            @if($row->document)
+                <p class="evidence">
+                    <strong>Document on file:</strong> {{ $row->document->name }}
+                    &mdash; uploaded {{ $row->document->uploaded_at->format('d M Y') }}
+                    @if($row->document->expires_at) &mdash; expires {{ $row->document->expires_at->format('d M Y') }} @endif
+                </p>
+            @elseif($row->evidence)
                 <p class="evidence"><strong>Evidence included:</strong> {{ $row->evidence }}</p>
             @endif
 
@@ -166,6 +172,29 @@
                     @if($row->gap_note->assignedTo) &mdash; assigned to {{ $row->gap_note->assignedTo->name }} @endif
                     @if($row->gap_note->note)<br>{{ $row->gap_note->note }}@endif
                 </div>
+            @endif
+
+            {{-- Practitioner FFC Table — lives inside item (f)'s own section, not a
+                 separate appendix (spec §6.2 item 5): this is where a reader
+                 expects the full roster once they've read "Practitioner List
+                 & FFC Numbers". --}}
+            @if($row->item === 'f' && isset($roster) && $roster->isNotEmpty())
+                <table>
+                    <thead>
+                        <tr><th>Name</th><th style="width:18%;">Designation</th><th style="width:22%;">FFC Number / Status</th><th style="width:12%;">Status</th><th style="width:14%;">Expiry</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach($roster as $agent)
+                        <tr>
+                            <td>{{ $agent['name'] }}</td>
+                            <td>{{ $agent['designation'] ?? '—' }}</td>
+                            <td>{{ $agent['ffc']['label'] }}</td>
+                            <td><span class="badge badge-{{ $agent['ffc']['status'] }}">{{ ucfirst($agent['ffc']['status']) }}</span></td>
+                            <td>{{ $agent['ffc']['expiry_date'] ? \Illuminate\Support\Carbon::parse($agent['ffc']['expiry_date'])->format('d M Y') : '—' }}</td>
+                        </tr>
+                        @endforeach
+                    </tbody>
+                </table>
             @endif
         @endif
     </div>

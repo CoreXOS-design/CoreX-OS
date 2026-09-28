@@ -89,6 +89,21 @@
                             {{ $config->required ? 'Contact your compliance officer.' : 'No document uploaded yet.' }}
                         </div>
                     @endif
+
+                    {{-- PPRA Inspection Pack back-link (2026-09-28, Johan) —
+                         admins only, one source of truth: this card's document
+                         IS the pack row's document, not a copy of it. --}}
+                    @permission('ppra_inspection_pack.view')
+                    @php $ppraItem = \App\Services\Compliance\PpraInspectionPackChecklistService::itemForSlug($config->slug); @endphp
+                    @if($ppraItem)
+                        <div class="mt-3 pt-3" style="border-top:1px solid var(--border);">
+                            <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="text-xs font-semibold inline-flex items-center gap-1" style="color:var(--brand-icon,#0ea5e9);">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/></svg>
+                                View in PPRA Inspection Pack (item {{ $ppraItem }})
+                            </a>
+                        </div>
+                    @endif
+                    @endpermission
                 </div>
             </div>
             @endforeach

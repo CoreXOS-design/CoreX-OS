@@ -5,13 +5,16 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Compliance\PpraInspectionGapNote;
+use App\Services\Compliance\AgentFfcRosterService;
 use App\Services\Compliance\PpraInspectionPackChecklistService;
 use App\Services\Compliance\PpraInspectionReportPdfService;
+use App\Services\Compliance\PpraLetterheadSampleService;
+use App\Services\Compliance\PpraPractitionerRegisterPdfService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * PPRA Inspection Pack — Phase A. .ai/specs/ppra-inspection-pack.md
+ * PPRA Inspection Pack — Phase A + B. .ai/specs/ppra-inspection-pack.md
  * Pure Admin feature (Johan's ruling, 2026-09-28) — every action here is
  * gated ppra_inspection_pack.* (admin/super_admin only, see routes/web.php).
  */
@@ -20,6 +23,9 @@ class PpraInspectionPackController extends Controller
     public function __construct(
         private PpraInspectionPackChecklistService $checklist = new PpraInspectionPackChecklistService(),
         private PpraInspectionReportPdfService $reportPdf = new PpraInspectionReportPdfService(),
+        private AgentFfcRosterService $ffcRoster = new AgentFfcRosterService(),
+        private PpraLetterheadSampleService $letterheadPdf = new PpraLetterheadSampleService(),
+        private PpraPractitionerRegisterPdfService $practitionerPdf = new PpraPractitionerRegisterPdfService(),
     ) {
     }
 
@@ -149,6 +155,58 @@ class PpraInspectionPackController extends Controller
         $notes = $query->paginate(25)->withQueryString();
 
         return view('admin.ppra-inspection-pack.remediation-log', compact('agency', 'notes'));
+    }
+
+    /**
+     * Item c/f — practitioner FFC register export. §6.6.
+     */
+    public function practitionerRegisterPdf(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+        $roster = $this->ffcRoster->rosterFor($agency->id);
+
+        $pdfPath = $this->practitionerPdf->generate($agency, $roster);
+
+        return response()->download($pdfPath, basename($pdfPath))->deleteFileAfterSend(true);
+    }
+
+    public function practitionerRegisterCsv(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+        $roster = $this->ffcRoster->rosterFor($agency->id);
+
+        $filename = 'practitioner-register-' . now()->format('Ymd-His') . '.csv';
+
+        $callback = function () use ($roster) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Name', 'Designation', 'FFC Number/Status', 'Status', 'Expiry Date']);
+            foreach ($roster as $agent) {
+                fputcsv($out, [
+                    $agent['name'],
+                    $agent['designation'] ?? '',
+                    $agent['ffc']['label'],
+                    ucfirst($agent['ffc']['status']),
+                    $agent['ffc']['expiry_date'] ?? '',
+                ]);
+            }
+            fclose($out);
+        };
+
+        return response()->streamDownload($callback, $filename, [
+            'Content-Type' => 'text/csv',
+        ]);
+    }
+
+    /**
+     * Item g — sample letterhead PDF. §6.5.
+     */
+    public function letterhead(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+
+        $pdfPath = $this->letterheadPdf->generate($agency);
+
+        return response()->download($pdfPath, basename($pdfPath))->deleteFileAfterSend(true);
     }
 
     private function resolveAgency(Request $request): Agency
