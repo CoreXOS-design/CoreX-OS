@@ -2921,6 +2921,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:rental_inventories.manage_settings')->name('corex.settings.rental-inventory.edit');
     Route::post('/settings/rental-inventory', [\App\Http\Controllers\CoreX\RentalInventorySettingsController::class, 'update'])
         ->middleware('permission:rental_inventories.manage_settings')->name('corex.settings.rental-inventory.update');
+    // §41-follow-up (Job 3) — auto-send the signed report on completion, on/off.
+    Route::post('/settings/rental-inventory/auto-send-report', [\App\Http\Controllers\CoreX\RentalInventorySettingsController::class, 'updateAutoSendReportEnabled'])
+        ->middleware('permission:rental_inventories.manage_settings')->name('corex.settings.rental-inventory.auto-send-report');
     // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — the spend threshold
     // below which no owner approval is required, agency-configurable.
     Route::get('/settings/rental-work-orders', [\App\Http\Controllers\CoreX\RentalWorkOrderSettingsController::class, 'edit'])
@@ -3376,6 +3379,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'store'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.store');
         Route::get('/{rentalInventory}', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'show'])->name('corex.rental-inventories.show');
+        // §41-follow-up (Job 3) — the signed report PDF (mirrors
+        // corex.rental-inspections.report exactly): generates a public link
+        // first if none is live, so a printed/shared link never 404s.
+        Route::get('/{rentalInventory}/report', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'report'])->name('corex.rental-inventories.report');
         // §8 — the move-out comparison, read-only, gated on the inventory being completed.
         Route::get('/{rentalInventory}/comparison', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'comparison'])->name('corex.rental-inventories.comparison');
         Route::post('/{rentalInventory}/cancel', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'cancel'])
@@ -3398,6 +3405,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.signatures.store');
         Route::post('/{rentalInventory}/complete', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'complete'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.complete');
+        // §41-follow-up (Job 3) — the manual "Resend report" path (confirm
+        // modal lists the recipients first). Same permission as completing.
+        Route::post('/{rentalInventory}/resend-report', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'resendReport'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.resend-report');
         // §12 — the "nothing in this room" mark the completion gate checks for.
         Route::post('/{rentalInventory}/rooms/{room}/mark-empty', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'markRoomEmpty'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.rooms.mark-empty');
@@ -5707,6 +5718,14 @@ Route::prefix('rental-application')->group(function () {
 Route::prefix('rental-inspection-report')->group(function () {
     Route::get('/{token}', [\App\Http\Controllers\RentalInspectionPublicController::class, 'show'])
         ->middleware('throttle:rental-inspection-public-show')->name('rental-inspections.public.show');
+});
+
+// ===== RENTAL INVENTORY REPORT — public, no auth, token-based =====
+// §41-follow-up (Job 3, 2026-09-28) — same shape as the inspection report
+// group directly above, mirrored for a completed inventory's own report.
+Route::prefix('rental-inventory-report')->group(function () {
+    Route::get('/{token}', [\App\Http\Controllers\RentalInventoryPublicController::class, 'show'])
+        ->middleware('throttle:rental-inventory-public-show')->name('rental-inventories.public.show');
 });
 
 // ===== SALES DOCUMENT RETURN (public, no auth, token-based) =====

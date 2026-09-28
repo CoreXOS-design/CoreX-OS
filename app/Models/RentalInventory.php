@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Contracts\SignedDocumentDistributable;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -19,8 +20,17 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * the property, and ADDITIONALLY to the lease when one exists (a rental
  * mid-tenancy). A sale property (or a rental between tenancies) attaches to
  * the property alone; `lease_id` is nullable for exactly this reason.
+ *
+ * §41-follow-up (Job 3, 2026-09-28) — implements SignedDocumentDistributable
+ * so a completed inventory gets the SAME file/email/share-link treatment
+ * RentalInspection already has, via the shared
+ * App\Services\Distribution\SignedDocumentDistributionService — see that
+ * class's own docblock and .ai/specs/signed-document-distribution.md. This
+ * model owns only its own module-specific decisions (who the recipients
+ * are, what the public link resolves to); the service knows nothing about
+ * inventories, leases, or properties.
  */
-class RentalInventory extends Model
+class RentalInventory extends Model implements SignedDocumentDistributable
 {
     use BelongsToAgency, SoftDeletes;
 
@@ -41,12 +51,15 @@ class RentalInventory extends Model
         'cancel_reason',
         'archived_by_user_id',
         'created_by_user_id',
+        'public_token',
+        'public_token_expires_at',
     ];
 
     protected $casts = [
         'signing_deadline_at' => 'datetime',
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        'public_token_expires_at' => 'datetime',
     ];
 
     protected static function boot(): void
@@ -386,5 +399,133 @@ class RentalInventory extends Model
         }
 
         return $query->whereRaw('1 = 0');
+    }
+
+    /**
+     * §41-follow-up (Job 3) — same mechanism as RentalInspection::
+     * generatePublicLink() (see that method's own docblock for the full
+     * reasoning). Regenerating overwrites whatever token already existed,
+     * immediately invalidating any previously-issued link — that IS the
+     * revoke mechanism; there is no separate revoked flag to also check.
+     * Expiry is a fixed constant, not agency-configurable — see
+     * RentalInventorySetting::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS's own
+     * docblock for why, unlike Inspections' own version of this method.
+     */
+    public function generatePublicLink(?int $expiryDays = null): string
+    {
+        $days = $expiryDays ?? RentalInventorySetting::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS;
+
+        $this->forceFill([
+            'public_token' => \Illuminate\Support\Str::random(48),
+            'public_token_expires_at' => now()->addDays($days),
+        ])->save();
+
+        return $this->public_token;
+    }
+
+    /** Revoke: clear the token — any existing link (PDF already printed, forwarded email) stops working immediately. */
+    public function revokePublicLink(): void
+    {
+        $this->forceFill(['public_token' => null, 'public_token_expires_at' => null])->save();
+    }
+
+    public function publicLinkIsValid(): bool
+    {
+        return $this->public_token !== null
+            && $this->public_token_expires_at !== null
+            && $this->public_token_expires_at->isFuture();
+    }
+
+    /** Same withoutGlobalScopes()/token-scoped/expiry-checked pattern as RentalInspection::findByPublicToken(). */
+    public static function findByPublicToken(string $token): ?self
+    {
+        return self::withoutGlobalScopes()
+            ->where('public_token', $token)
+            ->where('public_token_expires_at', '>', now())
+            ->first();
+    }
+
+    // ── SignedDocumentDistributable (§41-follow-up, Job 3, 2026-09-28) ──
+
+    public function distributionProperty(): ?Property
+    {
+        return $this->property;
+    }
+
+    /**
+     * Every signing party: the lease's own tenant(s) (when this is a
+     * lease-attached inventory — empty for a property-level one, §15) plus
+     * the property's owner (Property::sellerOwnerContact(), the SAME
+     * resolver outstandingSignatories() above already uses). The owner's
+     * role reads 'landlord' for a lease-attached inventory and 'seller' for
+     * a property-level one — same distinction §15's `$ownerPartyLabel`
+     * display fix already drew on the show page, carried here rather than
+     * re-decided. A party with no email on file is silently excluded.
+     *
+     * @return array<int, array{contact_id: int|null, name: string, email: string, role: string}>
+     */
+    public function distributionRecipients(): array
+    {
+        $recipients = [];
+
+        foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
+            $contact = $leaseTenant->contact;
+            if ($contact?->email) {
+                $recipients[] = [
+                    'contact_id' => $contact->id,
+                    'name' => $contact->full_name,
+                    'email' => $contact->email,
+                    'role' => 'tenant',
+                ];
+            }
+        }
+
+        $owner = $this->property?->sellerOwnerContact();
+        if ($owner?->email) {
+            $recipients[] = [
+                'contact_id' => $owner->id,
+                'name' => $owner->full_name,
+                'email' => $owner->email,
+                'role' => $this->lease_id ? 'landlord' : 'seller',
+            ];
+        }
+
+        return $recipients;
+    }
+
+    /** The agent who ran this inventory — whose mailbox an AUTOMATIC send uses by default. A manual Resend may override this (see the controller). */
+    public function distributionAgent(): ?User
+    {
+        return $this->createdBy;
+    }
+
+    public function distributionSubject(): string
+    {
+        return 'Inventory report — ' . ($this->property?->buildDisplayAddress() ?? '');
+    }
+
+    public function distributionDocumentLabel(): string
+    {
+        return 'Inventory report';
+    }
+
+    public function distributionSourceType(): string
+    {
+        return 'rental_inventory_report';
+    }
+
+    public function distributionSourceId(): int
+    {
+        return $this->id;
+    }
+
+    public function hasValidPublicLink(): bool
+    {
+        return $this->publicLinkIsValid();
+    }
+
+    public function publicShareUrl(): ?string
+    {
+        return $this->public_token ? route('rental-inventories.public.show', $this->public_token) : null;
     }
 }

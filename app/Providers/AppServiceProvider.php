@@ -1096,6 +1096,20 @@ class AppServiceProvider extends ServiceProvider
                 ], 429));
         });
 
+        // §41-follow-up (Job 3, 2026-09-28) — the rental-inventory public
+        // report link, same reasoning and budget as the inspection one
+        // directly above — mirrored, not shared, since each token is
+        // scoped to its own route parameter.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-inventory-public-show', function (\Illuminate\Http\Request $request) {
+            $token = (string) $request->route('token');
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(30)
+                ->by('rental-inventory-public-show:' . $token)
+                ->response(fn () => response()->view('rental-inspections.public.unavailable', [
+                    'reason' => 'rate_limited',
+                ], 429));
+        });
+
         // PDF — read-only render, generous default, same window as
         // documents for one consistent rule.
         \Illuminate\Support\Facades\RateLimiter::for('rental-application-pdf', function (\Illuminate\Http\Request $request) {

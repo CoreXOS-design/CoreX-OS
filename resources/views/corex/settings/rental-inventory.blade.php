@@ -118,5 +118,45 @@
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
         </div>
     </form>
+
+    {{-- §41-follow-up (Job 3, 2026-09-28) — "auto-send on/off is an agency
+         setting, default ON," mirrored from the same toggle on the
+         rental-inspections settings page. Filing to the property is never
+         optional (this toggle only governs the automatic EMAIL); the
+         manual "Resend report" button on a completed inventory always
+         works regardless of this setting. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inventory.auto-send-report') }}" class="space-y-3">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Automatic report sending</h3>
+            </div>
+            <div class="p-5">
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    {{-- Hidden fallback BEFORE the checkbox, same name — an
+                         unchecked checkbox sends nothing at all, so without
+                         this the field is simply absent from the POST. Same
+                         pattern the Inspections settings page already uses.
+                         Field name is `inventory_auto_send_report_enabled`,
+                         not the bare `auto_send_report_enabled` Inspections'
+                         own toggle uses — see the saver's own docblock: both
+                         toggles are registered on the SAME onboarding wizard
+                         step, whose single combined form renders each
+                         field's key as a literal HTML name attribute, so a
+                         shared name would collide. --}}
+                    <input type="hidden" name="inventory_auto_send_report_enabled" value="0">
+                    <input type="checkbox" name="inventory_auto_send_report_enabled" value="1" @checked($autoSendReportEnabled)>
+                    Email the signed report to the seller/landlord (and tenant(s), when this inventory has a lease) automatically the moment an inventory completes
+                </label>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">
+                    Sent from the completing agent's own mailbox, with a copy in their Sent Items and the agent CC'd.
+                    Turning this off does not remove the manual "Resend report" button on a completed inventory.
+                </p>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
 </div>
 @endsection

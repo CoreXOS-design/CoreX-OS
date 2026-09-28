@@ -283,14 +283,105 @@ class RentalInventoryRecordingController extends Controller
         return response()->json($signature, 201);
     }
 
-    public function complete(RentalInventory $rentalInventory): JsonResponse
-    {
+    /**
+     * POST /corex/rental-inventories/{inventory}/complete — §41-follow-up
+     * (Job 3), same trigger/shape as RentalInspectionRecordingController::
+     * complete(): the moment every required party has signed or been
+     * dispositioned (markCompleted()'s own guard), the signed report is
+     * filed to the property AND — when the agency's own
+     * auto_send_report_enabled setting is on (default) — emailed
+     * automatically via the SHARED SignedDocumentDistributionService.
+     * Filing itself is never optional; only the automatic EMAIL is gated
+     * on the setting. Wrapped in its own try/catch — a distribution
+     * failure must never undo or fail the completion the agent just
+     * successfully performed.
+     */
+    public function complete(
+        RentalInventory $rentalInventory,
+        \App\Services\Rentals\RentalInventoryReportPdfService $pdfService,
+        \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
+    ): JsonResponse {
         try {
             $rentalInventory->markCompleted();
         } catch (\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 409);
         }
 
+        try {
+            $this->fileAndMaybeEmailReport($rentalInventory, $pdfService, $distributionService, autoOnly: true);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Rental inventory completion distribution failed', [
+                'inventory_id' => $rentalInventory->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return response()->json($rentalInventory->fresh());
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/resend-report —
+     * §41-follow-up (Job 3). The manual path: always sends (never gated on
+     * auto_send_report_enabled — that setting only governs the AUTOMATIC
+     * send at completion), always logs mode='manual' with the triggering
+     * user, always re-files first (a no-op if already filed —
+     * fileToProperty() is idempotent).
+     */
+    public function resendReport(
+        Request $request,
+        RentalInventory $rentalInventory,
+        \App\Services\Rentals\RentalInventoryReportPdfService $pdfService,
+        \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
+    ): JsonResponse {
+        if ($rentalInventory->status !== RentalInventory::STATUS_COMPLETED) {
+            return response()->json(['message' => 'This inventory is not yet completed.'], 409);
+        }
+
+        $results = $this->fileAndMaybeEmailReport($rentalInventory, $pdfService, $distributionService, autoOnly: false, triggeredBy: $request->user());
+
+        return response()->json(['results' => $results]);
+    }
+
+    /**
+     * Shared by complete() (auto path) and resendReport() (manual path) so
+     * the two can never drift on WHAT gets filed/emailed — only whether the
+     * auto_send_report_enabled gate applies (auto path only) and which
+     * mode/triggering user gets logged. Byte-for-byte the same shape as
+     * RentalInspectionRecordingController::fileAndMaybeEmailReport().
+     *
+     * @return array<int, array{role:string, email:string, status:string, message_id:?string, error:?string}>
+     */
+    private function fileAndMaybeEmailReport(
+        RentalInventory $rentalInventory,
+        \App\Services\Rentals\RentalInventoryReportPdfService $pdfService,
+        \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
+        bool $autoOnly,
+        ?\App\Models\User $triggeredBy = null,
+    ): array {
+        $distributionService->ensurePublicLink($rentalInventory);
+        $pdf = $pdfService->generate($rentalInventory);
+        $pdfBytes = $pdf->output();
+        $filename = $pdfService->filenameFor($rentalInventory);
+
+        $distributionService->fileToProperty($rentalInventory, $pdfBytes, $filename);
+
+        if ($autoOnly && ! \App\Models\RentalInventorySetting::autoSendReportEnabledFor($rentalInventory->agency_id)) {
+            return [];
+        }
+
+        $pdfPath = tempnam(sys_get_temp_dir(), 'inv-report-') . '.pdf';
+        file_put_contents($pdfPath, $pdfBytes);
+
+        try {
+            return $distributionService->emailParties(
+                $rentalInventory,
+                $pdfPath,
+                $filename,
+                mode: $autoOnly ? 'auto' : 'manual',
+                triggeredBy: $triggeredBy,
+            );
+        } finally {
+            @unlink($pdfPath);
+        }
     }
 }

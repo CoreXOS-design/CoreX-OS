@@ -42,6 +42,68 @@
         </div>
     </div>
 
+    {{-- §41-follow-up (Job 3, 2026-09-28) — "how do we print/share it now,"
+         same ask, same shape as the inspection report's own controls: a
+         completed inventory already has its signed report filed + auto-
+         emailed (or the agency has that off, in which case this Resend
+         button is the only send path). Download reuses the agency-level
+         report route; the confirm popover lists real recipients (straight
+         off distributionRecipients(), server-computed) before sending. --}}
+    @if($inventory->status === \App\Models\RentalInventory::STATUS_COMPLETED)
+        <div class="flex items-center gap-2 flex-wrap">
+            <a href="{{ route('corex.rental-inventories.report', $inventory) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs">
+                Download report
+            </a>
+            @if($inventory->publicShareUrl())
+                <button type="button" @click="navigator.clipboard.writeText(shareUrl).then(() => { copiedShareLink = true; setTimeout(() => copiedShareLink = false, 2000); })"
+                        class="corex-btn-outline text-xs">
+                    <span x-text="copiedShareLink ? 'Copied!' : 'Copy share link'"></span>
+                </button>
+                <a href="https://wa.me/?text={{ urlencode('Inventory report: ' . $inventory->publicShareUrl()) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" style="text-decoration:none;">
+                    WhatsApp
+                </a>
+            @endif
+            <div class="relative">
+                <button type="button" @click="resendOpen = !resendOpen; resendResult = null; resendError = '';" class="corex-btn-outline text-xs">
+                    Resend report
+                </button>
+                <div x-show="resendOpen" x-cloak @click.outside="resendOpen = false"
+                     style="position:absolute; top:100%; left:0; margin-top:4px; width:22rem; z-index:30; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,0.18);"
+                     class="p-3">
+                    <template x-if="!resendResult">
+                        <div class="space-y-2">
+                            <p class="text-xs font-semibold" style="color:var(--text-primary);">Send the signed report to:</p>
+                            <ul class="text-xs space-y-0.5" style="color:var(--text-secondary);">
+                                <template x-for="r in reportRecipients" :key="r.email">
+                                    <li x-text="r.name + ' (' + r.role + ') — ' + r.email"></li>
+                                </template>
+                            </ul>
+                            <p x-show="!reportRecipients.length" class="text-xs" style="color:var(--ds-crimson);">No recipient has an email on file.</p>
+                            <p x-show="resendError" x-text="resendError" class="text-xs" style="color:var(--ds-crimson);"></p>
+                            <div class="flex justify-end gap-2 pt-1">
+                                <button type="button" @click="resendOpen = false" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="color:var(--text-secondary);">Cancel</button>
+                                <button type="button" :disabled="resendBusy || !reportRecipients.length" @click="sendReportResend()"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">
+                                    <span x-text="resendBusy ? 'Sending…' : 'Confirm & send'"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                    <template x-if="resendResult">
+                        <div class="space-y-1">
+                            <template x-for="r in resendResult" :key="r.email">
+                                <p class="text-xs" :style="r.status === 'sent' ? 'color:var(--ds-green,#059669);' : 'color:var(--ds-crimson);'" x-text="(r.status === 'sent' ? '✓ ' : '✗ ') + r.email"></p>
+                            </template>
+                            <div class="flex justify-end pt-1">
+                                <button type="button" @click="resendOpen = false; resendResult = null;" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Close</button>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </div>
+    @endif
+
     @if(session('success'))
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green,#059669) 10%, transparent); color: var(--ds-green,#059669);">{{ session('success') }}</div>
     @endif
@@ -281,6 +343,32 @@ function rentalInventoryShow(inventoryId) {
         activeRefusalKey: null,
         signaturePads: {},
         refusalForm: {},
+
+        // §41-follow-up (Job 3) — the "Resend report" popover's own state.
+        // reportRecipients/shareUrl are server-computed (distributionRecipients()/
+        // publicShareUrl(), the same contract the distribution service itself
+        // reads) — never re-derived client-side.
+        reportRecipients: @json($reportRecipients ?? []),
+        shareUrl: {{ Js::from($inventory->publicShareUrl() ?? '') }},
+        resendOpen: false,
+        resendBusy: false,
+        resendError: '',
+        resendResult: null,
+        copiedShareLink: false,
+        async sendReportResend() {
+            this.resendBusy = true;
+            this.resendError = '';
+            try {
+                const res = await fetch(`${this.baseUrl}/resend-report`, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                });
+                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Request failed (${res.status}).`); }
+                const data = await res.json();
+                this.resendResult = data.results;
+            } catch (e) { this.resendError = e.message; }
+            finally { this.resendBusy = false; }
+        },
         lifecycleError: '',
 
         dispositionFor(role, contactId) {

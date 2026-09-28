@@ -8,6 +8,7 @@ use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
+use App\Http\Controllers\CoreX\RentalInventorySettingsController;
 use App\Http\Controllers\CoreX\RentalWorkOrderSettingsController;
 use App\Http\Controllers\CoreX\SettingsController;
 
@@ -371,6 +372,12 @@ return [
             // (a checkbox, never has()-guarded on its own field — see that
             // saver's own docblock).
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
+            // §41-follow-up (Job 3, 2026-09-28) — the same toggle, mirrored
+            // onto Inventory's own signed-report distribution. Its own
+            // narrow saver, same discipline as the Inspections one directly
+            // above — never folded into RentalInventorySettingsController::
+            // update() (see that saver's own docblock for why).
+            ['controller' => RentalInventorySettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
             // rental-work-orders.md §3.4b/§8, Stage 3 (2026-09-26) — the spend
             // threshold. completion_requires_photo/overdue_reminder_days are
             // still Stage 4 (work orders themselves aren't built), so this
@@ -428,6 +435,15 @@ return [
              'label' => 'Email the signed inspection report automatically on completion',
              'explain' => 'The moment an inspection completes (every required party has signed or been dispositioned), CoreX emails the signed report to the tenant(s) and landlord from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
              'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inspection and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
+            // §41-follow-up (Job 3, 2026-09-28) — same ruling, mirrored onto
+            // Inventory's own signed report. Key deliberately distinct from
+            // 'auto_send_report_enabled' above — see
+            // RentalInventorySettingsController::updateAutoSendReportEnabled()'s
+            // own docblock for why sharing a key would collide on this step.
+            ['key' => 'inventory_auto_send_report_enabled', 'source' => 'rental_inventories', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the signed inventory report automatically on completion',
+             'explain' => 'The moment an inventory completes (every required party has signed or been dispositioned), CoreX emails the signed report to the seller/landlord (and tenant(s), when the inventory has a lease) from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
+             'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inventory and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
              'label' => 'No-approval spend threshold (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',

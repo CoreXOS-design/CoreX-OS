@@ -2286,3 +2286,125 @@ Inspections today. If Johan wants a fallback for that case, that is a separate, 
 two bedrooms and a flatlet, no `PropertyRoom` rows yet — the button is offered, the old shared-room
 sentence is gone, the seed endpoint returns rooms named "Bedroom 1"/"Bedroom 2"/"Flatlet 1", and a
 reload of the capture screen shows them. 12/12 tests green in the file (1 new, 11 unchanged from §15).
+
+---
+
+## 17. Signed-report distribution — Inventory wired to the SHARED service (Job 3, 2026-09-28)
+
+Johan's ruling: on a completed inventory, the signed report is filed to the property AND — auto-send is
+an agency setting, default ON — emailed automatically from the completing agent's own mailbox (Sent
+Items copy, agent CC'd). Plus Download PDF, Share (copy link / WhatsApp) and Print on a completed
+inventory, and a manual Resend. Explicitly REUSES `App\Services\Distribution\
+SignedDocumentDistributionService`, built the same day for rental inspections (§41 of
+`rental-inspections.md`, commit `2fd77ff40`) — read `.ai/specs/signed-document-distribution.md` before
+touching any of this; that file, not this section, is the service's own contract.
+
+**`RentalInventory` now implements `App\Contracts\SignedDocumentDistributable`** — every method mirrors
+`RentalInspection`'s own reference implementation, adapted for the one real difference Inventory has
+that Inspection doesn't (§15): a property-level inventory (no lease) has no tenants at all.
+`distributionRecipients()` returns the lease's tenant(s) (empty when `lease_id` is null) plus the
+property's owner via the same `sellerOwnerContact()` resolver `outstandingSignatories()` already uses —
+the owner's `role` string reads `'landlord'` for a lease-attached inventory and `'seller'` for a
+property-level one, the same distinction §15's `$ownerPartyLabel` display fix already drew (the
+underlying `RentalInventorySignature.party_role` column stays `'landlord'` either way — unchanged, a
+display/recipient-list distinction only). `distributionSourceType()` is `'rental_inventory_report'` —
+`documents.source_type` needed widening to `varchar(50)` for the Inspections build already (commit
+`adcb541f7`, landed the same day, found running the real filing path against QA1 data); Inventory's own
+value fits inside that same widened column with room to spare.
+
+**Public share link — new, Inventory never had one before.** `rental_inventories` gained
+`public_token`/`public_token_expires_at` (migration `2026_10_05_090000`), byte-for-byte the same shape
+`rental_inspections` already carries — a stored, regenerable token (never Laravel's
+`temporarySignedRoute()` — see that migration's own docblock for why a per-record revoke needs this).
+`RentalInventory::generatePublicLink()`/`revokePublicLink()`/`publicLinkIsValid()`/`findByPublicToken()`
+mirror `RentalInspection`'s own versions exactly. New public route
+`GET /rental-inventory-report/{token}` (`RentalInventoryPublicController`, top-level namespace — reached
+by someone with no CoreX session at all, same boundary as `RentalInspectionPublicController`) renders
+`resources/views/rental-inventories/public/show.blade.php` — a property-scoped, chrome-free page
+(rooms/lines/move-in photos/signatures only), with `@media print` CSS and a `window.print()` button —
+that IS Job 3's "Print," not a separate mechanism, same as the Inspections report's own page. An
+invalid/expired/revoked token gets the SAME generic `rental-inspections.public.unavailable` view
+Inspections already uses (reused directly, nothing inventory-specific in it) — never distinguishing
+"wrong" from "expired" to an unauthenticated caller. Its own rate limiter
+(`rental-inventory-public-show`, `AppServiceProvider::boot()`) mirrors the inspection one's budget
+exactly, registered separately since each token is scoped to its own route parameter.
+
+**The report PDF — new, `RentalInventoryReportPdfService` + `report-pdf.blade.php`.** No PDF service
+existed for a completed inventory before this. Mirrors `RentalInspectionReportPdfService`'s own "no
+photos in the PDF, a link instead" rule (a multi-photo-per-line inventory would make the PDF
+unmanageable) — grouped by room, each line's quantity/description/capture-time condition (§13's own
+vocabulary — this report is the frozen move-in record itself, not the §8/§14 move-in-vs-now comparison,
+a genuinely different screen with a genuinely different vocabulary), then the recorded signatures.
+`GET /corex/rental-inventories/{id}/report` (`RentalInventoryController::report()`, mirrors
+`RentalInspectionController::report()`) generates a public link first if none is live, so a
+printed/shared link never 404s the moment someone actually opens it.
+
+**Completion hook — `RentalInventoryRecordingController::complete()`.** The exact same shape as
+`RentalInspectionRecordingController::complete()`: `markCompleted()` first (unchanged), then
+`fileAndMaybeEmailReport(..., autoOnly: true)` wrapped in its own try/catch — a distribution failure
+(a bad mailbox, a PDF render hiccup) must never undo or fail the completion the agent just successfully
+performed, only get logged. `resendReport()` (`POST .../resend-report`) is the always-sends manual path,
+gated only on the inventory already being completed, never on the auto-send setting. Both share one
+private `fileAndMaybeEmailReport()` so the two paths can never drift on WHAT gets filed/emailed.
+
+**Auto-send setting — `rental_inventory_settings.auto_send_report_enabled`** (migration
+`2026_10_05_090100`), same nullable/read-time-default convention as every other column on this table,
+default ON (`RentalInventorySetting::autoSendReportEnabledFor()`). Its own dedicated settings-page toggle
+(`resources/views/corex/settings/rental-inventory.blade.php`) and Setup Wizard entry (non-negotiable
+#10a) — **the wizard field's `key` is `inventory_auto_send_report_enabled`, deliberately NOT the bare
+`auto_send_report_enabled` Inspections' own wizard entry uses**, because both toggles are registered as
+savers on the SAME onboarding wizard step (`'leases'` in `config/agency-onboarding-copy.php`), whose one
+combined form renders every field's `key` as a literal HTML `name` attribute — sharing a name would have
+silently collided (only one checkbox's value would ever reach either saver). The dedicated settings
+page's own form uses the same distinguishing name for consistency, even though nothing else shares that
+particular POST. `AgencySetupWizardController::currentValues()` gained its own `'rental_inventories'`
+match arm resolving this key from `RentalInventorySetting::autoSendReportEnabledFor()` — written correctly
+from the start, not a fix to the pre-existing bug reported below.
+
+**Public link expiry is a fixed constant (90 days, `RentalInventorySetting::
+DEFAULT_PUBLIC_LINK_EXPIRY_DAYS`), deliberately NOT made agency-configurable** — unlike Inspections' own
+`public_link_expiry_days` setting. Nobody asked for it, and a nullable settings column nobody can reach
+from the Setup Wizard is worse than a plain constant (non-negotiable #10a again, the other direction:
+don't half-wire a setting either).
+
+**"Resend report" UI** — `rental-inventories/show.blade.php`'s existing Alpine component
+(`rentalInventoryShow`) gained the Download/Copy-link/WhatsApp/Resend row, shown only once the inventory
+is completed, mirroring the property tab's own popover pattern (recipient list, confirm, per-recipient
+sent/failed result) byte-for-byte. `reportRecipients` is passed from the controller straight off
+`distributionRecipients()` — one source of truth with what the service will actually email, never a
+second client-side guess at who the parties are.
+
+**Reported, not fixed (CLAUDE.md non-negotiable #2) — a real, pre-existing bug found while adding this
+section's own new `AgencySetupWizardController::currentValues()` match arm, in a file this pass had to
+touch anyway, but did NOT introduce and was not asked to fix:** the existing `'rental_inspections'` arm
+(`app/Http/Controllers/CoreX/AgencySetupWizardController.php`, the `match ($key)` block immediately above
+the new `'rental_inventories'` one) only explicitly resolves `fault_report_window_days` and
+`out_inspection_signing_window_days` — every OTHER key declared under `'source' => 'rental_inspections'`
+in `config/agency-onboarding-copy.php`, including `public_link_expiry_days`, `auto_pair_photos_enabled`,
+AND `auto_send_report_enabled` itself (all three added in the SAME commit that built this whole
+distribution feature, `2fd77ff40`), silently falls through to `default => $control['default'] ?? null` —
+meaning the wizard ALWAYS renders the hardcoded default for these three fields regardless of what the
+agency actually has saved. This is precisely the same bug class a code comment two lines above already
+documents finding and fixing on 2026-09-20 (display-only — the SAVE path is unaffected, since it goes
+through `RentalInspectionSettingsController::update()`/`updateAutoSendReportEnabled()` independently of
+this method) — just not caught again when three more `'rental_inspections'`-sourced fields were added
+later the same day. An owner opening the wizard today sees "on"/90-days for these three regardless of
+their real setting, and re-saving the step writes that possibly-wrong default back over their actual
+choice. Fix shape: three more explicit arms in that same `match ($key)` block, same pattern the
+2026-09-20 fix already established — not done here, out of this task's scope.
+
+**Mail safety, non-negotiable (conductor's explicit instruction this same session):** no test in
+`RentalInventoryDistributionTest.php` ever triggers `PerMailboxMailTransportBuilder`'s own real-SMTP
+path — every fixture agent deliberately carries NO `CommunicationMailbox` row, so
+`BaseSignatureMail::resolvedMailbox()` always resolves null and the send falls through to Laravel's
+default mailer, which `Mail::fake()` intercepts completely. `cc3`'s Mailpit-redirect fix for the
+per-mailbox path had not landed on `origin/QA1` as of this pass — this was verified before writing a
+single test, and confirmed again by re-checking `origin/QA1`'s log immediately before landing.
+
+**Proven, not assumed** — 10 tests in `tests/Feature/RentalInventory/RentalInventoryDistributionTest.php`:
+recipients for both inventory shapes (property-level → seller+agent only; lease-attached → tenant+
+landlord), completing an inventory files the report AND auto-emails by default, auto-send disabled still
+files but never emails, the manual resend endpoint always sends regardless of the auto-send setting, the
+resend endpoint refuses a not-yet-completed inventory, the public page renders for a valid token and the
+generic unavailable page for an invalid one, regenerating a public link invalidates the previous token
+immediately, and the settings toggle's has()-guard rejects a submission missing its own field.

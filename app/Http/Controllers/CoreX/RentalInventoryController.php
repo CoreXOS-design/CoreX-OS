@@ -146,7 +146,31 @@ class RentalInventoryController extends Controller
             // refusal capture already uses — one list of "why didn't this
             // party sign," not a second one for a second document.
             'refusalReasonPresets' => RentalInspectionSetting::refusalReasonPresetsFor($rentalInventory->agency_id),
+            // §41-follow-up (Job 3) — the "Resend report" popover's own
+            // recipient list, straight off the SignedDocumentDistributable
+            // contract method — one source of truth with what the service
+            // itself will actually email, never a second client-side guess.
+            'reportRecipients' => $rentalInventory->distributionRecipients(),
         ]);
+    }
+
+    /**
+     * GET /corex/rental-inventories/{inventory}/report — §41-follow-up
+     * (Job 3), the signed report PDF. Mirrors RentalInspectionController::
+     * report() exactly: generates a public link first if none is live, so
+     * a printed/shared link never 404s the moment someone actually opens it.
+     */
+    public function report(Request $request, RentalInventory $rentalInventory, \App\Services\Rentals\RentalInventoryReportPdfService $service)
+    {
+        $rentalInventory->loadMissing(['property', 'lease.tenants.contact', 'lines.room', 'lines.moveInPhotos', 'signatures.partyContact']);
+
+        if (! $rentalInventory->publicLinkIsValid()) {
+            $rentalInventory->generatePublicLink();
+        }
+
+        $pdf = $service->generate($rentalInventory);
+
+        return $pdf->download($service->filenameFor($rentalInventory));
     }
 
     /**

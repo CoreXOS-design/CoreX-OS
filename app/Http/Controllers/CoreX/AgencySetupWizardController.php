@@ -548,6 +548,13 @@ class AgencySetupWizardController extends Controller
                     'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),
                     default => $control['default'] ?? null,
                 },
+                // §41-follow-up (Job 3, 2026-09-28) — this wizard step's own
+                // Inventory-side toggle. Explicit per-key match, same
+                // reasoning as 'rental_inspections' above.
+                'rental_inventories' => match ($key) {
+                    'inventory_auto_send_report_enabled' => \App\Models\RentalInventorySetting::autoSendReportEnabledFor($agency->id),
+                    default => $control['default'] ?? null,
+                },
                 // .ai/specs/rental-application-field-config.md — every scalar
                 // rental-application setting resolves through its own named
                 // `{camelKey}For($agencyId)` resolver on

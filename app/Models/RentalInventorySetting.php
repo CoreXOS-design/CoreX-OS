@@ -25,11 +25,13 @@ class RentalInventorySetting extends Model
         'disposition_presets',
         'baseline_disposition_key',
         'condition_states',
+        'auto_send_report_enabled',
     ];
 
     protected $casts = [
         'disposition_presets' => 'array',
         'condition_states' => 'array',
+        'auto_send_report_enabled' => 'boolean',
     ];
 
     /**
@@ -125,5 +127,28 @@ class RentalInventorySetting extends Model
         }
 
         return is_array($states) && $states !== [] ? $states : self::DEFAULT_CONDITION_STATES;
+    }
+
+    /**
+     * §41-follow-up (Job 3, 2026-09-28) — the public share link's expiry,
+     * unlike Inspections' own agency-configurable version, is a fixed
+     * constant here: nobody asked for it to be configurable, and adding a
+     * setting nobody can reach from the Setup Wizard is worse than a plain
+     * constant (non-negotiable #10a). Referenced directly by
+     * RentalInventory::generatePublicLink().
+     */
+    public const DEFAULT_PUBLIC_LINK_EXPIRY_DAYS = 90;
+
+    /** §41-follow-up (Job 3), Johan's ruling — auto-send on/off is an agency setting, default ON. Same read-time-default pattern as RentalInspectionSetting::autoSendReportEnabledFor(). */
+    public const DEFAULT_AUTO_SEND_REPORT_ENABLED = true;
+
+    public static function autoSendReportEnabledFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_AUTO_SEND_REPORT_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('auto_send_report_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_AUTO_SEND_REPORT_ENABLED;
     }
 }

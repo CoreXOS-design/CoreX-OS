@@ -13564,12 +13564,15 @@ CREATE TABLE `rental_inventories` (
   `cancelled_at` timestamp NULL DEFAULT NULL,
   `cancelled_by_user_id` bigint unsigned DEFAULT NULL,
   `cancel_reason` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `public_token` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `public_token_expires_at` timestamp NULL DEFAULT NULL,
   `archived_by_user_id` bigint unsigned DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
+  UNIQUE KEY `rental_inventories_public_token_unique` (`public_token`),
   KEY `rental_inventories_property_id_foreign` (`property_id`),
   KEY `rental_inventories_lease_id_foreign` (`lease_id`),
   KEY `rental_inventories_cancelled_by_user_id_foreign` (`cancelled_by_user_id`),
@@ -13723,6 +13726,7 @@ CREATE TABLE `rental_inventory_settings` (
   `disposition_presets` json DEFAULT NULL,
   `baseline_disposition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `condition_states` json DEFAULT NULL,
+  `auto_send_report_enabled` tinyint(1) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -18183,3 +18187,5 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1477,'2026_10_04_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1478,'2026_10_03_230000_add_is_principal_practitioner_to_users_table',378);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1479,'2026_10_03_231500_add_financial_year_start_month_to_agencies_table',378);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1480,'2026_10_04_090000_make_rental_inventories_lease_id_nullable',378);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1481,'2026_10_05_090000_add_public_link_to_rental_inventories_table',379);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1482,'2026_10_05_090100_add_distribution_settings_to_rental_inventory_settings_table',379);

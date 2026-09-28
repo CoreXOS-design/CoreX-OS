@@ -31,6 +31,8 @@ class RentalInventorySettingsController extends Controller
             // §13 — the capture-time condition chip vocabulary.
             'conditionStates' => RentalInventorySetting::conditionStatesFor($agencyId),
             'defaultConditionStates' => RentalInventorySetting::DEFAULT_CONDITION_STATES,
+            // §41-follow-up (Job 3, 2026-09-28) — whether the signed report auto-sends on completion.
+            'autoSendReportEnabled' => RentalInventorySetting::autoSendReportEnabledFor($agencyId),
         ]);
     }
 
@@ -82,5 +84,39 @@ class RentalInventorySettingsController extends Controller
         ]);
 
         return redirect()->route('corex.settings.rental-inventory.edit')->with('success', 'Rental inventory settings saved.');
+    }
+
+    /**
+     * §41-follow-up (Job 3, 2026-09-28) — same discipline as
+     * RentalInspectionSettingsController::updateAutoSendReportEnabled(): its
+     * own narrow saver (a checkbox, never has()-guarded against its own
+     * field alone — an unchecked checkbox is simply absent from the POST).
+     *
+     * The REQUEST field is `inventory_auto_send_report_enabled` — NOT the
+     * same name as Inspections' own `auto_send_report_enabled` — because
+     * both toggles are registered as savers on the SAME onboarding wizard
+     * step (`config/agency-onboarding-copy.php`, 'leases' step), which
+     * renders every field's `key` as a literal HTML `name` attribute on
+     * ONE combined form. Two controls sharing one name would collide (only
+     * one checkbox's value would ever reach either saver). The underlying
+     * DB column stays `auto_send_report_enabled` — this dedicated settings
+     * page's own form (which nothing else shares) still POSTs under that
+     * same distinguishing field name for consistency with the wizard.
+     */
+    public function updateAutoSendReportEnabled(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('inventory_auto_send_report_enabled')) {
+            return redirect()->route('corex.settings.rental-inventory.edit')
+                ->withErrors(['inventory_auto_send_report_enabled' => 'That did not save — please try again.']);
+        }
+
+        RentalInventorySetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['auto_send_report_enabled' => $request->boolean('inventory_auto_send_report_enabled')],
+        );
+
+        return redirect()->route('corex.settings.rental-inventory.edit')->with('success', 'Auto-send setting saved.');
     }
 }
