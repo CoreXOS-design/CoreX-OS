@@ -151,6 +151,15 @@ function makeSandbox() {
         // payload builder) had no global to construct at all, a plain
         // ReferenceError-shaped false failure (2026-09-12).
         FormData: function () { return fakePermissiveObject(); },
+        // Real, standard, deterministic small-surface Web API — Node has its
+        // own working global implementation, so pass it through directly
+        // rather than stubbing it (unlike FormData/getContext, whose real
+        // surface is too large to model honestly). Missing entirely broke
+        // the PPRA sample-picker's search() with a plain ReferenceError-
+        // shaped false failure (2026-09-28, same class as the FormData gap
+        // above) despite `new URLSearchParams(...)` working correctly in
+        // every real browser this component actually runs in.
+        URLSearchParams,
         fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
         confirm: () => true,
         setTimeout, clearTimeout, setInterval, clearInterval,
