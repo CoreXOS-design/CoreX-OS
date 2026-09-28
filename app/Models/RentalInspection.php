@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Contracts\SignedDocumentDistributable;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -14,8 +15,14 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * set of observations happens inside. Anchored to a `Lease` (required,
  * authoritative "which tenancy") with `property_id` as a denormalized
  * convenience column only (§2 pillar connections).
+ *
+ * §41, 2026-09-28 — implements SignedDocumentDistributable so a completed
+ * inspection's signed report can be filed/emailed/shared through the
+ * shared App\Services\Distribution\SignedDocumentDistributionService,
+ * never a bespoke inspection-only path. See that interface's own
+ * docblock + .ai/specs/signed-document-distribution.md for the contract.
  */
-class RentalInspection extends Model
+class RentalInspection extends Model implements SignedDocumentDistributable
 {
     use BelongsToAgency, SoftDeletes;
 
@@ -804,6 +811,90 @@ class RentalInspection extends Model
             ->where('public_token', $token)
             ->where('public_token_expires_at', '>', now())
             ->first();
+    }
+
+    // ── SignedDocumentDistributable (§41, 2026-09-28) ──────────────────
+
+    public function distributionProperty(): ?Property
+    {
+        return $this->property;
+    }
+
+    /**
+     * Every signing party on this inspection: the lease's own tenant(s)
+     * plus the property's landlord (Property::sellerOwnerContact(), the
+     * SAME resolver outstandingSignatories() above already uses for the
+     * landlord's own signature gate — one source of truth for "who is
+     * the landlord on this inspection", never a second lookup). A party
+     * with no email on file is silently excluded — there's no address to
+     * send to — rather than failing the whole send for a real signer
+     * someone else can still reach.
+     *
+     * @return array<int, array{contact_id: int|null, name: string, email: string, role: string}>
+     */
+    public function distributionRecipients(): array
+    {
+        $recipients = [];
+
+        foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
+            $contact = $leaseTenant->contact;
+            if ($contact?->email) {
+                $recipients[] = [
+                    'contact_id' => $contact->id,
+                    'name' => $contact->full_name,
+                    'email' => $contact->email,
+                    'role' => 'tenant',
+                ];
+            }
+        }
+
+        $landlord = $this->property?->sellerOwnerContact();
+        if ($landlord?->email) {
+            $recipients[] = [
+                'contact_id' => $landlord->id,
+                'name' => $landlord->full_name,
+                'email' => $landlord->email,
+                'role' => 'landlord',
+            ];
+        }
+
+        return $recipients;
+    }
+
+    /** The agent who ran this inspection — whose mailbox an AUTOMATIC send uses by default. A manual Resend may override this (see the controller). */
+    public function distributionAgent(): ?User
+    {
+        return $this->createdBy;
+    }
+
+    public function distributionSubject(): string
+    {
+        return ucfirst($this->type) . '-inspection report — ' . ($this->property?->buildDisplayAddress() ?? '');
+    }
+
+    public function distributionDocumentLabel(): string
+    {
+        return ucfirst($this->type) . '-inspection report';
+    }
+
+    public function distributionSourceType(): string
+    {
+        return 'rental_inspection_report';
+    }
+
+    public function distributionSourceId(): int
+    {
+        return $this->id;
+    }
+
+    public function hasValidPublicLink(): bool
+    {
+        return $this->publicLinkIsValid();
+    }
+
+    public function publicShareUrl(): ?string
+    {
+        return $this->public_token ? route('rental-inspections.public.show', $this->public_token) : null;
     }
 
     /**

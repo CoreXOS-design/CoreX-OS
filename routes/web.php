@@ -2907,6 +2907,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // classification vocabulary.
     Route::post('/settings/rental-inspections/photo-note-classifications', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updatePhotoNoteClassifications'])
         ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.photo-note-classifications');
+    // §41, 2026-09-28 — auto-send the signed report on completion, on/off.
+    Route::post('/settings/rental-inspections/auto-send-report', [\App\Http\Controllers\CoreX\RentalInspectionSettingsController::class, 'updateAutoSendReportEnabled'])
+        ->middleware('permission:rental_inspections.manage_settings')->name('corex.settings.rental-inspections.auto-send-report');
 
     // .ai/specs/rental-inventory.md §8 — the move-out disposition vocabulary
     // (present/short/damaged/missing), agency-configurable. Own settings
@@ -3330,6 +3333,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-awaiting-signature');
         Route::post('/{rentalInspection}/complete', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'complete'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.complete');
+        // §41, 2026-09-28 — the manual "Resend report" path (confirm modal
+        // lists the recipients first). Same permission as completing —
+        // an agent who could complete the inspection can resend its report.
+        Route::post('/{rentalInspection}/resend-report', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'resendReport'])
+            ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.resend-report');
 
         // rental-inspection-form.md §7 — the in-vs-out deposit comparison.
         // Read gated at the group's own .view; recording a wear-and-tear/

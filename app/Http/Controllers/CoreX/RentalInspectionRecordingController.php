@@ -1228,9 +1228,26 @@ class RentalInspectionRecordingController extends Controller
         return response()->json($rentalInspection->fresh());
     }
 
-    /** POST /corex/rental-inspections/{inspection}/complete */
-    public function complete(RentalInspection $rentalInspection): JsonResponse
-    {
+    /**
+     * POST /corex/rental-inspections/{inspection}/complete
+     *
+     * §41, 2026-09-28, Johan's ruling — the moment every required party
+     * has signed or been dispositioned (markCompleted()'s own guard, the
+     * exact trigger named), the signed report is filed to the property
+     * AND — when the agency's own auto_send_report_enabled setting is on
+     * (default) — emailed automatically to every party via the SHARED
+     * App\Services\Distribution\SignedDocumentDistributionService (never
+     * an inspection-only mail path; see that service's own docblock —
+     * Inventory wires into the same service next). Filing itself is
+     * never optional; only the automatic EMAIL is gated on the setting.
+     * Wrapped in its own try/catch — a distribution failure must never
+     * undo or fail the completion the agent just successfully performed.
+     */
+    public function complete(
+        RentalInspection $rentalInspection,
+        \App\Services\Rentals\RentalInspectionReportPdfService $pdfService,
+        \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
+    ): JsonResponse {
         try {
             $rentalInspection->markCompleted();
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
@@ -1239,6 +1256,81 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => $e->getMessage()], 409);
         }
 
+        try {
+            $this->fileAndMaybeEmailReport($rentalInspection, $pdfService, $distributionService, autoOnly: true);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Rental inspection completion distribution failed', [
+                'inspection_id' => $rentalInspection->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return response()->json($rentalInspection->fresh());
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/resend-report
+     *
+     * §41 — the manual path: always sends (never gated on
+     * auto_send_report_enabled — that setting only governs the
+     * AUTOMATIC send at completion), always logs mode='manual' with the
+     * triggering user, always re-files first (a no-op if already filed —
+     * fileToProperty() is idempotent).
+     */
+    public function resendReport(
+        Request $request,
+        RentalInspection $rentalInspection,
+        \App\Services\Rentals\RentalInspectionReportPdfService $pdfService,
+        \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
+    ): JsonResponse {
+        if ($rentalInspection->status !== RentalInspection::STATUS_COMPLETED) {
+            return response()->json(['message' => 'This inspection is not yet completed.'], 409);
+        }
+
+        $results = $this->fileAndMaybeEmailReport($rentalInspection, $pdfService, $distributionService, autoOnly: false, triggeredBy: $request->user());
+
+        return response()->json(['results' => $results]);
+    }
+
+    /**
+     * Shared by complete() (auto path) and resendReport() (manual path) so
+     * the two can never drift on WHAT gets filed/emailed — only whether
+     * the auto_send_report_enabled gate applies (auto path only) and
+     * which mode/triggering user gets logged.
+     *
+     * @return array<int, array{role:string, email:string, status:string, message_id:?string, error:?string}>
+     */
+    private function fileAndMaybeEmailReport(
+        RentalInspection $rentalInspection,
+        \App\Services\Rentals\RentalInspectionReportPdfService $pdfService,
+        \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
+        bool $autoOnly,
+        ?User $triggeredBy = null,
+    ): array {
+        $distributionService->ensurePublicLink($rentalInspection);
+        $pdf = $pdfService->generate($rentalInspection);
+        $pdfBytes = $pdf->output();
+        $filename = $pdfService->filenameFor($rentalInspection);
+
+        $distributionService->fileToProperty($rentalInspection, $pdfBytes, $filename);
+
+        if ($autoOnly && ! RentalInspectionSetting::autoSendReportEnabledFor($rentalInspection->agency_id)) {
+            return [];
+        }
+
+        $pdfPath = tempnam(sys_get_temp_dir(), 'insp-report-') . '.pdf';
+        file_put_contents($pdfPath, $pdfBytes);
+
+        try {
+            return $distributionService->emailParties(
+                $rentalInspection,
+                $pdfPath,
+                $filename,
+                mode: $autoOnly ? 'auto' : 'manual',
+                triggeredBy: $triggeredBy,
+            );
+        } finally {
+            @unlink($pdfPath);
+        }
     }
 }

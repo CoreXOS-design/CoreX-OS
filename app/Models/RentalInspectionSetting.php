@@ -272,6 +272,19 @@ class RentalInspectionSetting extends Model
      */
     public const DEFAULT_PUBLIC_LINK_EXPIRY_DAYS = 90;
 
+    /**
+     * §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
+     * setting, default ON." When true, a completed inspection's signed
+     * report is filed to the property and emailed to every party
+     * automatically (RentalInspectionRecordingController::complete(),
+     * via the shared SignedDocumentDistributionService) the moment
+     * every required party has signed or been dispositioned. An agency
+     * that turns this off keeps the manual "Resend" button as its only
+     * send path — filing to the property still happens either way
+     * (that part was never optional).
+     */
+    public const DEFAULT_AUTO_SEND_REPORT_ENABLED = true;
+
     protected $fillable = [
         'agency_id',
         'fault_report_window_days',
@@ -287,6 +300,7 @@ class RentalInspectionSetting extends Model
         'omr_mark_threshold',
         'public_link_expiry_days',
         'auto_pair_photos_enabled',
+        'auto_send_report_enabled',
     ];
 
     protected $casts = [
@@ -302,6 +316,7 @@ class RentalInspectionSetting extends Model
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
         'auto_pair_photos_enabled' => 'boolean',
+        'auto_send_report_enabled' => 'boolean',
     ];
 
     /**
@@ -376,6 +391,17 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('auto_pair_photos_enabled');
 
         return $value !== null ? (bool) $value : self::DEFAULT_AUTO_PAIR_PHOTOS_ENABLED;
+    }
+
+    /** §41 — read-time-default resolver, same pattern as autoPairPhotosEnabledFor() above. */
+    public static function autoSendReportEnabledFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_AUTO_SEND_REPORT_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('auto_send_report_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_AUTO_SEND_REPORT_ENABLED;
     }
 
     /**

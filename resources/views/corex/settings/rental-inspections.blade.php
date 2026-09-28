@@ -381,5 +381,41 @@
             <button type="submit" class="corex-btn-primary text-sm">Save condition states</button>
         </div>
     </form>
+
+    {{-- §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
+         setting, default ON." Filing to the property is never optional
+         (this toggle only governs the automatic EMAIL); the manual
+         "Resend" button on a completed inspection always works
+         regardless of this setting. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.auto-send-report') }}" class="space-y-3">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Automatic report sending</h3>
+            </div>
+            <div class="p-5">
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    {{-- Hidden fallback BEFORE the checkbox, same name — an
+                         unchecked checkbox sends nothing at all, so without
+                         this the field is simply absent from the POST and
+                         has('auto_send_report_enabled') below would be
+                         false, wrongly rejecting a legitimate "turn this
+                         off" save. Same pattern the onboarding wizard's own
+                         generic toggle control already uses
+                         (agency-setup/wizard.blade.php:119). --}}
+                    <input type="hidden" name="auto_send_report_enabled" value="0">
+                    <input type="checkbox" name="auto_send_report_enabled" value="1" @checked($autoSendReportEnabled)>
+                    Email the signed report to the tenant(s) and landlord automatically the moment an inspection completes
+                </label>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">
+                    Sent from the completing agent's own mailbox, with a copy in their Sent Items and the agent CC'd.
+                    Turning this off does not remove the manual "Resend report" button on a completed inspection.
+                </p>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
 </div>
 @endsection

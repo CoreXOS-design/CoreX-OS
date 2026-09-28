@@ -367,6 +367,10 @@ return [
             // one-concern-per-endpoint discipline as every other toggle on
             // this step; has()-guarded, never folded into update() above.
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateAutoPairPhotosEnabled'],
+            // §41, 2026-09-28 — same _submitted-marker-guarded discipline
+            // (a checkbox, never has()-guarded on its own field — see that
+            // saver's own docblock).
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
             // rental-work-orders.md §3.4b/§8, Stage 3 (2026-09-26) — the spend
             // threshold. completion_requires_photo/overdue_reminder_days are
             // still Stage 4 (work orders themselves aren't built), so this
@@ -419,6 +423,11 @@ return [
              'label' => 'Automatically pair before/after inspection photos',
              'explain' => 'When a move-in photo and a later inspection\'s photo are tagged to the exact same room and item, CoreX links them as a pair automatically, only when the match is unambiguous.',
              'affects' => 'Whether obvious photo pairs are already linked when an agent opens the compare screen, or every pair — even the obvious ones — waits for the agent to make it by hand. On by default; an agent can always re-run pairing manually and can unpair anything the system got wrong.'],
+            // §41, 2026-09-28, Johan's ruling — defaults ON.
+            ['key' => 'auto_send_report_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the signed inspection report automatically on completion',
+             'explain' => 'The moment an inspection completes (every required party has signed or been dispositioned), CoreX emails the signed report to the tenant(s) and landlord from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
+             'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inspection and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
              'label' => 'No-approval spend threshold (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
