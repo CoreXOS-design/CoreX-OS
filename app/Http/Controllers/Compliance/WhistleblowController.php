@@ -194,7 +194,14 @@ class WhistleblowController extends Controller
         $user = Auth::user();
         $isApprover = $this->canApprove($complaint, $user);
 
-        return view('compliance.whistleblow.show', compact('complaint', 'auditLog', 'isApprover', 'agency'));
+        // Exact recipients a "Resend to PPRA" click would use right now — computed
+        // here (not guessed client-side) so the confirm modal can never drift from
+        // what the resend action itself actually sends to.
+        $resendRecipients = in_array($complaint->status, ['sent', 'acknowledged_by_ppra'], true)
+            ? $this->service->resolveRecipientsForPpra($complaint)
+            : null;
+
+        return view('compliance.whistleblow.show', compact('complaint', 'auditLog', 'isApprover', 'agency', 'resendRecipients'));
     }
 
     /**
@@ -210,6 +217,34 @@ class WhistleblowController extends Controller
 
         return redirect()->route('compliance.whistleblow.index')
             ->with('success', 'Complaint approved and submitted to PPRA.');
+    }
+
+    /**
+     * Resend the PPRA email for a complaint already sent (or acknowledged).
+     * Built 2026-09-28 — live incident: complaints approved while
+     * WHISTLEBLOW_PPRA_LIVE_SEND was off went to the demo address. Sends
+     * the PPRA email only by default; the seller info pack is a separate,
+     * explicit opt-in (resend_seller_pack) so sellers never get a duplicate.
+     */
+    public function resendToPpra(Request $request, WhistleblowComplaint $complaint)
+    {
+        $request->validate([
+            'resend_seller_pack' => 'nullable|boolean',
+        ]);
+
+        try {
+            $this->service->resendToPpra(
+                $complaint,
+                Auth::user(),
+                $request->boolean('resend_seller_pack')
+            );
+        } catch (\Throwable $e) {
+            return redirect()->route('compliance.whistleblow.show', $complaint)
+                ->with('error', 'Resend failed: ' . $e->getMessage() . ' — check the Email History below for the failure entry.');
+        }
+
+        return redirect()->route('compliance.whistleblow.show', $complaint)
+            ->with('success', 'PPRA email resent.' . ($request->boolean('resend_seller_pack') ? ' Seller info pack resent too.' : ''));
     }
 
     /**
