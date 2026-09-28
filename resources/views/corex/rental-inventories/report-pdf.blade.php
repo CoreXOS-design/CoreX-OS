@@ -16,7 +16,10 @@
     .muted { color: #666; }
     .cover { margin-bottom: 14pt; }
     .link-box { border: 1pt solid #999; padding: 8pt; margin-top: 10pt; font-size: 8pt; }
+    .qr-img { width: 60pt; height: 60pt; vertical-align: middle; }
+    .link-text { display: inline-block; vertical-align: middle; margin-left: 8pt; }
     .room-heading { font-size: 10pt; font-weight: bold; text-transform: uppercase; border-bottom: 1pt solid #000; padding-bottom: 3pt; margin-top: 14pt; }
+    .room-empty-note { font-size: 8.5pt; color: #666; font-style: italic; margin-top: 4pt; }
     table.lines { width: 100%; border-collapse: collapse; margin-top: 4pt; }
     table.lines th { text-align: left; font-size: 7.5pt; text-transform: uppercase; color: #666; border-bottom: 0.5pt solid #ccc; padding: 3pt 4pt; }
     table.lines td { font-size: 8.5pt; border-bottom: 0.5pt solid #eee; padding: 3pt 4pt; vertical-align: top; }
@@ -38,8 +41,13 @@
 
         @if($publicUrl)
             <div class="link-box">
-                Photos and the full record for this inventory:<br>
-                <strong>{{ $publicUrl }}</strong>
+                @if($qrDataUri)
+                    <img src="{{ $qrDataUri }}" alt="QR code to the public inventory report" class="qr-img">
+                @endif
+                <span class="link-text">
+                    Photos and the full record for this inventory:<br>
+                    <strong>{{ $publicUrl }}</strong>
+                </span>
             </div>
         @endif
     </div>
@@ -69,6 +77,17 @@
     @empty
         <p class="muted">No items recorded.</p>
     @endforelse
+
+    {{-- Report-fixes, 2026-09-28 (Johan) — a room explicitly checked and
+         found to have nothing in it (RentalInventoryRoomMark) still gets a
+         section on the signed record — silently omitting it looked
+         identical to a room nobody ever checked. --}}
+    @foreach($emptyRoomLabels as $roomLabel)
+        <div>
+            <div class="room-heading">{{ $roomLabel }}</div>
+            <p class="room-empty-note">Checked — nothing recorded in this room.</p>
+        </div>
+    @endforeach
 
     @if($inventory->signatures->isNotEmpty())
         <table class="sig-table">

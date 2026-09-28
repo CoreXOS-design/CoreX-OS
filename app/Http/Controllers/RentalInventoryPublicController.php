@@ -36,15 +36,28 @@ class RentalInventoryPublicController extends Controller
             'property', 'lease.tenants.contact',
             'lines.room', 'lines.moveInPhotos',
             'signatures.partyContact',
+            'roomMarks.room',
         ]);
 
         $linesByRoom = $inventory->lines
             ->sortBy(fn ($line) => [$line->room?->sort_order ?? PHP_INT_MAX, $line->room?->id ?? 0, $line->sort_order])
             ->groupBy(fn ($line) => $line->room?->id ?? 'general');
 
+        // Report-fixes, 2026-09-28 (Johan) — same fix as
+        // RentalInventoryReportPdfService::generate(): a room explicitly
+        // marked "nothing in this room" has no lines, so it never appeared
+        // on the public page at all — indistinguishable from a room nobody
+        // ever checked, exactly the distinction the mark exists to prove.
+        $emptyRooms = $inventory->roomMarks
+            ->filter(fn ($mark) => $mark->room && ! $linesByRoom->has($mark->room->id))
+            ->sortBy(fn ($mark) => [$mark->room->sort_order ?? PHP_INT_MAX, $mark->room->id])
+            ->pluck('room')
+            ->unique('id');
+
         return view('rental-inventories.public.show', [
             'inventory' => $inventory,
             'linesByRoom' => $linesByRoom,
+            'emptyRooms' => $emptyRooms,
         ]);
     }
 }

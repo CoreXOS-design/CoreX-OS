@@ -4,6 +4,9 @@ namespace App\Services\Rentals;
 
 use App\Models\RentalInventory;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\QrCode;
+use Endroid\QrCode\Writer\PngWriter;
 
 /**
  * §41-follow-up (Job 3, 2026-09-28) — the COMPLETED inventory's own signed
@@ -25,20 +28,50 @@ class RentalInventoryReportPdfService
 {
     public function generate(RentalInventory $inventory)
     {
-        $inventory->loadMissing(['lines.room', 'lines.moveInPhotos', 'signatures.partyContact', 'property']);
+        $inventory->loadMissing([
+            'lines.room', 'lines.moveInPhotos', 'signatures.partyContact', 'property',
+            'roomMarks.room',
+        ]);
 
         $linesByRoom = $inventory->lines
             ->sortBy(fn ($line) => [$line->room?->sort_order ?? PHP_INT_MAX, $line->room?->id ?? 0, $line->sort_order])
             ->groupBy(fn ($line) => $line->room?->label ?? ($line->room_label ?: 'General'));
 
+        // Report-fixes, 2026-09-28 (Johan) — a room explicitly marked
+        // "nothing in this room" (RentalInventoryRoomMark, §12) has no
+        // lines, so it never appeared in $linesByRoom at all — the printed
+        // record silently looked identical to a room nobody ever checked,
+        // exactly the distinction this mark exists to prove. Every marked
+        // room with no lines of its own gets its own section, in the same
+        // room order, so the signed record accounts for every room the
+        // completion gate itself required to be visited.
+        $emptyRoomLabels = $inventory->roomMarks
+            ->reject(fn ($mark) => $linesByRoom->has($mark->room?->label))
+            ->sortBy(fn ($mark) => [$mark->room?->sort_order ?? PHP_INT_MAX, $mark->room?->id ?? 0])
+            ->pluck('room.label', 'room.label')
+            ->filter();
+
         $publicUrl = $inventory->public_token
             ? route('rental-inventories.public.show', $inventory->public_token)
             : null;
 
+        $qrDataUri = null;
+        if ($publicUrl) {
+            $qrCode = new QrCode(
+                data: $publicUrl,
+                errorCorrectionLevel: ErrorCorrectionLevel::High,
+                size: 240,
+                margin: 8,
+            );
+            $qrDataUri = (new PngWriter())->write($qrCode)->getDataUri();
+        }
+
         return Pdf::loadView('corex.rental-inventories.report-pdf', [
             'inventory' => $inventory,
             'linesByRoom' => $linesByRoom,
+            'emptyRoomLabels' => $emptyRoomLabels,
             'publicUrl' => $publicUrl,
+            'qrDataUri' => $qrDataUri,
         ])->setPaper('a4', 'portrait');
     }
 

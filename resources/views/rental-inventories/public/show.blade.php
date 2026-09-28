@@ -70,10 +70,24 @@
                 </div>
             </div>
         @empty
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                <p class="text-sm text-slate-500">No items recorded yet.</p>
-            </div>
+            @if($emptyRooms->isEmpty())
+                <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                    <p class="text-sm text-slate-500">No items recorded yet.</p>
+                </div>
+            @endif
         @endforelse
+
+        {{-- Report-fixes, 2026-09-28 (Johan) — a room explicitly checked and
+             found to have nothing in it (RentalInventoryRoomMark) still gets
+             its own section here — silently omitting it looked identical to
+             a room nobody ever checked, exactly the distinction the mark
+             exists to prove. --}}
+        @foreach($emptyRooms as $room)
+            <div id="room-{{ $room->id }}" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                <h2 class="text-sm font-bold uppercase tracking-wide text-slate-600 mb-3">{{ $room->label }}</h2>
+                <p class="text-sm text-slate-500 italic">Checked — nothing recorded in this room.</p>
+            </div>
+        @endforeach
 
         @if($inventory->signatures->isNotEmpty())
             <div id="signatures" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
