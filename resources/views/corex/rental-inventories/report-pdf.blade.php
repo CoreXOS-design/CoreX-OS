@@ -93,9 +93,15 @@
         <table class="sig-table">
             <tr><td colspan="2" style="font-weight:bold; border-top:none; padding-top:0;">Signatures</td></tr>
             @foreach($inventory->signatures as $signature)
+                {{-- Report-fixes, 2026-09-28 (Johan) — the agent's own row
+                     never carries a party_contact_id (an agent is a CoreX
+                     user, not a Contact), so reading partyContact alone
+                     always printed a bare "Agent" with no name. Falls back
+                     to recordedByUser — the real person who signed — the
+                     same fix applied to the public page and the show page. --}}
                 <tr>
                     <td>
-                        {{ ucfirst($signature->party_role) }}{{ $signature->partyContact ? ' — ' . $signature->partyContact->full_name : '' }}
+                        {{ ucfirst($signature->party_role) }}{{ $signature->partyContact ? ' — ' . $signature->partyContact->full_name : ($signature->party_role === 'agent' && $signature->recordedByUser ? ' — ' . $signature->recordedByUser->name : '') }}
                     </td>
                     <td>
                         {{ $signature->disposition === 'signed' ? 'Signed' : 'Refused to sign' }}

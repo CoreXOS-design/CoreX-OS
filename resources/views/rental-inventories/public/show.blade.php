@@ -92,16 +92,31 @@
         @if($inventory->signatures->isNotEmpty())
             <div id="signatures" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                 <h2 class="text-sm font-bold uppercase tracking-wide text-slate-600 mb-3">Signatures</h2>
-                <div class="space-y-3">
+                <div class="space-y-4">
                     @foreach($inventory->signatures as $signature)
-                        <div class="flex items-center justify-between text-sm">
-                            <span class="text-slate-600">
-                                {{ ucfirst($signature->party_role) }}{{ $signature->partyContact ? ' — ' . $signature->partyContact->full_name : '' }}
-                            </span>
-                            <span class="text-slate-500">
-                                {{ $signature->disposition === 'signed' ? 'Signed' : 'Refused to sign' }}
-                                {{ $signature->disposition_recorded_at?->format('d M Y, H:i') }}
-                            </span>
+                        {{-- Report-fixes, 2026-09-28 (Johan) — two fixes:
+                             (1) the agent's own row never carries a
+                             party_contact_id (an agent is a CoreX user, not
+                             a Contact), so reading partyContact alone always
+                             printed a bare "Agent" with no name — falls back
+                             to recordedByUser, the real person who signed,
+                             same fix as the show page and the PDF.
+                             (2) the actual signature image was never shown
+                             here at all — parity with the rental-inspection
+                             public page, which already renders it. --}}
+                        <div class="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
+                            <div class="flex items-center justify-between text-sm">
+                                <span class="text-slate-600">
+                                    {{ ucfirst($signature->party_role) }}{{ $signature->partyContact ? ' — ' . $signature->partyContact->full_name : ($signature->party_role === 'agent' && $signature->recordedByUser ? ' — ' . $signature->recordedByUser->name : '') }}
+                                </span>
+                                <span class="text-slate-500">
+                                    {{ $signature->disposition === 'signed' ? 'Signed' : 'Refused to sign' }}
+                                    {{ $signature->disposition_recorded_at?->format('d M Y, H:i') }}
+                                </span>
+                            </div>
+                            @if($signature->disposition === 'signed' && $signature->party_signature_path)
+                                <img src="{{ $signature->party_signature_path }}" alt="{{ ucfirst($signature->party_role) }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                            @endif
                         </div>
                     @endforeach
                 </div>

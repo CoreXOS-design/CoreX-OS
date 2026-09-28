@@ -35,7 +35,7 @@ class RentalInventoryPublicController extends Controller
         $inventory->load([
             'property', 'lease.tenants.contact',
             'lines.room', 'lines.moveInPhotos',
-            'signatures.partyContact',
+            'signatures.partyContact', 'signatures.recordedByUser',
             'roomMarks.room',
         ]);
 

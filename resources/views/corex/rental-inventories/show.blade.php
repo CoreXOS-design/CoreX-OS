@@ -219,8 +219,14 @@
 
         @foreach($inventory->signatures as $signature)
             @php
+                // Report-fixes, 2026-09-28 (Johan) — the agent's own row
+                // never carries a party_contact_id (an agent is a CoreX
+                // user, not a Contact), so this always rendered a bare
+                // "Agent" with no name — the same fix applied to the public
+                // page and the signed PDF (recordedByUser is eager-loaded
+                // alongside partyContact by the controller already).
                 $partyLabel = match($signature->party_role) {
-                    'agent' => 'Agent',
+                    'agent' => 'Agent' . ($signature->recordedByUser ? ' — ' . $signature->recordedByUser->name : ''),
                     'landlord' => $ownerPartyLabel . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
                     default => 'Tenant' . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
                 };

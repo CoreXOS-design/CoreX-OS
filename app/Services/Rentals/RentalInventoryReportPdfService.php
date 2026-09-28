@@ -29,7 +29,7 @@ class RentalInventoryReportPdfService
     public function generate(RentalInventory $inventory)
     {
         $inventory->loadMissing([
-            'lines.room', 'lines.moveInPhotos', 'signatures.partyContact', 'property',
+            'lines.room', 'lines.moveInPhotos', 'signatures.partyContact', 'signatures.recordedByUser', 'property',
             'roomMarks.room',
         ]);
 
