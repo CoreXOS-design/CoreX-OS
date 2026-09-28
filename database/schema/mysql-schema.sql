@@ -6111,7 +6111,7 @@ CREATE TABLE `documents` (
   `mime_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `size` bigint unsigned NOT NULL DEFAULT '0',
   `document_type_id` bigint unsigned DEFAULT NULL,
-  `source_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'upload',
+  `source_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'upload',
   `source_id` bigint unsigned DEFAULT NULL,
   `deal_id` bigint unsigned DEFAULT NULL,
   `custom_field_key` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -18177,3 +18177,4 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1473,'2026_09_28_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1474,'2026_10_03_220000_create_rental_inspection_screen_preferences_table',375);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1475,'2026_10_04_100000_create_signed_document_distribution_logs_table',376);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1476,'2026_10_04_100100_add_auto_send_report_enabled_to_rental_inspection_settings_table',376);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1477,'2026_10_04_100200_widen_documents_source_type_column',377);
