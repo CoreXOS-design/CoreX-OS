@@ -68,7 +68,7 @@ $maxWidth = [
 
     <div
         x-show="show"
-        class="mb-6 rounded-md overflow-hidden shadow-xl sm:w-full {{ $maxWidth }} sm:mx-auto"
+        class="relative mb-6 rounded-md overflow-hidden shadow-xl sm:w-full {{ $maxWidth }} sm:mx-auto"
         style="background: var(--surface); color: var(--text-primary);"
     >
         {{ $slot }}
