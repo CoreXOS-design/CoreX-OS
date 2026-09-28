@@ -6063,3 +6063,159 @@ Real headless Chrome, real QA1 data (`corex_qa1`), `user 365` (agency 1, view-on
   predecessor cell, the function's original caller, is unaffected by this fix.
 
 `php -l` and a Blade compile-string check both clean on `show.blade.php`.
+
+## 36. Condition colours by severity + note callouts (2026-09-28, Johan's ruling, property 5294)
+
+Johan, recording on 5294's In inspection: "Broken pane on left" on Bedroom 1 → Windows read like plain
+text and he missed it several times — a condition and its note must JUMP OUT.
+
+**1. `severity` — a new per-condition-state field, agency-configurable, replacing §27.2's
+`needs_attention` boolean.** Added to `RentalInspectionSetting::DEFAULT_CONDITION_STATES`
+(`app/Models/RentalInspectionSetting.php`) alongside `key`/`label`/`requires_notes`: one of
+`blue`/`red`/`amber`/`grey`. Shipped defaults, exactly Johan's ruling: `good`/`fair` → `blue` (calm —
+"selected state as now"), `damaged`/`not_working`/`missing` → `red` (a real issue), `other` → `amber`
+(caution), `n_a` → `grey` (neutral — "was never here, not an argument at all"). Resolved via
+`conditionSeverityFor($agencyId, $conditionKey)` (unknown key defaults to `red` — the same "never
+silently hidden" default every other resolver on this class already uses) and backfilled onto legacy
+rows by `conditionStatesFor()` (a stored row with only the old `needs_attention` maps `true`→`red`,
+`false`→`blue`; a row with neither key at all defaults to `red`).
+
+**Why `needs_attention` was folded into `severity`, not kept alongside it.** The two flags were
+answering the identical underlying question — "does this condition mean the space needs attention" —
+through two different lenses, and Johan's own ruling ties them together explicitly ("The 'Needs
+attention' filter must include every red/amber item"). Keeping both as independently-configurable
+per-row fields would have let them silently disagree (e.g. `fair` shipped `needs_attention: true` under
+§27.2, but today's ruling colours `fair` blue/calm) — exactly the duplicate-source-of-truth this
+codebase's own Architectural Laws forbid. `conditionNeedsAttentionFor()` is now `severity IN
+('red','amber')`, a pure derivation, never a second stored value.
+`RentalInspectionSetting::SEVERITY_COLORS`/`SEVERITY_LABELS` are the one place the four values' literal
+colours/human labels live — read by the settings edit form's picker and the PDF (§36.3 below); the live
+screens use the equivalent CSS tokens directly (`--brand-button`/`--ds-crimson`/`--ds-amber`/
+`--text-secondary`), never this constant.
+
+**Settings UI** (`resources/views/corex/settings/rental-inspections.blade.php`,
+`RentalInspectionSettingsController::updateConditionStates()`) — the "Needs attention" checkbox is
+replaced by a "Colour" `<select>` (Calm/Issue/Caution/Neutral), same per-row-array persistence
+discipline as `requires_notes`. An unrecognised submitted value falls back to `red`.
+
+**2. Condition button colour — every rendering state.** `rental-inspection-item-cell.blade.php`'s
+condition-button grid (shared by BOTH the editable tail cell and the read-only predecessor/completed
+cell, per this file's own docblock) now applies `conditionSelectedClass(key)` —
+`rir-cond-btn-selected-{blue|red|amber|grey}` — to the selected button instead of one hardcoded
+`background:var(--brand-button)` for every condition. Four new CSS classes live in
+`rental-inspection-recording.blade.php`'s own `<style>` block (§32.1's precedent: page-specific CSS
+stays with the partial that renders it), theme-aware CSS custom properties throughout, never a
+hardcoded hex. Because the readOnly/editable branches share the exact same markup skeleton, this one
+change covers every state the task named: editable, awaiting-signature (same editable branch —
+`awaiting_signature` renders exactly like draft/in_progress, §33's own note on this), completed
+read-only, AND the compare/predecessor cell (the identical `readOnly=true` branch, §32.1).
+
+The compare VIEWER's own condition pill (`compareViewerConditionClass()`, `show.blade.php` — a
+different surface, the photo lightbox opened by tapping a tile) was also extended from its existing
+two-way good/damaged split to the same four-way severity (`cv-pill-sev-blue/red/amber/grey`), so the
+colour an agent sees on a condition button matches the colour they see on that same condition's pill
+inside the photo viewer. This surface is a fixed-dark overlay by its own pre-existing design (every
+colour in that `<style>` block is literal hex, never a light/dark-aware token) — the four new classes
+follow that same convention, using the exact same hex values as `SEVERITY_COLORS` so the two can never
+drift apart.
+
+**3. Note callouts — never muted grey.** An item's recorded note (`rental-inspection-item-cell.blade.php`'s
+read-only branch) now renders inside `.rir-note-callout` — a tinted background (`color-mix` against
+`var(--surface)`), a 3px left border, normal-weight text — instead of plain `color:var(--text-muted)`
+text. Tone (`noteCalloutTone()`, `show.blade.php`) is red/amber for an issue-severity condition, light
+blue otherwise (a blue OR grey-severity condition's note still gets the calm blue tone — Johan: "never
+muted grey," so N/A's note is never shown muted either). Room notes (`rental-inspection-recording.blade.php`,
+§33's own read-only block) get the identical callout treatment, always the blue tone — a room note has
+no condition of its own to derive a severity from.
+
+**Signed PDF report** (`RentalInspectionReportPdfService`, `report-pdf.blade.php`) — the condition text
+is coloured per severity (`.cond-{blue|red|amber|grey}`, bold) and a note renders inside the same
+red/amber/blue callout box (`.notes-callout-{tone}`) as the live screen, resolved once per `generate()`
+call via `RentalInspectionSetting::conditionStatesFor()` and attached to each row as
+`current_severity`/`previous_severity`. DomPDF has no theme/dark-mode and no CSS custom-property
+support, so these are literal hex — read from `RentalInspectionSetting::SEVERITY_COLORS` (passed to the
+view as `$severityColors`) rather than restated in the blade file, so the PDF can never drift out of
+sync with the live screens' own mapping. Room notes are NOT added to the PDF by this build — that report
+already omits photos by Johan's own 2026-09-23 design ruling (this file's own docblock), and adding a
+new content section (rather than recolouring an existing one) is a distinct scope question left for
+Johan to raise explicitly if wanted; nothing here changes that boundary.
+
+**4. Issue markers.** `roomIssueCount(section, group)` (`show.blade.php`) — every item in the room whose
+current condition is red/amber severity (built on `itemNeedsAttention()`, itself now severity-derived,
+§36.1). Rendered as "· N issue(s)" on both the room nav pill (`rental-inspection-recording.blade.php`'s
+top strip) and the room heading (e.g. "Bedroom 1 — 5/5 · 3 photos total · 1 issue"), red/bold on the
+pill. The "Needs attention" filter (`itemMatchesFilter()`'s `'attention'` branch) already reads
+`itemNeedsAttention()`, so it automatically includes every red/amber item — no separate wiring needed,
+by construction of §36.1's fold.
+
+**Verified live**, real headless Chrome (system `chromium`, arm64 — the puppeteer-downloaded x86-64
+binary in this environment's cache does not execute here), real QA1 data (`corex_qa1`), served locally
+from this worktree (`php artisan serve` + a locally-built `npm run build`, needed only because a real
+Alpine-driven page requires compiled assets a bare `php -l`/Blade-compile check cannot exercise):
+
+- **Property 5294, inspection 33 (completed, no predecessor), user 365, read-only, no writes** —
+  Bedroom 1 → Windows: `rir-cond-btn-selected-red` applied, computed `background-color: rgb(196, 30,
+  58)` (`--ds-crimson`). Its note ("Broken pane on left") rendered inside
+  `.rir-note-callout.rir-note-callout-red`, computed `border-left-color: rgb(196, 30, 58)`. Room heading
+  read "Bedroom 1 — 5/5 · 3 photos total · 1 issue".
+- **Property 5792, inspection 32 (draft/editable), user 365** — `good`-condition buttons rendered
+  `rir-cond-btn-selected-blue`; `n_a` rendered `rir-cond-btn-selected-grey`; zero JS/render errors
+  attributable to this change (see below on two unrelated pre-existing errors).
+- **Property 5577, inspection 20 (completed), user 365** — two `damaged` items rendered
+  `rir-cond-btn-selected-red` with red note callouts; a `good` item's callout rendered blue; one room's
+  own pill/heading read "· 2 issues".
+- **Settings page** (`/corex/settings/rental-inspections`, user 22) — renders with 7 severity
+  `<select>`s, correct default option set/labels, no console errors. The form was NOT submitted during
+  verification — agency 1's `condition_states` is the shared QA1 config Johan tests against, and a save
+  wasn't needed to prove the wiring (the controller/model logic was proven independently via `php
+  artisan tinker`).
+- **Signed PDF, inspection 20** — rendered to an actual page image (`pdftoppm`) and eyeballed: "Damaged"
+  in bold crimson with a red-bordered/tinted callout under it ("CRACKED TILE NEAR DOOR", "STAIN ON
+  CEILING CORNER"); "Good" in blue. `pdftotext` confirmed the underlying row data survives DomPDF's
+  render (a first, wrong reading of a suspiciously-small PDF byte count as "rows came back empty" was a
+  false alarm — traced to DomPDF's own compression on a short table, not a data or logic bug; both the
+  original, unmodified PDF blade and this build's produce a similarly small file for the same 3-row
+  fixture).
+
+**Two pre-existing JS errors, confirmed NOT caused by this change** (present identically before and
+after, on every page tested, sourced from an unrelated Property-page component): `featureCategoryTab is
+not defined` / `catDef is not defined` / `features is not defined` (repeats per property-features
+category), and a same-origin `403` on some unrelated fetch. Reported per SCOPE LOCK, not fixed here —
+neither traces to any file this build touched.
+
+`php -l` clean on every changed PHP file; `php artisan view:cache` compiled every Blade template in the
+app (including all five touched here) with zero errors.
+
+## 37. Photo compare viewer opens empty-left on a first inspection (2026-09-28, Johan, property 5294)
+
+Johan: on a FIRST inspection (no predecessor), the photo viewer opened straight into "Compare" mode
+with the entire left half permanently empty ("Nothing yet") — there is no predecessor photo that could
+ever fill it.
+
+**Root cause.** `openCompareViewer(photo, insp)` (`show.blade.php`) unconditionally set
+`mode: 'compare'` regardless of whether `otherInsp` (the OTHER side's inspection — `chainPredecessor`
+when the clicked photo belongs to the tail) existed. On a chain's first inspection `chainPredecessor` is
+always `null`, so `otherInsp` is always `null` too, and the left pane's `leftPhotoId` is never set —
+exactly the same shape as §32.1's compare-ROW bug (an unconditionally-rendered predecessor cell with
+nothing to show), just in the photo viewer instead of the item grid.
+
+**Fix.** `mode: otherInsp ? 'compare' : 'single'` — the SAME per-call `otherInsp` truthiness already
+computed for pairing the other side's photo, not a second, separate `chainPredecessor` check. This is
+deliberately scoped to THIS viewer instance, not a global chain-wide gate: a predecessor that exists but
+happens to have no photo for one specific item is a different, legitimate "no match" case (§35) that
+still belongs in compare mode — only "there is no predecessor inspection at all" defaults to Single.
+
+**The Compare toggle and its "Back to compare" escape hatch (from single view) are both hidden —
+not disabled — whenever `chainPredecessor` is null**, so there is no path into an empty compare view at
+all, matching STANDARDS.md's own "a blocked/hidden action is hidden, not a dead button" convention
+(never the "No Silent Locks" pattern — there is nothing to unlock; a first inspection stays first
+forever). The mobile Predecessor/Current side toggle needed no separate gate — it is already
+`x-show="compareViewer.mode === 'compare'"`, which this fix makes unreachable by construction once mode
+never becomes `'compare'`.
+
+**Verified live**, real headless Chrome, property 5294 (inspection 33, no predecessor), user 365,
+read-only, no writes: opened a real photo tile on Bedroom 1 → Windows — the compare modal opened with
+`compareViewer.mode === 'single'`, the "Single" button rendered active, and the "Compare" button was not
+visible (`display:none` via `x-show`).
+
+`php -l` clean on `show.blade.php`.

@@ -314,7 +314,8 @@
           x-data="{
               states: {{ Js::from($conditionStates) }},
               baseline: {{ Js::from($baselineConditionKey) }},
-              addState() { this.states.push({ key: 'custom_' + Date.now(), label: '', requires_notes: true, needs_attention: true }); },
+              severities: {{ Js::from(\App\Models\RentalInspectionSetting::SEVERITY_LABELS) }},
+              addState() { this.states.push({ key: 'custom_' + Date.now(), label: '', requires_notes: true, severity: 'red' }); },
           }">
         @csrf
         <input type="hidden" name="condition_states_submitted" value="1">
@@ -328,8 +329,10 @@
                     What an inspector can grade an item as, in the order offered. "Needs a reason"
                     means the agent must type a note before that state can be saved — a Good rating
                     or something genuinely not applicable to the property need no explanation, but
-                    anything else does. "Needs attention" drives the recording screen's own problem
-                    filter — which states count as something an agent should follow up on.
+                    anything else does. "Colour" is how that condition shows up on the recording
+                    screen and the signed PDF report — Issue (red) and Caution (amber) are also what
+                    drives the recording screen's "Needs attention" filter and each room's issue
+                    count; Calm (blue) and Neutral (grey) do not.
                 </p>
                 <template x-for="(state, i) in states" :key="state.key">
                     <div class="flex items-center gap-2">
@@ -341,12 +344,16 @@
                             Needs a reason
                         </label>
                         <label class="flex items-center gap-1.5 text-xs whitespace-nowrap" style="color: var(--text-secondary);">
-                            <input type="checkbox" x-model="state.needs_attention">
-                            Needs attention
+                            Colour
+                            <select x-model="state.severity" :name="`condition_states[${i}][severity]`"
+                                    class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+                                <template x-for="(label, sevKey) in severities" :key="sevKey">
+                                    <option :value="sevKey" x-text="label"></option>
+                                </template>
+                            </select>
                         </label>
                         <input type="hidden" :name="`condition_states[${i}][key]`" :value="state.key">
                         <input type="hidden" :name="`condition_states[${i}][requires_notes]`" :value="state.requires_notes ? '1' : '0'">
-                        <input type="hidden" :name="`condition_states[${i}][needs_attention]`" :value="state.needs_attention ? '1' : '0'">
                         <button type="button" @click="states.splice(i, 1)" :disabled="states.length <= 1"
                                 class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
                     </div>

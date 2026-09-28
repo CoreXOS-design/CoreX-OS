@@ -4,6 +4,7 @@ namespace App\Services\Rentals;
 
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
+use App\Models\RentalInspectionSetting;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 /**
@@ -50,8 +51,16 @@ class RentalInspectionReportPdfService
             ->groupBy('rental_inspection_item_id')
             ->map(fn ($group) => $group->sortByDesc('created_at')->first());
 
+        // §36, 2026-09-28 — "a condition and its note must JUMP OUT," on
+        // the printed report as much as on screen. Resolved once per
+        // generate() call, not per row — the agency's own condition
+        // vocabulary/severity mapping never varies within one inspection.
+        $agencyId = $inspection->property?->agency_id;
+        $severityByKey = collect(RentalInspectionSetting::conditionStatesFor($agencyId))->pluck('severity', 'key');
+        $severityFor = fn (?string $key) => $key ? ($severityByKey->get($key) ?? 'red') : null;
+
         $rows = $items
-            ->map(function (RentalInspectionItem $item) use ($inspection, $currentByItem) {
+            ->map(function (RentalInspectionItem $item) use ($inspection, $currentByItem, $severityFor) {
                 $current = $currentByItem->get($item->id);
                 // historyFor() must be called ON the predecessor, not on
                 // $inspection itself — $inspection->historyFor($item) walks
@@ -64,14 +73,18 @@ class RentalInspectionReportPdfService
                     return null;
                 }
 
+                $previous = $history->last();
+
                 return (object) [
                     'item' => $item,
                     'room' => $item->room,
                     'current' => $current,
+                    'current_severity' => $severityFor($current?->condition),
                     // The immediate predecessor's value is the run's own
                     // last entry (never re-derived separately) — null when
                     // this is the first inspection in its chain.
-                    'previous' => $history->last(),
+                    'previous' => $previous,
+                    'previous_severity' => $severityFor($previous?->observation?->condition),
                     'history_text' => $history->map(fn ($h) => ucfirst($h->observation->condition))->implode(' → '),
                 ];
             })
@@ -86,6 +99,7 @@ class RentalInspectionReportPdfService
             'inspection' => $inspection,
             'rows' => $rows,
             'publicUrl' => $publicUrl,
+            'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
         ])->setPaper('a4', 'portrait');
     }
 

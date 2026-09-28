@@ -106,6 +106,18 @@
         .cv-pill-good { background: #4FBE82; color: #0B0E12; }
         .cv-pill-fair { background: #E0A34A; color: #0B0E12; }
         .cv-pill-damaged { background: #D9534F; color: #0B0E12; }
+        {{-- §36 — the compare viewer overlay is a fixed-dark surface by its
+             own existing design (every colour in this block is a literal
+             hex, unaffected by light/dark theme), so these four match that
+             convention rather than the theme-token CSS variables the rest
+             of the recording screen uses — same literal values as
+             RentalInspectionSetting::SEVERITY_COLORS, the one place this
+             app's severity→colour mapping is defined, so the PDF, the
+             settings picker, and this overlay can never drift out of sync. --}}
+        .cv-pill-sev-blue  { background: #0ea5e9; color: #0B0E12; }
+        .cv-pill-sev-red   { background: #c41e3a; color: #0B0E12; }
+        .cv-pill-sev-amber { background: #f59e0b; color: #0B0E12; }
+        .cv-pill-sev-grey  { background: #6b7280; color: #0B0E12; }
         .compare-viewer-step { background: rgba(0,0,0,0.6); color: #fff; padding: 0.25rem 0.5rem; border-radius: 999px; }
         .compare-viewer-zoom-controls { background: rgba(0,0,0,0.65); color: #fff; padding: 0.15rem 0.35rem; border-radius: 999px; }
         .cv-zoom-sep { width: 1px; height: 16px; background: rgba(255,255,255,0.25); margin: 0 0.15rem; }
@@ -5123,7 +5135,10 @@
                             <button type="button" @click="compareViewerSetMode('single')"
                                     class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
                                     :class="compareViewer.mode === 'single' ? 'compare-viewer-mode-btn-active' : ''">Single</button>
-                            <button type="button" @click="compareViewerSetMode('compare')"
+                            {{-- §37, 2026-09-28 — a first inspection (no chainPredecessor) has nothing to
+                                 compare against; hidden rather than disabled, same "blocked action is
+                                 hidden, not a dead button" convention this app already uses elsewhere. --}}
+                            <button type="button" @click="compareViewerSetMode('compare')" x-show="chainPredecessor"
                                     class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn"
                                     :class="compareViewer.mode === 'compare' ? 'compare-viewer-mode-btn-active' : ''">Compare</button>
                         </div>
@@ -5200,7 +5215,8 @@
                                  there is room for it" (Johan). Same button
                                  placement/style as Tag photo/Retag above. --}}
                             <button type="button" @click="compareViewerOpenNotePanel(compareViewer.primarySide)" x-show="compareViewerCurrentPhoto(compareViewer.primarySide)" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn" x-text="compareViewerCurrentPhoto(compareViewer.primarySide)?.note ? 'Edit note' : 'Add note'"></button>
-                            <button type="button" @click="compareViewerSetMode('compare')" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Back to compare</button>
+                            {{-- §37, 2026-09-28 — same gate as the top-bar Compare toggle: no predecessor, no path back into an empty compare view. --}}
+                            <button type="button" @click="compareViewerSetMode('compare')" x-show="chainPredecessor" class="text-xs font-semibold px-3 cv-touch rounded-md compare-viewer-mode-btn">Back to compare</button>
                         </div>
                     </div>
                     <div class="relative compare-viewer-pane cv-pane-single"
@@ -6062,8 +6078,20 @@
                     const ctx = this._compareViewerContextFor(photo);
                     const label = this._compareViewerLabelFor(ctx.kind, ctx.roomId, ctx.itemId);
 
+                    // §37, 2026-09-28 (Johan, property 5294) — a first
+                    // inspection in its chain has no predecessor, so
+                    // opening straight into 'compare' left the whole left
+                    // pane permanently empty ("Nothing yet") with no photo
+                    // to ever fill it. Same gate §32.1's compare-row
+                    // already uses (chainPredecessor null → nothing to
+                    // compare against): default to 'single' whenever THIS
+                    // viewer's own other-side inspection doesn't exist,
+                    // never a global chain-wide check — a predecessor that
+                    // exists but has no photo for this one item is a
+                    // different, legitimate "no match" case (§35) that
+                    // still belongs in compare mode.
                     this.compareViewer = {
-                        open: true, mode: 'compare',
+                        open: true, mode: otherInsp ? 'compare' : 'single',
                         kind: ctx.kind, roomId: ctx.roomId || null, itemId: ctx.itemId || null, label,
                         leftPhotoId: null, rightPhotoId: null,
                         primarySide: side,
@@ -6342,13 +6370,14 @@
                 // agency that kept the shipped English keys, and would
                 // mis-colour (or, reused for a filter, mis-flag) any agency
                 // that renamed or reduced its condition set (Retha's own
-                // Good/OK/Bad has no 'damag'-containing key at all). Derived
-                // from the agency's own needs_attention flag instead, the
-                // same settings-driven vocabulary every other condition
-                // read on this screen already uses — never a word.
+                // Good/OK/Bad has no 'damag'-containing key at all). §36 —
+                // now driven by the same severity every other condition
+                // read on this screen uses, four-way rather than the old
+                // two-way good/damaged split, so the compare viewer's own
+                // pill matches the same colour the condition button showed.
                 compareViewerConditionClass(conditionKey) {
                     if (!conditionKey) return 'cv-pill-fair';
-                    return this.conditionNeedsAttention(conditionKey) ? 'cv-pill-damaged' : 'cv-pill-good';
+                    return 'cv-pill-sev-' + this.conditionSeverity(conditionKey);
                 },
                 compareViewerConditionFor(side) {
                     if (this.compareViewer.kind !== 'item' || !this.compareViewer.itemId) return null;
@@ -7144,14 +7173,40 @@
                     const state = (this.conditionStates || []).find(s => s.key === key);
                     return state ? !!state.requires_notes : true;
                 },
-                // §27.2 — client-side mirror of
-                // RentalInspectionSetting::conditionNeedsAttentionFor(),
-                // same read-time-default reasoning as conditionRequiresNotes()
-                // just above: an unknown key defaults to needing attention,
-                // never silently filtered out of view.
-                conditionNeedsAttention(key) {
+                // §36 — client-side mirror of
+                // RentalInspectionSetting::conditionSeverityFor(): one of
+                // blue/red/amber/grey. An unknown key defaults to 'red' —
+                // never silently hidden — same reasoning as the resolver
+                // it mirrors.
+                conditionSeverity(key) {
                     const state = (this.conditionStates || []).find(s => s.key === key);
-                    return state ? !!state.needs_attention : true;
+                    const sev = state?.severity;
+                    return ['blue', 'red', 'amber', 'grey'].includes(sev) ? sev : 'red';
+                },
+                // The CSS class a selected condition button carries, per
+                // severity — rir-cond-btn-selected-{blue|red|amber|grey},
+                // defined once in rental-inspection-recording.blade.php's
+                // own <style> block (§32.1's precedent: page-specific CSS
+                // lives with the partial that uses it).
+                conditionSelectedClass(key) {
+                    return 'rir-cond-btn-selected-' + this.conditionSeverity(key);
+                },
+                // §36 — the note callout's own tint: red/amber for an issue
+                // condition, light blue for everything else (Johan: "never
+                // muted grey" — grey-severity conditions like N/A still get
+                // the calm blue tint, never the old muted-grey text style).
+                noteCalloutTone(key) {
+                    const sev = this.conditionSeverity(key);
+                    return (sev === 'red' || sev === 'amber') ? sev : 'blue';
+                },
+                // §36 — supersedes the old §27.2 needs_attention boolean:
+                // derived straight from severity so the "Needs attention"
+                // filter and the colour an agent is looking at can never
+                // silently disagree. red/amber needs attention; blue/grey
+                // does not.
+                conditionNeedsAttention(key) {
+                    const sev = this.conditionSeverity(key);
+                    return sev === 'red' || sev === 'amber';
                 },
                 conditionLabel(key) {
                     return (this.conditionStates || []).find(s => s.key === key)?.label || key;
@@ -7713,6 +7768,14 @@
                 // whatever filter happens to be active right now.
                 roomHasAttentionItem(section, group) {
                     return (group.items || []).some(i => this.itemNeedsAttention(section, i));
+                },
+                // §36 — the room header/pill's own issue count ("Bedroom 1
+                // · 1 issue"): every item in the room whose current
+                // condition is red/amber severity. Always computed against
+                // every item, same "independent of the active filter"
+                // reasoning as roomHasAttentionItem() just above.
+                roomIssueCount(section, group) {
+                    return (group.items || []).filter(i => this.itemNeedsAttention(section, i)).length;
                 },
                 // Whether this room has anything left to show under the
                 // CURRENT filter — a room with zero matches stays visible

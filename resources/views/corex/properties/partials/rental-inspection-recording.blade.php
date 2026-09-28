@@ -261,6 +261,31 @@
        resize changes them). The fallback (115px) only applies before
        that JS has run once. */
     .rir-room-anchor { scroll-margin-top: var(--rir-room-anchor-offset, 115px); }
+
+    /* §36, 2026-09-28 (Johan, property 5294) — "a condition and its note
+       must JUMP OUT." Selected-condition-button colour, by the agency's own
+       configured severity (RentalInspectionSetting::SEVERITY_COLORS) —
+       theme-aware tokens throughout, never a hardcoded hex, so these read
+       correctly in both light and dark mode. Applies identically in every
+       state this partial renders (editable, awaiting-signature — same
+       editable branch — and read-only/compare-predecessor, both driven by
+       rental-inspection-item-cell.blade.php's own $readOnly branch). */
+    .rir-cond-btn-selected-blue  { background: var(--brand-button, #0ea5e9); color: #fff; }
+    .rir-cond-btn-selected-red   { background: var(--ds-crimson, #c41e3a); color: #fff; }
+    .rir-cond-btn-selected-amber { background: var(--ds-amber, #f59e0b); color: #fff; }
+    .rir-cond-btn-selected-grey  { background: var(--text-secondary); color: #fff; }
+    .rir-cond-btn-unselected { background: var(--surface-2); color: var(--text-secondary); }
+    .rir-cond-btn-unselected-readonly { background: var(--surface-2); color: var(--text-secondary); opacity: 0.5; }
+
+    /* §36 — the item/room note callout: never muted grey (Johan's own
+       words) — a tinted background matching the severity, a left border,
+       normal-weight text. Item notes use noteCalloutTone() (red/amber for
+       an issue condition, light blue otherwise); room notes have no
+       condition of their own and always render the blue tone. */
+    .rir-note-callout { border-radius: 6px; padding: 0.375rem 0.625rem; border-left: 3px solid; font-weight: 400; }
+    .rir-note-callout-red   { background: color-mix(in srgb, var(--ds-crimson, #c41e3a) 12%, var(--surface)); border-left-color: var(--ds-crimson, #c41e3a); color: var(--text-primary); }
+    .rir-note-callout-amber { background: color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, var(--surface)); border-left-color: var(--ds-amber, #f59e0b); color: var(--text-primary); }
+    .rir-note-callout-blue  { background: color-mix(in srgb, var(--brand-button, #0ea5e9) 10%, var(--surface)); border-left-color: var(--brand-button, #0ea5e9); color: var(--text-primary); }
 </style>
 {{-- $sectionJs override — see this file's own top docblock. --}}
 @php($sectionJs = $sectionJs ?? "'{$section}'")
@@ -850,6 +875,13 @@
                                   :title="roomHasAttentionItem({{ $sectionJs }}, group) ? 'Needs attention' : ''"></span>
                             <span x-text="group.room ? group.room.label : 'General'"></span>
                             <span style="opacity:0.7;" x-text="' ' + roomProgress({{ $sectionJs }}, group).recorded + '/' + roomProgress({{ $sectionJs }}, group).total"></span>
+                            {{-- §36, 2026-09-28 — the room pill's own issue
+                                 count ("Bedroom 1 · 1 issue"), red/amber
+                                 items only. Shown whenever this room has at
+                                 least one, independent of the active filter
+                                 (roomIssueCount() own docblock, show.blade.php). --}}
+                            <span x-show="roomIssueCount({{ $sectionJs }}, group)" style="font-weight:700; color:var(--ds-crimson,#c41e3a);"
+                                  x-text="'· ' + roomIssueCount({{ $sectionJs }}, group) + ' issue' + (roomIssueCount({{ $sectionJs }}, group) === 1 ? '' : 's')"></span>
                         </button>
                     </template>
                 </div>
@@ -955,9 +987,11 @@
                              :style="'color:var(--text-muted); transition:transform .15s; transform:rotate(' + (isRoomOpen({{ $sectionJs }}, group) ? 90 : 0) + 'deg);'">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
                         </svg>
+                        {{-- §36, 2026-09-28 — appends the room's own issue count, same source (roomIssueCount(), show.blade.php) as the nav pill above. --}}
                         <h4 class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);"
                             x-text="(group.room ? group.room.label : 'General') + ' — ' + roomProgress({{ $sectionJs }}, group).recorded + '/' + roomProgress({{ $sectionJs }}, group).total
-                                    + (roomProgress({{ $sectionJs }}, group).photos ? ' · ' + roomProgress({{ $sectionJs }}, group).photos + ' photo' + (roomProgress({{ $sectionJs }}, group).photos === 1 ? '' : 's') + ' total' : '')"></h4>
+                                    + (roomProgress({{ $sectionJs }}, group).photos ? ' · ' + roomProgress({{ $sectionJs }}, group).photos + ' photo' + (roomProgress({{ $sectionJs }}, group).photos === 1 ? '' : 's') + ' total' : '')
+                                    + (roomIssueCount({{ $sectionJs }}, group) ? ' · ' + roomIssueCount({{ $sectionJs }}, group) + ' issue' + (roomIssueCount({{ $sectionJs }}, group) === 1 ? '' : 's') : '')"></h4>
                     </button>
                     @unless($tailReadOnly)
                     <div class="flex items-center gap-1" @click.stop>
@@ -1267,11 +1301,19 @@
                          — no predecessor/tail-object split needed here,
                          $sectionJs is correct as-is in both branches. Only
                          rendered when a note actually exists — no empty
-                         box for a room nobody wrote anything about. --}}
+                         box for a room nobody wrote anything about.
+
+                         §36, 2026-09-28 — the note itself is now a callout
+                         (rir-note-callout, own docblock in this file's
+                         <style> block), never plain muted text: a room
+                         note has no condition of its own to derive a
+                         severity from, so it always renders the calm blue
+                         tone (the same "otherwise" bucket an item note
+                         with a blue/grey-severity condition gets). --}}
                     <template x-if="group.room && roomNoteFor({{ $sectionJs }}, group.room.id)?.note">
                         <div class="pl-3 pt-1 space-y-0.5">
                             <span class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);">Room notes</span>
-                            <p class="text-xs" style="color:var(--text-primary); white-space:pre-wrap;" x-text="roomNoteFor({{ $sectionJs }}, group.room.id)?.note"></p>
+                            <div class="text-xs rir-note-callout rir-note-callout-blue" style="white-space:pre-wrap;" x-text="roomNoteFor({{ $sectionJs }}, group.room.id)?.note"></div>
                         </div>
                     </template>
                     @endif
