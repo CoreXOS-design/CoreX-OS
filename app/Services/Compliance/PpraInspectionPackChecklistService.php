@@ -9,19 +9,21 @@ use App\Models\Compliance\PpraInspectionGapNote;
 use Illuminate\Support\Collection;
 
 /**
- * PPRA Inspection Pack — Phase A + B. .ai/specs/ppra-inspection-pack.md §5.
+ * PPRA Inspection Pack — Phase A + B + C. .ai/specs/ppra-inspection-pack.md §5.
  *
  * Computes the live a-m checklist for an agency. Wired so far:
  * a, b, d, e, h (agency-vault-backed, Phase A), c, f, g (practitioner
- * FFC roster + letterhead, Phase B). Items i/j/k/l/m are returned with
- * status 'pending' ("not yet available" — later phases) so the checklist
- * page and Inspection Report keep a stable 13-row shape from day one
- * without guessing at data later phases will add.
+ * FFC roster + letterhead, Phase B/C — v3 sources c/f from
+ * PractitionerFfcRosterService, role-filtered + UserDocument-backed, per
+ * Johan's 2026-09-28 ruling). Items i/j/k/l/m are returned with status
+ * 'pending' ("not yet available" — later phases) so the checklist page and
+ * Inspection Report keep a stable 13-row shape from day one without
+ * guessing at data later phases will add.
  */
 class PpraInspectionPackChecklistService
 {
     public function __construct(
-        private AgentFfcRosterService $ffcRoster = new AgentFfcRosterService(),
+        private PractitionerFfcRosterService $practitionerRoster = new PractitionerFfcRosterService(),
     ) {
     }
 
@@ -74,9 +76,10 @@ class PpraInspectionPackChecklistService
             $rows->push($this->vaultRow($agency, $key, $def));
         }
 
-        $roster = $this->ffcRoster->rosterFor($agency->id);
-        $rows->push($this->practitionerFfcRow($agency, 'c', 'Principal\'s FFCs', $roster));
-        $rows->push($this->practitionerFfcRow($agency, 'f', 'Practitioner List & FFC Numbers', $roster, true));
+        $fullRoster = $this->practitionerRoster->rosterFor($agency->id);
+        $principals = $this->practitionerRoster->principalsFor($agency->id);
+        $rows->push($this->practitionerFfcRow($agency, 'c', 'Principal\'s FFCs', $principals, false, true));
+        $rows->push($this->practitionerFfcRow($agency, 'f', 'Practitioner List & FFC Numbers', $fullRoster, true));
         $rows->push($this->letterheadRow($agency));
 
         foreach (self::PENDING_ITEMS as $key => $label) {
@@ -97,10 +100,12 @@ class PpraInspectionPackChecklistService
     }
 
     /**
-     * Items c/f — the practitioner FFC roster. Aggregate status = worst
-     * individual agent status; the "why" line names the gaps (capped).
+     * Items c/f — the practitioner FFC roster (v3: role-filtered
+     * agent/branch_manager/admin, UserDocument-backed — see
+     * PractitionerFfcRosterService). Aggregate status = worst individual
+     * practitioner status; the "why" line names the gaps (capped).
      */
-    private function practitionerFfcRow(Agency $agency, string $item, string $label, Collection $roster, bool $exportNote = false): object
+    private function practitionerFfcRow(Agency $agency, string $item, string $label, Collection $roster, bool $exportNote = false, bool $principalOnly = false): object
     {
         $requirement = $exportNote
             ? 'A list of every property practitioner, their status, and FFC number.'
@@ -112,7 +117,9 @@ class PpraInspectionPackChecklistService
 
         if ($roster->isEmpty()) {
             $status = 'red';
-            $why = 'No active practitioners found in the agency roster.';
+            $why = $principalOnly
+                ? 'No principal practitioner identified — check user designations.'
+                : 'No active practitioners found in the agency roster.';
         } else {
             $gaps = $roster->filter(fn ($a) => in_array($a['ffc']['status'], ['red', 'amber'], true));
 
@@ -171,7 +178,7 @@ class PpraInspectionPackChecklistService
             $why = 'Agency logo is set, but no PPRA registration number is on file.';
         } else {
             $status = 'green';
-            $why = 'Agency logo and PPRA number are on file — a sample letterhead can be generated.';
+            $why = 'Agency logo and PPRA number are on file — a letterhead can be generated.';
         }
 
         $gapNote = null;
@@ -187,7 +194,7 @@ class PpraInspectionPackChecklistService
             'requirement' => 'A copy of the agency letterhead, carrying the PPA-prescribed information.',
             'status'      => $status,
             'why'         => $why,
-            'evidence'    => $status === 'green' ? 'Sample letterhead available on demand' : null,
+            'evidence'    => $status === 'green' ? 'Letterhead available on demand' : null,
             'gap_note'    => $gapNote,
             'document'    => null,
             'upload_configs' => collect(),

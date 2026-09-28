@@ -6,13 +6,13 @@ use App\Models\Agency;
 use App\Services\Compliance\Concerns\GeneratesPdfViaPuppeteer;
 
 /**
- * PPRA Inspection Pack Phase B — item (g), .ai/specs/ppra-inspection-pack.md §6.5.
+ * PPRA Inspection Pack Phase C (v3) — item (g), .ai/specs/ppra-inspection-pack.md §6.6b.
  *
- * Generates a one-page sample letterhead PDF from the same agency-branding
- * fields BaseSignatureMail::getAgentFooter() already reads (logo, PPRA
- * number cascade, disclaimer, POPI URL) — proving the prescribed letterhead
- * information exists and renders, without depending on any specific
- * generated document.
+ * Generates a one-page, genuinely PLAIN letterhead PDF from the same
+ * agency-branding fields BaseSignatureMail::getAgentFooter() already reads
+ * (logo, PPRA number cascade, disclaimer, POPI URL) — a blank, usable
+ * template, not a demo page. v3 correction: Phase B's version carried a
+ * "SAMPLE" watermark and explanatory body copy; both are removed.
  */
 class PpraLetterheadSampleService
 {
@@ -35,7 +35,7 @@ class PpraLetterheadSampleService
         if (! is_dir($pdfDir)) {
             mkdir($pdfDir, 0755, true);
         }
-        $pdfPath = $pdfDir . '/sample-letterhead-' . now()->format('Ymd-His') . '.pdf';
+        $pdfPath = $pdfDir . '/letterhead-' . now()->format('Ymd-His') . '.pdf';
 
         $this->invokePuppeteer($htmlPath, $pdfPath, 'letterhead-' . $agency->id);
 

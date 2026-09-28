@@ -1165,13 +1165,14 @@ Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowled
 });
 
 // ===== PPRA INSPECTION PACK (Admin — admin/super_admin only) =====
-// .ai/specs/ppra-inspection-pack.md — Phase A + B. Pure Admin feature,
+// .ai/specs/ppra-inspection-pack.md — Phase A + B + C. Pure Admin feature,
 // Johan's ruling 2026-09-28 — never gated below admin/super_admin, never
 // nested under Compliance.
 Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.required', 'permission:ppra_inspection_pack.view'])->name('admin.ppra-inspection-pack.')->group(function () {
     Route::get('/', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'index'])->name('index');
     Route::get('/report', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'report'])->name('report');
     Route::get('/remediation-log', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'remediationLog'])->name('remediation-log');
+    Route::get('/practitioners', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitioners'])->name('practitioners');
 
     Route::middleware('permission:ppra_inspection_pack.export')->group(function () {
         Route::get('/practitioner-register.pdf', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitionerRegisterPdf'])->name('practitioner-register.pdf');

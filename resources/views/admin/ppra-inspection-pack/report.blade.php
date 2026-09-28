@@ -75,6 +75,10 @@
         @if($agency->address){{ $agency->address }}<br>@endif
         @if($agency->phone){{ $agency->phone }} @endif
         @if($agency->email) &bull; {{ $agency->email }}@endif
+        @if(isset($principals) && $principals->isNotEmpty())
+            <br><strong>Principal practitioner{{ $principals->count() > 1 ? 's' : '' }}:</strong>
+            {{ $principals->pluck('name')->implode(', ') }}
+        @endif
     </div>
 </div>
 
@@ -177,24 +181,48 @@
             {{-- Practitioner FFC Table — lives inside item (f)'s own section, not a
                  separate appendix (spec §6.2 item 5): this is where a reader
                  expects the full roster once they've read "Practitioner List
-                 & FFC Numbers". --}}
+                 & FFC Numbers". Item (c)'s own section shows the same shape,
+                 filtered to the principal(s) only. --}}
             @if($row->item === 'f' && isset($roster) && $roster->isNotEmpty())
                 <table>
                     <thead>
-                        <tr><th>Name</th><th style="width:18%;">Designation</th><th style="width:22%;">FFC Number / Status</th><th style="width:12%;">Status</th><th style="width:14%;">Expiry</th></tr>
+                        <tr><th>Name</th><th style="width:16%;">Role</th><th style="width:16%;">FFC Number</th><th style="width:12%;">Status</th><th style="width:14%;">Expiry</th></tr>
                     </thead>
                     <tbody>
                         @foreach($roster as $agent)
                         <tr>
                             <td>{{ $agent['name'] }}</td>
-                            <td>{{ $agent['designation'] ?? '—' }}</td>
-                            <td>{{ $agent['ffc']['label'] }}</td>
-                            <td><span class="badge badge-{{ $agent['ffc']['status'] }}">{{ ucfirst($agent['ffc']['status']) }}</span></td>
+                            <td>{{ ucwords(str_replace('_', ' ', $agent['role'] ?? '')) }}</td>
+                            <td>{{ $agent['ffc_number'] ?? '—' }}</td>
+                            <td><span class="badge badge-{{ $agent['ffc']['status'] }}">{{ $agent['ffc']['label'] }}</span></td>
                             <td>{{ $agent['ffc']['expiry_date'] ? \Illuminate\Support\Carbon::parse($agent['ffc']['expiry_date'])->format('d M Y') : '—' }}</td>
                         </tr>
                         @endforeach
                     </tbody>
                 </table>
+            @endif
+
+            @if($row->item === 'c' && isset($principals))
+                @if($principals->isNotEmpty())
+                    <table>
+                        <thead>
+                            <tr><th>Name</th><th style="width:16%;">Role</th><th style="width:16%;">FFC Number</th><th style="width:12%;">Status</th><th style="width:14%;">Expiry</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach($principals as $agent)
+                            <tr>
+                                <td>{{ $agent['name'] }}</td>
+                                <td>{{ ucwords(str_replace('_', ' ', $agent['role'] ?? '')) }}</td>
+                                <td>{{ $agent['ffc_number'] ?? '—' }}</td>
+                                <td><span class="badge badge-{{ $agent['ffc']['status'] }}">{{ $agent['ffc']['label'] }}</span></td>
+                                <td>{{ $agent['ffc']['expiry_date'] ? \Illuminate\Support\Carbon::parse($agent['ffc']['expiry_date'])->format('d M Y') : '—' }}</td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                @else
+                    <p class="evidence">No principal practitioner identified — check user designations.</p>
+                @endif
             @endif
         @endif
     </div>

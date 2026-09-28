@@ -23,7 +23,7 @@ class PpraInspectionReportPdfService
 
     public function __construct(
         private PpraInspectionPackChecklistService $checklist = new PpraInspectionPackChecklistService(),
-        private AgentFfcRosterService $ffcRoster = new AgentFfcRosterService(),
+        private PractitionerFfcRosterService $practitionerRoster = new PractitionerFfcRosterService(),
     ) {
     }
 
@@ -34,7 +34,8 @@ class PpraInspectionReportPdfService
     {
         $rows = $this->checklist->checklistFor($agency);
         $gaps = $rows->whereIn('status', ['amber', 'red'])->values();
-        $roster = $this->ffcRoster->rosterFor($agency->id);
+        $roster = $this->practitionerRoster->rosterFor($agency->id);
+        $principals = $this->practitionerRoster->principalsFor($agency->id);
 
         $reportReference = 'PPRA-' . $agency->id . '-' . now()->format('Ymd-Hi');
 
@@ -43,6 +44,7 @@ class PpraInspectionReportPdfService
             'rows'            => $rows,
             'gaps'            => $gaps,
             'roster'          => $roster,
+            'principals'      => $principals,
             'reportReference' => $reportReference,
             'generatedBy'     => $generatedBy,
             'generatedAt'     => now(),

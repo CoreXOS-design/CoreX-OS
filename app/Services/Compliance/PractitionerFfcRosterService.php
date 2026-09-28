@@ -1,0 +1,117 @@
+<?php
+
+namespace App\Services\Compliance;
+
+use App\Models\User;
+use App\Models\UserDocument;
+use Carbon\Carbon;
+use Illuminate\Support\Collection;
+
+/**
+ * PPRA Inspection Pack Phase C (v3) — items (c)/(f), .ai/specs/ppra-inspection-pack.md §6.6.
+ *
+ * v3 replaces Phase B's AgentFfcRosterService for this module: the roster is
+ * role-filtered (agent/branch_manager/admin only — Johan's ruling, 2026-09-28)
+ * rather than "every non-assistant user", and the FFC certificate/expiry is
+ * sourced from UserDocument (document_type=ffc_certificate), not the legacy
+ * users.ffc_certificate_path / AgentApplication.ffc_expiry columns. The FFC
+ * NUMBER itself still lives on users.ffc_number — that field is distinct from
+ * the certificate file and is unaffected by this ruling.
+ *
+ * AgentFfcRosterService is left untouched — it still backs /compliance/agents,
+ * which is a different screen with a different roster definition (all active
+ * non-assistant staff, legacy FFC columns) that this spec does not touch.
+ */
+class PractitionerFfcRosterService
+{
+    /** Active users with role agent/branch_manager/admin — the complete PPRA practitioner list (item f). */
+    public const ROLES = ['agent', 'branch_manager', 'admin'];
+
+    private const AMBER_WINDOW_DAYS = 60; // matches AgentFfcRosterService's existing window
+
+    /**
+     * @return Collection<int, array{id:int,name:string,role:string,designation:?string,ffc_number:?string,ffc:array}>
+     */
+    public function rosterFor(int $agencyId): Collection
+    {
+        $users = User::where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->whereIn('role', self::ROLES)
+            ->whereNull('deleted_at')
+            ->orderBy('name')
+            ->get();
+
+        return $this->buildRoster($users);
+    }
+
+    /** Item (c): the same roster, filtered to whoever's designation names them a principal (§6.6a). */
+    public function principalsFor(int $agencyId): Collection
+    {
+        return $this->rosterFor($agencyId)
+            ->filter(fn (array $row) => str_contains(strtolower($row['designation'] ?? ''), 'principal'))
+            ->values();
+    }
+
+    private function buildRoster(Collection $users): Collection
+    {
+        return $users->map(fn (User $user) => [
+            'id'          => $user->id,
+            'name'        => $user->name,
+            'role'        => $user->role,
+            'designation' => $user->designation,
+            'ffc_number'  => $user->ffc_number,
+            'ffc'         => $this->ffcStatusFor($user),
+        ])->values();
+    }
+
+    public function ffcStatusFor(User $user): array
+    {
+        $document = $this->currentFfcDocument($user->id);
+
+        if (! $document) {
+            return ['status' => 'red', 'label' => 'Not on file', 'expiry_date' => null, 'document' => null];
+        }
+
+        $expiryDate = $document->expiry_date; // Carbon, from the UserDocument cast
+
+        if ($document->status === 'rejected') {
+            return ['status' => 'red', 'label' => 'Rejected', 'expiry_date' => $expiryDate, 'document' => $document];
+        }
+
+        if ($document->status === 'pending') {
+            return ['status' => 'amber', 'label' => 'Pending verification', 'expiry_date' => $expiryDate, 'document' => $document];
+        }
+
+        // status === 'verified' (or a legacy/other value with an expiry to judge) from here.
+        if (! $expiryDate) {
+            return ['status' => 'green', 'label' => 'On file (no expiry recorded)', 'expiry_date' => null, 'document' => $document];
+        }
+
+        $daysRemaining = (int) now()->diffInDays(Carbon::parse($expiryDate), false);
+
+        if ($daysRemaining < 0 || $document->status === 'expired') {
+            return ['status' => 'red', 'label' => 'Expired ' . Carbon::parse($expiryDate)->format('d M Y'), 'expiry_date' => $expiryDate, 'document' => $document];
+        }
+
+        if ($daysRemaining <= self::AMBER_WINDOW_DAYS) {
+            return ['status' => 'amber', 'label' => 'Expiring ' . Carbon::parse($expiryDate)->format('d M Y'), 'expiry_date' => $expiryDate, 'document' => $document];
+        }
+
+        return ['status' => 'green', 'label' => 'Valid until ' . Carbon::parse($expiryDate)->format('d M Y'), 'expiry_date' => $expiryDate, 'document' => $document];
+    }
+
+    /** Prefer the current verified certificate; fall back to whatever's most recent otherwise. */
+    private function currentFfcDocument(int $userId): ?UserDocument
+    {
+        $verified = UserDocument::where('user_id', $userId)
+            ->where('document_type', UserDocument::DOCUMENT_TYPE_FFC_CERTIFICATE)
+            ->verified()
+            ->latest('created_at')
+            ->first();
+
+        return $verified ?: UserDocument::where('user_id', $userId)
+            ->where('document_type', UserDocument::DOCUMENT_TYPE_FFC_CERTIFICATE)
+            ->latest('created_at')
+            ->first();
+    }
+}

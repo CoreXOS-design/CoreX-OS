@@ -5,16 +5,17 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Compliance\PpraInspectionGapNote;
-use App\Services\Compliance\AgentFfcRosterService;
 use App\Services\Compliance\PpraInspectionPackChecklistService;
 use App\Services\Compliance\PpraInspectionReportPdfService;
 use App\Services\Compliance\PpraLetterheadSampleService;
 use App\Services\Compliance\PpraPractitionerRegisterPdfService;
+use App\Services\Compliance\PractitionerFfcRosterService;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * PPRA Inspection Pack — Phase A + B. .ai/specs/ppra-inspection-pack.md
+ * PPRA Inspection Pack — Phase A + B + C. .ai/specs/ppra-inspection-pack.md
  * Pure Admin feature (Johan's ruling, 2026-09-28) — every action here is
  * gated ppra_inspection_pack.* (admin/super_admin only, see routes/web.php).
  */
@@ -23,7 +24,7 @@ class PpraInspectionPackController extends Controller
     public function __construct(
         private PpraInspectionPackChecklistService $checklist = new PpraInspectionPackChecklistService(),
         private PpraInspectionReportPdfService $reportPdf = new PpraInspectionReportPdfService(),
-        private AgentFfcRosterService $ffcRoster = new AgentFfcRosterService(),
+        private PractitionerFfcRosterService $practitionerRoster = new PractitionerFfcRosterService(),
         private PpraLetterheadSampleService $letterheadPdf = new PpraLetterheadSampleService(),
         private PpraPractitionerRegisterPdfService $practitionerPdf = new PpraPractitionerRegisterPdfService(),
     ) {
@@ -158,12 +159,61 @@ class PpraInspectionPackController extends Controller
     }
 
     /**
-     * Item c/f — practitioner FFC register export. §6.6.
+     * Practitioner FFC register — full CRUD-list floor (§6.6). Item (f) is
+     * this screen unfiltered; item (c) is this screen with ?principal=1
+     * (§6.6a's designation-LIKE match, via PractitionerFfcRosterService::principalsFor()).
+     */
+    public function practitioners(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+        $principalOnly = $request->boolean('principal');
+
+        $roster = $principalOnly
+            ? $this->practitionerRoster->principalsFor($agency->id)
+            : $this->practitionerRoster->rosterFor($agency->id);
+
+        if ($search = $request->input('search')) {
+            $needle = strtolower($search);
+            $roster = $roster->filter(fn (array $row) => str_contains(strtolower($row['name']), $needle)
+                || str_contains(strtolower($row['designation'] ?? ''), $needle));
+        }
+
+        if ($role = $request->input('role')) {
+            $roster = $roster->filter(fn (array $row) => $row['role'] === $role);
+        }
+
+        if ($statusFilter = $request->input('status')) {
+            $roster = $roster->filter(fn (array $row) => $row['ffc']['status'] === $statusFilter);
+        }
+
+        $rank = ['red' => 0, 'amber' => 1, 'green' => 2];
+        $roster = $request->input('sort') === 'name'
+            ? $roster->sortBy(fn (array $row) => strtolower($row['name']))->values()
+            : $roster->sortBy([
+                fn (array $a, array $b) => ($rank[$a['ffc']['status']] ?? 3) <=> ($rank[$b['ffc']['status']] ?? 3),
+                fn (array $a, array $b) => strcasecmp($a['name'], $b['name']),
+            ])->values();
+
+        $page = (int) $request->input('page', 1);
+        $perPage = 25;
+        $roster = new LengthAwarePaginator(
+            $roster->forPage($page, $perPage)->values(),
+            $roster->count(),
+            $perPage,
+            $page,
+            ['path' => $request->url(), 'query' => $request->query()]
+        );
+
+        return view('admin.ppra-inspection-pack.practitioners', compact('agency', 'roster', 'principalOnly'));
+    }
+
+    /**
+     * Item f — practitioner FFC register export (full roster). §6.6.
      */
     public function practitionerRegisterPdf(Request $request)
     {
         $agency = $this->resolveAgency($request);
-        $roster = $this->ffcRoster->rosterFor($agency->id);
+        $roster = $this->practitionerRoster->rosterFor($agency->id);
 
         $pdfPath = $this->practitionerPdf->generate($agency, $roster);
 
@@ -173,18 +223,19 @@ class PpraInspectionPackController extends Controller
     public function practitionerRegisterCsv(Request $request)
     {
         $agency = $this->resolveAgency($request);
-        $roster = $this->ffcRoster->rosterFor($agency->id);
+        $roster = $this->practitionerRoster->rosterFor($agency->id);
 
         $filename = 'practitioner-register-' . now()->format('Ymd-His') . '.csv';
 
         $callback = function () use ($roster) {
             $out = fopen('php://output', 'w');
-            fputcsv($out, ['Name', 'Designation', 'FFC Number/Status', 'Status', 'Expiry Date']);
+            fputcsv($out, ['Name', 'Role', 'Designation', 'FFC Number', 'Status', 'Expiry Date']);
             foreach ($roster as $agent) {
                 fputcsv($out, [
                     $agent['name'],
+                    ucwords(str_replace('_', ' ', $agent['role'])),
                     $agent['designation'] ?? '',
-                    $agent['ffc']['label'],
+                    $agent['ffc_number'] ?? '',
                     ucfirst($agent['ffc']['status']),
                     $agent['ffc']['expiry_date'] ?? '',
                 ]);
@@ -198,7 +249,7 @@ class PpraInspectionPackController extends Controller
     }
 
     /**
-     * Item g — sample letterhead PDF. §6.5.
+     * Item g — plain letterhead PDF (v3: no "SAMPLE" watermark/demo copy). §6.6b.
      */
     public function letterhead(Request $request)
     {

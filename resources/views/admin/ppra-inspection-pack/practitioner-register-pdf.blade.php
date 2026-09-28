@@ -26,19 +26,20 @@
 
     <table>
         <thead>
-            <tr><th>Name</th><th>Designation</th><th>FFC Number / Status</th><th>Status</th><th>Expiry</th></tr>
+            <tr><th>Name</th><th>Role</th><th>Designation</th><th>FFC Number</th><th>Status</th><th>Expiry</th></tr>
         </thead>
         <tbody>
             @forelse($roster as $agent)
             <tr>
                 <td>{{ $agent['name'] }}</td>
+                <td>{{ ucwords(str_replace('_', ' ', $agent['role'] ?? '')) }}</td>
                 <td>{{ $agent['designation'] ?? '—' }}</td>
-                <td>{{ $agent['ffc']['label'] }}</td>
-                <td><span class="badge badge-{{ $agent['ffc']['status'] }}">{{ ucfirst($agent['ffc']['status']) }}</span></td>
+                <td>{{ $agent['ffc_number'] ?? '—' }}</td>
+                <td><span class="badge badge-{{ $agent['ffc']['status'] }}">{{ $agent['ffc']['label'] }}</span></td>
                 <td>{{ $agent['ffc']['expiry_date'] ? \Illuminate\Support\Carbon::parse($agent['ffc']['expiry_date'])->format('d M Y') : '—' }}</td>
             </tr>
             @empty
-            <tr><td colspan="5">No active practitioners found.</td></tr>
+            <tr><td colspan="6">No active practitioners found.</td></tr>
             @endforelse
         </tbody>
     </table>

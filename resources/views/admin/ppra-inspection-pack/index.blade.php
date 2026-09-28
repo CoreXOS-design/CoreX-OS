@@ -119,13 +119,16 @@
                                     {{ str_contains($row->why, 'expired') ? 'Replace' : 'Upload' }}
                                 </button>
                             </form>
+                        @elseif($row->item === 'c')
+                            <a href="{{ route('admin.ppra-inspection-pack.practitioners', ['principal' => 1]) }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">View principal(s)</a>
                         @elseif($row->item === 'f')
                             <div class="flex flex-col gap-1">
+                                <a href="{{ route('admin.ppra-inspection-pack.practitioners') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">View roster</a>
                                 <a href="{{ route('admin.ppra-inspection-pack.practitioner-register.pdf') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export PDF</a>
                                 <a href="{{ route('admin.ppra-inspection-pack.practitioner-register.csv') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export CSV</a>
                             </div>
                         @elseif($row->item === 'g')
-                            <a href="{{ route('admin.ppra-inspection-pack.letterhead') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Generate sample letterhead</a>
+                            <a href="{{ route('admin.ppra-inspection-pack.letterhead') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Generate letterhead</a>
                         @else
                             <span class="text-xs" style="color:var(--text-muted);">—</span>
                         @endif
