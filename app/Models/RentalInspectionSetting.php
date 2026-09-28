@@ -170,27 +170,62 @@ class RentalInspectionSetting extends Model
      * either way (this constant is only ever read when that column is
      * still null).
      *
-     * `needs_attention` — .ai/specs/rental-inspections.md §27.2 (recording-
-     * screen navigation, 2026-09-27). A genuinely different question from
-     * requires_notes: "does this condition mean the space needs attention"
-     * versus "does picking this need a typed reason" — 'fair' answers no
-     * to the first, yes to the second (a mildly worn item is worth a
-     * follow-up but doesn't need a reason on record). Johan's explicit
-     * default: Good and N/A off, everything else on.
+     * `severity` — .ai/specs/rental-inspections.md §36 (condition colours,
+     * 2026-09-28, Johan's ruling on property 5294: "a condition and its
+     * note must JUMP OUT"). Supersedes the original §27.2 `needs_attention`
+     * boolean — that flag and this one were answering the same underlying
+     * question ("does this condition mean the space needs attention")
+     * through two different lenses, and letting both persist independently
+     * would have been exactly the duplicate-source-of-truth this codebase's
+     * own Architectural Laws forbid. One of four values: `blue` (calm —
+     * Good/Fair), `red` (a real issue — Damaged/Not working/Missing),
+     * `amber` (caution — Other), `grey` (neutral — N/A, "was never here,
+     * not an argument at all"). Drives the selected condition button's own
+     * colour in every rendering (editable, read-only, compare/predecessor
+     * cell, signed PDF) AND — via conditionNeedsAttentionFor() below —
+     * the recording screen's "Needs attention" filter and per-room issue
+     * count: red/amber is what needs attention now, never a second,
+     * independently-configurable flag that could silently disagree with
+     * the colour an agent is looking at.
      *
-     * @var array<int, array{key: string, label: string, requires_notes: bool, needs_attention: bool}>
+     * @var array<int, array{key: string, label: string, requires_notes: bool, severity: string}>
      */
     public const DEFAULT_CONDITION_STATES = [
-        ['key' => 'good', 'label' => 'Good', 'requires_notes' => false, 'needs_attention' => false],
-        ['key' => 'fair', 'label' => 'Fair', 'requires_notes' => false, 'needs_attention' => true],
-        ['key' => 'damaged', 'label' => 'Damaged', 'requires_notes' => true, 'needs_attention' => true],
-        ['key' => 'not_working', 'label' => 'Not working', 'requires_notes' => true, 'needs_attention' => true],
-        ['key' => 'missing', 'label' => 'Missing', 'requires_notes' => true, 'needs_attention' => true],
-        ['key' => 'other', 'label' => 'Other', 'requires_notes' => true, 'needs_attention' => true],
+        ['key' => 'good', 'label' => 'Good', 'requires_notes' => false, 'severity' => 'blue'],
+        ['key' => 'fair', 'label' => 'Fair', 'requires_notes' => false, 'severity' => 'blue'],
+        ['key' => 'damaged', 'label' => 'Damaged', 'requires_notes' => true, 'severity' => 'red'],
+        ['key' => 'not_working', 'label' => 'Not working', 'requires_notes' => true, 'severity' => 'red'],
+        ['key' => 'missing', 'label' => 'Missing', 'requires_notes' => true, 'severity' => 'red'],
+        ['key' => 'other', 'label' => 'Other', 'requires_notes' => true, 'severity' => 'amber'],
         // Johan: "not an argument at all" — unlike every state above it,
         // N/A needs no justification on record, and (§27.2) nothing to
         // follow up on either.
-        ['key' => 'n_a', 'label' => 'N/A', 'requires_notes' => false, 'needs_attention' => false],
+        ['key' => 'n_a', 'label' => 'N/A', 'requires_notes' => false, 'severity' => 'grey'],
+    ];
+
+    /**
+     * §36 — the four severity buckets a condition state can carry, and the
+     * literal colour each one prints as. Shared by the settings edit form
+     * (the picker's own options) and the signed PDF report (which cannot
+     * use the live app's CSS custom properties — DomPDF has no theme, a
+     * printed page has no dark mode) — the live screens themselves use the
+     * equivalent CSS tokens (--brand-button/--ds-crimson/--ds-amber/
+     * --text-secondary) directly, never this constant, so the two stay
+     * visually aligned without the PDF depending on a browser stylesheet.
+     */
+    public const SEVERITY_COLORS = [
+        'blue' => '#0ea5e9',
+        'red' => '#c41e3a',
+        'amber' => '#f59e0b',
+        'grey' => '#6b7280',
+    ];
+
+    /** Human labels for the severity picker on the settings edit form. */
+    public const SEVERITY_LABELS = [
+        'blue' => 'Calm (blue)',
+        'red' => 'Issue (red)',
+        'amber' => 'Caution (amber)',
+        'grey' => 'Neutral (grey)',
     ];
 
     /**
@@ -560,14 +595,18 @@ class RentalInspectionSetting extends Model
      * as-is once it's shaped correctly. Malformed rows (missing key/label)
      * are dropped rather than crashing a read.
      *
-     * §27.2 — `needs_attention` is backfilled onto every returned row
-     * (default true) so a row saved before this flag existed reads
-     * identically here, in the settings edit form, and client-side as it
-     * already does through conditionNeedsAttentionFor()'s own resolver —
-     * one normalized shape, never three call sites quietly disagreeing
-     * about what a missing key means.
+     * §36 — `severity` is backfilled onto every returned row so a row saved
+     * before this field existed (or before the §27.2 `needs_attention`
+     * boolean it supersedes) reads identically here, in the settings edit
+     * form, and client-side — one normalized shape, never three call sites
+     * quietly disagreeing about what a missing key means. A row that still
+     * only carries the old `needs_attention` boolean maps `true` → `red`
+     * (the safe "flag it" default) and `false` → `blue` (calm); a row with
+     * neither key at all defaults straight to `red` — same "unknown state
+     * is never silently filtered out of view" reasoning every other
+     * resolver on this class already uses.
      *
-     * @return array<int, array{key: string, label: string, requires_notes: bool, needs_attention: bool}>
+     * @return array<int, array{key: string, label: string, requires_notes: bool, severity: string}>
      */
     public static function conditionStatesFor(?int $agencyId): array
     {
@@ -583,7 +622,17 @@ class RentalInspectionSetting extends Model
 
         $states = array_values(array_filter($states, fn ($s) => is_array($s) && ! empty($s['key']) && isset($s['label'])));
 
-        return array_map(fn ($s) => $s + ['needs_attention' => true], $states);
+        return array_map(function ($s) {
+            if (in_array($s['severity'] ?? null, array_keys(self::SEVERITY_COLORS), true)) {
+                return $s;
+            }
+
+            $s['severity'] = array_key_exists('needs_attention', $s)
+                ? ($s['needs_attention'] ? 'red' : 'blue')
+                : 'red';
+
+            return $s;
+        }, $states);
     }
 
     /**
@@ -603,20 +652,36 @@ class RentalInspectionSetting extends Model
     }
 
     /**
-     * .ai/specs/rental-inspections.md §27.2 — does this condition mean the
-     * space needs attention (the recording screen's problem filter). Same
-     * read-time-default, unknown-key-defaults-true reasoning as
-     * conditionRequiresNotesFor() directly above: a condition key absent
-     * from the agency's own configured set defaults to TRUE, and a saved
-     * row from before this flag existed (missing the key entirely) also
-     * defaults to TRUE — an unknown/unconfigured state is never silently
-     * filtered out of view.
+     * .ai/specs/rental-inspections.md §36 — does this condition mean the
+     * space needs attention (the recording screen's problem filter + the
+     * per-room issue count). Derived from severity, never a second stored
+     * flag: red/amber IS "needs attention", blue/grey is not. A condition
+     * key absent from the agency's own configured set resolves through
+     * conditionSeverityFor()'s own unknown-key default (`red`), so an
+     * unknown/unconfigured state is never silently filtered out of view.
      */
     public static function conditionNeedsAttentionFor(?int $agencyId, string $conditionKey): bool
     {
-        $state = collect(self::conditionStatesFor($agencyId))->firstWhere('key', $conditionKey);
+        return in_array(self::conditionSeverityFor($agencyId, $conditionKey), ['red', 'amber'], true);
+    }
 
-        return $state === null ? true : (bool) ($state['needs_attention'] ?? true);
+    /**
+     * .ai/specs/rental-inspections.md §36 — the agency's own configured
+     * severity for one condition key: `blue`/`red`/`amber`/`grey`, driving
+     * the selected condition button's colour (every rendering — editable,
+     * read-only, compare/predecessor cell, signed PDF), the item/room note
+     * callout's tint, and (via conditionNeedsAttentionFor() above) the
+     * "Needs attention" filter and per-room issue count. A condition key
+     * absent from the agency's own configured set defaults to `red` — the
+     * safe "flag it, don't hide it" default every other unknown-key path
+     * on this class already uses.
+     */
+    public static function conditionSeverityFor(?int $agencyId, string $conditionKey): string
+    {
+        $state = collect(self::conditionStatesFor($agencyId))->firstWhere('key', $conditionKey);
+        $severity = $state['severity'] ?? 'red';
+
+        return in_array($severity, array_keys(self::SEVERITY_COLORS), true) ? $severity : 'red';
     }
 
     /**

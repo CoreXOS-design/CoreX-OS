@@ -54,26 +54,27 @@
 @if($readOnly)
                 <button type="button" disabled
                         class="text-xs font-semibold px-2.5 py-1.5 rounded-md"
-                        :style="(conditionForInspection({{ $inspectionJs }}, item.id)?.condition === state.key)
-                            ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
-                            : 'background:var(--surface-2); color:var(--text-secondary); opacity:0.5;'"
+                        :class="(conditionForInspection({{ $inspectionJs }}, item.id)?.condition === state.key)
+                            ? conditionSelectedClass(state.key)
+                            : 'rir-cond-btn-unselected-readonly'"
                         x-text="state.label"></button>
 @else
                 <button type="button"
                         :disabled="isObsBusy({{ $inspectionJs }}, item.id)"
                         @click="onConditionTap({{ $inspectionJs }}, item, state.key)"
                         class="text-xs font-semibold px-2.5 py-1.5 rounded-md"
-                        :style="selectedConditionFor({{ $inspectionJs }}, item) === state.key
-                            ? 'background:var(--brand-button,#0ea5e9); color:#fff;'
-                            : 'background:var(--surface-2); color:var(--text-secondary);'"
+                        :class="selectedConditionFor({{ $inspectionJs }}, item) === state.key
+                            ? conditionSelectedClass(state.key)
+                            : 'rir-cond-btn-unselected'"
                         x-text="state.label"></button>
 @endif
             </template>
         </div>
 @if($readOnly)
-        <p x-show="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"
-           class="text-xs mt-0.5" style="color:var(--text-muted);"
-           x-text="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"></p>
+        <div x-show="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"
+             class="text-xs mt-0.5 rir-note-callout"
+             :class="'rir-note-callout-' + noteCalloutTone(conditionForInspection({{ $inspectionJs }}, item.id)?.condition)"
+             x-text="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"></div>
 @else
         <input type="text"
                x-show="selectedConditionFor({{ $inspectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $inspectionJs }}, item))"

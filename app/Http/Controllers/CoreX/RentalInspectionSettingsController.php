@@ -271,14 +271,19 @@ class RentalInspectionSettingsController extends Controller
                 continue;
             }
             $seenKeys[] = $key;
+            $severity = (string) ($row['severity'] ?? '');
             $states[] = [
                 'key' => $key,
                 'label' => $label,
                 'requires_notes' => ($row['requires_notes'] ?? '0') === '1',
-                // .ai/specs/rental-inspections.md §27.2 — the recording
-                // screen's problem filter, same per-row checkbox discipline
-                // as requires_notes just above.
-                'needs_attention' => ($row['needs_attention'] ?? '0') === '1',
+                // .ai/specs/rental-inspections.md §36 — condition colour +
+                // the recording screen's "Needs attention" filter/issue
+                // count, both driven by this one field. An unrecognised
+                // value (a stale row from before this picker existed, or a
+                // tampered request) falls back to 'red' — the same
+                // "unknown state is never silently hidden" default
+                // RentalInspectionSetting::conditionSeverityFor() itself uses.
+                'severity' => array_key_exists($severity, RentalInspectionSetting::SEVERITY_COLORS) ? $severity : 'red',
             ];
         }
 

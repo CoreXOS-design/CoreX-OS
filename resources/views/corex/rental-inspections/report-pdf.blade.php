@@ -26,7 +26,22 @@
     .prev-col { width: 32%; }
     .cur-col { width: 32%; }
     .history-col { width: 10%; font-size: 7pt; color: #666; }
-    .notes { font-size: 7.5pt; color: #555; }
+    {{-- §36, 2026-09-28 (Johan, property 5294) — "a condition and its note
+         must JUMP OUT," on the printed report too, never muted grey. DomPDF
+         has no theme/dark-mode and no CSS custom-property support, so
+         these are literal hex — the exact same values as
+         RentalInspectionSetting::SEVERITY_COLORS (passed in as
+         $severityColors below), the one place this app's severity→colour
+         mapping is defined, kept in sync by reading from it rather than
+         restating the values here. --}}
+    .cond-blue  { color: {{ $severityColors['blue'] }}; font-weight: bold; }
+    .cond-red   { color: {{ $severityColors['red'] }}; font-weight: bold; }
+    .cond-amber { color: {{ $severityColors['amber'] }}; font-weight: bold; }
+    .cond-grey  { color: {{ $severityColors['grey'] }}; font-weight: bold; }
+    .notes-callout { font-size: 7.5pt; color: #333; padding: 2pt 4pt; border-left: 2pt solid; margin-top: 1pt; }
+    .notes-callout-red   { background: #fdecec; border-left-color: {{ $severityColors['red'] }}; }
+    .notes-callout-amber { background: #fdf3e0; border-left-color: {{ $severityColors['amber'] }}; }
+    .notes-callout-blue  { background: #eaf6fc; border-left-color: {{ $severityColors['blue'] }}; }
     .sig-table { width: 100%; margin-top: 16pt; border-collapse: collapse; }
     .sig-table td { font-size: 8pt; padding: 3pt 4pt; border-top: 0.5pt solid #ccc; }
 </style>
@@ -82,9 +97,10 @@
                             <td>{{ $row->item->label }}</td>
                             <td>
                                 @if($row->previous)
-                                    {{ ucfirst($row->previous->observation->condition) }}
+                                    <span class="cond-{{ $row->previous_severity }}">{{ ucfirst($row->previous->observation->condition) }}</span>
                                     @if($row->previous->observation->notes)
-                                        <div class="notes">{{ $row->previous->observation->notes }}</div>
+                                        {{-- §36 — never muted grey: red/amber for an issue severity, the calm blue tone otherwise (a grey-severity condition like N/A still gets the blue callout, same "otherwise" bucket the recording screen uses). --}}
+                                        <div class="notes-callout notes-callout-{{ in_array($row->previous_severity, ['red', 'amber'], true) ? $row->previous_severity : 'blue' }}">{{ $row->previous->observation->notes }}</div>
                                     @endif
                                 @else
                                     <span class="muted">—</span>
@@ -92,9 +108,9 @@
                             </td>
                             <td>
                                 @if($row->current)
-                                    {{ ucfirst($row->current->condition) }}
+                                    <span class="cond-{{ $row->current_severity }}">{{ ucfirst($row->current->condition) }}</span>
                                     @if($row->current->notes)
-                                        <div class="notes">{{ $row->current->notes }}</div>
+                                        <div class="notes-callout notes-callout-{{ in_array($row->current_severity, ['red', 'amber'], true) ? $row->current_severity : 'blue' }}">{{ $row->current->notes }}</div>
                                     @endif
                                 @else
                                     <span class="muted">Not yet recorded</span>
