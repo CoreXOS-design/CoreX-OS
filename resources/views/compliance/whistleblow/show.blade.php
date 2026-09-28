@@ -15,7 +15,7 @@
         ? 'Acknowledged'
         : str_replace('_', ' ', ucfirst($complaint->status));
 @endphp
-<div class="w-full space-y-4" x-data="{ showAudit: false, rejectOpen: false, changesOpen: false }">
+<div class="w-full space-y-4" x-data="{ showAudit: false, rejectOpen: false, changesOpen: false, resendOpen: false }">
 
     {{-- Page header (Pattern A — flat neutral) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -38,6 +38,12 @@
     @if(session('success'))
     <div class="rounded-md p-3 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); color:var(--ds-green, #059669);">
         {{ session('success') }}
+    </div>
+    @endif
+
+    @if(session('error'))
+    <div class="rounded-md p-3 text-sm font-medium" style="background:color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent); color:var(--ds-crimson, #c41e3a);">
+        {{ session('error') }}
     </div>
     @endif
 
@@ -141,6 +147,9 @@
                     <span class="text-xs font-bold" style="color:var(--ds-green, #059669);">Sent</span>
                     @else
                     <span class="text-xs font-bold" style="color:var(--ds-crimson, #c41e3a);">Failed</span>
+                    @endif
+                    @if(str_starts_with($elog->subject ?? '', '[RESEND]') || str_starts_with($elog->subject ?? '', '[DEMO] [RESEND]'))
+                    <span class="ds-badge ds-badge-default text-[0.625rem]">Resend</span>
                     @endif
                     <span class="text-xs" style="color:var(--text-muted);">{{ $elog->sent_at->format('d M Y, H:i') }}</span>
                     <button type="button" @click="viewingEmailId = viewingEmailId === {{ $elog->id }} ? null : {{ $elog->id }}" class="ml-auto text-xs font-semibold px-2 py-1 rounded" style="color:var(--brand-icon, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, transparent);">
@@ -274,6 +283,56 @@
                 <div class="flex justify-end gap-3">
                     <button type="button" @click="changesOpen = false" class="px-4 py-2 text-sm" style="color:var(--text-secondary);">Cancel</button>
                     <button type="submit" class="corex-btn-primary text-sm">Send Back</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    </template>
+    @endif
+
+    {{-- Resend to PPRA — for a complaint already sent (or acknowledged). Live
+         incident fix, 2026-09-28: complaints approved while
+         WHISTLEBLOW_PPRA_LIVE_SEND was off went to the demo address. --}}
+    @if(in_array($complaint->status, ['sent', 'acknowledged_by_ppra']) && $isApprover)
+    <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+        <button type="button" @click="resendOpen = true" class="corex-btn-outline text-sm">
+            Resend to PPRA
+        </button>
+    </div>
+
+    <template x-teleport="body">
+    <div x-show="resendOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" x-transition.opacity>
+        <div class="absolute inset-0" style="background:rgba(0,0,0,0.55);" @click="resendOpen = false"></div>
+        <div class="relative rounded-md shadow-2xl p-5" style="width:460px; max-width:95vw; background:var(--surface); border:1px solid var(--border);">
+            <h3 class="text-base font-bold mb-3" style="color:var(--text-primary);">Resend to PPRA</h3>
+
+            @if($resendRecipients)
+            <div class="rounded-md p-3 mb-4 text-sm" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="flex items-center gap-2 mb-2">
+                    @if($resendRecipients['is_demo'])
+                    <span class="ds-badge ds-badge-warning">DEMO MODE</span>
+                    <span class="text-xs" style="color:var(--text-muted);">This will go to the demo address, not the real PPRA.</span>
+                    @else
+                    <span class="ds-badge ds-badge-danger">LIVE</span>
+                    <span class="text-xs" style="color:var(--text-muted);">This is a real send to PPRA.</span>
+                    @endif
+                </div>
+                <div style="color:var(--text-primary);"><strong>To:</strong> {{ implode(', ', $resendRecipients['to']) }}</div>
+                @if(!empty($resendRecipients['cc']))
+                <div style="color:var(--text-secondary);"><strong>CC:</strong> {{ implode(', ', $resendRecipients['cc']) }}</div>
+                @endif
+            </div>
+            @endif
+
+            <form method="POST" action="{{ route('compliance.whistleblow.resend-to-ppra', $complaint) }}">
+                @csrf
+                <label class="flex items-start gap-2 text-sm mb-4 cursor-pointer" style="color:var(--text-secondary);">
+                    <input type="checkbox" name="resend_seller_pack" value="1" class="mt-0.5">
+                    <span>Also resend the seller info pack (off by default — sellers already received it; only tick this if they specifically need it again).</span>
+                </label>
+                <div class="flex justify-end gap-3">
+                    <button type="button" @click="resendOpen = false" class="px-4 py-2 text-sm" style="color:var(--text-secondary);">Cancel</button>
+                    <button type="submit" class="corex-btn-primary text-sm">Resend</button>
                 </div>
             </form>
         </div>

@@ -2495,6 +2495,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{complaint}/approve', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'approve'])->name('approve')->middleware('permission:compliance.whistleblow.approve');
         Route::post('/{complaint}/reject', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'reject'])->name('reject')->middleware('permission:compliance.whistleblow.approve');
         Route::post('/{complaint}/request-changes', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'requestChanges'])->name('request-changes')->middleware('permission:compliance.whistleblow.approve');
+        // Live incident fix, 2026-09-28 — resend the PPRA email for a complaint
+        // already sent (or acknowledged), e.g. one that went to the demo
+        // address while WHISTLEBLOW_PPRA_LIVE_SEND was off.
+        Route::post('/{complaint}/resend-to-ppra', [\App\Http\Controllers\Compliance\WhistleblowController::class, 'resendToPpra'])->name('resend-to-ppra')->middleware('permission:compliance.whistleblow.approve');
     });
 
     // ── Seller Information Pack ──
