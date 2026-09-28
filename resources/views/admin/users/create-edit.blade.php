@@ -32,43 +32,94 @@
     $managedDefaultId = $managedDefaultId !== null ? (int) $managedDefaultId : null;
     $currentRoleSel = old('role', $isEdit ? ($user->role ?? 'agent') : 'agent');
     $isAdminRoleSel = in_array($currentRoleSel, ['admin', 'super_admin'], true);
+
+    // AT-422 (Roster) — facts for the left profile panel (edit mode only).
+    $ueStatus     = $isEdit ? (! $user->is_active ? 'inactive' : (! $user->email_verified_at ? 'pending' : 'active')) : null;
+    $ueStatusLbl  = ['active' => 'Active', 'pending' => 'Invite pending', 'inactive' => 'Inactive'][$ueStatus] ?? '';
+    $ueStatusCls  = ['active' => 'ok', 'pending' => 'wa', 'inactive' => 'mu'][$ueStatus] ?? 'mu';
+    $ueFfc        = ($isEdit && $user->ffc_expiry_date) ? \Carbon\Carbon::parse($user->ffc_expiry_date) : null;
+    $ueFfcCls     = ! $ueFfc ? 'mu' : ($ueFfc->isPast() ? 'bad' : ($ueFfc->lte(now()->addDays(60)) ? 'wa' : 'ok'));
+    $ueLastLogin  = $isEdit ? \DB::table('login_histories')->where('user_id', $user->id)->where('event', 'login')->max('created_at') : null;
+    $ueBranchName = $isEdit ? optional($branchList->firstWhere('id', $user->branch_id))->name : null;
+    $ueAgencyId   = $isEdit ? $user->agency_id : auth()->user()?->effectiveAgencyId();
+    $ueHasWebsite = (bool) ($ueAgencyId && \App\Models\AgencyApiKey::withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)
+                        ->where('agency_id', $ueAgencyId)->whereNull('revoked_at')->exists());
+    // "View as this user" mirrors ImpersonateController::start()'s own guards; the server still enforces them.
+    $ueActor      = auth()->user();
+    $ueCanView    = $isEdit && $ueActor
+                    && ! session()->has('impersonator_id')
+                    && $user->id !== $ueActor->id
+                    && $user->is_active
+                    && ($ueActor->isOwnerRole() || $ueActor->hasPermission('impersonate_users'))
+                    && $ueActor->effectiveAgencyId() !== null
+                    && ! ($user->isOwnerRole() && ! $ueActor->isOwnerRole());
 @endphp
 
-<div class="w-full space-y-5">
+<style>
+.ue .ue-head{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.ue .ue-crumb{display:flex;gap:8px;align-items:center;font-size:13.5px;color:var(--text-muted)}
+.ue .ue-crumb a{color:var(--text-muted);text-decoration:none}.ue .ue-crumb a:hover{color:var(--brand-icon,#0ea5e9)}
+.ue .ue-crumb span:last-child{color:var(--text-primary);font-weight:600}
+.ue .ue-head-actions{display:flex;gap:10px}
+.ue .ue-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;padding:0 16px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:13px;font-weight:600;text-decoration:none;cursor:pointer}
+.ue .ue-btn.pri{background:var(--brand-button,#0ea5e9);border-color:transparent;color:#fff}
+.ue .ue-cols{display:grid;grid-template-columns:316px minmax(0,1fr);gap:24px;align-items:start}
+.ue .ue-cols.solo{grid-template-columns:minmax(0,1fr)}
+.ue .ue-side{position:sticky;top:12px;display:flex;flex-direction:column;gap:14px}
+.ue .ue-panel{background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.ue .ue-prof{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;padding:24px 20px 18px}
+.ue .ue-avatar{width:84px;height:84px;border-radius:50%;object-fit:cover;display:grid;place-items:center;font-size:28px;font-weight:700;background:color-mix(in srgb,var(--brand-icon,#0ea5e9) 18%,transparent);color:var(--brand-icon,#0ea5e9)}
+.ue .ue-prof h2{font-size:19px;font-weight:700;margin:8px 0 0;color:var(--text-primary);overflow-wrap:anywhere}
+.ue .ue-sub{color:var(--text-muted);font-size:13.5px}
+.ue .ue-pill{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;border-radius:999px;font-size:12px;font-weight:600;margin-top:8px;white-space:nowrap}
+.ue .ue-pill.ok{background:color-mix(in srgb,var(--ds-green,#059669) 14%,transparent);color:var(--ds-green,#059669)}
+.ue .ue-pill.wa{background:color-mix(in srgb,var(--ds-amber,#d97706) 14%,transparent);color:var(--ds-amber,#d97706)}
+.ue .ue-pill.bad{background:color-mix(in srgb,var(--ds-crimson,#c41e3a) 13%,transparent);color:var(--ds-crimson,#c41e3a)}
+.ue .ue-pill.mu{background:var(--surface-2);color:var(--text-secondary)}
+.ue .ue-facts{margin:0;padding:4px 20px 8px;border-top:1px solid var(--border)}
+.ue .ue-facts div{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);font-size:13.5px;align-items:center}
+.ue .ue-facts div:last-child{border-bottom:0}
+.ue .ue-facts dt{color:var(--text-muted)}
+.ue .ue-facts dd{margin:0;text-align:right;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-primary)}
+.ue .ue-facts .ue-pill{margin:0}
+.ue .ue-sw{display:flex;align-items:center;gap:12px;padding:12px 20px;border-top:1px solid var(--border);font-size:13.5px;color:var(--text-primary)}
+.ue .ue-sw .g{flex:1;min-width:0}
+.ue .ue-sw small{display:block;color:var(--text-muted);font-size:12px;margin-top:2px;line-height:1.35}
+.ue .ue-swbtn{position:relative;flex:none;width:36px;height:20px;border-radius:999px;background:color-mix(in srgb,var(--text-muted) 40%,var(--surface));border:0;padding:0;cursor:pointer;transition:background .15s}
+.ue .ue-swbtn::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+.ue .ue-swbtn.on{background:var(--ds-green,#059669)}.ue .ue-swbtn.on::after{transform:translateX(16px)}
+.ue .ue-swbtn:disabled{opacity:.6;cursor:progress}
+.ue .ue-swbtn:focus-visible,.ue .ue-tab:focus-visible,.ue .ue-btn:focus-visible,.ue .qa:focus-visible{outline:2px solid var(--brand-icon,#0ea5e9);outline-offset:2px}
+.ue .ue-qa{padding:8px}
+.ue .ue-qa form{margin:0}
+.ue .ue-qa .qa{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 12px;border:0;border-radius:6px;background:transparent;color:var(--text-primary);font-size:13.5px;font-weight:600;cursor:pointer;text-align:left;text-decoration:none}
+.ue .ue-qa .qa:hover{background:var(--surface-2)}
+.ue .ue-qa .qa.dng{color:var(--ds-crimson,#c41e3a)}
+.ue .ue-tabs{display:flex;gap:2px;padding:4px;border:1px solid var(--border);border-radius:6px;background:var(--surface);width:max-content;max-width:100%;flex-wrap:wrap;margin-bottom:20px}
+.ue .ue-tab{height:34px;padding:0 16px;border:0;border-radius:4px;background:transparent;color:var(--text-secondary);font-size:13.5px;font-weight:600;cursor:pointer}
+.ue .ue-tab.on{background:var(--brand-button,#0ea5e9);color:#fff}
+.ue h3.uppercase{text-transform:none;letter-spacing:0;font-size:16px;font-weight:650}
+.ue div.flex.items-center.gap-2:has(> h3){flex-wrap:wrap}
+.ue .ue-desc{flex-basis:100%;margin:-2px 0 0 24px;font-size:13px;font-weight:400;color:var(--text-muted)}
+.ue label.block.text-xs{font-size:12.5px;font-weight:600}
+.ue .ue-bar{position:sticky;bottom:0;z-index:10;display:flex;justify-content:flex-end;align-items:center;gap:12px;flex-wrap:wrap;padding:16px 0;margin-top:20px;background:linear-gradient(to top,var(--bg,transparent) 60%,transparent)}
+.ue .ue-newnote{font-size:13.5px;color:var(--text-muted);margin:-8px 0 0}
+@media (max-width:1024px){.ue .ue-cols{grid-template-columns:minmax(0,1fr)}.ue .ue-side{position:static}}
+</style>
 
-    {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div class="flex items-center gap-4">
-            @if($isEdit && $user->profilePhotoUrl())
-                <img src="{{ $user->profilePhotoUrl() }}" alt=""
-                     class="w-12 h-12 rounded-md object-cover flex-shrink-0" style="border:2px solid rgba(255,255,255,0.2);">
-            @elseif($isEdit)
-                <div class="w-12 h-12 rounded-md flex items-center justify-center flex-shrink-0 text-base font-bold"
-                     style="background:rgba(255,255,255,0.15); color:#fff;">
-                    {{ $user->initials() }}
-                </div>
-            @endif
-            <div>
-                <h1 class="text-xl font-bold text-white leading-tight">{{ $pageTitle }}</h1>
-                <p class="text-sm mt-0.5 text-white/60">
-                    @if($isEdit)
-                        {{ $user->email }} &middot; {{ ucwords(str_replace('_',' ',$user->role ?? 'agent')) }}
-                        @if($user->is_active && !$user->email_verified_at)
-                            <span class="inline-block ml-1 px-2 py-0.5 rounded-full text-[0.6875rem] font-semibold" style="background:color-mix(in srgb, var(--ds-amber, #f59e0b) 22%, transparent); color:var(--ds-amber, #f59e0b); vertical-align:middle;">Pending Setup</span>
-                        @endif
-                    @else
-                        Complete all required fields to create a new user account.
-                    @endif
-                </p>
-            </div>
+<div class="w-full space-y-5 ue">
+
+    {{-- Page header (Roster — AT-422; spec .ai/specs/users-pages-restyle.md) --}}
+    <div class="ue-head">
+        <nav class="ue-crumb" aria-label="Breadcrumb"><a href="{{ route('admin.users') }}">Users</a><span aria-hidden="true">/</span><span>{{ $isEdit ? $user->name : 'New user' }}</span></nav>
+        <div class="ue-head-actions">
+            <a href="{{ route('admin.users') }}" class="ue-btn">Cancel</a>
+            <button type="submit" form="user-main-form" class="ue-btn pri">{{ $isEdit ? 'Save changes' : 'Create user' }}</button>
         </div>
-        <a href="{{ route('admin.users') }}"
-           class="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-semibold transition-all duration-300 self-start md:self-auto"
-           style="background:rgba(255,255,255,0.08); color:#fff; border:1px solid rgba(255,255,255,0.18);">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18" /></svg>
-            Back
-        </a>
     </div>
+    @unless($isEdit)
+    <p class="ue-newnote">Complete all required fields to create a new user account.</p>
+    @endunless
 
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"
@@ -76,6 +127,7 @@
             {{ session('status') }}
         </div>
     @endif
+    @include('admin.users._invite-link', ['inviteFor' => $user ?? null])
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm"
              style="background:color-mix(in srgb, var(--ds-crimson, #c41e3a) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson, #c41e3a) 30%, transparent); color:var(--text-primary);">
@@ -87,13 +139,148 @@
         </div>
     @endif
 
+    {{-- AT-422 — the tab state lives on this wrapper (not on the <form>) so the Communication
+         Capture box and the Save bar, which both sit OUTSIDE the form element, share it. The
+         opening tab is the URL hash, else the tab a mailbox action was submitted from (those
+         forms do a full-page save and redirect, which drops the hash), else Profile. --}}
+    <div x-data="{ activeTab: (() => {
+             const valid = ['profile','role','finance','compliance'@if($isEdit),'actions'@endif];
+             const h = (window.location.hash || '').replace('#','');
+             if (valid.includes(h)) return h;
+             try {
+                 const r = sessionStorage.getItem('corex.userEdit.reopenTab');
+                 if (r) { sessionStorage.removeItem('corex.userEdit.reopenTab'); if (valid.includes(r)) return r; }
+             } catch (e) {}
+             return 'profile';
+         })(),
+         // Remember which tab to reopen after a full-page save + redirect (sessionStorage can throw
+         // in private windows, so it is wrapped — never let it break the form).
+         rememberTab(t) { try { sessionStorage.setItem('corex.userEdit.reopenTab', t); } catch (e) {} } }"
+         x-init="$watch('activeTab', t => history.replaceState(null, '', '#' + t))">
+    <div class="ue-cols{{ $isEdit ? '' : ' solo' }}">
+    @if($isEdit)
+    <aside class="ue-side" aria-label="Profile summary">
+        <div class="ue-panel">
+            <div class="ue-prof">
+                @if($user->profilePhotoUrl())
+                    <img src="{{ $user->profilePhotoUrl() }}" alt="" class="ue-avatar">
+                @else
+                    <span class="ue-avatar">{{ $user->initials() }}</span>
+                @endif
+                <h2>{{ $user->name }}</h2>
+                <div class="ue-sub">{{ ucwords(str_replace('_',' ',$user->role ?? 'agent')) }}@if($ueBranchName) · {{ $ueBranchName }}@endif</div>
+                <span class="ue-pill {{ $ueStatusCls }}">{{ $ueStatusLbl }}</span>
+            </div>
+            <dl class="ue-facts">
+                <div><dt>{{ $user->isSubUser() ? 'Username' : 'Email' }}</dt><dd title="{{ $user->email }}">{{ $user->email }}@if($user->isSubUser()) <span class="ue-sub">(mail goes to {{ $user->deliveryEmail() ?? 'no shared inbox' }})</span>@endif</dd></div>
+                <div><dt>Cell</dt><dd>{{ $user->cell ?: '—' }}</dd></div>
+                <div><dt>FFC valid to</dt><dd>@if($ueFfc)<span class="ue-pill {{ $ueFfcCls }}">{{ $ueFfc->format('d M Y') }}</span>@else — @endif</dd></div>
+                <div><dt>Last login</dt><dd>{{ $ueLastLogin ? \Carbon\Carbon::parse($ueLastLogin)->diffForHumans() : 'Never' }}</dd></div>
+            </dl>
+
+            {{-- Show on Property24 — immediate switch. ON = the agent IS on P24 (stored flag is exclude_from_p24, inverted). --}}
+            <div class="ue-sw" x-data="{
+                    onP24: {{ (int)($user->exclude_from_p24 ?? 0) ? 'false' : 'true' }},
+                    loading: false, note: '', noteErr: false,
+                    csrf: '{{ csrf_token() }}',
+                    url: '{{ route('admin.users.toggle-p24', $user) }}',
+                    async toggle() {
+                        if (this.loading) return;
+                        this.loading = true; this.note = '';
+                        const fd = new FormData(); fd.append('_token', this.csrf);
+                        try {
+                            const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                            const j = await r.json().catch(() => ({}));
+                            if (r.ok && j.success) {
+                                this.onP24 = !j.exclude_from_p24;
+                                this.note = j.message || '';
+                                this.noteErr = (j.p24_ok === false);
+                            } else {
+                                this.note = j.message || ('HTTP ' + r.status);
+                                this.noteErr = true;
+                            }
+                        } catch (e) { this.note = e.message || 'Network error'; this.noteErr = true; }
+                        this.loading = false;
+                    }
+                 }">
+                <div class="g">Show on Property24
+                    <small :style="noteErr ? 'color:var(--ds-crimson,#c41e3a)' : ''" x-text="loading ? 'Syncing…' : (note || (onP24 ? 'On P24' : 'Hidden from P24'))"></small></div>
+                <button type="button" class="ue-swbtn" :class="onP24 && 'on'" role="switch" :aria-checked="onP24" aria-label="Show on Property24" title="Show or hide this agent on Property24" :disabled="loading" @click.stop="toggle()"></button>
+            </div>
+
+            @if($ueHasWebsite)
+            {{-- Show on website — immediate switch (fires the agent webhook). --}}
+            <div class="ue-sw" x-data="{
+                    on: {{ (int)($user->show_on_website ?? 0) ? 'true' : 'false' }},
+                    loading: false, err: '',
+                    csrf: '{{ csrf_token() }}',
+                    url: '{{ route('admin.users.toggle-website', $user) }}',
+                    async toggle() {
+                        if (this.loading) return;
+                        this.loading = true; this.err = '';
+                        const fd = new FormData(); fd.append('_token', this.csrf);
+                        try {
+                            const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                            const j = await r.json().catch(() => ({}));
+                            if (r.ok && j.success) { this.on = j.show_on_website; } else { this.err = j.message || ('HTTP ' + r.status); }
+                        } catch (e) { this.err = e.message || 'Network error'; }
+                        this.loading = false;
+                    }
+                 }">
+                <div class="g">Show on website
+                    <small :style="err ? 'color:var(--ds-crimson,#c41e3a)' : ''" x-text="err || (on ? 'Shown on the agency website' : 'Hidden from the website')"></small></div>
+                <button type="button" class="ue-swbtn" :class="on && 'on'" role="switch" :aria-checked="on" aria-label="Show on website" :disabled="loading" @click.stop="toggle()"></button>
+            </div>
+            @endif
+
+            {{-- Daily digest email — same endpoint as the Actions-tab card; the two stay in step (user-digest event). --}}
+            <div class="ue-sw" x-data="{
+                    digestOn: {{ $user->daily_digest_enabled ? 'true' : 'false' }},
+                    loading: false, err: '',
+                    csrf: '{{ csrf_token() }}',
+                    url: '{{ route('admin.users.toggle-daily-digest', $user) }}',
+                    async toggle() {
+                        if (this.loading) return;
+                        this.loading = true; this.err = '';
+                        const fd = new FormData(); fd.append('_token', this.csrf);
+                        try {
+                            const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                            const j = await r.json().catch(() => ({}));
+                            if (r.ok && j.success) { this.digestOn = j.daily_digest_enabled; window.dispatchEvent(new CustomEvent('user-digest', { detail: this.digestOn })); } else { this.err = j.message || ('HTTP ' + r.status); }
+                        } catch (e) { this.err = e.message || 'Network error'; }
+                        this.loading = false;
+                    }
+                 }" @user-digest.window="digestOn = $event.detail">
+                <div class="g">Daily digest email
+                    <small :style="err ? 'color:var(--ds-crimson,#c41e3a)' : ''" x-text="err || (digestOn ? 'Receives the morning email' : 'Email switched off')"></small></div>
+                <button type="button" class="ue-swbtn" :class="digestOn && 'on'" role="switch" :aria-checked="digestOn" aria-label="Daily digest email" :disabled="loading" @click.stop="toggle()"></button>
+            </div>
+        </div>
+
+        <div class="ue-panel ue-qa">
+            @if($ueStatus === 'pending')
+            <form method="POST" action="{{ route('admin.users.resend-invite', $user) }}">@csrf
+                <input type="hidden" name="active_tab" value="actions">
+                <button type="submit" class="qa"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>Resend invitation</button>
+            </form>
+            @endif
+            @if($ueCanView)
+            <form method="POST" action="{{ route('impersonate.start', ['user' => $user->id]) }}">@csrf
+                <button type="submit" class="qa"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/></svg>View as this user</button>
+            </form>
+            @endif
+            @if($user->id !== auth()->id())
+            <button type="button" class="qa dng" @click="activeTab = 'actions'; $nextTick(() => document.getElementById('ue-danger')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>{{ $user->is_active ? 'Deactivate user' : 'Activate user' }}</button>
+            @endif
+        </div>
+    </aside>
+    @endif
+    <div class="ue-main" style="min-width:0">
     <form id="user-main-form"
           method="POST"
           action="{{ $isEdit ? route('admin.users.update', $user) : route('admin.users.store') }}"
           enctype="multipart/form-data"
           novalidate
-          x-data="{ activeTab: ['profile','role','finance','compliance'@if($isEdit),'actions'@endif].includes((window.location.hash || '').replace('#','')) ? (window.location.hash || '').replace('#','') : 'profile' }"
-          x-init="$watch('activeTab', t => history.replaceState(null, '', '#' + t))"
           autocomplete="off">
         @csrf
         @if($isEdit) @method('PUT') @endif
@@ -103,16 +290,15 @@
         <input type="text" name="_autocomplete_trap" style="display:none;" tabindex="-1" autocomplete="username">
         <input type="password" name="_autocomplete_trap_pw" style="display:none;" tabindex="-1" autocomplete="new-password">
 
-        {{-- Tab nav (matches the agency edit page) --}}
-        <div class="flex gap-1 rounded-md p-1 flex-wrap mb-5" style="background:var(--surface); border:1px solid var(--border);">
+        {{-- Tab nav — segmented control (Roster, AT-422) --}}
+        <div class="ue-tabs" role="tablist">
             @php
                 $userTabs = ['profile' => 'Profile', 'role' => 'Role & Access', 'finance' => 'Finance', 'compliance' => 'Compliance'];
                 if ($isEdit) { $userTabs['actions'] = 'Actions'; }
             @endphp
             @foreach($userTabs as $tabKey => $tabLabel)
-                <button type="button" @click="activeTab = '{{ $tabKey }}'"
-                        class="flex-1 sm:flex-none px-4 py-2 text-sm font-medium rounded-md transition-colors"
-                        :style="activeTab === '{{ $tabKey }}' ? 'background:var(--brand-button, #0ea5e9); color:#fff;' : 'color:var(--text-secondary);'">
+                <button type="button" role="tab" @click="activeTab = '{{ $tabKey }}'"
+                        class="ue-tab" :class="activeTab === '{{ $tabKey }}' && 'on'" :aria-selected="activeTab === '{{ $tabKey }}'">
                     {{ $tabLabel }}
                 </button>
             @endforeach
@@ -125,7 +311,7 @@
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-center gap-2 mb-5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0A17.933 17.933 0 0 1 12 21.75c-2.676 0-5.216-.584-7.499-1.632Z" /></svg>
-                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Personal Details</h3>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Personal Details</h3><span class="ue-desc">How this person appears across CoreX and on documents.</span>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -144,13 +330,69 @@
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                     </div>
-                    <div>
-                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Email Address <span class="text-red-500">*</span></label>
-                        <input type="email" name="email" value="{{ old('email', $isEdit ? $user->email : '') }}" required
-                               autocomplete="off" placeholder="user@example.com"
-                               class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
-                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
-                               onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                    @php
+                        // AT-423 — One email (sub-users). The choice appears only when the agency
+                        // switched Team Inbox on (Settings → Team Inbox), or when this person already signs
+                        // in with a username (so they can be given their own email later).
+                        $oe            = $oneEmailForm ?? ['enabled' => false, 'stem' => null, 'inbox' => null, 'is_main' => false];
+                        $isSub         = $isEdit && $user->isSubUser();
+                        $showSignInChoice = ($oe['enabled'] || $isSub) && !$oe['is_main'];
+                        $signInDefault = old('sign_in_type', $isSub ? 'username' : 'email');
+                        $usernameName  = old('username', $isSub ? strstr((string) $user->email, '@', true) : '');
+                        $usernameStem  = $isSub ? strstr((string) $user->email, '@') : ($oe['stem'] ?? '');
+                        $emailValue    = old('email', ($isEdit && !$isSub) ? $user->email : '');
+                    @endphp
+                    <div class="{{ $showSignInChoice ? 'sm:col-span-2' : '' }}" x-data="{ signIn: '{{ $signInDefault === 'username' ? 'username' : 'email' }}' }">
+                        @if($showSignInChoice)
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">How will this person sign in? <span class="text-red-500">*</span></label>
+                        <div class="flex flex-wrap gap-4 mb-3 text-sm" style="color:var(--text-primary);">
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="sign_in_type" value="email" x-model="signIn">
+                                Their own email address
+                            </label>
+                            <label class="inline-flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="sign_in_type" value="username" x-model="signIn">
+                                A username, sharing an inbox
+                            </label>
+                        </div>
+                        @endif
+
+                        <div x-show="signIn === 'email'" @if($signInDefault === 'username') x-cloak @endif>
+                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Email Address <span class="text-red-500">*</span></label>
+                            <input type="email" name="email" value="{{ $emailValue }}"
+                                   autocomplete="off" placeholder="user@example.com"
+                                   class="w-full {{ $showSignInChoice ? 'sm:w-1/2' : '' }} rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                                   onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                            @if($isSub)
+                                <p class="mt-1 text-xs" style="color:var(--text-muted);">Enter their own email address. From then on they sign in with it instead of their username; their password stays the same.</p>
+                            @endif
+                            @if($oe['is_main'])
+                                <p class="mt-1 text-xs" style="color:var(--text-muted);">This person's inbox is the shared inbox for your sub-users, so they always sign in with their own email.</p>
+                            @endif
+                        </div>
+
+                        @if($showSignInChoice)
+                        <div x-show="signIn === 'username'" @if($signInDefault !== 'username') x-cloak @endif>
+                            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">Username <span class="text-red-500">*</span></label>
+                            <div class="flex items-stretch w-full sm:w-1/2">
+                                <input type="text" name="username" value="{{ $usernameName }}"
+                                       autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="e.g. andre"
+                                       class="flex-1 min-w-0 rounded-l-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                       style="background:var(--surface-2); border:1px solid var(--border); border-right:none; color:var(--text-primary);"
+                                       onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                                <span class="inline-flex items-center px-3 rounded-r-md text-sm"
+                                      style="background:var(--surface); border:1px solid var(--border); color:var(--text-secondary);">{{ $usernameStem ?: '@…' }}</span>
+                            </div>
+                            <p class="mt-1 text-xs" style="color:var(--text-muted);">
+                                They sign in with this username and their own password.
+                                @if($oe['inbox'])
+                                    Their CoreX emails go to the shared inbox <strong>{{ $oe['inbox'] }}</strong>.
+                                @endif
+                                Letters, numbers, dots, dashes and underscores only.
+                            </p>
+                        </div>
+                        @endif
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">
@@ -163,7 +405,34 @@
                                onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
                         <p class="mt-1 text-xs" style="color:var(--text-muted);">Used on presentations, e-sign documents, outreach &amp; portals. Login &amp; password reset always use the real email.</p>
                     </div>
-                    @if($isEdit)
+                    @if($isEdit && $isSub)
+                    {{-- AT-423 — Option A: only an admin resets a sub-user's password, as a temporary
+                         one; they choose their own at next sign-in. Spec one-email-sub-users.md §6.5. --}}
+                    <div class="sm:col-span-2">
+                        <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">
+                            Reset password <span style="color:var(--text-muted); font-weight:400;">(leave blank to keep their current password)</span>
+                        </label>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <input type="password" name="password"
+                                   autocomplete="new-password" placeholder="Temporary password (min 8 characters)"
+                                   class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                                   onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                            <input type="password" name="password_confirmation"
+                                   autocomplete="new-password" placeholder="Type the temporary password again"
+                                   class="w-full rounded-md px-3 py-2.5 text-sm outline-none transition-colors"
+                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                                   onfocus="this.style.borderColor='var(--brand-icon, #0ea5e9)'" onblur="this.style.borderColor='var(--border)'">
+                        </div>
+                        <p class="mt-1 text-xs" style="color:var(--text-muted);">
+                            Sub-users cannot reset their own password. Set a temporary one here and give it to them;
+                            the next time they sign in they must choose their own before they can continue.
+                            @if($user->must_change_password)
+                                <strong style="color:var(--ds-amber, #f59e0b);">They have not chosen their new password yet.</strong>
+                            @endif
+                        </p>
+                    </div>
+                    @elseif($isEdit)
                     <div>
                         <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary);">
                             Password <span style="color:var(--text-muted); font-weight:400;">(leave blank to keep)</span>
@@ -188,7 +457,7 @@
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-center gap-2 mb-5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 0 0 2.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 0 1-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 0 0-1.091-.852H4.5A2.25 2.25 0 0 0 2.25 4.5v2.25Z" /></svg>
-                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Contact Details</h3>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Contact Details</h3><span class="ue-desc">Phone numbers and public contact points.</span>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
@@ -263,7 +532,7 @@
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-center gap-2 mb-5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
-                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Role &amp; Access</h3>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Role &amp; Access</h3><span class="ue-desc">What this person can see and do, and where they appear.</span>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
@@ -391,42 +660,8 @@
                             ->where('agency_id', $agentAgencyId)->whereNull('revoked_at')->exists();
                     @endphp
                     @if($agencyHasWebsite)
-                        @if($isEdit)
-                        {{-- Quick on/off toggle (immediate, fires the agent webhook) --}}
-                        <div class="flex items-center gap-2.5 text-sm"
-                             x-data="{
-                                on: {{ (int)($user->show_on_website ?? 0) ? 'true' : 'false' }},
-                                loading: false, err: '',
-                                csrf: '{{ csrf_token() }}',
-                                url: '{{ route('admin.users.toggle-website', $user) }}',
-                                async toggle() {
-                                    if (this.loading) return;
-                                    this.loading = true; this.err = '';
-                                    const fd = new FormData(); fd.append('_token', this.csrf);
-                                    try {
-                                        const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
-                                        const j = await r.json().catch(() => ({}));
-                                        if (r.ok && j.success) { this.on = j.show_on_website; } else { this.err = j.message || ('HTTP ' + r.status); }
-                                    } catch (e) { this.err = e.message || 'Network error'; }
-                                    this.loading = false;
-                                }
-                             }">
-                            <button type="button" @click.stop="toggle()" :disabled="loading"
-                                    class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
-                                    :style="on ? 'background:var(--ds-green)' : 'background:var(--surface-3)'"
-                                    role="switch" :aria-checked="on">
-                                <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                      style="background:#fff; margin-top:2px;"
-                                      :style="on ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
-                            </button>
-                            <span style="color:var(--text-secondary);">Show on website</span>
-                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase"
-                                  :style="on ? 'background:rgba(34,197,94,0.15); color:var(--ds-green);' : 'background:var(--surface-3); color:var(--text-muted);'"
-                                  x-text="on ? 'On' : 'Off'"></span>
-                            <span x-show="err" x-cloak class="text-[0.6875rem]" style="color:var(--ds-crimson);" x-text="err"></span>
-                        </div>
-                        @else
-                        {{-- New user: form checkbox (no id yet to toggle) --}}
+                        @if(! $isEdit)
+                        {{-- New user: form checkbox (no id yet to toggle). Edit mode: the switch is in the profile panel. --}}
                         <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
                             <input type="hidden" name="show_on_website" value="0">
                             <input type="checkbox" name="show_on_website" value="1" class="rounded"
@@ -437,55 +672,14 @@
                         @endif
                     @endif
 
-                    {{-- Property24 opt-out. When excluded the agent is unpublished on
-                         P24 (published=false / status=Inactive) and never attached to
-                         newly-syndicated listings. The edit-mode switch pushes the
-                         change to P24 immediately and reports P24's actual result;
-                         the create-mode checkbox applies on save. --}}
-                    @if($isEdit)
-                    <div class="flex items-center gap-2.5 text-sm mt-3 flex-wrap"
-                         x-data="{
-                            excluded: {{ (int)($user->exclude_from_p24 ?? 0) ? 'true' : 'false' }},
-                            loading: false, note: '', noteErr: false,
-                            csrf: '{{ csrf_token() }}',
-                            url: '{{ route('admin.users.toggle-p24', $user) }}',
-                            async toggle() {
-                                if (this.loading) return;
-                                this.loading = true; this.note = '';
-                                const fd = new FormData(); fd.append('_token', this.csrf);
-                                try {
-                                    const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
-                                    const j = await r.json().catch(() => ({}));
-                                    if (r.ok && j.success) {
-                                        this.excluded = j.exclude_from_p24;
-                                        this.note = j.message || '';
-                                        this.noteErr = (j.p24_ok === false);
-                                    } else {
-                                        this.note = j.message || ('HTTP ' + r.status);
-                                        this.noteErr = true;
-                                    }
-                                } catch (e) { this.note = e.message || 'Network error'; this.noteErr = true; }
-                                this.loading = false;
-                            }
-                         }">
-                        <button type="button" @click.stop="toggle()" :disabled="loading"
-                                class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
-                                :style="excluded ? 'background:var(--ds-crimson)' : 'background:var(--surface-3)'"
-                                role="switch" :aria-checked="excluded">
-                            <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
-                                  style="background:#fff; margin-top:2px;"
-                                  :style="excluded ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
-                        </button>
-                        <span style="color:var(--text-secondary);">Exclude from Property24</span>
-                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase"
-                              :style="excluded ? 'background:rgba(220,38,38,0.15); color:var(--ds-crimson);' : 'background:var(--surface-3); color:var(--text-muted);'"
-                              x-text="excluded ? 'Hidden' : 'On P24'"></span>
-                        <span x-show="loading" x-cloak class="text-[0.6875rem]" style="color:var(--text-muted);">syncing…</span>
-                        <span x-show="!loading && note" x-cloak class="text-[0.6875rem]"
-                              :style="noteErr ? 'color:var(--ds-crimson);' : 'color:var(--ds-green);'" x-text="note"></span>
-                    </div>
-                    @else
-                    <label class="flex items-center gap-2.5 text-sm cursor-pointer mt-3" style="color:var(--text-secondary);">
+                    {{-- Property24 visibility. When the agent is hidden they are unpublished on P24
+                         (published=false / status=Inactive) and never attached to newly-syndicated
+                         listings. AT-422: the edit-mode switch reads "Show on Property24" and is ON
+                         (green) when the agent IS on P24 — the stored flag is still exclude_from_p24
+                         (on = NOT excluded). It pushes the change to P24 immediately and reports P24's
+                         actual result; the create-mode checkbox applies on save. --}}
+                    @if(! $isEdit)
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
                         <input type="hidden" name="exclude_from_p24" value="0">
                         <input type="checkbox" name="exclude_from_p24" value="1" class="rounded"
                                style="accent-color:var(--brand-icon, #0ea5e9);"
@@ -504,7 +698,7 @@
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-center gap-2 mb-5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18.75a60.07 60.07 0 0 1 15.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 0 1 3 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 0 0-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 0 1-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 0 0 3 15h-.75M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm3 0h.008v.008H18V10.5Zm-12 0h.008v.008H6V10.5Z" /></svg>
-                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Finance</h3>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Finance</h3><span class="ue-desc">How commission and payroll are worked out.</span>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -554,7 +748,7 @@
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-center gap-2 mb-5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
-                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">FFC &amp; PPRA</h3>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">FFC &amp; PPRA</h3><span class="ue-desc">Fidelity Fund Certificate and PPRA verification.</span>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -623,7 +817,7 @@
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-center gap-2 mb-5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Files</h3>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Files</h3><span class="ue-desc">Profile photo and certificate uploads.</span>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     {{-- Agent Photo --}}
@@ -683,7 +877,7 @@
                  x-data="{ overrideModal: false, overrideItem: '', overrideLabel: '', overrideType: 'not_applicable', revokeModal: false, revokeId: null, revokeLabel: '' }">
                 <div class="flex items-center gap-2 mb-5">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" /></svg>
-                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Compliance Documents</h3>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Compliance Documents</h3><span class="ue-desc">Supporting documents and any exemptions.</span>
                 </div>
                 <div class="space-y-1.5">
                     @foreach($compDocTypes as $docType => $docLabel)
@@ -794,13 +988,19 @@
         <div x-show="activeTab === 'actions'" x-cloak class="space-y-5">
 
             {{-- Card: Pending Invite (only for users who haven't set up yet) --}}
-            @if($user->is_active && !$user->email_verified_at)
+            {{-- AT-423 — a sub-user is inactive until their first sign-in, so the card must show for
+                 them regardless of is_active: Resend is their only way to get a fresh set-up link. --}}
+            @if(($user->is_active || $user->isSubUser()) && !$user->email_verified_at)
             <div class="rounded-md p-5" style="background:var(--surface); border:1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 25%, transparent);">
                 <div class="flex items-center gap-2 mb-3">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
                     <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Invitation Pending</h3>
                 </div>
+                @if($user->isSubUser())
+                <p class="text-xs mb-3" style="color:var(--text-muted);">This person has not yet set up their password. Resending creates a new set-up link, emails it to the shared inbox, and shows it here so you can copy it.</p>
+                @else
                 <p class="text-xs mb-3" style="color:var(--text-muted);">This user has not yet set up their password. You can resend the invitation email.</p>
+                @endif
                 <form method="POST" action="{{ route('admin.users.resend-invite', $user) }}">
                     @csrf
                     <input type="hidden" name="active_tab" value="actions">
@@ -812,6 +1012,50 @@
                 </form>
             </div>
             @endif
+
+            {{-- Card: Daily digest email (AT-422). Per-user off switch — immediate, no Save needed (same as the
+                 website / Property24 switches). The digest job (corex:calendar:send-digests) skips a
+                 switched-off user; nobody else's digest and none of this user's other reminders change. --}}
+            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);"
+                 x-data="{
+                    digestOn: {{ $user->daily_digest_enabled ? 'true' : 'false' }},
+                    loading: false, err: '',
+                    csrf: '{{ csrf_token() }}',
+                    url: '{{ route('admin.users.toggle-daily-digest', $user) }}',
+                    async toggle() {
+                        if (this.loading) return;
+                        this.loading = true; this.err = '';
+                        const fd = new FormData(); fd.append('_token', this.csrf);
+                        try {
+                            const r = await fetch(this.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' } });
+                            const j = await r.json().catch(() => ({}));
+                            if (r.ok && j.success) { this.digestOn = j.daily_digest_enabled; window.dispatchEvent(new CustomEvent('user-digest', { detail: this.digestOn })); } else { this.err = j.message || ('HTTP ' + r.status); }
+                        } catch (e) { this.err = e.message || 'Network error'; }
+                        this.loading = false;
+                    }
+                 }" @user-digest.window="digestOn = $event.detail">
+                <div class="flex items-center gap-2 mb-3">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--brand-icon, #0ea5e9);"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75" /></svg>
+                    <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Daily Digest Email</h3>
+                </div>
+                <p class="text-xs mb-3" style="color:var(--text-muted);">The one email this user receives each morning with their calendar items and birthday reminders. Switch it off to stop it for this user only — nobody else's digest, and none of this user's other reminders or notifications, are affected.</p>
+                <div class="flex items-center gap-2.5 text-sm flex-wrap">
+                    <button type="button" @click.stop="toggle()" :disabled="loading"
+                            class="relative inline-flex h-5 w-9 flex-shrink-0 rounded-full transition-colors duration-200"
+                            :style="digestOn ? 'background:var(--ds-green)' : 'background:color-mix(in srgb, var(--text-muted) 40%, var(--surface))'"
+                            title="Turn the daily digest email on or off for this user"
+                            role="switch" :aria-checked="digestOn">
+                        <span class="pointer-events-none inline-block h-4 w-4 transform rounded-full shadow-sm transition-transform duration-200"
+                              style="background:#fff; margin-top:2px;"
+                              :style="digestOn ? 'transform:translateX(18px); margin-left:1px;' : 'transform:translateX(2px); margin-left:1px;'"></span>
+                    </button>
+                    <span style="color:var(--text-secondary);">Send this user the daily digest email</span>
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[0.6875rem] font-bold uppercase"
+                          :style="digestOn ? 'background:rgba(34,197,94,0.15); color:var(--ds-green);' : 'background:rgba(220,38,38,0.15); color:var(--ds-crimson);'"
+                          x-text="digestOn ? 'On' : 'Off'"></span>
+                    <span x-show="err" x-cloak class="text-[0.6875rem]" style="color:var(--ds-crimson);" x-text="err"></span>
+                </div>
+            </div>
 
             {{-- Card: Login History (audit trail — .ai/specs/login-audit-trail.md) --}}
             @if($canViewLoginHistory)
@@ -856,7 +1100,7 @@
             @endif
 
             {{-- Card: Danger Zone --}}
-            <div class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
+            <div id="ue-danger" class="rounded-md p-5" style="background:var(--surface); border:1px solid var(--border);">
                 <div class="flex items-center gap-2 mb-4">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color:var(--ds-crimson);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
                     <h3 class="text-sm font-bold uppercase tracking-wider" style="color:var(--text-primary);">Danger Zone</h3>
@@ -931,9 +1175,28 @@
         </div>
         @endif
 
+    </form>{{-- the Save bar's buttons reach this form through form="user-main-form" --}}
+
+    {{-- Communication Capture (AT-37) — Actions tab ONLY, directly above the Save bar (AT-422: it used
+         to sit at the bottom of every tab). Rendered OUTSIDE the main user form (forms cannot nest);
+         it shares the tab state through the wrapper above. Reuses the Settings → Email Setup per-user
+         component so the same management lives on the user record. Edit-only: a mailbox links to an
+         existing user. Its buttons do a full-page save + redirect, so a submit remembers "reopen on
+         Actions" for the reloaded page. --}}
+    @if($isEdit)
+        @permission('manage_communication_mailboxes')
+        <div x-show="activeTab === 'actions'" x-cloak
+             @submit="rememberTab('actions')"
+             class="mt-5 rounded-md p-4 lg:p-6" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb);">
+            <h3 class="text-sm font-bold uppercase tracking-wider mb-1" style="color:var(--text-primary, #1f2937);">Communication Capture</h3>
+            <p class="text-xs mb-4" style="color: var(--text-muted, #6b7280);">Link this user's mailbox to feed the Communication Archive. The password is stored encrypted and never shown — retrieving it is a separate, logged action.</p>
+            @include('settings.email-setup._user-mailbox', ['user' => $user])
+        </div>
+        @endpermission
+    @endif
+
         {{-- Sticky bottom action bar --}}
-        <div class="sticky bottom-0 z-10 -mx-4 lg:-mx-6 px-4 lg:px-6 py-4 mt-5"
-             style="background:linear-gradient(to top, var(--bg) 60%, transparent);">
+        <div class="ue-bar">
             <div class="flex items-center justify-end gap-3 flex-wrap">
                 <a href="{{ route('admin.users') }}" class="corex-btn-outline">
                     Cancel
@@ -952,21 +1215,9 @@
                 </button>
             </div>
         </div>
-    </form>
-
-    {{-- Communication Capture (AT-37) — rendered OUTSIDE the main user form (forms
-         cannot nest). Reuses the Settings → Email Setup per-user component so the
-         same management lives on the user record. Edit-only: a mailbox links to an
-         existing user. --}}
-    @if($isEdit)
-        @permission('manage_communication_mailboxes')
-        <div class="mt-6 rounded-md p-4 lg:p-6" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb);">
-            <h3 class="text-sm font-bold uppercase tracking-wider mb-1" style="color:var(--text-primary, #1f2937);">Communication Capture</h3>
-            <p class="text-xs mb-4" style="color: var(--text-muted, #6b7280);">Link this user's mailbox to feed the Communication Archive. The password is stored encrypted and never shown — retrieving it is a separate, logged action.</p>
-            @include('settings.email-setup._user-mailbox', ['user' => $user])
-        </div>
-        @endpermission
-    @endif
+    </div>{{-- /ue-main --}}
+    </div>{{-- /ue-cols --}}
+    </div>{{-- /tab-state wrapper --}}
 
 </div>
 

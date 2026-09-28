@@ -108,7 +108,7 @@
             {{-- (Document name input moved back to the top-bar header — see above.) --}}
 
             {{-- ======== STEP 1: Template Selection ======== --}}
-            <div x-show="currentStep === 1" x-cloak>
+            <div x-show="currentStep === 1" x-cloak data-tour="esign-screen-template">
 
                 {{-- Draft flows --}}
                 <div x-show="drafts.length > 0" class="mb-6">
@@ -161,7 +161,7 @@
                     </button>
                 </div>
 
-                <input type="text" x-model="templateSearch" placeholder="Search templates..."
+                <input type="text" x-model="templateSearch" placeholder="Search templates..." data-tour="esign-template-search"
                        class="w-full rounded-md px-3 py-2 text-sm mb-4"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);" />
 
@@ -297,11 +297,11 @@
             </div>
 
             {{-- ======== STEP 2: Property ======== --}}
-            <div x-show="currentStep === 2" x-cloak>
+            <div x-show="currentStep === 2" x-cloak data-tour="esign-screen-property">
                 <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Property Details</h3>
 
                 {{-- Property search --}}
-                <div class="relative mb-4" @click.outside="propSearchOpen = false" @keydown.escape.window="propSearchOpen = false">
+                <div class="relative mb-4" @click.outside="propSearchOpen = false" @keydown.escape.window="propSearchOpen = false" data-tour="esign-property-search">
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search property by address, suburb, or ERF</label>
                     <div class="relative">
                         <input type="text"
@@ -322,7 +322,7 @@
                     </div>
 
                     {{-- Selected property badge --}}
-                    <div x-show="property._selected" class="mt-2 flex items-center gap-2 px-3 py-2 rounded-md text-sm"
+                    <div x-show="property._selected" data-tour="esign-property-selected" class="mt-2 flex items-center gap-2 px-3 py-2 rounded-md text-sm"
                          style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
                         <svg class="w-4 h-4 flex-shrink-0" style="color: var(--ds-green);" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                         <span class="font-medium truncate" x-text="'Selected: ' + property.address"></span>
@@ -413,10 +413,10 @@
             </div>
 
             {{-- ======== STEP 3: Recipients ======== --}}
-            <div x-show="currentStep === 3" x-cloak>
+            <div x-show="currentStep === 3" x-cloak data-tour="esign-screen-recipients">
                 <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Recipients</h3>
 
-                <div class="space-y-3">
+                <div class="space-y-3" data-tour="esign-recipients">
                     <template x-for="(r, ri) in recipients" :key="ri">
                         <div class="p-4 rounded-md transition-colors"
                              :style="r.readonly ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 6%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 30%, transparent);' : (r._contact_id ? 'background: color-mix(in srgb, var(--ds-green) 6%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);' : 'background: var(--surface-2); border: 1px solid var(--border);')">
@@ -426,7 +426,7 @@
                                           :style="r.readonly ? 'background: var(--brand-button, #0ea5e9);' : (r._contact_id ? 'background: var(--ds-green);' : 'background: var(--surface-2); color: var(--text-secondary);')"
                                           x-text="ri + 1"></span>
                                     <span class="text-sm font-semibold" style="color: var(--text-primary);" x-text="r.readonly ? 'Agent (You)' : 'Recipient ' + (ri+1)"></span>
-                                    <span x-show="r._contact_id" class="ds-badge ds-badge-success">Linked</span>
+                                    <span x-show="r._contact_id" class="ds-badge ds-badge-success" data-tour="esign-recipient-linked">Linked</span>
                                 </div>
                                 <button x-show="!r.readonly" @click="removeRecipient(ri)"
                                         class="w-6 h-6 flex items-center justify-center rounded-full transition" style="color: var(--ds-crimson);">
@@ -1072,7 +1072,7 @@
             </div>
 
             {{-- ======== STEP 4: Details ======== --}}
-            <div x-show="currentStep === 4" x-cloak>
+            <div x-show="currentStep === 4" x-cloak data-tour="esign-screen-details">
                 <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Document Details</h3>
 
                 {{-- Auto-fill notice --}}
@@ -1210,7 +1210,7 @@
             </div>
 
             {{-- ======== STEP 5: Fill & Review ======== --}}
-            <div x-show="currentStep === 5" x-cloak>
+            <div x-show="currentStep === 5" x-cloak data-tour="esign-screen-review">
                 <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Fill & Review</h3>
                 <p class="text-xs mb-4" style="color: var(--text-muted);">Fields are shown in document order. Pre-filled values come from property and recipient data. Multi-recipient roles render one input per recipient.</p>
 
@@ -1406,7 +1406,7 @@
             </div>
 
             {{-- ======== STEP 6: Signing Setup ======== --}}
-            <div x-show="currentStep === 6" x-cloak>
+            <div x-show="currentStep === 6" x-cloak data-tour="esign-screen-send">
                 <h3 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">Signing Setup</h3>
 
                 {{-- Delivery Mode Selection --}}
@@ -1862,7 +1862,7 @@
             </button>
         </div>
         <div>
-            <button @click="goNext()" :disabled="loading || !canGoNext()"
+            <button @click="goNext()" :disabled="loading || !canGoNext()" data-tour="esign-next"
                     class="corex-btn-primary disabled:opacity-40 disabled:cursor-not-allowed">
                 <span x-show="!loading" x-text="nextButtonLabel()"></span>
                 <span x-show="loading" class="flex items-center gap-1">

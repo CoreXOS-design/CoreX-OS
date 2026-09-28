@@ -1019,7 +1019,7 @@ class PrivatePropertySyndicationService
             'AgentId'               => (string) ($user->pp_external_ref ?: $user->id),
             'FirstName'             => $firstName,
             'LastName'              => $lastName,
-            'Email'                 => $user->email ?? '',
+            'Email'                 => $user->deliveryEmail() ?? '',
             'TelCell'               => $cellPhone,
             'TelWork'               => $workPhone,
             'TelHome'               => '', // PP only recognises TelCell + TelWork

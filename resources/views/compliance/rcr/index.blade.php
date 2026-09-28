@@ -71,7 +71,7 @@
             // Near-deadline = amber (needs attention); overdue = crimson (genuine danger); else brand. Never red for a normal countdown (§1.5).
             $accent   = $overdue ? 'var(--ds-crimson, #c41e3a)' : ($nearDue ? 'var(--ds-amber, #f59e0b)' : 'var(--brand-icon, #0ea5e9)');
         @endphp
-        <div class="ds-status-card" style="border-left: 4px solid {{ $accent }};">
+        <div class="ds-status-card" style="border-left: 4px solid {{ $accent }};" data-tour="comp-rcr-active">
             <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
                 <div class="flex-1 min-w-0">
                     <h2 class="ds-section-header" style="margin: 0 0 8px 0;">

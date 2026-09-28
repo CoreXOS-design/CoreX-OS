@@ -88,6 +88,7 @@
         <div class="flex items-center gap-2 flex-wrap">
             @if(!$optedOut)
                 <a href="{{ route('seller-outreach.composer.show', $contact) }}"
+                   data-tour="outreach-compose-btn"
                    class="px-3 py-1.5 text-sm font-semibold rounded"
                    style="background: var(--brand-button, #0ea5e9); color: #fff;">
                     + Compose pitch
@@ -103,6 +104,7 @@
                      the opt-out via optInContact); otherwise the "YES reply"
                      consent-fact path. Both converge on the same consent spine. --}}
                 <button type="button" @click="optInFormOpen = !optInFormOpen"
+                        data-tour="outreach-optin-btn"
                         class="px-3 py-1.5 text-sm rounded"
                         style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green); border: 1px solid var(--ds-green);">
                     {{ $optedOut ? 'Re-enable marketing' : 'Record opt-in (YES reply)' }}
@@ -140,7 +142,7 @@
     </div>
 
     {{-- Opt-in / re-enable form (AT-45/AT-50) --}}
-    <div x-show="optInFormOpen" x-cloak class="rounded-md p-4"
+    <div x-show="optInFormOpen" x-cloak class="rounded-md p-4" data-tour="outreach-optin-form"
          style="background: var(--surface); border: 1px solid var(--ds-green);">
         <form method="POST" action="{{ route('seller-outreach.composer.opt-in', $contact) }}">
             @csrf
@@ -162,6 +164,7 @@
                         onclick="return confirm('{{ $optedOut
                             ? 'Re-enable marketing for this contact? This lifts the opt-out + suppression and reopens marketing sends. Only do this with the seller\'s explicit consent.'
                             : 'Record opt-in? This logs the seller\'s confirmed consent.' }}');"
+                        data-tour="outreach-optin-save"
                         class="px-4 py-2 text-sm font-semibold rounded"
                         style="background: var(--ds-green); color: #fff;">
                     {{ $optedOut ? 'Re-enable marketing' : 'Confirm opt-in' }}
@@ -182,7 +185,7 @@
             No outreach yet. Click <strong>+ Compose pitch</strong> to send the first one.
         </div>
     @else
-        <div class="space-y-3">
+        <div class="space-y-3" data-tour="outreach-timeline">
             @foreach($sends as $send)
                 @include('seller-outreach.contact-timeline._row', [
                     'send'           => $send,

@@ -6,7 +6,7 @@
 <div class="w-full space-y-5" x-data="driveList()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="docs-shared-drive-header">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Shared Drive</h1>
@@ -23,7 +23,7 @@
 
     {{-- Drives grid --}}
     @if($drives->count())
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" data-tour="docs-shared-drive-drives">
             @foreach($drives as $d)
                 @php $canManageThis = !$d->is_default && ($can['manage'] || (int) $d->created_by_user_id === (int) auth()->id()); @endphp
                 <div class="group rounded-md p-4 flex items-start gap-3 transition-all hover:shadow-sm"

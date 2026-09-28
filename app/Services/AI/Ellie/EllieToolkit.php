@@ -263,6 +263,29 @@ class EllieToolkit
      * (BUILD_STANDARD §4). "Nothing found" is returned explicitly so the model
      * can tell an empty result from a broken tool.
      */
+    /**
+     * Guide buttons gathered by find_how_to during the current answer.
+     *
+     * @var array<string, array<string, mixed>>
+     */
+    private array $guides = [];
+
+    /** Forget guides from a previous answer (the toolkit may be reused). */
+    public function resetGuides(): void
+    {
+        $this->guides = [];
+    }
+
+    /**
+     * Guide buttons for the answer just produced (Advanced Guiding).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function guides(): array
+    {
+        return array_slice(array_values($this->guides), 0, 3);
+    }
+
     public function execute(string $tool, array $input, User $user): string
     {
         try {
@@ -384,7 +407,23 @@ class EllieToolkit
             return ['result' => 'no results', 'hint' => 'No walkthrough is documented for this. Use find_page to point at the right screen instead of inventing steps.'];
         }
 
-        return ['walkthroughs' => $found['context'], 'sources' => $found['sources']];
+        $result = ['walkthroughs' => $found['context'], 'sources' => $found['sources']];
+
+        // Advanced Guiding: the matching guides become real buttons under the
+        // reply (collected here, returned beside the text — never parsed from it).
+        $buttons = $this->tours->guideButtons($query, $user, 1);
+        foreach ($buttons as $button) {
+            $id = $button['key'] . '|' . $button['mode'] . '|' . ($button['section'] ?? '');
+            $this->guides[$id] = $button;
+        }
+        if (! empty($buttons)) {
+            $result['guide_buttons'] = array_column($buttons, 'label');
+            $result['guide_note'] = 'These buttons appear under your reply automatically. Keep your answer '
+                . 'short and tell the user they can click one to be walked through it on screen, step by step. '
+                . 'Do not paste links for them or list their labels again.';
+        }
+
+        return $result;
     }
 
     private function listTemplates(array $input, User $user): array

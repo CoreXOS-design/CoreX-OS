@@ -5,7 +5,7 @@
     <div class="flex items-center justify-between" data-tour="cc-notifications-header">
         <h1 class="text-xl font-bold" style="color:var(--text-primary);">Notifications</h1>
         <div class="flex items-center gap-2">
-            @include('layouts.partials.tour-header-launcher')
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if($notifications->count() > 0)
             <form method="POST" action="{{ route('command-center.notifications.mark-all-read') }}">
                 @csrf
@@ -45,7 +45,7 @@
             @if($isUnread)
                 <form method="POST" action="{{ route('command-center.notifications.mark-read', $n->id) }}" class="flex-shrink-0">
                     @csrf
-                    <button type="submit" title="Mark as read" class="p-1 rounded transition-colors hover:opacity-70" style="color:var(--text-muted);">
+                    <button type="submit" title="Mark as read" data-tour="cc-notifications-mark-read" class="p-1 rounded transition-colors hover:opacity-70" style="color:var(--text-muted);">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5"/></svg>
                     </button>
                 </form>

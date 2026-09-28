@@ -113,12 +113,13 @@
         @endif
 
         @if($showSaveButton)
-        <button type="submit" form="prop-update-form" data-prop-save
+        <button type="submit" form="prop-update-form" data-prop-save data-tour="prop-save"
                 class="prop-action-btn prop-action-btn-success">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
             <span class="prop-save-label">Save Changes</span>
         </button>
         @endif
+        @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
     </div>
     @endif
 </div>

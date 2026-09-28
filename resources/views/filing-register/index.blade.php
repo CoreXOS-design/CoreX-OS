@@ -16,7 +16,7 @@
             <div class="flex flex-wrap items-center gap-2">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @permission('filing.create')
-                <button type="button" @click="showNew = !showNew" class="corex-btn-primary text-xs">
+                <button type="button" @click="showNew = !showNew" class="corex-btn-primary text-xs" data-tour="docs-filing-register-new-btn">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                     New Filing
                 </button>
@@ -109,7 +109,7 @@
 
     {{-- Add new filing (opened from the header "New Filing" button) --}}
     @permission('filing.create')
-    <div x-show="showNew" x-cloak x-transition class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div x-show="showNew" x-cloak x-transition class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="docs-filing-register-new-form">
         <h2 class="text-sm font-semibold mb-4" style="color: var(--text-primary);">New Filing</h2>
         <form method="POST" action="{{ route('filing-register.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4"
               x-data="filingPicker({})">
@@ -122,7 +122,7 @@
             {{-- AT-238 — Property: search the property tables, link the real record.
                  The typed text is ALWAYS submitted as property_address, so a filing whose
                  property CoreX does not hold still saves. Linking is an upgrade, never a gate. --}}
-            <div class="relative">
+            <div class="relative" data-tour="docs-filing-register-new-property">
                 <label for="new_property_address" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property <span class="text-red-500">*</span></label>
                 <input type="hidden" name="property_id" :value="propertyId">
                 <input id="new_property_address" type="text" name="property_address" required tabindex="1"
@@ -196,7 +196,7 @@
             </div>
             <div>
                 <label for="new_document_type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type <span class="text-red-500">*</span></label>
-                <select id="new_document_type" name="document_type" required tabindex="7" class="w-full rounded-md px-3 py-2 text-sm"
+                <select id="new_document_type" name="document_type" required tabindex="7" data-tour="docs-filing-register-new-type" class="w-full rounded-md px-3 py-2 text-sm"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="OA">OA (Open Authority)</option>
                     <option value="EA">EA (Exclusive Authority)</option>
@@ -205,13 +205,13 @@
             </div>
             <div>
                 <label for="new_file_reference" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">File Reference <span class="text-red-500">*</span></label>
-                <input id="new_file_reference" type="text" name="file_reference" required tabindex="3" placeholder="e.g. File 3"
+                <input id="new_file_reference" type="text" name="file_reference" required tabindex="3" placeholder="e.g. File 3" data-tour="docs-filing-register-new-file-ref"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div>
                 <label for="new_sequence_number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sequence Number <span class="text-red-500">*</span></label>
-                <input id="new_sequence_number" type="text" name="sequence_number" required tabindex="4" placeholder="e.g. 0042"
+                <input id="new_sequence_number" type="text" name="sequence_number" required tabindex="4" placeholder="e.g. 0042" data-tour="docs-filing-register-new-sequence"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
@@ -259,7 +259,7 @@
                  can genuinely expire on different dates, and the register records what was filed. --}}
             <div>
                 <label for="new_expiry_date" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Expiry Date</label>
-                <input id="new_expiry_date" type="date" name="expiry_date" tabindex="8"
+                <input id="new_expiry_date" type="date" name="expiry_date" tabindex="8" data-tour="docs-filing-register-new-expiry"
                        x-model="expiry"
                        class="w-full rounded-md px-3 py-2 text-sm"
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
@@ -275,7 +275,7 @@
                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
             <div class="md:col-span-3 flex items-center gap-2">
-                <button type="submit" tabindex="10" class="corex-btn-primary">Save Filing</button>
+                <button type="submit" tabindex="10" class="corex-btn-primary" data-tour="docs-filing-register-new-save">Save Filing</button>
                 <button type="button" @click="showNew = false" class="corex-btn-outline">Cancel</button>
             </div>
         </form>

@@ -162,10 +162,10 @@
                                         @if($r->status === PresentationRefreshRequest::STATUS_PENDING)
                                             <form method="POST" action="{{ route('corex.presentations.refresh-requests.acknowledge', $r) }}" class="inline">
                                                 @csrf
-                                                <button type="submit" class="corex-btn-outline text-xs">Acknowledge</button>
+                                                <button type="submit" class="corex-btn-outline text-xs" @if($loop->first) data-tour="pres-refresh-ack" @endif>Acknowledge</button>
                                             </form>
                                         @endif
-                                        <button type="button" class="corex-btn-primary text-xs"
+                                        <button type="button" class="corex-btn-primary text-xs" @if($loop->first) data-tour="pres-refresh-issue" @endif
                                                 @click="panel = panel === '{{ $r->id }}-resolve' ? null : '{{ $r->id }}-resolve'">
                                             Issue refresh
                                         </button>
@@ -193,17 +193,17 @@
                                     <p class="text-xs mb-3" style="color: var(--text-muted);">
                                         A new /p/{token} link will be created using the same recipient + mode. The original link will be marked superseded so visitors are redirected to the new one.
                                     </p>
-                                    <label class="flex items-center gap-2 text-[13px] mb-2" style="color: var(--text-secondary);">
+                                    <label class="flex items-center gap-2 text-[13px] mb-2" style="color: var(--text-secondary);" @if($loop->first) data-tour="pres-refresh-keep-old" @endif>
                                         <input type="checkbox" name="keep_old_link_active" value="1">
                                         Keep the old link active (don't supersede)
                                     </label>
                                     <label class="block text-xs font-semibold uppercase tracking-wider mb-1" style="color: var(--text-muted);">Resolution note (optional)</label>
-                                    <textarea name="resolution_note" rows="2" maxlength="2000"
+                                    <textarea name="resolution_note" rows="2" maxlength="2000" @if($loop->first) data-tour="pres-refresh-resolve-note" @endif
                                               placeholder="e.g. Refreshed comps for Q2 — fixed asking range up 5%."
                                               class="w-full rounded-md px-3 py-2 text-[13px]"
                                               style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"></textarea>
                                     <div class="mt-3 flex gap-2">
-                                        <button type="submit" class="corex-btn-primary text-[13px]">Issue refresh &amp; resolve</button>
+                                        <button type="submit" class="corex-btn-primary text-[13px]" @if($loop->first) data-tour="pres-refresh-resolve-submit" @endif>Issue refresh &amp; resolve</button>
                                         <button type="button" class="corex-btn-outline text-[13px]" @click="panel = null">Cancel</button>
                                     </div>
                                 </form>

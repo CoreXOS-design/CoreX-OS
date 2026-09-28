@@ -188,7 +188,7 @@
                         <span>← All stock (clear buyer)</span>
                     </a>
                 @endif
-                <div style="max-height: 240px; overflow-y: auto;">
+                <div data-tour="mic-buyer-list" style="max-height: 240px; overflow-y: auto;">
                     @foreach($micBuyers as $b)
                         @php $bIsActive = (string) $activeBuyerId === (string) $b->id; $bName = $buyerLabel($b); @endphp
                         <a href="{{ $urlWith(['buyer_id' => $b->id]) }}"

@@ -37,6 +37,7 @@
         ['key'=>'info',      'label'=>'Info'],
         ['key'=>'gallery',   'label'=>'Gallery'],
         ['key'=>'rental',    'label'=>'Rental'],
+        ['key'=>'rental-images', 'label'=>'Rental Images'],
         ['key'=>'inspections', 'label'=>'Inspections'],
         ['key'=>'inventory', 'label'=>'Inventory'],
         ['key'=>'contacts',  'label'=>'Contacts'],
@@ -58,6 +59,9 @@
      @endif>
     @foreach($tabs as $tab)
     @if($tab['key'] === 'core-matches' && (!\App\Models\PerformanceSetting::get('matches_enabled', 1) || !\App\Models\PerformanceSetting::get('matches_show_on_properties', 1) || !auth()->user()->hasPermission('access_core_matches')))
+        @continue
+    @endif
+    @if($tab['key'] === 'rental-images' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
         @continue
     @endif
     @if($tab['key'] === 'inspections' && ($isNew || strtolower($property->listing_type ?? '') !== 'rental'))
@@ -113,7 +117,7 @@
         @endif
     @else
         <button type="button"
-                data-prop-tab="{{ $tab['key'] }}"
+                data-prop-tab="{{ $tab['key'] }}" data-tour="prop-tab-{{ $tab['key'] }}"
                 @click="activeTab = '{{ $tab['key'] }}'"
                 @if($tab['key'] === 'rental') x-show="isRentalListing" x-cloak @endif
                 :class="'border-b-2'"

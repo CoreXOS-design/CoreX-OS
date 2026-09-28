@@ -39,13 +39,19 @@ class RentalsController extends Controller
         abort_unless($isAssigned, 403);
     }
 
-    private function assertCanCreateInBranch(int $branchId): void
+    private function assertCanCreateInBranch(int $branchId): Branch
     {
         $user = Auth::user();
         $scope = $this->getScope();
 
+        // AT-424 — the branch must be one this user's agency can see. Branch is
+        // agency-scoped, so another agency's branch id resolves to nothing here
+        // (previously scope 'all' could create a rental in any agency's branch).
+        $branch = Branch::find($branchId);
+        abort_unless($branch, 403);
+
         if ($scope === 'all') {
-            return;
+            return $branch;
         }
 
         // Branch and own scope: only within their own branch
@@ -54,6 +60,26 @@ class RentalsController extends Controller
         if ($scope === 'own') {
             abort_unless((bool)($user->can_capture_rentals ?? false), 403);
         }
+
+        return $branch;
+    }
+
+    /**
+     * Keep only agent ids that belong to the rental's agency, so a rental can
+     * never be linked to (and counted on the worksheet of) another agency's
+     * agent by posting their id.
+     */
+    private function sameAgencyAgentIds(array $agentIds, int $agencyId): array
+    {
+        if (empty($agentIds)) {
+            return [];
+        }
+
+        return User::whereIn('id', $agentIds)
+            ->where('agency_id', $agencyId)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
     }
 
     public function index()
@@ -328,9 +354,10 @@ $summary_per_agent = collect(array_values($agentSplit))->sortBy('name')->values(
             'commission_excl' => ['required', 'numeric'],
         ]);
 
-        $this->assertCanCreateInBranch((int)$validated['branch_id']);
+        $branch = $this->assertCanCreateInBranch((int)$validated['branch_id']);
 
         $rental = Rental::create([
+            'agency_id' => (int)$branch->agency_id,
             'branch_id' => (int)$validated['branch_id'],
             'lease_address' => $validated['lease_address'],
             'lease_start_date' => $validated['lease_start_date'],
@@ -351,7 +378,7 @@ $summary_per_agent = collect(array_values($agentSplit))->sortBy('name')->values(
             }
         }
 
-        $agentIds = array_values(array_unique($agentIds));
+        $agentIds = $this->sameAgencyAgentIds(array_values(array_unique($agentIds)), (int)$rental->agency_id);
         if (!empty($agentIds)) {
             $rental->agents()->sync($agentIds);
         }
@@ -397,11 +424,13 @@ $summary_per_agent = collect(array_values($agentSplit))->sortBy('name')->values(
         $scope = $this->getScope();
         if ($scope !== 'all') {
             $validated['branch_id'] = (int)$rental->branch_id;
+            $agencyId = (int)$rental->agency_id;
         } else {
-            $this->assertCanCreateInBranch((int)$validated['branch_id']);
+            $agencyId = (int)$this->assertCanCreateInBranch((int)$validated['branch_id'])->agency_id;
         }
 
         $rental->update([
+            'agency_id' => $agencyId,
             'branch_id' => (int)$validated['branch_id'],
             'lease_address' => $validated['lease_address'],
             'lease_start_date' => $validated['lease_start_date'],
@@ -419,7 +448,7 @@ $summary_per_agent = collect(array_values($agentSplit))->sortBy('name')->values(
             }
         }
 
-        $agentIds = array_values(array_unique($agentIds));
+        $agentIds = $this->sameAgencyAgentIds(array_values(array_unique($agentIds)), $agencyId);
         $rental->agents()->sync($agentIds);
 
         $hasAnyVersionField = !empty($validated['effective_from'])

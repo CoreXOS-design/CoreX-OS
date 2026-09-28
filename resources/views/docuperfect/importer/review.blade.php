@@ -18,7 +18,7 @@
 
     {{-- STICKY HEADER --}}
     <x-page-header
-        title="Tag Document Fields â€” {{ $templateName }}"
+        title="Tag Document Fields — {{ $templateName }}"
         :back-route="route('docuperfect.import.index')"
         back-label="Import"
         :flush="true"
@@ -57,10 +57,10 @@
                     <div class="flex items-center gap-2 bg-amber-100 border border-amber-300 text-amber-800 text-sm px-4 py-2 rounded-lg cursor-pointer"
                          @click="fixNext()">
                         <svg class="w-4 h-4 flex-shrink-0 text-amber-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.168 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 6a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 6zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>
-                        <span x-text="linkedCount + ' of ' + totalTagCount + ' fields linked â€” ' + outstandingCount + ' outstanding'"></span>
+                        <span x-text="linkedCount + ' of ' + totalTagCount + ' fields linked — ' + outstandingCount + ' outstanding'"></span>
                         <button type="button" @click.stop="fixNext()"
                                 class="ml-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-1 rounded transition-colors whitespace-nowrap"
-                                x-text="'Fix next â†’ (' + (fixNextPosition) + ' of ' + outstandingCount + ')'">
+                                x-text="'Fix next → (' + (fixNextPosition) + ' of ' + outstandingCount + ')'">
                         </button>
                     </div>
                 </template>
@@ -70,7 +70,7 @@
                     <div class="flex items-center gap-3">
                         <div class="flex items-center gap-2 bg-emerald-100 border border-emerald-300 text-emerald-800 text-sm px-3 py-2 rounded-lg">
                             <svg class="w-4 h-4 text-emerald-600" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd"/></svg>
-                            <span x-text="'All ' + totalTagCount + ' fields linked â€” ready to generate'"></span>
+                            <span x-text="'All ' + totalTagCount + ' fields linked — ready to generate'"></span>
                         </div>
                         <form x-ref="generateForm" method="POST" action="{{ route('docuperfect.import.generate') }}" class="inline">
                             @csrf
@@ -343,7 +343,7 @@
                                         </button>
                                     </div>
 
-                                    {{-- Type dropdown â€” single fields + field groups --}}
+                                    {{-- Type dropdown — single fields + field groups --}}
                                     <select class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 mb-1.5 bg-white"
                                             :value="getMapping(tag.id).typeKey"
                                             @change="setType(tag.id, $event.target.value)">
@@ -554,7 +554,7 @@
 </div>
 
 <style>
-    /* Kill the outer page scroll â€” this page manages its own panels */
+    /* Kill the outer page scroll — this page manages its own panels */
     #appScroll {
         overflow: hidden !important;
         padding: 0 !important;
@@ -874,7 +874,7 @@ function tagEditor() {
             }, 15000);
         },
 
-        // ===== Init â€” convert parser blanks to tags + auto-suggest =====
+        // ===== Init — convert parser blanks to tags + auto-suggest =====
 
         init() {
             this.$nextTick(() => {
@@ -898,7 +898,7 @@ function tagEditor() {
                     this._updateCounts();
                     this._syncAllTagColors();
                     this._syncAllTagLabels();
-                    // Do NOT call _persistMappings â€” we just loaded, nothing changed
+                    // Do NOT call _persistMappings — we just loaded, nothing changed
                     this._startAutoSave();
                     this._initFormatToolbar();
                     this._initSigPlaceholderHandler();
@@ -939,7 +939,7 @@ function tagEditor() {
                             return;
                         }
                     }
-                    // No match â€” empty mapping
+                    // No match — empty mapping
                     this.mappings[tag.id] = this._emptyInputMapping(pf ? (pf.confidence || 'low') : null);
                 });
                 this._updateCounts();
@@ -953,7 +953,7 @@ function tagEditor() {
             });
         },
 
-        // ===== Selection â€” doc â†” panel sync =====
+        // ===== Selection — doc ↔ panel sync =====
 
         selectTag(tagId) {
             // Deselect previous
@@ -1048,7 +1048,7 @@ function tagEditor() {
             this.tags.forEach(t => this._syncTagColor(t.id));
         },
 
-        // ===== Display labels â€” reactive panel + document sync =====
+        // ===== Display labels — reactive panel + document sync =====
 
         getDisplayLabel(tag) {
             const m = this.mappings[tag.id] || {};
@@ -1411,14 +1411,14 @@ function tagEditor() {
             let match = this.namedFieldsAll.find(nf => nf.name.toLowerCase() === needle);
             if (match) return match;
 
-            // Partial match â€” suggested label contains named field name or vice versa
+            // Partial match — suggested label contains named field name or vice versa
             match = this.namedFieldsAll.find(nf => {
                 const name = nf.name.toLowerCase();
                 return needle.includes(name) || name.includes(needle);
             });
             if (match) return match;
 
-            // Try matching via suggested_key's field portion (e.g. "contact.full_name" â†’ "full_name")
+            // Try matching via suggested_key's field portion (e.g. "contact.full_name" → "full_name")
             if (suggestedKey) {
                 const parts = suggestedKey.split('.');
                 const fieldPart = parts.slice(1).join(' ').replace(/_/g, ' ').toLowerCase();
@@ -1443,7 +1443,7 @@ function tagEditor() {
         handleDocClick(event) {
             const clickedTag = event.target.closest('.doc-tag');
 
-            // No tool active â€” browse mode
+            // No tool active — browse mode
             if (!this.activeTool) {
                 if (clickedTag && clickedTag.dataset.tagId) {
                     event.stopPropagation();
@@ -1452,10 +1452,10 @@ function tagEditor() {
                 return;
             }
 
-            // Tool active â€” clicking existing tag does nothing
+            // Tool active — clicking existing tag does nothing
             if (clickedTag) return;
 
-            // Tool active â€” place new tag
+            // Tool active — place new tag
             this._pushUndoState();
             const tag = this._createTagData(this.activeTool);
             const span = this._createTagElement(tag);
@@ -1497,7 +1497,7 @@ function tagEditor() {
                 if (!this.activeTool) {
                     this.selectTag(tagId);
                 }
-                // Tool active â†’ do nothing on existing tag click
+                // Tool active → do nothing on existing tag click
             });
         },
 
@@ -1542,7 +1542,7 @@ function tagEditor() {
                 counters[tag.type]++;
                 tag.number = counters[tag.type];
                 tag.label = `[${prefixes[tag.type]} ${tag.number}]`;
-                // Update doc tag text â€” _syncTagLabel uses getDisplayLabel
+                // Update doc tag text — _syncTagLabel uses getDisplayLabel
                 // which may show linked name instead of default label
                 this._syncTagLabel(tag.id);
             });
@@ -1641,7 +1641,7 @@ function tagEditor() {
                     document.execCommand('bold', false, null);
                     this._wrapSelectionWithStyle('font-size: 12pt; font-weight: bold;');
                 } else {
-                    // Normal â€” remove bold and reset size
+                    // Normal — remove bold and reset size
                     document.execCommand('removeFormat', false, null);
                 }
                 e.target.value = '';

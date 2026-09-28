@@ -138,7 +138,7 @@
                         </div>
                     </div>
 
-                    <div x-show="selectedProperty" x-cloak class="flex items-center gap-2 rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);">
+                    <div x-show="selectedProperty" x-cloak class="flex items-center gap-2 rounded-md p-3" style="background:var(--surface-2); border:1px solid var(--border);" data-tour="comp-seller-info-property-picked">
                         <input type="hidden" name="property_id" :value="selectedProperty?.id || ''">
                         <span class="text-sm font-medium flex-1" style="color:var(--text-primary);" x-text="selectedProperty?.address"></span>
                         <button type="button" @click="clearProperty()" class="text-xs font-semibold px-2 py-1 rounded-md" style="color:var(--ds-crimson,#c41e3a); background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 8%, transparent);">Clear</button>

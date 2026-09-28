@@ -941,7 +941,7 @@ class MobilePropertyController extends Controller
                 'id'        => $property->agent->id,
                 'name'      => $property->agent->name,
                 'phone'     => $property->agent->phone,
-                'email'     => $property->agent->email,
+                'email'     => $property->agent->deliveryEmail(),
                 'photo_url' => method_exists($property->agent, 'profilePhotoUrl')
                     ? $property->agent->profilePhotoUrl()
                     : ($property->agent->profile_photo_url ?? null),

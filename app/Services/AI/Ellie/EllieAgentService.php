@@ -88,7 +88,7 @@ class EllieAgentService
      * @param array<int, array{role:string, content:string}> $history Prior turns, oldest first.
      * @param array<string, mixed> $pageContext Where the user is standing right now.
      *
-     * @return array{reply:string, ok:bool, tools_used:array<int,string>}
+     * @return array{reply:string, ok:bool, tools_used:array<int,string>, guides?:array<int,array<string,mixed>>}
      */
     public function answer(string $message, User $user, array $history = [], array $pageContext = []): array
     {
@@ -104,6 +104,7 @@ class EllieAgentService
         }
 
         $model = $this->resolveModel();
+        $this->toolkit->resetGuides();
 
         $messages = $this->buildMessages($history, $message);
         $system   = $this->systemPrompt($user, $pageContext);
@@ -160,6 +161,7 @@ class EllieAgentService
                         'ok'         => true,
                         'reply'      => $lastText !== '' ? $lastText : 'Sorry, I could not put an answer together. Please rephrase and try again.',
                         'tools_used' => $toolsUsed,
+                        'guides'     => $this->toolkit->guides(),
                     ];
                 }
 
@@ -192,6 +194,7 @@ class EllieAgentService
                     ? $lastText
                     : "That turned into a bigger lookup than I could finish. Try asking me one part of it at a time.",
                 'tools_used' => $toolsUsed,
+                'guides'     => $this->toolkit->guides(),
             ];
         } catch (Throwable $e) {
             Log::error('ELLIE_AGENT_EXCEPTION', [

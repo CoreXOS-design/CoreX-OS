@@ -58,6 +58,16 @@ class DenyAssistantPropertyWrite
         'v1.mobile.properties.update',
     ];
 
+    /**
+     * Read-only accessor so other gates (TourRegistry::canOpenRoute()) can ask
+     * "would an assistant actually be let through this route name" without
+     * duplicating — and inevitably drifting from — this list.
+     */
+    public static function assistantMayRouteNames(): array
+    {
+        return self::ASSISTANT_MAY;
+    }
+
     public function handle(Request $request, Closure $next): Response
     {
         $user = $request->user();

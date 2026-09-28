@@ -298,7 +298,10 @@ final class MapController extends Controller
             ];
         }
 
-        $resolveGps = function (array $raw) {
+        // AT-424 — every GPS source below is clamped to the presentation's own
+        // agency; another agency's market reports are never borrowed from.
+        $agencyId = (int) $presentation->agency_id;
+        $resolveGps = function (array $raw) use ($agencyId) {
             // 1. raw_row_json may carry explicit lat/lng (from manual upload extractors).
             if (isset($raw['latitude'], $raw['longitude'])
                 && $raw['latitude'] !== null && $raw['longitude'] !== null) {
@@ -308,10 +311,12 @@ final class MapController extends Controller
             $compRowId = $raw['mic_comp_row_id'] ?? null;
             $schemeName = $raw['scheme_name'] ?? null;
             if ($compRowId) {
-                $r = \Illuminate\Support\Facades\DB::table('market_report_comp_rows')
-                    ->where('id', $compRowId)
-                    ->whereNull('deleted_at')
-                    ->first(['latitude', 'longitude', 'scheme_name']);
+                $r = \Illuminate\Support\Facades\DB::table('market_report_comp_rows as mrcr')
+                    ->join('market_reports as mr', 'mr.id', '=', 'mrcr.market_report_id')
+                    ->where('mr.agency_id', $agencyId)
+                    ->where('mrcr.id', $compRowId)
+                    ->whereNull('mrcr.deleted_at')
+                    ->first(['mrcr.latitude', 'mrcr.longitude', 'mrcr.scheme_name']);
                 if ($r) {
                     if ($r->latitude !== null && $r->longitude !== null) {
                         return [(float) $r->latitude, (float) $r->longitude];
@@ -323,6 +328,7 @@ final class MapController extends Controller
             //    Same pattern MapPinService uses for the standalone map.
             if ($schemeName) {
                 $mr = \Illuminate\Support\Facades\DB::table('market_reports')
+                    ->where('agency_id', $agencyId)
                     ->whereRaw('LOWER(subject_scheme_name) = ?', [mb_strtolower($schemeName)])
                     ->whereNotNull('subject_latitude')->whereNotNull('subject_longitude')
                     ->orderByDesc('id')

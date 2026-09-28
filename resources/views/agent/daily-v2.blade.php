@@ -49,7 +49,7 @@
                     Print
                 </a>
                 <form method="GET" action="{{ route('agent.daily') }}">
-                    <input type="date" name="date" value="{{ $selectedDate }}"
+                    <input type="date" name="date" value="{{ $selectedDate }}" data-tour="at-agent-daily-date"
                            class="ds-field rounded-md text-xs px-3 py-1.5"
                            style="color-scheme: light dark;"
                            onchange="this.form.submit()" />
@@ -104,7 +104,7 @@
 
         {{-- ── LEFT — once-a-day checklist + auto lists ── --}}
         <div class="flex flex-col gap-4 min-h-0">
-            <div class="rounded-md flex-1 min-h-0 flex flex-col overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md flex-1 min-h-0 flex flex-col overflow-hidden" data-tour="at-agent-daily-checklist" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="px-4 py-2.5 flex items-baseline justify-between gap-3 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
                     <span class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Once-a-day checklist</span>
                     <span class="text-xs whitespace-nowrap" style="color: var(--text-secondary);">{{ $onceDone }} of {{ $onceDefs->count() }} done</span>

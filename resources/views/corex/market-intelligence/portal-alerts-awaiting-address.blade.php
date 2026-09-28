@@ -95,7 +95,7 @@
                             </td>
                             <td style="padding: 8px 12px;">
                                 @if($a['portal_url'])
-                                    <a href="{{ $a['portal_url'] }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer"
+                                    <a href="{{ $a['portal_url'] }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" @if($loop->first) data-tour="mic-portal-alerts-open-link" @endif
                                        style="color: var(--brand-button, #0ea5e9); text-decoration: none; font-weight: 500;">
                                         Open ↗
                                     </a>

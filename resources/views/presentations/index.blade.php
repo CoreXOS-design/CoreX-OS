@@ -96,7 +96,7 @@
                 @endif
             </div>
 
-            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2" data-tour="pres-list-search-btn">Search</button>
 
             @if(collect(request()->except(['sort', 'direction', 'page']))->filter(fn($v) => $v !== null && $v !== '' && $v !== 'active')->isNotEmpty())
             <a href="{{ route('presentations.index') }}" class="text-xs underline transition-all duration-300" style="color: var(--text-muted);">Clear</a>
@@ -195,7 +195,7 @@
                                             <button type="submit" class="text-xs font-semibold" style="color: var(--ds-green);">Restore</button>
                                         </form>
                                     @else
-                                        <a href="{{ route('presentations.show', $pres) }}"
+                                        <a href="{{ route('presentations.show', $pres) }}" @if($loop->first) data-tour="pres-list-open" @endif
                                            class="text-xs font-semibold" style="color: var(--brand-icon);">
                                             Open &rarr;
                                         </a>

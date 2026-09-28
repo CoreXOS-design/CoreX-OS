@@ -7,15 +7,19 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Concerns\BelongsToAgency;
 use App\Models\Concerns\BelongsToBranch;
 
 class Rental extends Model
 {
-    use BelongsToBranch, SoftDeletes;
+    // BelongsToAgency (AT-424): rentals are agency data. BelongsToBranch alone
+    // is a no-op unless the agency splits branches, so it isolated nothing.
+    use BelongsToAgency, BelongsToBranch, SoftDeletes;
 
     protected $table = 'rentals';
 
     protected $fillable = [
+        'agency_id',
         'branch_id',
         'lease_address',
         'lease_start_date',

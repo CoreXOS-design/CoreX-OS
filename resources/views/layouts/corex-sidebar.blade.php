@@ -1944,7 +1944,7 @@
         @feature('ad-manager')
         @permission('access_ad_manager')
         @if(\Illuminate\Support\Facades\Route::has('tools.ad-manager'))
-        <a href="{{ route('tools.ad-manager') }}" class="corex-nav-item {{ request()->routeIs('tools.ad-manager') ? 'active' : '' }}">
+        <a href="{{ route('tools.ad-manager') }}" class="corex-nav-item {{ request()->routeIs('tools.ad-manager*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="m3 11 18-5v12L3 14v-3z"/>
                 <path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>
@@ -2845,29 +2845,9 @@
                 @endfeature
                 @endpermission
 
-                {{-- Evaluation — nested drill-down --}}
-                <div>
-                    <button type="button" @click="push('evaluation')"
-                            class="corex-nav-subitem corex-nav-group-toggle corex-nav-subgroup-toggle {{ $groupOpen('evaluation') ? 'active' : '' }}">
-                        <span>Evaluation</span>
-                        <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                    </button>
-
-                    <div class="corex-nav-panel {{ $groupOpen('evaluation') ? 'is-open' : '' }}" :class="{ 'is-open': inStack('evaluation') }">
-                        <button type="button" @click="pop()" class="corex-nav-back">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                            <span>Back</span>
-                        </button>
-                        <div class="corex-nav-panel-title">Evaluation</div>
-                        <a href="{{ route('evaluation.index') }}#tab=property" class="corex-nav-subitem {{ request()->routeIs('evaluation.*') ? 'active' : '' }}">Property Report</a>
-                        <a href="{{ route('evaluation.index') }}#tab=suburb" class="corex-nav-subitem">Suburb Report</a>
-                        <a href="{{ route('evaluation.index') }}#tab=town" class="corex-nav-subitem">Town Report</a>
-                        <a href="{{ route('evaluation.index') }}#tab=street" class="corex-nav-subitem">Street Report</a>
-                        <a href="{{ route('evaluation.index') }}#tab=transfer" class="corex-nav-subitem">Transfer Report</a>
-                        {{-- Phase D1 — Prospecting evaluation tab removed; the new
-                             MIC Analyse tab is now the canonical surface for that data. --}}
-                    </div>
-                </div>
+                {{-- Evaluation reports hidden 2026-09-19 (sample-data mock-up) — see the
+                     evaluation.index route in routes/web.php. Restore this drill-down
+                     when the real reports ship. --}}
             </div>
         </div>
         @endif

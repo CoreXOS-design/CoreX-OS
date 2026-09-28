@@ -82,7 +82,7 @@
                        class="w-full rounded-md px-3 py-2 text-sm outline-none"
                        style="border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary);"
                        x-show="!selected">
-                <div x-show="selected" x-cloak class="flex items-center justify-between rounded-md px-3 py-2" style="border: 1px solid var(--border); background: var(--surface-2);">
+                <div x-show="selected" x-cloak class="flex items-center justify-between rounded-md px-3 py-2" style="border: 1px solid var(--border); background: var(--surface-2);" data-tour="comp-fica-create-picked">
                     <span class="text-sm font-medium" style="color: var(--text-primary);" x-text="selectedName"></span>
                     <button type="button" @click="selected = null; selectedName = ''; search = ''; contactInfo = null" class="transition-colors hover:text-[var(--ds-crimson)]" style="color: var(--text-muted);">&times;</button>
                 </div>
@@ -115,7 +115,7 @@
             {{-- #11 inline add-email — a selected contact with no email on file can be given one on
                  the spot; it is saved to the contact and the FICA request is then sent to it. --}}
             <template x-if="contactInfo && (!contactInfo.email || contactInfo.email === 'No email')">
-                <div class="mt-3 rounded-md p-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, var(--border));">
+                <div class="mt-3 rounded-md p-3" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 10%, var(--surface)); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, var(--border));" data-tour="comp-fica-create-email">
                     <label class="block text-xs font-semibold mb-1" style="color: var(--text-primary);">This contact has no email &mdash; add one to send the FICA request <span style="color: var(--ds-crimson, #c41e3a);">*</span></label>
                     <input type="email" name="email" x-model="newEmail" required placeholder="name@example.com"
                            class="w-full rounded-md px-3 py-2 text-sm outline-none"

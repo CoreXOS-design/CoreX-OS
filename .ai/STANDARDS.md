@@ -961,6 +961,14 @@ floor here, not the ceiling.
 
 ---
 
+## Standard −1w — Deploy pre-flight must never stash or remove `cds/template-*.blade.php` (2026-09-28)
+
+`scripts/deploy.sh`'s STEP 1 pre-flight refuses to run against a dirty working tree (`git status --porcelain` non-empty). On 2026-09-28, `/corex-staging` had several pre-existing untracked files at deploy time, including `resources/views/docuperfect/web-templates/cds/template-74/76/78.blade.php`. These are **not editor debris** — they are runtime-generated e-sign web templates that DocuPerfect writes to disk when an agent builds/uses a CDS template; e-sign documents built from those templates can break while the files are missing. They were stashed (`git stash --include-untracked`) purely to satisfy the pre-flight dirty-tree check and unblock a deploy, then restored (`git stash pop`) immediately after — but for the window in between, any e-sign flow touching those specific templates would have failed.
+
+**The rule:** before a deploy's pre-flight cleans, stashes, or otherwise moves aside untracked files to satisfy the dirty-tree check, `resources/views/docuperfect/web-templates/cds/template-*.blade.php` (and any other runtime-generated, server-only artifact in that same category — check with whoever owns DocuPerfect if unsure) must be **left in place**, not staged into the stash. Rotated log files (`storage/logs/*.log.N`, `*.log.N.gz`) are safe to stash/move — they are pure history with no live read path. Generated web templates are not logs; they are live, load-bearing output. If the pre-flight dirty-tree check needs to pass, exclude this glob from whatever stash/move is used, or `.gitignore` it properly (untracked-but-protected) rather than treating it as disposable.
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.

@@ -486,9 +486,14 @@ Route::middleware('auth')->group(function () {
             ->name('system-updates.dismiss');
     });
 
-    Route::get('/evaluation', function () {
-        return view('evaluation.index');
-    })->middleware('permission:access_evaluation')->name('evaluation.index');
+    // Evaluation reports (Property / Suburb / Town / Street / Transfer) — HIDDEN
+    // 2026-09-19 (business decision): the screen was a mock-up (search only ever found
+    // five hard-coded sample properties; Street View / Measure were placeholders),
+    // so agents must not see it as real data. Off the sidebar; an old bookmark
+    // lands on the dashboard. Real reports are a separate, specced project —
+    // resources/views/evaluation/index.blade.php is kept as the design reference.
+    Route::get('/evaluation', fn () => redirect()->route('corex.dashboard'))
+        ->middleware('permission:access_evaluation')->name('evaluation.index');
 
     // Profile → redirect to My Portal (consolidated)
     Route::get('/profile', fn () => redirect('/my-portal#profile', 301))->name('profile.edit');
@@ -636,6 +641,12 @@ Route::middleware('auth')->group(function () {
     // Property24 — quick visibility toggle per agent (exclude_from_p24).
     Route::post('/admin/users/{user}/toggle-p24', [App\Http\Controllers\Admin\UserManagementController::class, 'toggleP24'])
         ->middleware('permission:manage_users')->name('admin.users.toggle-p24');
+    // AT-422 — Users list bulk actions (Resend invitation / Deactivate the ticked people).
+    Route::post('/admin/users/bulk', [App\Http\Controllers\Admin\UserManagementController::class, 'bulk'])
+        ->middleware('permission:manage_users')->name('admin.users.bulk');
+    // AT-422 — per-user off switch for the daily digest email (Admin → Users → Actions).
+    Route::post('/admin/users/{user}/toggle-daily-digest', [App\Http\Controllers\Admin\UserManagementController::class, 'toggleDailyDigest'])
+        ->middleware('permission:manage_users')->name('admin.users.toggle-daily-digest');
 
     Route::post('/admin/users/{user}/delete', [App\Http\Controllers\Admin\UserManagementController::class, 'delete'])
         ->middleware('permission:manage_users')->name('admin.users.delete');
@@ -1339,6 +1350,12 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/ad-manager', [\App\Http\Controllers\Tools\AdManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager');
     Route::post('/tools/ad-manager/previews', [\App\Http\Controllers\Tools\AdManagerController::class, 'previews'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.previews');
     Route::post('/tools/ad-manager/generate', [\App\Http\Controllers\Tools\AdManagerController::class, 'generate'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.generate');
+
+    // Template Manager — spec .ai/specs/ad-manager.md §19. Archive/restore are soft-delete only;
+    // {template} binds through AgencyScope (another agency's id is a 404), restore also sees trashed rows.
+    Route::get('/tools/ad-manager/templates', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates');
+    Route::post('/tools/ad-manager/templates/{template}/archive', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'archive'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.archive')->whereNumber('template');
+    Route::post('/tools/ad-manager/templates/{template}/restore', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'restore'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.restore')->whereNumber('template')->withTrashed();
 
     // Tools History (backend)
     Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');
@@ -3655,6 +3672,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/filing-register-per-page', [CoreXSettingsController::class, 'updateFilingRegisterPerPage'])->middleware('permission:access_settings')->name('corex.settings.filing-register-per-page');
     Route::post('/settings/properties-sort', [CoreXSettingsController::class, 'updatePropertiesSort'])->middleware('permission:access_settings')->name('corex.settings.properties-sort');
     Route::post('/settings/remote-access', [CoreXSettingsController::class, 'updateRemoteAccess'])->middleware('permission:agency.manage_access_authorization')->name('corex.settings.remote-access');
+    // AT-423 — Team Inbox (sub-users signing in with a username). Spec: .ai/specs/one-email-sub-users.md §6.1.
+    Route::put('/settings/agency/team-inbox', [\App\Http\Controllers\Admin\OneEmailSettingsController::class, 'update'])
+        ->middleware('permission:manage_performance_settings')->name('corex.settings.team-inbox');
     // Old compliance-officers endpoint — kept for backwards compat, redirects
     Route::post('/settings/compliance-officers', function () {
         return redirect('/corex/settings?tab=user');

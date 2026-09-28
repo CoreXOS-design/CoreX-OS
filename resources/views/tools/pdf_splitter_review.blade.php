@@ -188,6 +188,7 @@
             <p class="text-xs" style="color: var(--text-muted);">Set each page's document type, then tick the contact(s) it belongs to.</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             <span class="text-xs font-medium" style="color: var(--text-muted);">
                 <strong style="color: var(--text-secondary);">{{ count($manifests) }}</strong> file{{ count($manifests) === 1 ? '' : 's' }}
                 &middot; {{ $totalPages }} page{{ $totalPages === 1 ? '' : 's' }} total
@@ -263,7 +264,7 @@
             </div>
         </div>
 
-        <div x-show="property" class="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
+        <div x-show="property" class="flex items-center justify-between gap-3 px-3 py-2 rounded-md" data-tour="spr-property-picked"
              style="background: var(--surface-2); border: 1px solid var(--border);">
             <div class="text-sm" style="color: var(--text-primary);">
                 <span x-text="property?.label"></span>
@@ -493,7 +494,7 @@
                                     </td>
 
                                     {{-- Doc type --}}
-                                    <td>
+                                    <td data-tour="spr-page-type">
                                         <select class="lbl-select" x-model="pg.label" @change="onLabelChange(pg)">
                                             @foreach($docTypes as $key => $dtLabel)
                                                 <option value="{{ $key }}">{{ $dtLabel }}</option>
@@ -520,7 +521,7 @@
                                     </td>
 
                                     {{-- Contact assignment (many-to-many across roles) --}}
-                                    <td>
+                                    <td data-tour="spr-assign-cell">
                                         @if($rentalApplicationContact)
                                             {{-- AT-392 — single fixed applicant, nothing to pick per page. --}}
                                             <span class="text-xs" style="color: var(--text-muted);">Files to {{ $rentalApplicationContact->full_name }}.</span>

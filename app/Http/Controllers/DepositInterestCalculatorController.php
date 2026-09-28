@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\DepositInterestCalculation;
 use App\Models\DepositTrustInterest;
+use App\Models\User;
 use App\Services\DepositInterestCalculatorService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -90,15 +91,52 @@ class DepositInterestCalculatorController extends Controller
         return back()->with('status', 'Calculation saved to history.');
     }
 
+    /**
+     * AT-424 — what an admin's "see everyone's calculations" covers.
+     * false = not an admin (own only); int = that agency's users; null = an
+     * owner who has not switched into an agency (platform-wide, as before).
+     */
+    private function adminAgencyScope(): int|false|null
+    {
+        $user = auth()->user();
+        if (!$user->is_admin) {
+            return false;
+        }
+        $agencyId = $user->effectiveAgencyId();
+        if ($agencyId) {
+            return (int) $agencyId;
+        }
+        return $user->isOwnerRole() ? null : false;
+    }
+
+    private function canAccessCalculation(DepositInterestCalculation $calculation): bool
+    {
+        if ((int) $calculation->user_id === (int) auth()->id()) {
+            return true;
+        }
+        $scope = $this->adminAgencyScope();
+        if ($scope === false) {
+            return false;
+        }
+        if ($scope === null) {
+            return true;
+        }
+        return (int) User::withoutGlobalScopes()->whereKey($calculation->user_id)->value('agency_id') === $scope;
+    }
+
     public function history(Request $request)
     {
         abort_unless(auth()->user()?->hasPermission('access_deposit_calc_history'), 403);
 
         $query = DepositInterestCalculation::with('user')->orderBy('created_at', 'desc');
 
-        // Admin sees all; others see only their own
-        if (!auth()->user()->is_admin) {
+        // Admin sees their own agency's calculations; others only their own.
+        // AT-424 — this was "admin sees all", i.e. every agency's calculations.
+        $adminAgencyId = $this->adminAgencyScope();
+        if ($adminAgencyId === false) {
             $query->where('user_id', auth()->id());
+        } elseif ($adminAgencyId !== null) {
+            $query->whereIn('user_id', User::withoutGlobalScopes()->where('agency_id', $adminAgencyId)->select('id'));
         }
 
         // Search by property name
@@ -115,10 +153,7 @@ class DepositInterestCalculatorController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('access_deposit_calc_history'), 403);
 
-        // Non-admin can only view own
-        if (!auth()->user()->is_admin && $calculation->user_id !== auth()->id()) {
-            abort(403);
-        }
+        abort_unless($this->canAccessCalculation($calculation), 403);
 
         $dateRange = $this->getDateRange();
 
@@ -156,9 +191,7 @@ class DepositInterestCalculatorController extends Controller
     {
         abort_unless(auth()->user()?->hasPermission('access_deposit_calc_history'), 403);
 
-        if (!auth()->user()->is_admin && $calculation->user_id !== auth()->id()) {
-            abort(403);
-        }
+        abort_unless($this->canAccessCalculation($calculation), 403);
 
         $calculation->delete();
 

@@ -72,4 +72,7 @@ Python deploy, just a `git pull` + php-fpm reload.
 ## Future
 
 - Rank the tour for the user's current module higher (Ellie already gets app context).
-- Blend Navigation Atlas (where) + Tour Knowledge (how) into a single "guide me" answer.
+- ~~Blend Navigation Atlas (where) + Tour Knowledge (how) into a single "guide me" answer.~~
+  Done by **Advanced Guiding** (`.ai/specs/advanced-guiding.md`): `find_how_to` now also
+  returns guide buttons (`TourKnowledgeService::guideButtons`) that walk the agent through
+  the task on screen.

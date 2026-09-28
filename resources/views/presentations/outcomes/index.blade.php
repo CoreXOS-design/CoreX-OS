@@ -109,7 +109,7 @@
                         @endforeach
                     </select>
                 @endif
-                <button type="submit" class="corex-btn-primary text-xs">Apply</button>
+                <button type="submit" class="corex-btn-primary text-xs" data-tour="pres-outcomes-apply">Apply</button>
                 @if($hasFilters)
                     <a href="{{ route('corex.presentations.outcomes.index') }}" class="corex-btn-outline text-xs">Clear</a>
                 @endif
@@ -175,7 +175,7 @@
             </div>
         @else
             <div class="flex-1 min-w-0 min-h-0 flex flex-col rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-                <div class="flex-1 min-h-0 overflow-auto corex-brand-scroll" data-scroll-region>
+                <div class="flex-1 min-h-0 overflow-auto corex-brand-scroll" data-scroll-region data-tour="pres-outcomes-table">
                     <table class="min-w-full text-sm ds-table">
                         <thead>
                             <tr>

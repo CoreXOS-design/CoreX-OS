@@ -99,7 +99,7 @@
     </div>
 
     @if($plainToken)
-    <div class="rounded-md p-4" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
+    <div class="rounded-md p-4" data-tour="comms-wa-devices-token" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
         <div class="text-sm font-semibold mb-1">Your device token (shown once)</div>
         <code class="block text-xs p-2 break-all rounded-md" style="background: var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">{{ $plainToken }}</code>
         <p class="text-xs mt-2" style="color: var(--ds-amber, #a16207);">Paste this into the WhatsApp Capture extension now. For security it will not be shown again — revoke and re-register if you lose it.</p>
@@ -113,7 +113,7 @@
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">WhatsApp number (optional)</label>
                 <input type="text" name="wa_number" placeholder="e.g. 0821234567" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
             </div>
-            <button type="submit" class="corex-btn-primary">Register Device &amp; Issue Token</button>
+            <button type="submit" class="corex-btn-primary" data-tour="comms-wa-devices-register-btn">Register Device &amp; Issue Token</button>
         </form>
         <p class="text-xs mt-3" style="color: var(--text-muted);" data-tour="comms-wa-devices-extension">
             Download the extension: <a href="{{ asset('downloads/wa-capture-extension.zip') }}" style="color: var(--brand-icon);">wa-capture-extension.zip</a>
