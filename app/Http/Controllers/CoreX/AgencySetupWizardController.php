@@ -518,34 +518,63 @@ class AgencySetupWizardController extends Controller
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
                 'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
-                // .ai/specs/leases.md §5.2 — always resolves to a real number
-                // (the constant default when unset), never null, matching
-                // LeaseSetting::expiryNoticeWindowDaysFor()'s own contract.
-                'leases'    => LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
-                // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — same
-                // always-a-real-number contract as 'leases' above.
-                'rental_work_orders' => \App\Models\RentalWorkOrderSetting::spendThresholdFor($agency->id),
                 // Bug found 2026-09-20 (cc4, while wiring rental_work_orders'
-                // display case): this source had NO arm at all, so both of its
-                // controls fell through to `default => $agency->{$key} ?? ...`
-                // — fault_report_window_days/out_inspection_signing_window_days
-                // aren't Agency columns, so $agency->{$key} is always null and
-                // the wizard always rendered the hardcoded control default,
-                // never the agency's real saved value. Display-only (the save
-                // path goes through RentalInspectionSettingsController::update,
-                // independent of this method) but not harmless: an owner who
-                // opens the wizard sees what looks like an unset field and
-                // re-saves over their real value. Explicit per-key match,
-                // not a generic {$key} lookup, because these two keys don't
-                // share a common camelKey+'For' method name (unlike
-                // 'rental_application' below) — RentalInspectionSetting's
-                // own resolver names are faultReportWindowDaysFor() and
-                // signingWindowDaysFor(), not a mechanical transform of the
-                // control keys. Regression: tests/Feature/Onboarding/
+                // display case): 'rental_inspections' originally had NO arm at
+                // all, so both of its controls fell through to `default =>
+                // $agency->{$key} ?? ...` — fault_report_window_days/
+                // out_inspection_signing_window_days aren't Agency columns, so
+                // $agency->{$key} is always null and the wizard always
+                // rendered the hardcoded control default, never the agency's
+                // real saved value. Display-only (the save path goes through
+                // RentalInspectionSettingsController::update, independent of
+                // this method) but not harmless: an owner who opens the
+                // wizard sees what looks like an unset field and re-saves
+                // over their real value. Regression: tests/Feature/Onboarding/
                 // AgencySetupWizardCurrentValuesTest.php.
+                //
+                // SAME BUG CLASS, found again 2026-09-28 auditing this whole
+                // method after the 'rental_inspections' fix above was
+                // reported: 'leases' was hardcoded to ALWAYS return
+                // expiryNoticeWindowDaysFor(), ignoring $key entirely — so its
+                // SECOND control, default_deposit_months, silently displayed
+                // the expiry-window value instead of its own. And when this
+                // arm was originally written, 'rental_inspections' had grown
+                // three MORE controls (public_link_expiry_days,
+                // auto_pair_photos_enabled, auto_send_report_enabled, all
+                // added the same day as the shared signed-document
+                // distribution feature, commit 2fd77ff40) without this match
+                // ever being extended to cover them — the identical failure
+                // mode the 2026-09-20 fix already named, just with new keys.
+                // Every arm below is now an explicit per-key match, one entry
+                // per control this config file actually declares under that
+                // source — never a single hardcoded call that silently goes
+                // stale the next time a control is added under an existing
+                // source.
+                'leases' => match ($key) {
+                    'expiry_notice_window_days' => LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
+                    'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
+                    default => $control['default'] ?? null,
+                },
+                // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — only one
+                // control exists under this source today (no_approval_spend_
+                // threshold), so this couldn't yet repeat the 'leases' bug —
+                // but the SAME single-hardcoded-call shape that caused it is
+                // exactly what this arm had too, and that file's own comment
+                // says two more work-order settings (completion_requires_photo,
+                // overdue_reminder_days) land here once Stage 4 is built.
+                // Converted to an explicit per-key match now, before that
+                // second control exists, so adding it can never silently
+                // repeat this bug a third time.
+                'rental_work_orders' => match ($key) {
+                    'no_approval_spend_threshold' => \App\Models\RentalWorkOrderSetting::spendThresholdFor($agency->id),
+                    default => $control['default'] ?? null,
+                },
                 'rental_inspections' => match ($key) {
                     'fault_report_window_days' => \App\Models\RentalInspectionSetting::faultReportWindowDaysFor($agency->id),
                     'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),
+                    'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
+                    'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id),
+                    'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // §41-follow-up (Job 3, 2026-09-28) — this wizard step's own

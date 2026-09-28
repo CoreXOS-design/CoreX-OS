@@ -2374,24 +2374,15 @@ sent/failed result) byte-for-byte. `reportRecipients` is passed from the control
 `distributionRecipients()` — one source of truth with what the service will actually email, never a
 second client-side guess at who the parties are.
 
-**Reported, not fixed (CLAUDE.md non-negotiable #2) — a real, pre-existing bug found while adding this
-section's own new `AgencySetupWizardController::currentValues()` match arm, in a file this pass had to
-touch anyway, but did NOT introduce and was not asked to fix:** the existing `'rental_inspections'` arm
-(`app/Http/Controllers/CoreX/AgencySetupWizardController.php`, the `match ($key)` block immediately above
-the new `'rental_inventories'` one) only explicitly resolves `fault_report_window_days` and
-`out_inspection_signing_window_days` — every OTHER key declared under `'source' => 'rental_inspections'`
-in `config/agency-onboarding-copy.php`, including `public_link_expiry_days`, `auto_pair_photos_enabled`,
-AND `auto_send_report_enabled` itself (all three added in the SAME commit that built this whole
-distribution feature, `2fd77ff40`), silently falls through to `default => $control['default'] ?? null` —
-meaning the wizard ALWAYS renders the hardcoded default for these three fields regardless of what the
-agency actually has saved. This is precisely the same bug class a code comment two lines above already
-documents finding and fixing on 2026-09-20 (display-only — the SAVE path is unaffected, since it goes
-through `RentalInspectionSettingsController::update()`/`updateAutoSendReportEnabled()` independently of
-this method) — just not caught again when three more `'rental_inspections'`-sourced fields were added
-later the same day. An owner opening the wizard today sees "on"/90-days for these three regardless of
-their real setting, and re-saving the step writes that possibly-wrong default back over their actual
-choice. Fix shape: three more explicit arms in that same `match ($key)` block, same pattern the
-2026-09-20 fix already established — not done here, out of this task's scope.
+**Follow-up, 2026-09-28, same day — fixed, not just reported.** The bug reported directly above (this
+section's own new `'rental_inventories'` match arm sitting next to a `'rental_inspections'` arm that
+silently ignored three of its own controls) was handed back as its own task and fixed the same day,
+audited as a bug CLASS rather than patched as one instance — see
+`.ai/specs/agency-onboarding-setup.md` §6.2 for the full writeup (every match arm in
+`AgencySetupWizardController::currentValues()` checked; a second, distinct instance of the identical
+shape found and fixed in `'leases'` too — `default_deposit_months` was silently showing
+`expiry_notice_window_days`'s value; `'rental_work_orders'` hardened pre-emptively). Regression
+coverage in `tests/Feature/Onboarding/AgencySetupWizardCurrentValuesTest.php`.
 
 **Mail safety, non-negotiable (conductor's explicit instruction this same session):** no test in
 `RentalInventoryDistributionTest.php` ever triggers `PerMailboxMailTransportBuilder`'s own real-SMTP

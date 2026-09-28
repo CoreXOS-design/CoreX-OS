@@ -479,6 +479,53 @@ second caller; `toggleWebsite` (`Admin\AgencyApiKeyController`) is already safe
 
 Regression coverage: `tests/Feature/Onboarding/AgencySetupWizardSaverGuardTest.php`.
 
+### 6.2 The current-value resolution rule (MANDATORY — added 2026-09-20, extended 2026-09-28)
+
+§6.1 is about SAVING; this is the identical-shaped bug on the READING side — `AgencySetupWizardController::currentValues()`, which resolves what a step's controls show when the wizard is reopened.
+
+**Bug found 2026-09-20:** the `'rental_inspections'` source had no match arm at all, so its two
+controls fell through to `default => $agency->{$key} ?? ($control['default'] ?? null)` — neither key
+is an `Agency` column, so that always returned null and the wizard always rendered the hardcoded
+control default, never the agency's real saved value. Display-only (the save path is independent),
+but not harmless: an owner reopening the wizard sees what looks like an unset field and re-saves
+over their real value.
+
+**Same bug class, found again 2026-09-28 auditing every match arm after the first fix:** three more
+`'rental_inspections'` controls (`public_link_expiry_days`, `auto_pair_photos_enabled`,
+`auto_send_report_enabled` — all added the same day as the shared signed-document distribution
+feature) were declared in `config/agency-onboarding-copy.php` without the match arm ever being
+extended to name them. A second, distinct instance of the SAME shape was also found and fixed:
+`'leases'` was hardcoded to always call `LeaseSetting::expiryNoticeWindowDaysFor()`, ignoring
+`$key` entirely — so its second control, `default_deposit_months`, silently displayed the
+expiry-window value instead of its own. `'rental_work_orders'` had the identical single-hardcoded-
+call shape with no live bug yet (only one control exists under it today) — hardened to an explicit
+per-key match anyway, since `.ai/specs/rental-work-orders.md` itself names two more Stage-4 settings
+landing under that same source later.
+
+**The rule:** every `source` a control declares under is one of two safe shapes —
+1. **Generic** — resolves any key via a real column/method-name lookup (`perf`, `deal_sync`,
+   `proforma`, `mailbox`, `rental_application`, and the bare `agency` default). A new control here
+   just works, provided its key matches a real column/resolver name — no match-arm edit needed.
+2. **Explicit per-key** (`leases`, `rental_work_orders`, `rental_inspections`, `rental_inventories`) —
+   an inner `match ($key) { ... }` naming every control under that source individually. **Adding a
+   new control under one of these sources MUST add its key to that same inner match** — the exact
+   step this bug skipped, twice. Never write a source's arm as a single hardcoded call regardless of
+   `$key` (the shape that caused both the `'leases'` bug and, before this pass, the `'rental_work_orders'`
+   latent one) — write the inner `match ($key)` even when only one control exists today.
+
+`'proforma'`'s `start_number` control deliberately resolves to its own hardcoded default always —
+confirmed intentional, not this bug: it is a one-shot "advance the counter" action
+(`ProformaSettingsController::update()`), not a persisted preference with a current value to show,
+the same write-only shape as `'mailbox'`'s `password`.
+
+Regression coverage: `tests/Feature/Onboarding/AgencySetupWizardCurrentValuesTest.php` — one test
+per fixed bug (real HTTP save → reopen → assert the SAVED value renders, not the hardcoded default,
+for the 2026-09-20 fix; direct `currentValues()` unit coverage via Reflection for the 2026-09-28
+fixes, since asserting an unchecked toggle via raw HTML is fragile) plus a structural guard that
+walks every control the config actually declares and asserts, for every explicit-per-key source,
+that its own key is named inside that source's own match arm — not just "does an arm exist," the
+exact gap both 2026-09-28 bugs were.
+
 ---
 
 ## 7. UI placement & navigation (Non-negotiable #2 — same-day nav)
