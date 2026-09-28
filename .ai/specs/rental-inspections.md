@@ -5768,3 +5768,61 @@ only, at both 1522×784 and a narrow 768×800:
   repeated runs (not a one-off pass).
 - A deep-scroll case: starting at `scrollTop 14907`, clicking a room chip near the top of the list moved
   the panel to `scrollTop 2536` (a real ~12,371px animated scroll) and landed correctly.
+
+### 32.4 Autosave data loss — an agent's own typing silently overwritten (2026-09-28, Johan, property 5294)
+
+Johan, recording on 5294's In inspection: "it's like a refresh happens and some of what he entered is
+lost" while working down the page. Investigated and fixed as a bug **class**, not a single site.
+
+**The rule, going forward, for every autosave in this codebase:** an autosave's response may only ever
+update the fields its own request sent — never the whole object. If a field the request didn't send can
+be safely applied unconditionally (nothing else writes to it — a server-computed lifecycle
+status/timestamp, say), do that. If a field IS something the agent can be actively typing into via a
+live `x-model` (free text, a reading, a count), capture a snapshot of it at send time and only apply the
+server's value if the local value is still EXACTLY what was captured — if it changed locally in the
+meantime (still typing, or a newer save already in flight), the newer local edit wins and the stale
+response is dropped for that field. Two shared helpers do this: `_mergeIfUnchanged(insp, snapshot,
+updated, fields)` for the first case, `_mergeFields(insp, updated, fields)` for the second
+(`show.blade.php`, both just above `itemError:` — §6648 area).
+
+**Root cause.** `RentalInspectionRecordingController::updateDetails()`/`updateOverallNotes()`/
+`startAwaitingSignature()`/`complete()` all returned a bare `$rentalInspection->fresh()` — every plain
+COLUMN on the row (meter readings, `overall_notes`, keys/remotes, `status`, timestamps — `fresh()` has
+no `$with` on the model, so relations like `observations`/`photos`/`roomNotes` are genuinely absent, not
+a risk here), no relations. The corresponding JS (`_commitDetails()`/`_commitOverallNotes()`/
+`startAwaitingSignature()`/`completeInspection()`, `show.blade.php`) did `Object.assign(insp, updated)`
+— the WHOLE snapshot onto the SAME shared `insp` object that the header-block inputs and the Overall
+Notes textarea are directly `x-model`-bound to (`rental-inspection-recording.blade.php:323-378`, `~1218`
+for the header fields and Overall Notes respectively). Two of these racing — or one landing while the
+agent is still mid-keystroke on a field it also carries an older value for — let the slower/stale
+response stomp whatever the other one (or the agent's own live typing) had just written.
+
+**Reproduced live, before the fix** (real Chrome, property `20` on QA1, user 365): typed a meter reading,
+then immediately typed `"INSPECTION LOOKS FINE OVERALL"` into Overall notes before the meter save's own
+response had landed. The text PERSISTED to the database corrupted — not just visually — landing as
+`"INE OVERALL"` in one run and `"INSPECTION LOOKS FINE OVERALL FINE OVERALL"` in another (the exact
+corruption shape varies with timing, since this is a genuine race, but it was wrong every time).
+
+**Audited every autosave in the inspection recording flow, not just the two named above:**
+
+| Function | Pattern | Verdict |
+|---|---|---|
+| `_commitDetails()` (meters/keys/remotes/furnished/move-in) | was `Object.assign` | **fixed** — `_mergeIfUnchanged` |
+| `_commitOverallNotes()` | was `Object.assign` | **fixed** — `_mergeIfUnchanged` |
+| `completeInspection()` | was `Object.assign` | **fixed** — `_mergeFields` (`status`/`completed_at`/`fault_report_deadline_at`, the only fields `RentalInspection::markCompleted()` touches; nothing types into any of the three, so no snapshot needed) — not autosave/debounced (an explicit "Complete" action), but shares the identical anti-pattern and could clobber concurrently-typed overall notes, so fixed alongside the two above |
+| `startAwaitingSignature()` | was `Object.assign` | **fixed** — `_mergeFields` (`status`/`signing_deadline_at`, same reasoning) |
+| `_commitObservation()` (item condition + notes) | `insp.observations.push(observation)` | already safe — append-only, never overwrites another item's data. Confirmed live: two items in different rooms, condition + notes typed with keystrokes interleaved, both saved correctly, no corruption. |
+| `_commitRoomNote()` (per-room notes) | `insp.roomNotes.push(note)` | already safe — same append-only reasoning. Confirmed live, explicitly (Johan: "test room notes"): two different rooms' notes typed with keystrokes interleaved, both saved correctly; a room note typed while a condition click in a DIFFERENT room committed immediately (no debounce) also survived intact. |
+| `markRoomNa()` / `markRoomGood()` / `markAllGood()` | `insp.observations.push(...result.observations)` | already safe — same append-only reasoning; none of the three touch any other field on `insp`. |
+| `compareViewerSaveNote()` (photo notes) | `photo.note = note` | already safe — writes only the ONE photo object's own `.note`, never touches `insp` at all; also an explicit "Save note" button, not a live-typing autosave. |
+| `resolveDiscrepancy()` | `Object.assign(discrepancy, updated)` | reviewed, left as-is — targets a single `discrepancy` object nothing else concurrently writes to (the working form lives in the separate `discForm[id]`, per the pattern §14 of this spec already established); an explicit "Resolve" action, not autosave. Not part of this bug class. |
+
+**Verified, before/after, real Chrome, real QA1 data (property `20`), user 365, never 5294:**
+1. Meter reading + Overall notes, typed back to back (the exact repro above) — before: corrupted every
+   run (different garbling each time, always wrong); after: exact text saved, 3 consecutive clean runs.
+2. Two room notes, different rooms, keystrokes interleaved — passed both before and after (already safe,
+   confirmed unchanged by the fix).
+3. A room note typed while a condition click in a different room commits (no debounce, immediate) —
+   passed both before and after (already safe, confirmed unchanged by the fix).
+
+`php -l` and a Blade compile-string check both clean on `show.blade.php`.
