@@ -115,15 +115,23 @@ echo "-- 2. enforce storage/ + bootstrap/cache/ ownership + permissions --"
 # composer install / migrate / seeders / caches below, since those can
 # themselves write into storage/bootstrap-cache and should see correct
 # ownership too. Same fix landed in scripts/deploy.sh STEP 5 (staging/live).
+#
+# 2026-09-28 (Johan) — DELIBERATELY NON-FATAL, not an ABORT+exit like every
+# other step here. A missing sudo grant (or a fallback chown also failing
+# for a non-root deploy user) would otherwise turn a storage-permission gap
+# into "no QA1 deploy can ever complete" — worse than the bug this step
+# fixes. Reported as a WARNING (never silently swallowed, matches this
+# script's own WARNING/ERROR convention) and the deploy continues; the
+# storage-permission bug class stays possible until the grant is fixed.
 PERM_OUT="$( { sudo chown -R www-data:www-data storage bootstrap/cache || chown -R www-data:www-data storage bootstrap/cache; } 2>&1 && \
              { sudo chmod -R ug+rwX storage bootstrap/cache || chmod -R ug+rwX storage bootstrap/cache; } 2>&1 )"
 PERM_STATUS=$?
 if [ $PERM_STATUS -ne 0 ]; then
     echo "$PERM_OUT"
-    echo "ABORT: storage/bootstrap-cache ownership+permission enforcement failed (exit $PERM_STATUS)." >&2
-    exit 1
+    echo "   WARNING: storage/bootstrap-cache ownership+permission enforcement failed (exit $PERM_STATUS) — continuing deploy anyway. Fix the sudo grant (or run the chown/chmod manually as root), then re-run."
+else
+    echo "   storage/ + bootstrap/cache/ → www-data:www-data, group-writable (ug+rwX)"
 fi
-echo "   storage/ + bootstrap/cache/ → www-data:www-data, group-writable (ug+rwX)"
 
 echo "-- 3. frontend build if assets changed OR the build marker doesn't match HEAD --"
 # Any .blade.php counts as a frontend change too, not just resources/js|css —
