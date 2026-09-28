@@ -18,16 +18,47 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Inspection report — {{ $inspection->property->buildDisplayAddress() }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+    {{-- §40, 2026-09-28 — Johan: "how do we print / share it now" —
+         this page already has everything a printed record needs (photos,
+         conditions, notes, signatures) and nothing this docblock's own
+         "self-contained, no navigation" rule would need hidden, so print
+         support is styling only, never a second route/view. Card shadows/
+         backgrounds are screen-only decoration that print as ugly grey
+         boxes or wastes toner; each room/signatures card gets
+         break-inside:avoid so a room's own items never split across a
+         page boundary. Photos print in colour (the only thing on this
+         page with colour to preserve) — this page's own condition text
+         is plain, unstyled text today (§36's severity-colour work only
+         touched the recording screen and the signed PDF, never this
+         page), out of scope for a print-CSS-only change. --}}
+    <style>
+        @media print {
+            body { background: #fff !important; padding: 0 !important; }
+            .shadow-sm { box-shadow: none !important; }
+            [id^="room-"], #signatures { break-inside: avoid; page-break-inside: avoid; }
+            img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .no-print { display: none !important; }
+        }
+    </style>
 </head>
 <body class="bg-slate-50 min-h-screen p-4 sm:p-8">
     <div class="max-w-3xl mx-auto space-y-6">
         <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-            <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">{{ ucfirst($inspection->type) }}-inspection report</p>
-            <h1 class="text-xl font-bold text-slate-800 mt-1">{{ $inspection->property->buildDisplayAddress() }}</h1>
-            <p class="text-sm text-slate-500 mt-1">
-                {{ $inspection->scheduled_for?->format('d M Y') ?? $inspection->created_at->format('d M Y') }}
-                @if($inspection->completed_at) &middot; Completed {{ $inspection->completed_at->format('d M Y') }} @endif
-            </p>
+            <div class="flex items-start justify-between gap-3">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-slate-400">{{ ucfirst($inspection->type) }}-inspection report</p>
+                    <h1 class="text-xl font-bold text-slate-800 mt-1">{{ $inspection->property->buildDisplayAddress() }}</h1>
+                    <p class="text-sm text-slate-500 mt-1">
+                        {{ $inspection->scheduled_for?->format('d M Y') ?? $inspection->created_at->format('d M Y') }}
+                        @if($inspection->completed_at) &middot; Completed {{ $inspection->completed_at->format('d M Y') }} @endif
+                    </p>
+                </div>
+                {{-- §40 — the only interactive element this deliberately-chrome-free
+                     page carries; hidden on the printed output itself via .no-print. --}}
+                <button type="button" onclick="window.print()" class="no-print flex-none text-xs font-semibold px-3 py-2 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50">
+                    Print
+                </button>
+            </div>
         </div>
 
         @forelse($rows as $roomId => $roomRows)

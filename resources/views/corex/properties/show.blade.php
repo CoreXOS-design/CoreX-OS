@@ -5010,6 +5010,73 @@
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
                                         x-text="nextBusy ? 'Starting…' : 'Start'"></button>
                             </div>
+                            {{-- §41, 2026-09-28, Johan's ruling — "how do we
+                                 print/share it now." A completed inspection
+                                 already has its signed report filed +
+                                 auto-emailed (or the agency has that off,
+                                 in which case this Resend button is the
+                                 only send path). Download reuses the
+                                 existing agency-level report route
+                                 unchanged; the confirm popover lists real
+                                 recipients before sending, same anchored-
+                                 popover pattern already used elsewhere on
+                                 this page (share-actions.blade.php). --}}
+                            <div x-show="chainTail && chainTail.status === 'completed'" x-cloak
+                                 class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
+                                <a :href="inspectionUrls.inspectionsBase + '/' + chainTail.id + '/report'"
+                                   target="_blank" rel="noopener"
+                                   class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                    Download report
+                                </a>
+                                <button type="button" x-show="publicShareUrl()" @click="navigator.clipboard.writeText(publicShareUrl()).then(() => { copiedShareLink = true; setTimeout(() => copiedShareLink = false, 2000); })"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                    <span x-text="copiedShareLink ? 'Copied!' : 'Copy share link'"></span>
+                                </button>
+                                <a :href="publicShareUrl() ? ('https://wa.me/?text=' + encodeURIComponent('Inspection report: ' + publicShareUrl())) : '#'"
+                                   x-show="publicShareUrl()" target="_blank" rel="noopener"
+                                   class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); text-decoration:none;">
+                                    WhatsApp
+                                </a>
+                                <div class="relative">
+                                    <button type="button" @click="resendOpen = !resendOpen; resendResult = null; resendError = '';"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                        Resend report
+                                    </button>
+                                    <div x-show="resendOpen" x-cloak @click.outside="resendOpen = false"
+                                         style="position:absolute; top:100%; right:0; margin-top:4px; width:22rem; z-index:30; background:var(--surface); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 30px rgba(0,0,0,0.18);"
+                                         class="p-3">
+                                        <template x-if="!resendResult">
+                                            <div class="space-y-2">
+                                                <p class="text-xs font-semibold" style="color:var(--text-primary);">Send the signed report to:</p>
+                                                <ul class="text-xs space-y-0.5" style="color:var(--text-secondary);">
+                                                    <template x-for="r in reportRecipients()" :key="r.email">
+                                                        <li x-text="r.name + ' (' + r.role + ') — ' + r.email"></li>
+                                                    </template>
+                                                </ul>
+                                                <p x-show="!reportRecipients().length" class="text-xs" style="color:var(--ds-crimson);">No recipient has an email on file.</p>
+                                                <p x-show="resendError" x-text="resendError" class="text-xs" style="color:var(--ds-crimson);"></p>
+                                                <div class="flex justify-end gap-2 pt-1">
+                                                    <button type="button" @click="resendOpen = false" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="color:var(--text-secondary);">Cancel</button>
+                                                    <button type="button" :disabled="resendBusy || !reportRecipients().length" @click="sendReportResend()"
+                                                            class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">
+                                                        <span x-text="resendBusy ? 'Sending…' : 'Confirm & send'"></span>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </template>
+                                        <template x-if="resendResult">
+                                            <div class="space-y-1">
+                                                <template x-for="r in resendResult" :key="r.email">
+                                                    <p class="text-xs" :style="r.status === 'sent' ? 'color:var(--ds-green,#059669);' : 'color:var(--ds-crimson);'" x-text="(r.status === 'sent' ? '✓ ' : '✗ ') + r.email"></p>
+                                                </template>
+                                                <div class="flex justify-end pt-1">
+                                                    <button type="button" @click="resendOpen = false; resendResult = null;" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Close</button>
+                                                </div>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
                         @endpermission
                     </div>
                     <div x-show="open['inspection']" x-collapse class="prop-section-body space-y-3">
@@ -7051,6 +7118,15 @@
                 nextBusy: false,
                 nextError: '',
                 nextType: 'ad_hoc',
+                // §41, 2026-09-28 — the "Resend report" confirm popover's
+                // own state, top-level (not local to the popover's markup)
+                // since sendReportResend() below is a method on THIS
+                // component and needs `this.resendBusy` etc to resolve here.
+                resendOpen: false,
+                resendBusy: false,
+                resendError: '',
+                resendResult: null,
+                copiedShareLink: false,
                 async nextInspection(type) {
                     if (!this.chainTail) return;
                     this.nextBusy = true;
@@ -7060,6 +7136,39 @@
                         await this.refreshInspectionData();
                     } catch (e) { this.nextError = e.message; }
                     finally { this.nextBusy = false; }
+                },
+
+                // §41, 2026-09-28 — client-side mirror of RentalInspection::
+                // distributionRecipients(): the lease's own tenant(s) (already
+                // eager-loaded on chainTail.lease.tenants.contact, per
+                // tabPayloadFor()'s own docblock) plus the property's landlord
+                // (this.landlordContact, already loaded for the signature
+                // gate above — one source of truth, not a second lookup). A
+                // party with no email on file is excluded, same reasoning as
+                // the server-side resolver.
+                reportRecipients() {
+                    if (!this.chainTail) return [];
+                    const recipients = [];
+                    (this.chainTail.lease?.tenants || []).forEach(t => {
+                        if (t.contact?.email) recipients.push({ name: t.contact.first_name + ' ' + t.contact.last_name, email: t.contact.email, role: 'tenant' });
+                    });
+                    if (this.landlordContact?.email) {
+                        recipients.push({ name: this.landlordContact.first_name + ' ' + this.landlordContact.last_name, email: this.landlordContact.email, role: 'landlord' });
+                    }
+                    return recipients;
+                },
+                publicShareUrl() {
+                    return this.chainTail?.public_token ? (window.location.origin + '/rental-inspection-report/' + this.chainTail.public_token) : '';
+                },
+                async sendReportResend() {
+                    if (!this.chainTail) return;
+                    this.resendBusy = true;
+                    this.resendError = '';
+                    try {
+                        const data = await this._post(`${this.inspectionUrls.inspectionsBase}/${this.chainTail.id}/resend-report`, {});
+                        this.resendResult = data.results;
+                    } catch (e) { this.resendError = e.message; }
+                    finally { this.resendBusy = false; }
                 },
                 async refreshInspectionData() {
                     const data = await fetch(this.inspectionUrls.tabData, {

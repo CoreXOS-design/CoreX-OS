@@ -78,6 +78,9 @@ class RentalInspectionSettingsController extends Controller
             // AT-433 Part C — the photo note's classification vocabulary
             // (Defect/Wear and tear/Reference by default).
             'photoNoteClassifications' => RentalInspectionSetting::photoNoteClassificationsFor($agencyId),
+            // §41, 2026-09-28, Johan's ruling — auto-send the signed report
+            // on completion, defaults ON.
+            'autoSendReportEnabled' => RentalInspectionSetting::autoSendReportEnabledFor($agencyId),
         ]);
     }
 
@@ -334,6 +337,33 @@ class RentalInspectionSettingsController extends Controller
         );
 
         return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Auto-pair setting saved.');
+    }
+
+    /**
+     * §41, 2026-09-28 — same discipline as updateAutoPairPhotosEnabled()
+     * above: both the dedicated settings-page form and the onboarding
+     * wizard's own generic toggle control (agency-setup/wizard.blade.php:119)
+     * render a hidden `value="0"` fallback ahead of the checkbox, so this
+     * field is ALWAYS present in the POST regardless of checked state —
+     * has() alone is a safe, sufficient guard here, unlike
+     * updateConditionStates()'s own multi-row array control, which needs
+     * its own separate `_submitted` marker.
+     */
+    public function updateAutoSendReportEnabled(Request $request): RedirectResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('auto_send_report_enabled')) {
+            return redirect()->route('corex.settings.rental-inspections.edit')
+                ->withErrors(['auto_send_report_enabled' => 'That did not save — please try again.']);
+        }
+
+        RentalInspectionSetting::updateOrCreate(
+            ['agency_id' => $agencyId],
+            ['auto_send_report_enabled' => $request->boolean('auto_send_report_enabled')],
+        );
+
+        return redirect()->route('corex.settings.rental-inspections.edit')->with('success', 'Auto-send setting saved.');
     }
 
     /**
