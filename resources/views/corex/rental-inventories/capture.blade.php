@@ -279,11 +279,13 @@
             </div>
 
             @if(!$inventory)
-                {{-- §0a — a property with no active lease has nothing to attach an
-                     inventory to yet; honest state, not a silent 404 or crash. --}}
+                {{-- §0a/§15 — RentalInventory::resolveOrStartFor() now always resolves
+                     or starts an inventory for a real Property (a sale property, or any
+                     rental property between tenancies, gets a property-level inventory
+                     with no lease attached) — this branch should be unreachable. Kept as
+                     an honest fallback rather than a silent blank page if it ever isn't. --}}
                 <div class="rounded-md p-4 text-sm" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
-                    This property has no active lease yet, so there's nothing to attach an inventory to.
-                    Start a lease first, then come back here to capture the inventory.
+                    Something went wrong loading this property's inventory. Refresh the page — if this keeps happening, contact support.
                 </div>
             @else
                 @if(in_array($inventory->status, ['completed', 'cancelled']))

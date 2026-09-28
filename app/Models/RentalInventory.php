@@ -15,7 +15,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * document from RentalInspection: not condition grading, quantity plus
  * description, produced once at move-in and compared at move-out. Never a
  * tab on the inspection (Johan, explicit) — its own record, its own list
- * screen, attached to the property and the lease.
+ * screen. A PROPERTY feature, sale or rental (§0a/§15) — always attached to
+ * the property, and ADDITIONALLY to the lease when one exists (a rental
+ * mid-tenancy). A sale property (or a rental between tenancies) attaches to
+ * the property alone; `lease_id` is nullable for exactly this reason.
  */
 class RentalInventory extends Model
 {
@@ -137,22 +140,65 @@ class RentalInventory extends Model
     }
 
     /**
+     * §0a/§15 — the PROPERTY-LEVEL counterpart to currentFor(Lease): a sale
+     * property (or a rental property between tenancies) has no active Lease
+     * to key an inventory against, so this scopes by property_id alone,
+     * restricted to inventories that were themselves started without a
+     * lease (lease_id NULL) — a lease-attached inventory for this same
+     * property is a different record, found via currentFor(), never this.
+     */
+    public static function currentForProperty(Property $property): ?self
+    {
+        return self::where('property_id', $property->id)
+            ->whereNull('lease_id')
+            ->whereNotIn('status', [self::STATUS_CANCELLED])
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * §0a/§15 — starts a property-level inventory with no Lease to attach
+     * to. Same one-per-subject discipline as start(Property, Lease, User),
+     * scoped to property_id instead of lease_id.
+     */
+    public static function startForProperty(Property $property, User $by): self
+    {
+        if (self::currentForProperty($property)) {
+            throw new \LogicException('This property already has an inventory. Cancel it before starting another.');
+        }
+
+        return self::create([
+            'agency_id' => $property->agency_id,
+            'property_id' => $property->id,
+            'lease_id' => null,
+            'created_by_user_id' => $by->id,
+        ]);
+    }
+
+    /**
      * §0b, Johan 2026-09-22 — "selecting inventory from the property we
      * already know which property its for. done simple." One click from the
      * property, straight into the capture surface: resume the current
      * (non-cancelled) inventory for the property's active lease if one
      * exists, or start a fresh one transparently — no separate "create"
-     * step. Returns null only when the property genuinely has no active
-     * lease to attach to (§0a's still-open sale-property question).
+     * step.
+     *
+     * §0a/§15, Johan 2026-09-28 — "inventory was specifically specced not
+     * only for rentals. sales will also need it... it should be on
+     * properties." A property with no active lease (every sale property,
+     * and a rental property between tenancies) now falls through to the
+     * property-level inventory instead of returning null — an inventory
+     * attaches to the property alone when there is no lease to also attach
+     * to. This method therefore never returns null for a real Property.
      */
-    public static function resolveOrStartFor(Property $property, User $by): ?self
+    public static function resolveOrStartFor(Property $property, User $by): self
     {
         $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
-        if (! $lease) {
-            return null;
+        if ($lease) {
+            return self::currentFor($lease) ?? self::start($property, $lease, $by);
         }
 
-        return self::currentFor($lease) ?? self::start($property, $lease, $by);
+        return self::currentForProperty($property) ?? self::startForProperty($property, $by);
     }
 
     /**

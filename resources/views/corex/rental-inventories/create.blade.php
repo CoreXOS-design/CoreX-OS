@@ -1,11 +1,13 @@
 @extends('layouts.corex')
 
 {{--
-    .ai/specs/rental-inventory.md §7 — the entry point for starting an
-    inventory. Only properties with an active lease are offered
-    (RentalInventoryController::create()) — RentalInventory::start() hard-
-    requires one. No "type" picker (unlike Start an Inspection) — an
-    inventory is produced once at move-in, not a repeated in/out event.
+    .ai/specs/rental-inventory.md §7/§0a/§15 — the entry point for starting an
+    inventory. Every property is offered (RentalInventoryController::
+    create()) — a property with an active lease gets a lease-attached
+    inventory (RentalInventory::start()), any other property (a sale, or a
+    rental between tenancies) gets a property-level one (RentalInventory::
+    startForProperty()). No "type" picker (unlike Start an Inspection) — an
+    inventory is produced once, not a repeated in/out event.
 --}}
 
 @section('content')
@@ -34,7 +36,7 @@
                 @endforeach
             </select>
             @if($properties->isEmpty())
-                <p class="text-xs mt-1" style="color: var(--text-muted);">No rental property currently has an active lease — an inventory needs one to attach to.</p>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">No properties exist yet.</p>
             @endif
         </div>
 

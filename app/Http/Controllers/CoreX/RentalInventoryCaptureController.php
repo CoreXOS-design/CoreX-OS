@@ -36,10 +36,9 @@ class RentalInventoryCaptureController extends Controller
      * GET /corex/properties/{property}/inventory — resolves or transparently
      * starts the property's current inventory (RentalInventory::
      * resolveOrStartFor()), loads its rooms, lines, and photos, and renders
-     * the capture surface. A sale property (or any property with no active
-     * lease) gets an honest "no active lease" state, not a silent failure —
-     * see .ai/specs/rental-inventory.md §0a for why that limitation is
-     * reported, not fixed, in this pass.
+     * the capture surface. §0a/§15 — a sale property (or any property with no
+     * active lease) gets a property-level inventory (lease_id null), never a
+     * dead end — resolveOrStartFor() never returns null for a real Property.
      */
     public function show(Request $request, Property $property): View
     {

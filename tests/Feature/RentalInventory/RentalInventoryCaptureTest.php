@@ -79,7 +79,17 @@ final class RentalInventoryCaptureTest extends TestCase
         $this->assertSame($this->lease->id, RentalInventory::first()->lease_id);
     }
 
-    public function test_a_sale_property_with_no_active_lease_gets_an_honest_state_not_a_crash(): void
+    /**
+     * .ai/specs/rental-inventory.md §0a/§15 — Johan's standing ruling (2026-09-22,
+     * restated 2026-09-28): "inventory was specifically specced not only for
+     * rentals. sales will also need it... it should be on properties." A sale
+     * property has no Lease to attach an inventory to, so it now gets a
+     * PROPERTY-LEVEL inventory (lease_id null) instead of the old dead-end
+     * "no active lease" state — full capture (rooms/lines/photos) works
+     * identically to the rental path, which the rest of this test class
+     * already proves for a leased property.
+     */
+    public function test_a_sale_property_with_no_active_lease_gets_a_property_level_inventory(): void
     {
         $saleProperty = Property::forceCreate([
             'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
@@ -89,7 +99,99 @@ final class RentalInventoryCaptureTest extends TestCase
         $response = $this->get(route('corex.properties.inventory.show', $saleProperty));
 
         $response->assertOk();
-        $response->assertSee('no active lease');
+        $response->assertDontSee('no active lease');
+
+        $inventory = RentalInventory::where('property_id', $saleProperty->id)->first();
+        $this->assertNotNull($inventory, 'a sale property must resolve/start its own inventory, not return none');
+        $this->assertNull($inventory->lease_id);
+    }
+
+    /** Reopening the sale property's inventory resumes the SAME property-level record, never a second one. */
+    public function test_reopening_a_sale_propertys_inventory_resumes_the_same_record(): void
+    {
+        $saleProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Sale Property', 'status' => 'active', 'listing_type' => 'sale',
+        ]);
+
+        $this->get(route('corex.properties.inventory.show', $saleProperty))->assertOk();
+        $this->get(route('corex.properties.inventory.show', $saleProperty))->assertOk();
+
+        $this->assertSame(1, RentalInventory::where('property_id', $saleProperty->id)->count());
+    }
+
+    /**
+     * Johan: "sales will also need it... full inventory capture." Proves the
+     * sale property's property-level inventory captures a real line item and
+     * a room-tagged photo exactly like the rental (leased) path already does
+     * in test_full_capture_loop_line_photo_tag_survives_reload_with_no_save_button
+     * — same room source, same autosave endpoints, no lease anywhere.
+     */
+    public function test_sale_property_captures_a_line_and_photo_same_as_a_rental(): void
+    {
+        Storage::fake('public');
+
+        $saleProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Sale Property', 'status' => 'active', 'listing_type' => 'sale',
+        ]);
+        $kitchen = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $saleProperty->id,
+            'type' => 'kitchen', 'label' => 'Kitchen', 'source' => 'manual', 'sort_order' => 1,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->get(route('corex.properties.inventory.show', $saleProperty))->assertOk();
+        $inventory = RentalInventory::where('property_id', $saleProperty->id)->firstOrFail();
+        $this->assertNull($inventory->lease_id);
+
+        $lineResponse = $this->postJson(route('corex.rental-inventories.lines.store', $inventory), [
+            'property_room_id' => $kitchen->id,
+            'quantity' => 1,
+            'description' => 'Defy silver dishwasher',
+        ])->assertStatus(201);
+        $lineId = $lineResponse->json('id');
+        $this->assertSame($kitchen->id, RentalInventoryLine::find($lineId)->property_room_id);
+
+        $photoResponse = $this->postJson(route('corex.rental-inventories.photos.store', $inventory), [
+            'property_room_id' => $kitchen->id,
+            'photos' => [UploadedFile::fake()->image('kitchen.jpg', 800, 600)],
+            'client_idempotency_keys' => [(string) \Illuminate\Support\Str::uuid()],
+        ])->assertStatus(201);
+
+        $this->assertSame(1, RentalInventoryPhoto::where('rental_inventory_id', $inventory->id)->count());
+    }
+
+    /**
+     * Move-in-vs-now comparison is explicitly a rental-tenancy concept (§8) —
+     * a sale property's property-level inventory (no lease, no move-out) must
+     * refuse it rather than render a comparison against a tenancy that never
+     * existed.
+     */
+    public function test_completed_sale_property_inventory_refuses_the_move_out_comparison(): void
+    {
+        $saleProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Sale Property', 'status' => 'active', 'listing_type' => 'sale',
+        ]);
+        $room = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $saleProperty->id,
+            'type' => 'kitchen', 'label' => 'Kitchen', 'source' => 'manual', 'sort_order' => 1,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $inventory = \App\Models\RentalInventory::startForProperty($saleProperty, $this->agent);
+        \App\Models\RentalInventoryLine::create([
+            'agency_id' => $this->agency->id, 'rental_inventory_id' => $inventory->id,
+            'property_room_id' => $room->id, 'room_label' => $room->label,
+            'quantity' => 1, 'description' => 'Built-in oven', 'created_by_user_id' => $this->agent->id,
+        ]);
+        \App\Models\RentalInventorySignature::capture($inventory, 'agent', 'signed', [
+            'party_signature_path' => 'signatures/fake.png',
+            'recorded_by_user_id' => $this->agent->id,
+        ]);
+        $inventory->markCompleted();
+
+        $this->get(route('corex.rental-inventories.comparison', $inventory))->assertStatus(400);
     }
 
     public function test_full_capture_loop_line_photo_tag_survives_reload_with_no_save_button(): void
@@ -270,5 +372,30 @@ final class RentalInventoryCaptureTest extends TestCase
 
         $this->assertSame(2, $line->fresh()->quantity);
         $this->assertSame('White wooden headboard', $line->fresh()->description);
+    }
+
+    /**
+     * .ai/specs/rental-inventory.md §7 — the standalone list/create screen is
+     * kept as the CRUD floor, no longer the day-to-day way in (§0b), but must
+     * still work for a sale property: RentalInventoryController::create() no
+     * longer filters to leased properties, and store() now branches to
+     * RentalInventory::startForProperty() when the chosen property has none.
+     */
+    public function test_the_standalone_picker_offers_and_starts_a_property_level_inventory_for_a_sale_property(): void
+    {
+        $saleProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Sale Property', 'status' => 'active', 'listing_type' => 'sale',
+        ]);
+
+        $this->get(route('corex.rental-inventories.create'))
+            ->assertOk()
+            ->assertSee('Sale Property');
+
+        $this->post(route('corex.rental-inventories.store'), ['property_id' => $saleProperty->id])
+            ->assertRedirect();
+
+        $inventory = RentalInventory::where('property_id', $saleProperty->id)->firstOrFail();
+        $this->assertNull($inventory->lease_id);
     }
 }

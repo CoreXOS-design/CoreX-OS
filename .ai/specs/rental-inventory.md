@@ -1,6 +1,10 @@
 # Spec: Rental Inventory
 
-**Status:** Capture surface design pass 2 landed 2026-09-22 (cc6) — one-row item entry, no announced
+**Status:** §15 (2026-09-28) finally closed the sale-property gap §0a/§0b left open — `lease_id` is now
+nullable, and `RentalInventory::resolveOrStartFor()` gives a sale property (or any property with no
+active lease) a property-level inventory instead of the old dead-end "no active lease" message. Every
+"still open"/"not fixed" note below about a sale property's missing Lease is HISTORICAL as of §15 — read
+it there, not here. Capture surface design pass 2 landed 2026-09-22 (cc6) — one-row item entry, no announced
 autosave, one shared column grid for the list and the entry row, phone width verified; see §0c. Built
 on top of §0b's rebuild (property-embedded, room-based, autosaving, mobile-ready), which supersedes
 §0a's reachability-only pass from earlier the same day (kept below for the record — its "not fixed"
@@ -2154,3 +2158,82 @@ checks the raw response body, not what a browser visually renders, so a tag boun
 intended sentence defeats it even though a human reading the page would see one continuous phrase. Fixed
 by rendering the sentence as plain text (§14.2) rather than adjusting the test to tolerate a shape the
 mockup didn't actually ask for.
+
+---
+
+## 15. The sale-property gap finally closed — `lease_id` made nullable (2026-09-28)
+
+Johan's standing ruling (2026-09-22, restated 2026-09-28, verbatim both times): *"inventory was
+specifically specced not only for rentals. sales will also need it... it should be on properties."*
+§0a made this correction in name (reachability, labels) but explicitly left the underlying mechanism
+broken, and said so plainly at the time: §0b.1 restated it again the same night ("A property with no
+active lease ... gets an honest 'no active lease yet' message"), and no section between §0b and §14
+ever revisited it. The bug Johan actually hit: opening Inventory on 138 Torquay Avenue (id 15726, a FOR
+SALE property) showed "This property has no active lease yet, so there's nothing to attach an inventory
+to. Start a lease first" — a dead end for every sale property that will ever exist, on both agencies.
+
+**Root cause, exactly as §0a already named it:** `rental_inventories.lease_id` was a required
+(`NOT NULL`) foreign key (`database/migrations/2026_10_01_120000_create_rental_inventories_table.php`),
+and `RentalInventory::resolveOrStartFor()` (`app/Models/RentalInventory.php`) returned `null` whenever
+the property had no active `Lease` — a sale property essentially never has one. `RentalInventoryCaptureController::show()` rendered the honest-but-dead-end message whenever that came back null.
+
+**The fix — an inventory now attaches to the property alone when there is no lease to also attach to:**
+
+- **Migration** `2026_10_04_090000_make_rental_inventories_lease_id_nullable.php` — drops and re-adds
+  the FK, relaxing `lease_id` to nullable (`cascadeOnDelete` unchanged for the rows that do carry one).
+  Every existing (rental) row is completely unaffected — this only widens the column.
+- **`RentalInventory`** gained the property-level counterparts to its existing lease-level pair:
+  `currentForProperty(Property)` (scoped by `property_id` + `lease_id IS NULL`) and
+  `startForProperty(Property, User)` (same one-per-subject discipline as `start()`, keyed by property
+  instead of lease). `resolveOrStartFor()` now falls through to these when the property has no active
+  lease, instead of returning `null` — its return type changed from `?self` to `self`, since it can no
+  longer fail for a real Property.
+- **`RentalInventoryCaptureController::show()`** needed no behavioural change — it already just
+  passed whatever `resolveOrStartFor()` returned to the view. The "no active lease" branch in
+  `capture.blade.php` is now dead code (kept as an honest fallback message, never the misleading lease
+  claim, in case a future regression somehow reaches it).
+- **The standalone `/corex/rental-inventories/create` picker** (`RentalInventoryController::create()`/
+  `store()`, kept per §0b/§7 as the CRUD-floor entry point, not the day-to-day one) had its own,
+  separate lease-only filter — `create()` only listed properties with an active lease, and `store()`
+  hard-rejected any property without one. Both corrected the same way: `create()` now lists every
+  property; `store()` branches on whether the chosen property has an active lease, calling `start()` or
+  `startForProperty()` accordingly.
+- **Signing — already correct once the header check was gone, no code change needed.**
+  `RentalInventory::outstandingSignatories()` was already lease-safe: it reads tenants via
+  `LeaseTenant::where('lease_id', $this->lease_id)`, which is simply empty when `lease_id` is `null` (a
+  correct, native `WHERE lease_id IS NULL` — confirmed against Laravel's own query-builder null
+  handling, not assumed) — so a property-level inventory naturally requires ONLY the seller/owner
+  (via the existing, already-generic `Property::sellerOwnerContact()`, which already matches
+  seller/owner/landlord/lessor pivot roles) and the agent, with zero tenant signatories ever
+  offered. This lines up with the conductor's own instruction where the spec is silent on who signs a
+  sale property's inventory: seller + agent.
+- **Display label — "Landlord" corrected to "Seller" for a property-level inventory**
+  (`rental-inventories/show.blade.php`) — the header line, the active signing row, and the recorded-
+  signature list all read `$ownerPartyLabel` (`$inventory->lease_id ? 'Landlord' : 'Seller'`) instead of
+  a hardcoded "Landlord". The underlying `party_role` stored on `RentalInventorySignature` stays
+  `'landlord'` either way (§5) — unifying that enum was out of scope for this fix; this is a display
+  label only.
+- **Move-in/move-out comparison stays rental-only, explicitly, not by accident.** A property-level
+  inventory has no tenancy to move out of, so `RentalInventoryController::comparison()` now also
+  `abort_unless($rentalInventory->lease_id !== null, 400, ...)`, and the "Move-out comparison" link on
+  `show.blade.php` is gated on `$inventory->lease_id` in addition to the existing completed-status
+  check. Every other completed-inventory behaviour (the line list, the read-only banner) is unaffected.
+
+**What this does NOT change:** the rental (leased) path is byte-for-byte unchanged — `start()`,
+`currentFor()`, and every rental-side test already in this file pass exactly as before. Tenant signing,
+the move-in/move-out comparison, and the disposition vocabulary all remain rental-tenancy-only features,
+per the conductor's own framing — this fix only ever ADDS the property-level path, never touches the
+lease-attached one.
+
+**Proven, not assumed** — six new/updated tests in
+`tests/Feature/RentalInventory/RentalInventoryCaptureTest.php`:
+`test_a_sale_property_with_no_active_lease_gets_a_property_level_inventory` (replaces the old
+`..._gets_an_honest_state_not_a_crash` test, which asserted the very dead end this fix removes),
+`test_reopening_a_sale_propertys_inventory_resumes_the_same_record`,
+`test_sale_property_captures_a_line_and_photo_same_as_a_rental` (the full add-line + upload-photo loop,
+proving "full inventory capture" is not just a page that loads),
+`test_completed_sale_property_inventory_refuses_the_move_out_comparison`, and
+`test_the_standalone_picker_offers_and_starts_a_property_level_inventory_for_a_sale_property` (the kept
+CRUD-floor entry point, not just the property-embedded one). All rental-path tests in the same file
+(the leased property's own resolve/capture/reload loop) re-run unchanged and still pass, proving no
+regression to the tenancy path.

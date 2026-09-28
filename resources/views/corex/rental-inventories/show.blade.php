@@ -16,6 +16,12 @@
         default => 'ds-badge-muted',
     };
     $linesByRoom = $inventory->lines->groupBy('room_label');
+    // §0a/§15 — a property-level inventory (no lease) is most commonly a
+    // sale, so the owner-side party reads as "Seller" rather than
+    // "Landlord" there; a lease-attached inventory is unchanged. The
+    // underlying party_role stored on RentalInventorySignature stays
+    // 'landlord' either way (§5) — this is a display label only.
+    $ownerPartyLabel = $inventory->lease_id ? 'Landlord' : 'Seller';
 @endphp
 
 @section('content')
@@ -29,7 +35,7 @@
             </p>
         </div>
         <div class="flex items-center gap-2">
-            @if($inventory->status === \App\Models\RentalInventory::STATUS_COMPLETED)
+            @if($inventory->status === \App\Models\RentalInventory::STATUS_COMPLETED && $inventory->lease_id)
                 <a href="{{ route('corex.rental-inventories.comparison', $inventory) }}" class="corex-btn-outline text-xs">Move-out comparison</a>
             @endif
             <a href="{{ route('corex.rental-inventories.index') }}" class="corex-btn-outline text-xs">Back to list</a>
@@ -45,9 +51,9 @@
         </div>
     @endif
 
-    {{-- Header: landlord/tenants — display only, pulled from the same relations §17's header block already uses. --}}
+    {{-- Header: owner/tenants — display only, pulled from the same relations §17's header block already uses. --}}
     <div class="rounded-md p-4 grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
-        <div><span style="color: var(--text-muted);">Landlord:</span> {{ optional($inventory->property?->sellerOwnerContact())->full_name ?? '—' }}</div>
+        <div><span style="color: var(--text-muted);">{{ $ownerPartyLabel }}:</span> {{ optional($inventory->property?->sellerOwnerContact())->full_name ?? '—' }}</div>
         @foreach($inventory->lease?->tenants ?? [] as $idx => $tenant)
             <div><span style="color: var(--text-muted);">Tenant {{ $idx + 1 }}:</span> {{ $tenant->contact?->full_name ?? '—' }}</div>
         @endforeach
@@ -104,7 +110,7 @@
             @php
                 $partyLabel = match($signature->party_role) {
                     'agent' => 'Agent',
-                    'landlord' => 'Landlord' . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
+                    'landlord' => $ownerPartyLabel . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
                     default => 'Tenant' . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
                 };
                 $reasonLabel = collect($refusalReasonPresets)->firstWhere('key', $signature->refusal_reason_preset)['label'] ?? $signature->refusal_reason_preset;
@@ -172,7 +178,7 @@
             @if($landlordContact = $inventory->property?->sellerOwnerContact())
                 <div class="py-1.5" style="border-bottom:1px solid var(--border);">
                     <div class="flex items-center justify-between gap-3">
-                        <span class="text-sm">{{ $landlordContact->full_name }} (Landlord)</span>
+                        <span class="text-sm">{{ $landlordContact->full_name }} ({{ $ownerPartyLabel }})</span>
                         <template x-if="dispositionFor('landlord', {{ $landlordContact->id }})">
                             <span class="text-xs font-semibold uppercase" style="color:var(--text-muted);" x-text="dispositionFor('landlord', {{ $landlordContact->id }}).disposition === 'refused' ? 'Refused' : 'Signed'"></span>
                         </template>

@@ -26,16 +26,12 @@ class RentalInventoryController extends Controller
 {
     public function create(Request $request): View
     {
-        // Corrected 2026-09-22 (Johan) — an inventory is a PROPERTY feature,
-        // sale or rental, not rental-only; the listing_type filter this
-        // picker had is removed. NOTE, reported not silently absorbed: the
-        // whereIn() below still requires an ACTIVE LEASE, and RentalInventory
-        // ::start() hard-requires one — a Lease is a rental-tenancy concept,
-        // so in practice a sale property still won't appear here (or
-        // succeed at creation) until that deeper requirement is addressed.
-        // See .ai/specs/rental-inventory.md §0a.
-        $properties = Property::whereIn('id', Lease::where('status', Lease::STATUS_ACTIVE)->pluck('property_id'))
-            ->orderBy('title')
+        // §0a/§15 — an inventory is a PROPERTY feature, sale or rental, and
+        // now genuinely accepts either: the active-lease filter this picker
+        // had is removed, since RentalInventory::resolveOrStartFor()'s own
+        // sibling helpers (start()/startForProperty()) below now cover both
+        // shapes. Every property is offered, lease or none.
+        $properties = Property::orderBy('title')
             ->limit(500)
             ->get();
 
@@ -50,12 +46,11 @@ class RentalInventoryController extends Controller
 
         $property = Property::findOrFail($validated['property_id']);
         $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
-        if (! $lease) {
-            return back()->withInput()->withErrors(['rental_inventory' => 'This property has no active lease — an inventory needs one to attach to.']);
-        }
 
         try {
-            $inventory = RentalInventory::start($property, $lease, $request->user());
+            $inventory = $lease
+                ? RentalInventory::start($property, $lease, $request->user())
+                : RentalInventory::startForProperty($property, $request->user());
         } catch (\LogicException $e) {
             return back()->withInput()->withErrors(['rental_inventory' => $e->getMessage()]);
         }
@@ -157,12 +152,18 @@ class RentalInventoryController extends Controller
     /**
      * GET /corex/rental-inventories/{inventory}/comparison — §8, the
      * move-out review screen. Read-only: RentalInventoryComparisonService
-     * computes fresh on every load, nothing here is stored.
+     * computes fresh on every load, nothing here is stored. §0a/§15 — a
+     * rental-only feature: a property-level inventory (no lease — a sale, or
+     * a rental between tenancies) has no tenancy move-out to compare
+     * against, so this refuses those the same way it already refuses a
+     * not-yet-completed one.
      */
     public function comparison(Request $request, RentalInventory $rentalInventory, RentalInventoryComparisonService $service): View
     {
         abort_unless($rentalInventory->status === RentalInventory::STATUS_COMPLETED, 400,
             'The move-out comparison is only available once the inventory itself is completed.');
+        abort_unless($rentalInventory->lease_id !== null, 400,
+            'The move-out comparison is a rental-only feature — this inventory has no lease to compare against.');
 
         // §12/§11.8/§14 — both sides of the evidence: the move-in photos an
         // agent tagged during capture, AND the move-out photos taken from
