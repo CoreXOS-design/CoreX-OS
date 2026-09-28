@@ -124,45 +124,52 @@ class WhistleblowController extends Controller
             }
         }
 
-        $complaint = \Illuminate\Support\Facades\DB::transaction(function () use ($request, $user, $propertyAddress) {
-            // Build complaint data
-            $data = [
-                'agency_id'        => $user->effectiveAgencyId(),
-                'branch_id'        => $user->branch_id,
-                'tier'             => $request->tier,
-                'property_address' => $propertyAddress,
-                'property_id'      => $request->property_id,
-                'agent_notes'      => $request->agent_notes,
-                'subjects'         => $request->subjects,
-            ];
+        try {
+            $complaint = \Illuminate\Support\Facades\DB::transaction(function () use ($request, $user, $propertyAddress) {
+                // Build complaint data
+                $data = [
+                    'agency_id'        => $user->effectiveAgencyId(),
+                    'branch_id'        => $user->branch_id,
+                    'tier'             => $request->tier,
+                    'property_address' => $propertyAddress,
+                    'property_id'      => $request->property_id,
+                    'agent_notes'      => $request->agent_notes,
+                    'subjects'         => $request->subjects,
+                ];
 
-            if ($request->tier === 'tier_1') {
-                $data['seller_statement'] = $request->seller_statement ?: $request->agent_notes;
-            }
-
-            $complaint = $this->service->createDraft($data, $user);
-
-            // Handle screenshot upload (modal shortcut)
-            if ($request->hasFile('screenshot')) {
-                $file = $request->file('screenshot');
-                $path = $file->store("whistleblow/evidence/{$user->id}", 'local');
-                $this->service->attachEvidence($complaint, 'screenshot', storage_path('app/' . $path),
-                    $file->getClientOriginalName(), $file->getMimeType(), $file->getSize(), 'Screenshot uploaded with report', $user);
-            }
-
-            // Handle multiple evidence files (standalone form)
-            if ($request->hasFile('evidence_files')) {
-                foreach ($request->file('evidence_files') as $file) {
-                    $path = $file->store("whistleblow/evidence/{$user->id}", 'local');
-                    $isImage = str_starts_with($file->getMimeType(), 'image/');
-                    $this->service->attachEvidence($complaint, $isImage ? 'screenshot' : 'document_upload',
-                        storage_path('app/' . $path), $file->getClientOriginalName(), $file->getMimeType(), $file->getSize(), 'Evidence file uploaded with report', $user);
+                if ($request->tier === 'tier_1') {
+                    $data['seller_statement'] = $request->seller_statement ?: $request->agent_notes;
                 }
-            }
 
-            $complaint = $this->service->submit($complaint, $user);
-            return $complaint;
-        });
+                $complaint = $this->service->createDraft($data, $user);
+
+                // Handle screenshot upload (modal shortcut)
+                if ($request->hasFile('screenshot')) {
+                    $file = $request->file('screenshot');
+                    $path = $file->store("whistleblow/evidence/{$user->id}", 'local');
+                    $this->service->attachEvidence($complaint, 'screenshot', storage_path('app/' . $path),
+                        $file->getClientOriginalName(), $file->getMimeType(), $file->getSize(), 'Screenshot uploaded with report', $user);
+                }
+
+                // Handle multiple evidence files (standalone form)
+                if ($request->hasFile('evidence_files')) {
+                    foreach ($request->file('evidence_files') as $file) {
+                        $path = $file->store("whistleblow/evidence/{$user->id}", 'local');
+                        $isImage = str_starts_with($file->getMimeType(), 'image/');
+                        $this->service->attachEvidence($complaint, $isImage ? 'screenshot' : 'document_upload',
+                            storage_path('app/' . $path), $file->getClientOriginalName(), $file->getMimeType(), $file->getSize(), 'Evidence file uploaded with report', $user);
+                    }
+                }
+
+                $complaint = $this->service->submit($complaint, $user);
+                return $complaint;
+            });
+        } catch (\InvalidArgumentException $e) {
+            // Any service-layer business-rule failure that isn't a field-keyed
+            // ValidationException (e.g. a stale-state "cannot submit" check) —
+            // surfaced as a normal flash error with input preserved, never a 500.
+            return redirect()->back()->withInput()->with('error', $e->getMessage());
+        }
 
         // Store idempotency token
         if ($token) {
@@ -209,11 +216,17 @@ class WhistleblowController extends Controller
      */
     public function approve(Request $request, WhistleblowComplaint $complaint)
     {
-        $this->service->approve(
-            $complaint,
-            Auth::user(),
-            $request->input('notes')
-        );
+        try {
+            $this->service->approve(
+                $complaint,
+                Auth::user(),
+                $request->input('notes')
+            );
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->route('compliance.whistleblow.show', $complaint)
+                ->withInput()
+                ->with('error', $e->getMessage());
+        }
 
         return redirect()->route('compliance.whistleblow.index')
             ->with('success', 'Complaint approved and submitted to PPRA.');
@@ -254,11 +267,17 @@ class WhistleblowController extends Controller
     {
         $request->validate(['reason' => 'required|string|max:2000']);
 
-        $this->service->reject(
-            $complaint,
-            Auth::user(),
-            $request->reason
-        );
+        try {
+            $this->service->reject(
+                $complaint,
+                Auth::user(),
+                $request->reason
+            );
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->route('compliance.whistleblow.show', $complaint)
+                ->withInput()
+                ->with('error', $e->getMessage());
+        }
 
         return redirect()->route('compliance.whistleblow.index')
             ->with('success', 'Complaint rejected.');
@@ -271,11 +290,17 @@ class WhistleblowController extends Controller
     {
         $request->validate(['notes' => 'required|string|max:2000']);
 
-        $this->service->requestChanges(
-            $complaint,
-            Auth::user(),
-            $request->notes
-        );
+        try {
+            $this->service->requestChanges(
+                $complaint,
+                Auth::user(),
+                $request->notes
+            );
+        } catch (\InvalidArgumentException $e) {
+            return redirect()->route('compliance.whistleblow.show', $complaint)
+                ->withInput()
+                ->with('error', $e->getMessage());
+        }
 
         return redirect()->route('compliance.whistleblow.index')
             ->with('success', 'Changes requested — agent has been notified.');

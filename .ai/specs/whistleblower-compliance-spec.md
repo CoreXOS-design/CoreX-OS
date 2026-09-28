@@ -502,6 +502,7 @@ For the PPRA Joburg meeting (Wed next week):
 | Evidence file too large | Same upload limits as existing FICA / document upload. |
 | Agent submits for property already flagged | Allow — separate complaint, separate audit. Property record shows multiple flags. |
 | Same subject agency, many complaints | All audited individually. Optional batch approval per §6.4. |
+| Agent submits Tier 1 with no/short seller statement, or Tier 2/3 with no screenshot evidence | Field-level validation error, redirected back to the form with all other input preserved — never a 500. Fixed 2026-09-28: `WhistleblowComplaintService::validateTierRequirements()` now throws a field-keyed `ValidationException` instead of a bare `InvalidArgumentException`; `WhistleblowController::store/approve/reject/requestChanges` additionally catch `InvalidArgumentException` for stale-state failures (e.g. "already approved by someone else") and flash a friendly error instead of crashing. The create form marks Tier 1's seller statement as `required` (live 20-character counter) and Tier 2/3's evidence upload as `required`, client-side, matching the server rule exactly. |
 
 ---
 

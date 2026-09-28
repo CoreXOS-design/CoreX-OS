@@ -22,6 +22,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class WhistleblowComplaintService
 {
@@ -922,18 +923,23 @@ class WhistleblowComplaintService
     // ══════════════════════════════════════════════════════════════
 
     /**
-     * Validate tier-specific required fields before submission.
+     * Validate tier-specific required fields before submission. Throws a
+     * field-keyed ValidationException (never a bare InvalidArgumentException)
+     * so a missing field always redirects the user back to their form with
+     * their input intact and the specific field flagged — never a 500. Keys
+     * match the create/edit form's actual input names so
+     * $errors->has('seller_statement') etc. highlight the right field.
      */
     private function validateTierRequirements(WhistleblowComplaint $complaint): void
     {
-        $missing = [];
+        $errors = [];
 
         // Common to all tiers
         if ($complaint->subjects()->count() === 0) {
-            $missing[] = 'at least one subject (agency/practitioner)';
+            $errors['subjects'] = ['At least one subject (competing agency or practitioner) is required.'];
         }
         if (empty($complaint->property_address)) {
-            $missing[] = 'property_address';
+            $errors['property_address'] = ['Property address is required.'];
         }
 
         // Tier-specific evidence requirements per spec §5
@@ -942,22 +948,20 @@ class WhistleblowComplaintService
         if ($complaint->tier === 'tier_1') {
             // Tier 1: seller statement IS the primary evidence — file attachments optional
             if (empty($complaint->seller_statement) || mb_strlen(trim($complaint->seller_statement)) < 20) {
-                $missing[] = 'seller_statement (required for Tier 1, minimum 20 characters)';
+                $errors['seller_statement'] = ['Seller statement is required for Tier 1 (minimum 20 characters).'];
             }
         } elseif ($complaint->tier === 'tier_2') {
             if ($evidenceCount === 0) {
-                $missing[] = 'screenshot evidence (required for Tier 2)';
+                $errors['evidence_files'] = ['Screenshot evidence is required for Tier 2.'];
             }
         } elseif ($complaint->tier === 'tier_3') {
             if ($evidenceCount === 0) {
-                $missing[] = 'screenshot evidence (required for Tier 3)';
+                $errors['evidence_files'] = ['Screenshot evidence (advert + PPRA register search) is required for Tier 3.'];
             }
         }
 
-        if (!empty($missing)) {
-            throw new \InvalidArgumentException(
-                'Missing required fields for ' . $complaint->tier . ': ' . implode(', ', $missing)
-            );
+        if (!empty($errors)) {
+            throw ValidationException::withMessages($errors);
         }
     }
 
