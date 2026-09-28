@@ -58,10 +58,11 @@
 
         @if($publicUrl)
             <div class="qr-box">
-                {{-- QR CODE NOT YET DRAWN — see RentalInspectionReportPdfService's
-                     own docblock: no QR library in this codebase, pending
-                     Johan naming one to add. The link below is fully live. --}}
-                <span class="qr-placeholder">QR&nbsp;pending</span>
+                @if($qrDataUri)
+                    <img src="{{ $qrDataUri }}" alt="QR code to the public inspection report" style="width:60pt; height:60pt; vertical-align:middle;">
+                @else
+                    <span class="qr-placeholder">QR&nbsp;pending</span>
+                @endif
                 <span style="display:inline-block; vertical-align:middle; margin-left:8pt; font-size:8pt;">
                     Photos and the full record for this inspection:<br>
                     <strong>{{ $publicUrl }}</strong>
@@ -97,7 +98,7 @@
                             <td>{{ $row->item->label }}</td>
                             <td>
                                 @if($row->previous)
-                                    <span class="cond-{{ $row->previous_severity }}">{{ ucfirst($row->previous->observation->condition) }}</span>
+                                    <span class="cond-{{ $row->previous_severity }}">{{ $row->previous_label }}</span>
                                     @if($row->previous->observation->notes)
                                         {{-- §36 — never muted grey: red/amber for an issue severity, the calm blue tone otherwise (a grey-severity condition like N/A still gets the blue callout, same "otherwise" bucket the recording screen uses). --}}
                                         <div class="notes-callout notes-callout-{{ in_array($row->previous_severity, ['red', 'amber'], true) ? $row->previous_severity : 'blue' }}">{{ $row->previous->observation->notes }}</div>
@@ -108,7 +109,7 @@
                             </td>
                             <td>
                                 @if($row->current)
-                                    <span class="cond-{{ $row->current_severity }}">{{ ucfirst($row->current->condition) }}</span>
+                                    <span class="cond-{{ $row->current_severity }}">{{ $row->current_label }}</span>
                                     @if($row->current->notes)
                                         <div class="notes-callout notes-callout-{{ in_array($row->current_severity, ['red', 'amber'], true) ? $row->current_severity : 'blue' }}">{{ $row->current->notes }}</div>
                                     @endif
@@ -126,16 +127,35 @@
         <p class="muted">No observations recorded.</p>
     @endforelse
 
-    @if($inspection->signatures->isNotEmpty())
-        <table class="sig-table">
-            <tr><td colspan="2" style="font-weight:bold; border-top:none; padding-top:0;">Signatures</td></tr>
-            @foreach($inspection->signatures as $signature)
-                <tr>
-                    <td>{{ ucfirst(str_replace('_', ' ', $signature->signer_role)) }}</td>
-                    <td>{{ $signature->signed_at?->format('d M Y, H:i') }}</td>
-                </tr>
-            @endforeach
-        </table>
-    @endif
+    {{-- Report-fixes, 2026-09-28 (Johan, property 5294) — rebuilt around
+         RentalInspection::signatureSummaryRows(), the SAME resolver the
+         public page uses, so the two documents can never disagree on who
+         signed. Previously read `signer_role`/`signed_at`, columns that no
+         longer exist since §15/§16's three-party rebuild — every row
+         printed blank. --}}
+    <table class="sig-table">
+        <tr><td colspan="3" style="font-weight:bold; border-top:none; padding-top:0;">Signatures</td></tr>
+        @foreach($signatureRows as $row)
+            <tr>
+                <td>{{ $row['role'] }}{{ $row['name'] ? ' — ' . $row['name'] : '' }}</td>
+                <td>
+                    @if($row['not_required'])
+                        Not required
+                    @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED)
+                        <span class="cond-red">Refused</span> —
+                        {{ $refusalReasonLabels->get($row['signature']->refusal_reason_preset, ucfirst(str_replace('_', ' ', $row['signature']->refusal_reason_preset))) }}
+                        @if($row['signature']->refusal_reason_note) ({{ $row['signature']->refusal_reason_note }}) @endif
+                    @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK)
+                        Signed (wet-ink upload)
+                    @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED)
+                        <span class="cond-blue">Signed</span>
+                    @else
+                        <span class="muted">Outstanding</span>
+                    @endif
+                </td>
+                <td>{{ $row['signature']?->disposition_recorded_at?->format('d M Y, H:i') }}</td>
+            </tr>
+        @endforeach
+    </table>
 </body>
 </html>

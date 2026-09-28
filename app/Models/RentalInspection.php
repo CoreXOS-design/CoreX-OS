@@ -898,6 +898,62 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     }
 
     /**
+     * 2026-09-28 (report fixes) — the "who signed, and how" summary shared
+     * by BOTH the public share page and the signed PDF, so the two
+     * documents describing the same completed inspection can never show a
+     * different picture of who signed — one copy of the behaviour, per this
+     * file's own §14.1/§15.10 convention. Previously each caller re-read
+     * `$this->signatures` directly using a schema (`signer_role`/`signed_at`)
+     * that no longer exists on `rental_inspection_signatures` since §15/§16's
+     * rebuild — every row rendered blank on both documents.
+     *
+     * One row per tenant on the lease (§15.2a guarantees a completed
+     * inspection has a live, non-superseded disposition for every one of
+     * them), one row for the landlord — `not_required` true only when
+     * `Property::sellerOwnerContact()` resolves to null, the one legitimate
+     * "no signature exists and none is expected" case (§15.12's waived
+     * landlord) — and one row for the agent.
+     *
+     * @return array<int, array{role: string, name: ?string, signature: ?RentalInspectionSignature, not_required: bool}>
+     */
+    public function signatureSummaryRows(): array
+    {
+        $liveSignatureFor = fn (string $partyRole, ?int $contactId = null) => $this->signatures->first(
+            fn (RentalInspectionSignature $s) => $s->party_role === $partyRole
+                && $s->superseded_at === null
+                && ($contactId === null || (int) $s->party_contact_id === (int) $contactId)
+        );
+
+        $rows = [];
+
+        foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
+            $rows[] = [
+                'role' => 'Tenant',
+                'name' => $leaseTenant->contact?->full_name,
+                'signature' => $liveSignatureFor(RentalInspectionSignature::PARTY_TENANT, $leaseTenant->contact_id),
+                'not_required' => false,
+            ];
+        }
+
+        $landlord = $this->property?->sellerOwnerContact();
+        $rows[] = [
+            'role' => 'Landlord',
+            'name' => $landlord?->full_name,
+            'signature' => $landlord ? $liveSignatureFor(RentalInspectionSignature::PARTY_LANDLORD, $landlord->id) : null,
+            'not_required' => ! $landlord,
+        ];
+
+        $rows[] = [
+            'role' => 'Agent',
+            'name' => $this->createdBy?->name,
+            'signature' => $liveSignatureFor(RentalInspectionSignature::PARTY_AGENT),
+            'not_required' => false,
+        ];
+
+        return $rows;
+    }
+
+    /**
      * §17 — the header block, editable any time before the inspection
      * completes (matching how a room's observed condition stays correctable
      * up to that same point) — never after; the completed document is

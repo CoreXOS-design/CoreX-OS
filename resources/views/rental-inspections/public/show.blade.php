@@ -59,6 +59,79 @@
                     Print
                 </button>
             </div>
+
+            {{-- Report-fixes, 2026-09-28 (Johan, property 5294) — the header
+                 block: everything the completed recording screen shows above
+                 the room tables that this page never carried before. Every
+                 field is optional — an older/incomplete record simply omits
+                 the row rather than printing an empty value. --}}
+            <dl class="mt-4 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+                @if($inspection->lease?->tenants?->isNotEmpty())
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Tenant{{ $inspection->lease->tenants->count() > 1 ? 's' : '' }}</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->lease->tenants->map(fn ($t) => $t->contact?->full_name)->filter()->implode(', ') }}</dd>
+                    </div>
+                @endif
+                @if($inspection->property?->sellerOwnerContact())
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Landlord</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->property->sellerOwnerContact()->full_name }}</dd>
+                    </div>
+                @endif
+                @if($inspection->createdBy)
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Agent</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->createdBy->name }}</dd>
+                    </div>
+                @endif
+                @if($inspection->property_type)
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Property type</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->property_type }}</dd>
+                    </div>
+                @endif
+                @if($inspection->furnished_status)
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Furnished status</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->furnished_status }}</dd>
+                    </div>
+                @endif
+                @if($inspection->electricity_meter_reading)
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Electricity meter</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->electricity_meter_reading }}</dd>
+                    </div>
+                @endif
+                @if($inspection->water_meter_reading)
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Water meter</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->water_meter_reading }}</dd>
+                    </div>
+                @endif
+                @if($inspection->keys_count !== null || $inspection->keys_description)
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Keys</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->keys_count }}{{ $inspection->keys_description ? ' — ' . $inspection->keys_description : '' }}</dd>
+                    </div>
+                @endif
+                @if($inspection->remotes_count !== null || $inspection->remotes_description)
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Remotes</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->remotes_count }}{{ $inspection->remotes_description ? ' — ' . $inspection->remotes_description : '' }}</dd>
+                    </div>
+                @endif
+                @if($inspection->type === 'out' && $inspection->move_in_date_recorded)
+                    <div class="flex justify-between gap-3">
+                        <dt class="text-slate-500">Original move-in date</dt>
+                        <dd class="text-slate-700 text-right">{{ $inspection->move_in_date_recorded->format('d M Y') }}</dd>
+                    </div>
+                @endif
+            </dl>
+            @if($inspection->overall_notes)
+                <p class="mt-4 pt-4 border-t border-slate-100 text-sm text-slate-600">
+                    <span class="font-semibold text-slate-500 uppercase text-xs tracking-wide">Overall notes: </span>{{ $inspection->overall_notes }}
+                </p>
+            @endif
         </div>
 
         @forelse($rows as $roomId => $roomRows)
@@ -69,11 +142,14 @@
                  directive compiled after it in the whole file. Found the
                  hard way in the agency-level show.blade.php this same
                  round — see that file's own comment. Also: never write the
-                 literal broken form as text inside a Blade comment block
-                 like this one, even to document it — Blade's own directive
-                 matching does not treat {{-- --}} content as fully inert,
-                 and it corrupted compilation here exactly the same way the
-                 very first time this comment was written. --}}
+                 literal open/close comment-token pair as text inside a
+                 Blade comment block like this one, even to document it —
+                 Blade's own comment stripper is not nesting-aware, so a
+                 comment containing another literal comment-open/close pair
+                 closes early at the FIRST inner close token it finds,
+                 leaking everything after it (up to the real close) onto
+                 the page as visible text. This exact file shipped that
+                 exact bug this way. --}}
             @php
                 $room = $roomRows->first()->room;
             @endphp
@@ -84,17 +160,22 @@
                         <div class="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
                             <div class="flex items-center justify-between">
                                 <span class="text-sm font-medium text-slate-700">{{ $row->item->label }}</span>
-                                <span class="text-sm font-semibold text-slate-800">{{ ucfirst($row->observation->condition) }}</span>
+                                <span class="text-sm font-semibold" style="color: {{ $severityColors[$row->severity] }}">{{ $row->condition_label }}</span>
                             </div>
                             @if($row->observation->notes)
-                                <p class="text-sm text-slate-500 mt-1">{{ $row->observation->notes }}</p>
+                                {{-- §36's callout treatment — red/amber for an issue severity,
+                                     the calm blue tone otherwise (a blue OR grey-severity
+                                     condition's note still gets blue — "never muted grey",
+                                     matching the recording screen and the signed PDF). --}}
+                                @php $tone = in_array($row->severity, ['red', 'amber'], true) ? $row->severity : 'blue'; @endphp
+                                <p class="text-sm mt-1 py-1 pl-2 border-l-2 rounded-r" style="background-color: color-mix(in srgb, {{ $severityColors[$tone] }} 12%, white); border-left-color: {{ $severityColors[$tone] }};">{{ $row->observation->notes }}</p>
                             @endif
-                            @if($row->observation->photos->isNotEmpty())
+                            @if($row->photos->isNotEmpty())
                                 {{-- storage_path is already a full URL (same as every other
                                      inspection photo consumer — the recording partial's own
                                      <img :src="photo.storage_path"> reads it unwrapped). --}}
                                 <div class="flex flex-wrap gap-2 mt-2">
-                                    @foreach($row->observation->photos as $photo)
+                                    @foreach($row->photos as $photo)
                                         <a href="{{ $photo->storage_path }}" target="_blank" rel="noopener">
                                             <img src="{{ $photo->storage_path }}" alt="" class="w-20 h-20 object-cover rounded-md border border-slate-200">
                                         </a>
@@ -104,6 +185,11 @@
                         </div>
                     @endforeach
                 </div>
+                @if($roomNotes->get($roomId))
+                    <p class="text-sm mt-4 pt-3 border-t border-slate-100 py-1 pl-2 border-l-2 rounded-r" style="background-color: color-mix(in srgb, {{ $severityColors['blue'] }} 12%, white); border-left-color: {{ $severityColors['blue'] }};">
+                        <span class="font-semibold text-slate-500 uppercase text-xs tracking-wide">Room note: </span>{{ $roomNotes->get($roomId)->note }}
+                    </p>
+                @endif
             </div>
         @empty
             <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -111,19 +197,50 @@
             </div>
         @endforelse
 
-        @if($inspection->signatures->isNotEmpty())
-            <div id="signatures" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                <h2 class="text-sm font-bold uppercase tracking-wide text-slate-600 mb-3">Signatures</h2>
-                <div class="space-y-3">
-                    @foreach($inspection->signatures as $signature)
+        {{-- Report-fixes, 2026-09-28 (Johan, property 5294) — rebuilt around
+             RentalInspection::signatureSummaryRows(), the shared "who
+             signed, and how" resolver (also used by the signed PDF). The
+             previous version read `signer_role`/`signed_at`, columns that
+             no longer exist since §15/§16's three-party rebuild — every row
+             rendered blank. --}}
+        <div id="signatures" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+            <h2 class="text-sm font-bold uppercase tracking-wide text-slate-600 mb-3">Signatures</h2>
+            <div class="space-y-4">
+                @foreach($signatureRows as $row)
+                    <div class="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
                         <div class="flex items-center justify-between text-sm">
-                            <span class="text-slate-600">{{ ucfirst(str_replace('_', ' ', $signature->signer_role)) }}</span>
-                            <span class="text-slate-500">{{ $signature->signed_at?->format('d M Y, H:i') }}</span>
+                            <span class="text-slate-700 font-medium">{{ $row['role'] }}{{ $row['name'] ? ' — ' . $row['name'] : '' }}</span>
+                            @if($row['not_required'])
+                                <span class="text-slate-400">Not required</span>
+                            @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED)
+                                <span style="color: {{ $severityColors['red'] }}">Refused to sign</span>
+                            @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK)
+                                <span class="text-slate-600">Signed (wet-ink upload)</span>
+                            @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED)
+                                <span style="color: {{ $severityColors['blue'] }}">Signed</span>
+                            @else
+                                <span class="text-slate-400">Outstanding</span>
+                            @endif
                         </div>
-                    @endforeach
-                </div>
+                        @if($row['signature'])
+                            <p class="text-xs text-slate-400 mt-0.5">{{ $row['signature']->disposition_recorded_at?->format('d M Y, H:i') }}</p>
+                            @if($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED)
+                                <p class="text-sm mt-1 py-1 pl-2 border-l-2 rounded-r" style="background-color: color-mix(in srgb, {{ $severityColors['red'] }} 12%, white); border-left-color: {{ $severityColors['red'] }};">
+                                    {{ $refusalReasonLabels->get($row['signature']->refusal_reason_preset, ucfirst(str_replace('_', ' ', $row['signature']->refusal_reason_preset))) }}
+                                    @if($row['signature']->refusal_reason_note) — {{ $row['signature']->refusal_reason_note }} @endif
+                                </p>
+                            @elseif($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED && $row['signature']->party_signature_path)
+                                <img src="{{ $row['signature']->party_signature_path }}" alt="{{ $row['role'] }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                            @elseif($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK && $row['signature']->wet_ink_upload_path)
+                                <a href="{{ $row['signature']->wet_ink_upload_path }}" target="_blank" rel="noopener">
+                                    <img src="{{ $row['signature']->wet_ink_upload_path }}" alt="{{ $row['role'] }} wet-ink upload" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                </a>
+                            @endif
+                        @endif
+                    </div>
+                @endforeach
             </div>
-        @endif
+        </div>
     </div>
 </body>
 </html>

@@ -6,6 +6,9 @@ use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionSetting;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Endroid\QrCode\ErrorCorrectionLevel;
+use Endroid\QrCode\QrCode;
+use Endroid\QrCode\Writer\PngWriter;
 
 /**
  * Johan, 2026-09-23, approved — the COMPLETED inspection's own report: no
@@ -24,18 +27,24 @@ use Barryvdh\DomPDF\Facade\Pdf;
  * downloads) — generated fresh every time, streamed straight to the
  * agent.
  *
- * QR CODE — NOT YET DRAWN. No barcode/QR library exists in this
- * codebase (checked composer.json/package.json directly) and Johan's own
- * standing instruction on this exact feature area is "use what's there
- * or stop and ask" (RentalInspectionFormPdfService's own docblock,
- * verbatim). The link itself IS fully functional and printed prominently
- * on every page that needs one — only the scannable graphic is deferred,
- * pending Johan naming a library to add.
+ * QR CODE — built 2026-09-28 (report fixes, Johan's go-ahead) with
+ * `endroid/qr-code` (pure-PHP, no external service call — a PDF-generation
+ * path has no business depending on a third party's uptime, and the
+ * existing agent-QR feature's `api.qrserver.com` client-side pattern was
+ * never appropriate here for exactly that reason). Rendered to a PNG data
+ * URI in generate() below and embedded straight into the DomPDF view —
+ * DomPDF resolves `data:` URIs locally, no `isRemoteEnabled` config and no
+ * filesystem write needed.
  */
 class RentalInspectionReportPdfService
 {
     public function generate(RentalInspection $inspection)
     {
+        $inspection->loadMissing([
+            'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
+            'signatures.partyContact',
+        ]);
+
         $items = RentalInspectionItem::where('property_id', $inspection->property_id)
             ->where('is_retired', false)
             ->with('room')
@@ -56,11 +65,19 @@ class RentalInspectionReportPdfService
         // generate() call, not per row — the agency's own condition
         // vocabulary/severity mapping never varies within one inspection.
         $agencyId = $inspection->property?->agency_id;
-        $severityByKey = collect(RentalInspectionSetting::conditionStatesFor($agencyId))->pluck('severity', 'key');
-        $severityFor = fn (?string $key) => $key ? ($severityByKey->get($key) ?? 'red') : null;
+        $conditionStates = collect(RentalInspectionSetting::conditionStatesFor($agencyId))->keyBy('key');
+        $severityFor = fn (?string $key) => $key ? ($conditionStates->get($key)['severity'] ?? 'red') : null;
+        // Report-fixes, 2026-09-28 — Johan: "Use the display label
+        // everywhere (page, PDF, emails)." A raw condition key like `n_a`
+        // is not a display label; ucfirst()-ing it printed "N_a". Falls
+        // back to the same humanised-key rendering the public page uses
+        // for an agency's own custom key not present in its own configured
+        // vocabulary (shouldn't happen via real UI input, but never crash
+        // or print the raw key verbatim on a printed legal record).
+        $labelFor = fn (?string $key) => $key ? ($conditionStates->get($key)['label'] ?? ucfirst(str_replace('_', ' ', $key))) : null;
 
         $rows = $items
-            ->map(function (RentalInspectionItem $item) use ($inspection, $currentByItem, $severityFor) {
+            ->map(function (RentalInspectionItem $item) use ($inspection, $currentByItem, $severityFor, $labelFor) {
                 $current = $currentByItem->get($item->id);
                 // historyFor() must be called ON the predecessor, not on
                 // $inspection itself — $inspection->historyFor($item) walks
@@ -79,13 +96,15 @@ class RentalInspectionReportPdfService
                     'item' => $item,
                     'room' => $item->room,
                     'current' => $current,
+                    'current_label' => $labelFor($current?->condition),
                     'current_severity' => $severityFor($current?->condition),
                     // The immediate predecessor's value is the run's own
                     // last entry (never re-derived separately) — null when
                     // this is the first inspection in its chain.
                     'previous' => $previous,
+                    'previous_label' => $labelFor($previous?->observation?->condition),
                     'previous_severity' => $severityFor($previous?->observation?->condition),
-                    'history_text' => $history->map(fn ($h) => ucfirst($h->observation->condition))->implode(' → '),
+                    'history_text' => $history->map(fn ($h) => $labelFor($h->observation->condition))->implode(' → '),
                 ];
             })
             ->filter()
@@ -95,10 +114,24 @@ class RentalInspectionReportPdfService
             ? route('rental-inspections.public.show', $inspection->public_token)
             : null;
 
+        $qrDataUri = null;
+        if ($publicUrl) {
+            $qrCode = new QrCode(
+                data: $publicUrl,
+                errorCorrectionLevel: ErrorCorrectionLevel::High,
+                size: 240,
+                margin: 8,
+            );
+            $qrDataUri = (new PngWriter())->write($qrCode)->getDataUri();
+        }
+
         return Pdf::loadView('corex.rental-inspections.report-pdf', [
             'inspection' => $inspection,
             'rows' => $rows,
             'publicUrl' => $publicUrl,
+            'qrDataUri' => $qrDataUri,
+            'signatureRows' => $inspection->signatureSummaryRows(),
+            'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
         ])->setPaper('a4', 'portrait');
     }
