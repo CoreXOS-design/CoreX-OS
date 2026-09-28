@@ -244,13 +244,23 @@
        page (compare viewer, tag panels, etc. all use z-[9999]/z-20+ — see
        show.blade.php). */
     .rir-insp-nav-sticky { z-index:15; }
-    /* §32, 2026-09-28 — offsets scrollToInspectionRoom()'s
+    /* §32, 2026-09-28, round 2 — offsets scrollToInspectionRoom()'s
        scrollIntoView({block:'start'}) (show.blade.php) so a clicked room's
        heading stops just under the pinned tab bar + .rir-insp-nav-sticky
-       pill bar, not hidden behind them. = tab-bar height (55px, measured
-       live) + pill-bar height (52px, measured live) + a few px breathing
-       room, never guessed from Tailwind's spec sheet. */
-    .rir-room-anchor { scroll-margin-top: 115px; }
+       pill bar, not hidden behind them. A STATIC px value here cannot be
+       correct at every viewport size: `scroll-margin-top` is measured in
+       `.prop-tab-panel`'s OWN internal coordinate space, but the pinned
+       bars' combined height needs converting from VIEWPORT space into
+       that space via `.prop-tab-panel`'s own offset from the viewport top
+       — and that offset itself changes with viewport width (measured
+       live: 154.5px at 1522px wide vs 198.6px at a narrow 768px, this
+       page's responsive layout reflowing what sits above the panel).
+       `--rir-room-anchor-offset` is set live by the same x-init below
+       that pins the nav bar (computed on init/resize, not on every
+       scroll — panel-offset and bar height are scroll-INVARIANT, only
+       resize changes them). The fallback (115px) only applies before
+       that JS has run once. */
+    .rir-room-anchor { scroll-margin-top: var(--rir-room-anchor-offset, 115px); }
 </style>
 {{-- $sectionJs override — see this file's own top docblock. --}}
 @php($sectionJs = $sectionJs ?? "'{$section}'")
@@ -656,47 +666,171 @@
              `transform`/`filter`/`contain` — escapes `overflow:hidden`
              clipping entirely, unlike `sticky`) once its natural position
              would scroll above the shared tab bar, computing `top`/`left`/
-             `width` from the panel's own live rect so it still reads as
-             "pinned under the tab bar, same width as the tab content" —
-             and back to normal flow once scrolled above the pin point. A
-             same-height placeholder keeps the layout from jumping while
-             pinned. Deliberately vanilla JS, not a new method on
-             show.blade.php's `rentalImages()` factory: this behaviour is
-             purely a presentation/scroll concern of this one bar, self-
-             contained to this partial, never touching the shared
-             component's data/method surface. --}}
+             `width` from the CARD's own live rect (`.prop-section` —
+             NOT `.prop-tab-panel`, which is wider: it sits outside this
+             card's own padding, `p-6` on the Inspections-tab wrapper plus
+             the card's own inset, ~27px worth — measured live, 2026-09-28
+             round 2, Johan: bar spanned 322→1497 against the card's real
+             349→1477) so it reads as "pinned under the tab bar, flush with
+             the card's own edges" — and back to normal flow once scrolled
+             above the pin point. Deliberately vanilla JS, not a new method
+             on show.blade.php's `rentalImages()` factory: this behaviour
+             is purely a presentation/scroll concern of this one bar,
+             self-contained to this partial, never touching the shared
+             component's data/method surface.
+
+             §32.1, 2026-09-28 round 2 (Johan, property 5294, real Chrome
+             1522×784) — three defects found in round 1's implementation,
+             all traced to ONE root cause: this bar sits inside
+             `.prop-section-body.space-y-3` (line ~977), and Tailwind's
+             `space-y-3` puts a real `margin-top:0.75rem` (12px) on it as a
+             normal-flow sibling. `getBoundingClientRect()`/`offsetHeight`
+             never include an element's own margin, so switching to
+             `position:fixed` WITHOUT explicitly zeroing that margin left
+             it applying on top of the computed `top:` value — the bar's
+             own background started 12px below where `top` said it would,
+             showing scrolling content through that gap (defect: "gap above
+             bar"). And the placeholder — sized from `bar.offsetHeight`
+             alone, margin excluded — reserved 12px LESS flow height than
+             the bar actually consumed before pinning, so the very act of
+             pinning shrank the panel's total scrollable height by 12px
+             out from under any smooth `scrollIntoView` animation already
+             in flight (defect: room clicks landing at the wrong position —
+             `scrollToInspectionRoom()`, show.blade.php, computes its
+             target offset once; a height change of the scrolling content
+             during that animation throws the landing off by the same
+             amount, compounding over repeated pin/unpin toggles during a
+             single scroll). Fix: read the bar's REAL computed
+             `margin-top` once (never hardcode the Tailwind value — a
+             class change elsewhere must not silently break this), fold it
+             into the placeholder's reserved height so the total flow
+             height is IDENTICAL before and after pinning (zero jump,
+             zero cause for `scrollIntoView` to land wrong), and zero the
+             bar's own inline `margin-top` while fixed so its background
+             starts exactly at `top:` with no gap. --}}
+        {{-- §32.2, 2026-09-28 round 2 — the 'scroll' listener originally
+             called getBoundingClientRect() + rewrote position/top/left/
+             width inline on EVERY scroll event (Chrome fires dozens per
+             second during a native `scrollIntoView({behavior:'smooth'})`
+             animation, show.blade.php's `scrollToInspectionRoom()`).
+             First fix tried: throttle to one `update()` per animation
+             frame via `requestAnimationFrame` instead of once per raw
+             scroll event, and skip no-op style writes. That measurably
+             cut write frequency but did NOT fix it — confirmed live, same
+             16-room property (5577): short hops (adjacent rooms) always
+             landed correctly even before this, but long hops (first-room
+             ↔ last-room) still intermittently landed short, overshot, or
+             on the wrong room entirely, and the failure was genuinely
+             TIMING-SENSITIVE (adding console.log instrumentation to watch
+             it changed the timing enough to make it stop reproducing —
+             a real race, not a logic bug in the threshold math itself,
+             which traced values confirmed was always correct).
+
+             Real fix: stop touching this bar's layout AT ALL while a
+             scroll is actively in flight. `scheduleUpdate` now DEBOUNCES
+             — waits for scroll events to go quiet for `SETTLE_MS` before
+             calling `update()` — rather than running throttled-but-still
+             continuous updates during the animation. A `scrollIntoView`
+             animation fires a steady stream of scroll events with no gap
+             until it finishes, so it now gets ZERO layout writes from
+             this bar for its entire duration; a real mouse-wheel/
+             scrollbar-drag scroll fires events with small natural gaps,
+             so the bar still visually snaps to pinned/unpinned within
+             ~1 frame of the user pausing — not perceptibly different from
+             updating live. Verified live afterward: every first↔last and
+             other long-distance pair tested on the 16-room property
+             landed correctly, repeatedly, at 1522×784 and at a narrow
+             viewport — no longer timing-sensitive. --}}
         <div class="flex items-start gap-2 flex-wrap lg:flex-nowrap rir-insp-nav-sticky" x-show="activeItems().length"
              x-init="
                 (() => {
                     const bar = $el;
                     const panel = bar.closest('.prop-tab-panel');
+                    const card = bar.closest('.prop-section');
                     const tabBar = document.querySelector('.sticky.top-0');
-                    if (!panel || !tabBar) return;
+                    if (!panel || !card || !tabBar) return;
                     const placeholder = document.createElement('div');
                     placeholder.style.display = 'none';
                     bar.parentNode.insertBefore(placeholder, bar);
+                    let pinned = false;
+                    let settleTimer = null;
+                    const applyPinnedGeometry = (pinTop) => {
+                        const cardRect = card.getBoundingClientRect();
+                        const newTop = pinTop + 'px', newLeft = cardRect.left + 'px', newWidth = cardRect.width + 'px';
+                        if (bar.style.top !== newTop) bar.style.top = newTop;
+                        if (bar.style.left !== newLeft) bar.style.left = newLeft;
+                        if (bar.style.width !== newWidth) bar.style.width = newWidth;
+                    };
+                    {{-- §32, 2026-09-28 round 2 — feeds .rir-room-anchor's
+                         `--rir-room-anchor-offset` (own docblock in this
+                         file's <style> block).
+
+                         §32, 2026-09-28 round 2 — NOT scroll-invariant
+                         after all, confirmed live: the shared property-
+                         shell tab bar (`_property-shell-tabs.blade.php`,
+                         `position:sticky; top:0`) only reads its real,
+                         STUCK `getBoundingClientRect().bottom` once the
+                         page has scrolled at least once and its own sticky
+                         has engaged — BEFORE that first scroll, it reports
+                         its natural, pre-stick document position instead
+                         (measured live: 382.6px at a narrow 768px viewport
+                         vs its real stuck 253.6px — a 129px difference,
+                         whatever sits above it in the page's own flow
+                         before it locks to the top). This bar's own
+                         `x-init` runs at mount, before any scrolling has
+                         ever happened, so a ONE-SHOT measurement (the
+                         original design — computed once via
+                         `ResizeObserver`, on the theory that panel-offset
+                         and bar-height are scroll-invariant, which they
+                         are — the TAB BAR's position was the missing
+                         variable) bakes in that wrong pre-stick value
+                         permanently, breaking exactly the FIRST room click
+                         on a freshly-opened section — confirmed live,
+                         property 5577, narrow viewport: clicking the very
+                         first room chip on a fresh page landed 141px too
+                         low; every click after that (once the page has
+                         scrolled at all) landed correctly. Recomputing
+                         inside `update()` itself — which already runs on
+                         every settled scroll — means the offset self-
+                         corrects the moment the tab bar's own sticky
+                         engages, before scrollToInspectionRoom() is ever
+                         given a chance to use it. --}}
+                    const updateAnchorOffset = (pinTop) => {
+                        if (bar.offsetHeight === 0) return;
+                        const offset = (pinTop + bar.offsetHeight) - panel.getBoundingClientRect().top;
+                        panel.style.setProperty('--rir-room-anchor-offset', offset + 'px');
+                    };
                     const update = () => {
                         const pinTop = tabBar.getBoundingClientRect().bottom;
-                        const naturalTop = (bar.style.position === 'fixed' ? placeholder : bar).getBoundingClientRect().top;
-                        if (naturalTop <= pinTop) {
-                            if (bar.style.position !== 'fixed') {
-                                placeholder.style.display = 'block';
-                                placeholder.style.height = bar.offsetHeight + 'px';
-                                bar.style.position = 'fixed';
-                                bar.style.zIndex = '15';
-                                bar.style.background = 'var(--surface)';
-                            }
-                            const panelRect = panel.getBoundingClientRect();
-                            bar.style.top = pinTop + 'px';
-                            bar.style.left = panelRect.left + 'px';
-                            bar.style.width = panelRect.width + 'px';
-                        } else if (bar.style.position === 'fixed') {
-                            bar.style.position = bar.style.top = bar.style.left = bar.style.width = '';
+                        const naturalTop = (pinned ? placeholder : bar).getBoundingClientRect().top;
+                        const shouldPin = naturalTop <= pinTop;
+                        if (shouldPin && !pinned) {
+                            const ownMarginTop = parseFloat(getComputedStyle(bar).marginTop) || 0;
+                            placeholder.style.height = (bar.offsetHeight + ownMarginTop) + 'px';
+                            placeholder.style.display = 'block';
+                            bar.style.position = 'fixed';
+                            bar.style.marginTop = '0';
+                            bar.style.zIndex = '15';
+                            bar.style.background = 'var(--surface)';
+                            pinned = true;
+                            applyPinnedGeometry(pinTop);
+                        } else if (!shouldPin && pinned) {
+                            bar.style.position = bar.style.top = bar.style.left = bar.style.width = bar.style.marginTop = '';
                             placeholder.style.display = 'none';
+                            pinned = false;
+                        } else if (shouldPin && pinned) {
+                            applyPinnedGeometry(pinTop);
                         }
+                        updateAnchorOffset(pinTop);
                     };
-                    panel.addEventListener('scroll', update, { passive: true });
-                    window.addEventListener('resize', update);
+                    const SETTLE_MS = 80;
+                    const scheduleUpdate = () => {
+                        if (settleTimer) clearTimeout(settleTimer);
+                        settleTimer = setTimeout(() => { settleTimer = null; update(); }, SETTLE_MS);
+                    };
+                    panel.addEventListener('scroll', scheduleUpdate, { passive: true });
+                    window.addEventListener('resize', scheduleUpdate);
+                    new ResizeObserver(scheduleUpdate).observe(bar);
                     update();
                 })()
              ">

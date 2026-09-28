@@ -5682,3 +5682,89 @@ at `scrollTop` 0, 1500, and scrolled to the very bottom of a 5600px/16600px-tall
 properties respectively. Deep-scroll room-click test: starting at `scrollTop 14907`, clicking a room
 chip near the top of the list moved the panel to `scrollTop 2536` (a real ~12,371px scroll), and the nav
 bar was still correctly pinned with zero overlap immediately after.
+
+### 32.3 Round 2 (2026-09-28) — three real defects in round 1's nav-bar pin, found by Johan in real
+Chrome at 1522×784
+
+Round 1 shipped (`650cd2cce`) and Johan checked it in real Chrome. The compare-row duplicate fix (§32.1)
+held. The nav-bar pin (§32.2) had three real defects, all traced back to gaps in round 1's own
+verification — none of round 1's Puppeteer checks actually exercised the failure conditions below.
+
+**1. Room clicks landing at the wrong place.** Root cause, in two layers:
+
+- `.rir-insp-nav-sticky` sits inside `.prop-section-body.space-y-3` (§32.2's include), and Tailwind's
+  `space-y-3` puts a real `margin-top:0.75rem` (12px) on it as a normal-flow sibling.
+  `getBoundingClientRect()`/`offsetHeight` never include an element's own margin — switching to
+  `position:fixed` without explicitly zeroing that margin left it applying on top of the computed `top:`
+  value (the "gap" defect, #3 below), AND the placeholder — sized from `bar.offsetHeight` alone, margin
+  excluded — reserved 12px LESS flow height than the bar actually consumed before pinning, shrinking the
+  panel's total scrollable height by 12px at the exact moment of pinning, out from under any smooth
+  `scrollIntoView` animation already in flight. Fixed: read the bar's real computed `margin-top` once
+  (never hardcode the Tailwind value), fold it into the placeholder's reserved height so total flow
+  height is identical before and after pinning, and zero the bar's own inline `margin-top` while fixed.
+- Independently, `--rir-room-anchor-offset` (the CSS custom property `.rir-room-anchor`'s
+  `scroll-margin-top` reads, feeding `scrollToInspectionRoom()`'s `scrollIntoView`) was computed ONCE,
+  at this bar's own `x-init` (component mount) time, via a `ResizeObserver` on the theory that "panel
+  offset and bar height are scroll-invariant." True for the panel and the bar — **false for the shared
+  property-shell tab bar** (`_property-shell-tabs.blade.php`, `position:sticky; top:0`): its
+  `getBoundingClientRect().bottom` only reports its real, STUCK position once the page has scrolled at
+  least once and that sticky has engaged. Before the first-ever scroll it reports its natural,
+  pre-stick document position instead — measured live, property 5577, narrow 768px viewport: 382.6px
+  vs its real stuck 253.6px, a 129px difference. A one-shot measurement at mount time permanently baked
+  in the wrong (pre-stick) value, breaking exactly the FIRST room click on a freshly-opened section —
+  confirmed live: clicking the very first room chip on a fresh page landed 141px too low; every click
+  after that (once the page had scrolled at all) landed correctly, which is exactly why round 1's own
+  tests — none of which clicked a room as literally the first interaction on a truly fresh page load
+  without any other scrolling first — never caught it. Fixed: `updateAnchorOffset()` now runs as part of
+  `update()` itself (already firing on every settled scroll), so the offset self-corrects the moment the
+  tab bar's own sticky engages, before `scrollToInspectionRoom()` is ever given a chance to use a stale
+  value.
+- A third, narrower issue surfaced and was ruled out during this work: the *very first* `update()` call
+  (before the "Inspection" section has ever been expanded) reads `bar.offsetHeight === 0`, since its
+  `x-collapse`'d ancestor has no layout box yet. A bounded `requestAnimationFrame` retry loop was tried
+  first and rejected — it gives up long before the agent ever opens the section, permanently baking in a
+  wrong value since nothing else ever recomputes it. Replaced with the `ResizeObserver` approach
+  described above (§32.2), which reacts exactly when a real measurement becomes possible.
+- One more real, timing-only race was found and fixed along the way: the original `update()` — even after
+  the margin fix — still ran on every raw `scroll` event, computing `getBoundingClientRect()` on every
+  call. During a native `scrollIntoView({behavior:'smooth'})` animation (dozens of scroll events per
+  second) this measurably perturbed the browser's own scroll-completion timing — confirmed by observing
+  that adding `console.log` instrumentation (which slows the handler down) made a previously-reproducing
+  failure stop reproducing, the signature of a genuine race rather than a logic bug (traced values showed
+  the threshold math itself was always correct). Fixed by debouncing `update()` — waiting for scroll
+  events to go quiet for 80ms before running — rather than throttling it to run continuously during the
+  scroll. A `scrollIntoView` animation fires a steady, gapless stream of scroll events for its whole
+  duration, so it now gets zero layout writes from this bar until it finishes; a real mouse-wheel/
+  scrollbar-drag scroll has small natural gaps, so the bar still visually snaps to pinned/unpinned within
+  about one frame of the user pausing.
+
+A fourth theory — "a room near the very end of a long list doesn't have enough trailing content for the
+browser to scroll it all the way up" — was tested (a trailing spacer sized to `--rir-room-anchor-offset`
+was added) and **disproven**: with the real bugs above fixed and an adequate wait for the (now correctly
+un-interfered-with) native smooth-scroll to actually finish, every room — including the last one on a
+16-room property — landed correctly with no spacer at all. The spacer was removed; it would have shipped
+a fix for a problem that didn't exist, on the strength of a test harness that simply hadn't waited long
+enough for a ~15,000px animated scroll to complete (Chrome's `scrollIntoView({behavior:'smooth'})`
+duration scales with distance).
+
+**2. Bar width wider than the card.** `applyPinnedGeometry()` computed `left`/`width` from
+`.prop-tab-panel`'s own `getBoundingClientRect()` — the panel sits OUTSIDE this card's own padding
+(`p-6` on the Inspections-tab wrapper, plus the card's own inset), so the bar spanned wider than the
+visible card on both sides (measured: 322→1497 against the card's real 349→1477). Fixed: measure
+`.prop-section` (the card itself, via `bar.closest('.prop-section')`) instead of `.prop-tab-panel`.
+
+**3. Gap above the bar showing scrolled content through it.** Direct consequence of the unaddressed
+`margin-top` in defect #1 — the bar's background started 12px below where `top:` said it would. Same
+fix as #1 resolves this: `margin-top:0` while pinned.
+
+**Verified, round 2**: `php -l` + Blade compile-string clean. Real headless Chrome, real QA1 data,
+property 5577 (16 real rooms — Bedroom 1-4, Bathroom 1-3, Garage 1-2, Parking 1-3, Study 1, Kitchen 1,
+Garden 1, Pool 1 — chosen specifically to exercise adjacent AND far-apart clicks, never 5294), user 365
+only, at both 1522×784 and a narrow 768×800:
+- Width/gap: `gap: 0`, bar left/right matching the card's own left/right exactly, at both viewports.
+- Every ordered pair tested — adjacent rooms (Bedroom 1→2, Bathroom 1→2, Garden 1→Pool 1), first↔last
+  (Bedroom 1↔Pool 1, Bedroom 4→Pool 1), and reverse (Pool 1→Bedroom 1) — landed the target room's own
+  heading flush under the pinned bar (within ~13px), at both viewports, confirmed across multiple
+  repeated runs (not a one-off pass).
+- A deep-scroll case: starting at `scrollTop 14907`, clicking a room chip near the top of the list moved
+  the panel to `scrollTop 2536` (a real ~12,371px animated scroll) and landed correctly.
