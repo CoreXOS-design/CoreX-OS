@@ -168,6 +168,7 @@ CREATE TABLE `agencies` (
   `phone_secondary_label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `fax` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `financial_year_start_month` tinyint unsigned NOT NULL DEFAULT '3',
   `reg_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `vat_no` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `vat_registered` tinyint(1) NOT NULL DEFAULT '0',
@@ -6111,7 +6112,7 @@ CREATE TABLE `documents` (
   `mime_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `size` bigint unsigned NOT NULL DEFAULT '0',
   `document_type_id` bigint unsigned DEFAULT NULL,
-  `source_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'upload',
+  `source_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'upload',
   `source_id` bigint unsigned DEFAULT NULL,
   `deal_id` bigint unsigned DEFAULT NULL,
   `custom_field_key` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -16204,6 +16205,7 @@ CREATE TABLE `users` (
   `paye_method` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `paye_value` decimal(10,2) DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
+  `is_principal_practitioner` tinyint(1) NOT NULL DEFAULT '0',
   `app_access_revoked_at` timestamp NULL DEFAULT NULL,
   `show_in_performance_reports` tinyint(1) NOT NULL DEFAULT '1',
   `counts_for_branch_split` tinyint(1) NOT NULL DEFAULT '1',
@@ -18177,4 +18179,7 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1473,'2026_09_28_1
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1474,'2026_10_03_220000_create_rental_inspection_screen_preferences_table',375);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1475,'2026_10_04_100000_create_signed_document_distribution_logs_table',376);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1476,'2026_10_04_100100_add_auto_send_report_enabled_to_rental_inspection_settings_table',376);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1477,'2026_10_04_090000_make_rental_inventories_lease_id_nullable',377);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1477,'2026_10_04_100200_widen_documents_source_type_column',377);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1478,'2026_10_03_230000_add_is_principal_practitioner_to_users_table',378);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1479,'2026_10_03_231500_add_financial_year_start_month_to_agencies_table',378);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1480,'2026_10_04_090000_make_rental_inventories_lease_id_nullable',378);
