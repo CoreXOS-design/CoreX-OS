@@ -2,18 +2,14 @@
 
 namespace App\Mail\Compliance;
 
+use App\Mail\Signatures\BaseSignatureMail;
 use App\Models\Agency;
-use Illuminate\Bus\Queueable;
-use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Address;
+use App\Models\User;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
-use Illuminate\Queue\SerializesModels;
 
-class SellerInfoMail extends Mailable
+class SellerInfoMail extends BaseSignatureMail
 {
-    use Queueable, SerializesModels;
-
     public Agency $agency;
     public string $tier;
     public string $sellerName;
@@ -32,17 +28,30 @@ class SellerInfoMail extends Mailable
         'tier_3' => 'Important: Verifying Your Agent\'s Credentials',
     ];
 
+    /**
+     * 2026-09-28 — $agent is who this pack goes out AS: it drives the From/
+     * Reply-To (BaseSignatureMail::getFromAddress()) and, via fromAgent(),
+     * lets ComplianceMailDispatcher route the send through that agent's own
+     * communication mailbox so the email lands in their Sent Items like
+     * every other CoreX outbound. Falls back to the shared CoreX mailer,
+     * unchanged, when $agent is null or has no mailbox configured.
+     */
     public function __construct(
         Agency $agency,
         string $tier,
         string $sellerName,
-        string $agentMessage = ''
+        string $agentMessage = '',
+        ?User $agent = null
     ) {
         $this->agency       = $agency;
         $this->tier         = $tier;
         $this->sellerName   = $sellerName;
         $this->agentMessage = $agentMessage;
         $this->tierLabel    = self::$tierSubjects[$tier] ?? 'Property Compliance Information';
+
+        if ($agent) {
+            $this->fromAgent($agent);
+        }
     }
 
     public function envelope(): Envelope
@@ -50,11 +59,9 @@ class SellerInfoMail extends Mailable
         $agencyShort = $this->agency->trading_name ?? $this->agency->name;
         $subject = "[{$agencyShort}] {$this->tierLabel}";
 
-        $fromAddress = $this->agency->whistleblow_compliance_officer_email
-            ?? config('mail.from.address');
-
         return new Envelope(
-            from: new Address($fromAddress, $agencyShort),
+            from: $this->getFromAddress(),
+            replyTo: $this->getReplyTo(),
             subject: $subject,
         );
     }

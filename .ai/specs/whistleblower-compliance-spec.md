@@ -72,8 +72,11 @@ Tier 3 (optional): Unregistered practitioner
 - Portal Capture audit job (no automated scraping of P24/PP for breaches)
 - PPRA FFC register scraping or API (manual FFC lookup by agent only)
 - Bulk Tier 2 firehose mode (kept for Phase 2 if HFC opts in)
-- Seller-facing information email (separate Phase 2 build)
 - Lawyer-managed escalation workflow (Phase 2)
+
+**Built ahead of this Phase-1 list, 2026-09-28:** the seller-facing information
+email originally deferred here now exists — both as a standalone tool
+(`/compliance/seller-info`) and auto-triggered on complaint approval. See §7a.
 
 ---
 
@@ -287,7 +290,10 @@ Agency admin can edit this list at `/agency/settings/compliance`. Multi-select p
 
 ### 6.2 Submission
 
-Agent fills the form → clicks Submit. Status transitions: `draft` → `pending_approval`. Notification fires to all configured approvers (in-app + email).
+Agent fills the form → clicks Submit. Status transitions: `draft` → `pending_approval`. Two notifications fire (both non-fatal to the submission — a notification failure is logged and swallowed, never rolls back the submit):
+
+- **Compliance Officer email** — `WhistleblowComplaintService::notifyComplianceOfficerOfSubmission()`. Recipient: `agencies.whistleblow_compliance_officer_email` if set, else the agency's primary Compliance Officer appointment (`fica_officer_appointments`, `role = primary_compliance_officer`, appointed at `/corex/settings?tab=user`). If neither is configured, this step is skipped and logged (absorbed, not an error). Sent via `WhistleblowSubmittedCoMail`, **from the reporting agent** (`fromAgent()` — see §7a's mailbox/Sent-Items note, which applies identically here). Body: reporter, property, tier, seller statement excerpt, a direct link to `/compliance/whistleblow/{id}`.
+- **Approver database notification** — `WhistleblowSubmittedNotification`, in-app only (no email), fired to every configured approver (the same resolution as §6.1: explicit `whistleblow_approver_user_ids`, else all agency admin/branch_manager/super_admin) via the AT-235 gateway (`NotificationDispatcher::send()`, event key `whistleblow.submitted_for_approval`). This is the approver's queue badge — distinct from the CO email above, which may or may not be the same person.
 
 ### 6.3 Approval
 
@@ -316,19 +322,35 @@ On `approved` → `sent`:
    - Audit trail: timeline of complaint events.
    - Footer: HFC contact for follow-up.
 
-2. Send email to PPRA via existing Mailgun mail driver.
-   - To: `complaints@theppra.org.za` (or whichever PPRA address — must be a per-agency configurable field for future flexibility; default to that)
-   - CC: agency `whistleblow_compliance_officer_email` + the user who approved
-   - From: agency's compliance officer email (uses BaseSignatureMail `fromAgent` pattern)
-   - Subject: `[HFC Compliance] PPRA Complaint — Tier {N} — {subject_agency}`
-   - Body: short cover (3 paragraphs max) + reference to attached PDF
-   - Attachment: the generated PDF
+2. Send email to PPRA (`WhistleblowComplaintMail`, dispatched via `ComplianceMailDispatcher`).
+   - To: per-tier `agencies.whistleblow_tier_recipients`, default `complaints@theppra.org.za`. Demo mode (`WHISTLEBLOW_PPRA_LIVE_SEND=false`) routes To to the demo recipient instead and prefixes the subject `[DEMO]`.
+   - CC: agency `whistleblow_compliance_officer_email` + the approver.
+   - From / Reply-To: **the approving agent** (`WhistleblowComplaintMail::__construct($complaint, $complaint->approvedBy)` → `BaseSignatureMail::fromAgent()`) — corrected 2026-09-28 to match this section's original intent, which the shipped code had never actually implemented (it hardcoded the CO email/system address as From instead).
+   - Subject: `[{agency}] PPRA Complaint — Tier {N} — {subjects_summary}`.
+   - Body: short cover + reference box (`emails/compliance/whistleblow-complaint.blade.php`).
+   - Attachment: the generated PDF.
+   - **Sent-Items:** when the approving agent has a configured `CommunicationMailbox`, `ComplianceMailDispatcher` routes the send through that mailbox's own SMTP credentials and appends the sent MIME to its IMAP Sent folder — same AT-395 mechanism every other CoreX agent-authored email already uses. Falls back to the shared CoreX mailer (no Sent-Items append) when the agent has no mailbox configured.
 
 3. Status → `sent`. Record `sent_to_ppra_at` timestamp. Log audit row with recipient emails + message-id.
+   - **A PPRA send failure no longer aborts approval** (fixed 2026-09-28): `approve()` wraps the `sendToPpra()` call — a failure is logged (`Log::error`) and audited (`email_send_failed`, written inside `sendToPpra()`'s own catch) but does not stop step 5 (seller pack) from running. Before this fix, any exception here — including the `agency_id` bug below — silently killed the rest of `approve()`: the complaint stayed stuck at `approved`, and the seller info pack in §7a never sent, with no error surfaced to the approver.
+   - **`whistleblow_email_log.agency_id` bug (found + fixed 2026-09-28):** the migration that added the `NOT NULL` `agency_id` column (`2026_05_23_090800`) was never followed by updating the service/controller `WhistleblowEmailLog::create()` calls to pass it — all 10 call sites across `WhistleblowComplaintService` and `SellerInfoController` relied on `BelongsToAgency`'s implicit auto-stamp from `Auth::user()`, which is absent for console/tinker/queued callers on a multi-agency install. Every call site now passes `agency_id` explicitly.
 
 4. Mark `compliance_evidence_flags` on the property record (if `property_id` was set).
 
 5. In-app notification to reporting agent: "Complaint #{id} sent to PPRA."
+
+---
+
+## 7a. Seller Info Pack (built 2026-09-28, deferred from §3.2's original Phase-1 scope)
+
+Two paths send the seller-facing "why proper paperwork protects you" pack (`SellerInfoMail`, tier-specific templates at `emails/compliance/seller-info/tier{1,2,3}.blade.php` — no PDF attachment, HTML email only):
+
+1. **Standalone tool** — `/compliance/seller-info` (`SellerInfoController`), permission `outreach.compose`. Agent picks a tier, enters up to 10 recipients (name + email), and sends manually. Independent of the whistleblow complaint flow — no complaint record required (`complaint_id` is `null` on the email log row).
+2. **Auto-send on complaint approval** — `WhistleblowComplaintService::sendSellerInfoFromComplaint()`, called from `approve()` immediately after the PPRA send (non-blocking — wrapped in try/catch, a failure here never blocks or reverses the approval). Only fires when the complaint has a linked `property_id`; recipients are that property's contacts with pivot role `owner`/`lessor`/`landlord`/`seller` **and** an email address on file — no email, no send, no error (silently skipped for that contact, consistent with prevent-or-absorb). No consent/NCC check (spec's Tier-1 seller-consent checkbox was removed at the data-model stage — see §4's Design Note — on the basis that HFC reports what HFC was told and PPRA investigates independently; the same reasoning was extended to this informational email rather than re-introducing a checkbox here).
+
+**Sending identity and Sent-Items (fixed 2026-09-28):** `SellerInfoMail` now extends `BaseSignatureMail` and is constructed with the acting agent — the approver for the auto-send path (`$complaint->approvedBy`, falling back to the reporter if unresolvable), or the logged-in agent for the standalone tool. Dispatched via `ComplianceMailDispatcher`, same mailbox-routing + IMAP Sent-folder append behaviour as §7's PPRA email. Previously this Mailable was a plain `Mailable` sent `From: agencies.whistleblow_compliance_officer_email ?? system address` with no Sent-Items trace at all, regardless of who triggered it.
+
+A WhatsApp-shareable link (`SellerInfoShareLink`, 90-day expiry, public route `/info/{token}`) is generated alongside every auto-send batch (one per complaint, not per contact) and every standalone-tool "Generate WhatsApp Link" action.
 
 ---
 
