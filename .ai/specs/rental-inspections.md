@@ -6354,3 +6354,18 @@ files are the inspections-side half of that same list:
 `resources/views/rental-inspections/public/show.blade.php`,
 `database/migrations/2026_10_05_100000_widen_disposition_on_rental_signature_tables.php`,
 `tests/Feature/RentalInspections/RentalInspectionWetInkAwaitingTest.php` (new).
+
+### 39.6 Three real bugs found and fixed via the real click-through (2026-09-29)
+
+See `rental-inventory.md` §21.9 for the full writeup. Summary of what landed on this module specifically:
+the pre-existing "Save upload" button on this page's own wet-ink form (`properties/show.blade.php`,
+shipped since §16, never proven against a real browser per §17.7's own docblock) never actually enabled
+for a real click — a genuine Alpine reactivity gap in `wetInkField()`, not a logic bug (fixed); and
+`resources/views/corex/rental-inspections/show.blade.php` read the original "Signed on paper (wet-ink)"
+wording and had no branch at all for the new `awaiting_wet_ink` disposition (fell through to "Refused to
+sign" with a bogus reason) — both fixed. Verified via a real HTTP flow (mark tenant awaiting → resolve
+via supersede-wet-ink with a PDF → landlord direct wet-ink capture with a JPG → agent signs → complete)
+against a throwaway property/inspection (21074/38, agency 1, user 365 — never 5294): the report PDF,
+the public share page, and this show page all correctly read "Signed on paper — scan on file" for both
+parties, and both scans were filed as Documents (`document_type_id` resolving to the `inspection_report`
+catalogue slug).

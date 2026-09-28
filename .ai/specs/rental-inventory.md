@@ -2826,3 +2826,50 @@ new `needsAction()` helper, not just `!dispositionFor(...)`), since it isn't a r
   wrapper for an image scan.
 - Tests: `tests/Feature/RentalInventory/RentalInventoryWetInkTest.php` (new),
   `tests/Feature/RentalInspections/RentalInspectionWetInkAwaitingTest.php` (new).
+
+### 21.9 Three real bugs found and fixed via the real click-through (2026-09-29)
+
+Johan's own instruction for this build included a real Puppeteer click-through as user 365 on a
+throwaway property — not a PHPUnit-only proof. It found three genuine bugs no PHPUnit test could see
+(exactly the class of gap STANDARDS.md Standard −1f exists to name), all fixed before landing:
+
+1. **The "Save upload" button never actually enabled**, on BOTH modules. `:disabled="!wetInkField(key)
+   .file || wetInkBusy[key]"` — `wetInkBusy[key]` is `undefined` until `saveWetInk()` runs at least
+   once, and `false || undefined` is `undefined`, not `false`. Alpine forwards that straight to
+   `toggleAttribute('disabled', undefined)` — a WebIDL optional-boolean argument passed as literal
+   `undefined` is spec'd as the argument being OMITTED, the exact bug class §20.1 already documents
+   (`markRoomBusy`). First fix: `!!wetInkBusy[key]` to force a real boolean. That fix alone was NOT
+   enough — direct Alpine-state inspection showed the underlying expression correctly computed `false`
+   (should be enabled) while the DOM's `disabled` attribute stayed `true` regardless. Root cause,
+   found by evaluating the exact bound expression via `Alpine.$data()` directly: `wetInkField(key) {
+   return this.wetInkForm[key] || (this.wetInkForm[key] = { file: null }); }` — the assignment `(a = b)`
+   as a JS expression evaluates to the RAW value being assigned, not a re-read through Alpine's
+   reactive Proxy getter. The very FIRST time a template binding (`:disabled`, `x-text`) called this for
+   a given key — which happens on initial render, before any file is chosen — it got back that raw,
+   never-wrapped object and tracked a dependency on ITS `.file` property, never instrumented by the
+   reactive system since it was never read via the Proxy. A LATER `@change` mutation re-reads
+   `this.wetInkForm[key]` through the proper reactive getter and sets `.file` there correctly, but
+   nothing was ever subscribed to THAT path, so `:disabled`/`x-text` silently never updated again after
+   the first render. Fixed by splitting the assignment into its own statement so every return, including
+   the first call for a key, is a fresh reactive read — in both the new inventory partial's
+   `wetInkField()` and the PRE-EXISTING inspections one (`properties/show.blade.php`, shipped since §16,
+   never proven against a real browser per §17.7's own docblock: "no browser tool is available in this
+   environment... needs proving once landed"). Confirmed fixed by re-running the click-through and by
+   direct database inspection — both a PDF and a JPG upload now file correctly end to end.
+2. **`resources/views/corex/rental-inspections/show.blade.php`** (the admin/read-only inspection detail
+   page) still read the ORIGINAL "Signed on paper (wet-ink)" wording from §16/§17, not the standardised
+   "Signed on paper — scan on file" this build uses everywhere else — fixed.
+3. **The same page had NO branch for `awaiting_wet_ink` at all** — it fell through to the `@else`
+   (refused) block and rendered an awaiting party as "Refused to sign" with a bogus reason label
+   (`refusal_reason_preset` is null for this disposition). Added the missing branch. The page's own
+   deliberate choice to still print a SUPERSEDED row (with its own note pointing at the replacement,
+   §17.5's original design) is unchanged — a real difference from the report PDF/public page/inventory
+   show page, which show the live row only, not a bug.
+
+**Why the "one PDF, one JPG" click-through step of Johan's own brief is exactly what caught #1**: every
+automated PHPUnit test in both new test files (`RentalInventoryWetInkTest`/
+`RentalInspectionWetInkAwaitingTest`) posts straight to the controller endpoint — proving the server
+contract, never proving a human can actually click the button that calls it. Standard −1f's own lesson,
+recurring: "A PHPUnit test cannot see a disabled button — it does not run a browser." Verified on
+throwaway fixtures only (properties 21068-21074, inventories 18-23, inspection 38, agency 1, user 365)
+— property 5294 never touched.
