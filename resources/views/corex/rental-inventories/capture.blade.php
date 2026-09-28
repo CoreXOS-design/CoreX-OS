@@ -1006,6 +1006,23 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpac
             // 0 or 1 — see commitDraftRow()/qtyForPayload()).
             this.newLine[room.id] = { quantity: '', description: '' };
             this.lineBusy[room.id] = false;
+            // "Nothing in this room"/"Undo" fix, 2026-09-28 — same undefined-
+            // bound-boolean-attribute bug as the rental-applications strike
+            // button (see rental-click-through.mjs's own header docblock):
+            // markRoomBusy[room.id] was never initialised, so it read
+            // `undefined` until the button's own first click set it. Alpine's
+            // :disabled binding forwards that straight to the DOM's
+            // `toggleAttribute('disabled', undefined)` — and a WebIDL
+            // optional-boolean argument passed as literal `undefined` is
+            // spec'd as THE ARGUMENT BEING OMITTED, so it just flips
+            // whatever the attribute's CURRENT state is instead of forcing
+            // it false. Freshly-rendered HTML has no `disabled` attribute,
+            // so that very first flip ADDS it — permanently, since the
+            // button can never be clicked to run the code that would set a
+            // real boolean. Initialising it to `false` here (same pattern
+            // already used for lineBusy above) makes every :disabled
+            // evaluation a genuine boolean from the first paint onward.
+            this.markRoomBusy[room.id] = false;
         },
         // Blank is always '' client-side (never null/undefined) — see init().
         normalizeQtyDisplay(v) {
