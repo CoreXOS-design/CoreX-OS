@@ -825,9 +825,45 @@
                         const offset = (pinTop + bar.offsetHeight) - panel.getBoundingClientRect().top;
                         panel.style.setProperty('--rir-room-anchor-offset', offset + 'px');
                     };
+                    {{-- §38, 2026-09-28 (Johan, property 5294, 1522×784) —
+                         switching Inventory→Inspections→expanding the
+                         Inspection section left this bar `position:fixed`
+                         at the top-left of the viewport, outside the card,
+                         with the page not even scrolled. Root cause: this
+                         whole panel is `x-show` (display:none), never
+                         removed from the DOM (show.blade.php's
+                         `activeTab === 'inspections'` tab, and this
+                         section's own `open['inspection']` collapse) — a
+                         scroll/resize/ResizeObserver(bar) firing while
+                         EITHER ancestor is hidden reads `bar`'s (or the
+                         placeholder's) `getBoundingClientRect()` as all-
+                         zero, which satisfies `naturalTop(0) <= pinTop`
+                         unconditionally and pins the bar to garbage
+                         geometry — then nothing ever recomputed it once
+                         the tab/section became visible again, because
+                         neither a tab switch nor a section expand fires
+                         scroll or resize, and `display:none`→`block`
+                         is not guaranteed to fire ResizeObserver reliably
+                         across browsers the moment this happens. --}}
                     const update = () => {
+                        const measureEl = pinned ? placeholder : bar;
+                        const rect = measureEl.getBoundingClientRect();
+                        {{-- Never trust a 0-size rect enough to decide pin
+                             state from it — this IS the tab-hidden /
+                             section-collapsed case. Force static and bail;
+                             the IntersectionObserver below re-runs this
+                             with real geometry the moment it's visible
+                             again. --}}
+                        if (rect.width === 0 && rect.height === 0) {
+                            if (pinned) {
+                                bar.style.position = bar.style.top = bar.style.left = bar.style.width = bar.style.marginTop = '';
+                                placeholder.style.display = 'none';
+                                pinned = false;
+                            }
+                            return;
+                        }
                         const pinTop = tabBar.getBoundingClientRect().bottom;
-                        const naturalTop = (pinned ? placeholder : bar).getBoundingClientRect().top;
+                        const naturalTop = rect.top;
                         const shouldPin = naturalTop <= pinTop;
                         if (shouldPin && !pinned) {
                             const ownMarginTop = parseFloat(getComputedStyle(bar).marginTop) || 0;
@@ -856,6 +892,18 @@
                     panel.addEventListener('scroll', scheduleUpdate, { passive: true });
                     window.addEventListener('resize', scheduleUpdate);
                     new ResizeObserver(scheduleUpdate).observe(bar);
+                    {{-- §38 — the actual fix: an IntersectionObserver on
+                         `bar` itself fires the instant its rendered
+                         presence flips (display:none <-> displayed), which
+                         covers BOTH triggers named in the task (a tab
+                         switch hides/shows the WHOLE panel; a section
+                         expand/collapse hides/shows just this bar's own
+                         collapsing ancestor) with one mechanism, calling
+                         `update()` immediately (not debounced — this is a
+                         discrete state flip, not a scroll stream) so the
+                         bar is never left pinned-and-stale, and never
+                         stays static-when-it-should-pin, after either. --}}
+                    new IntersectionObserver(() => update(), { threshold: [0] }).observe(bar);
                     update();
                 })()
              ">
