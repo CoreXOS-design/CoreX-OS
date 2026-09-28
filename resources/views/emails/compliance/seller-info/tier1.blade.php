@@ -77,7 +77,7 @@
 <div class="callout">
     <h4>Why this matters to you</h4>
     <ul>
-        <li>South Africa was grey-listed by FATF in February 2023 for anti-money-laundering weakness</li>
+        <li>South Africa was grey-listed by the FATF in February 2023 and removed in October 2025; the stricter FICA checks introduced to get off the list remain in force</li>
         <li>Penalties for non-compliance: up to R10 million for natural persons, R50 million for businesses (FIC Act s.45C)</li>
         <li>If the agent does not FICA, your transaction may be FLAGGED as a suspicious transaction, even if you have done nothing wrong</li>
         <li>Conveyancers are PROHIBITED by law from paying commission to agents who do not hold a valid FFC at the time of the sale (Property Practitioners Act s.48)</li>
@@ -117,7 +117,7 @@
 <p>A properly drafted mandate and sale agreement protect you when a buyer pulls out. Without proper paperwork, you may have no basis to claim damages or retain deposits.</p>
 
 <h3>Court-Ordered Repairs After Sale</h3>
-<p>In <strong><a href="https://www.saflii.org/za/cases/ZASCA/2023/102.html" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Le Roux v Zietsman</a></strong> (Supreme Court of Appeal, 2023) the seller of a guesthouse told the buyers the roof had been repaired and no longer leaked. The court found he knowingly hid long-standing roof defects. His voetstoots clause did not protect him, and he had to pay R167,480 for roof repairs, R68,038 in lost income, plus legal costs. Lesson: disclose everything, in writing, up front.</p>
+<p>Sellers who hid defects have been ordered to pay years after the sale: see <strong><a href="https://www.saflii.org/za/cases/ZASCA/2023/102.html" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Le Roux v Zietsman</a></strong> and <strong><a href="https://lawlibrary.org.za/akn/za-gp/judgment/zagpphc/2023/1019/eng@2023-09-05" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Chuma v Bondcor</a></strong> above.</p>
 
 <h3>FICA Enforcement Risk</h3>
 <p>In 2014 the South African Reserve Bank fined ABSA R10 million under the FIC Act for customer-verification and reporting failures. South Africa was grey-listed by the FATF in February 2023 and only removed in October 2025 after tightening anti-money-laundering enforcement, including in property. Those stricter FICA checks remain in force.</p>
