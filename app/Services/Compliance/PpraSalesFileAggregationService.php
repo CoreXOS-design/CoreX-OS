@@ -163,11 +163,18 @@ class PpraSalesFileAggregationService
         }
 
         foreach ($deal->contacts as $contact) {
+            // Contact has no `name` attribute — every other service in this
+            // codebase composes it from first_name/last_name (confirmed:
+            // MarketingReadinessService, WhistleblowComplaintService,
+            // Contact::getInitialsAttribute() all do this; there is no
+            // `name` column or accessor on the model at all).
+            $contactName = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: ('Contact #' . $contact->id);
+
             $submission = FicaSubmission::where('contact_id', $contact->id)->approved()->latest('id')->first()
                 ?? FicaSubmission::where('contact_id', $contact->id)->latest('id')->first();
 
             if (! $submission) {
-                $missing[] = "No FICA submission found for {$contact->name} (party on this deal).";
+                $missing[] = "No FICA submission found for {$contactName} (party on this deal).";
                 continue;
             }
 
@@ -176,15 +183,15 @@ class PpraSalesFileAggregationService
             $linked = $submission->linkedDocuments;
 
             if ($uploaded->isEmpty() && $linked->isEmpty()) {
-                $missing[] = "FICA submission for {$contact->name} has no supporting documents on file.";
+                $missing[] = "FICA submission for {$contactName} has no supporting documents on file.";
                 continue;
             }
 
             foreach ($uploaded as $doc) {
                 $files[] = (object) [
-                    'label'     => $contact->name . ' — ' . $doc->document_type_label,
+                    'label'     => $contactName . ' — ' . $doc->document_type_label,
                     'source'    => $doc,
-                    'dest_path' => $folder . '/fica/' . Str::slug($contact->name) . '/' . ($doc->file_name ?: basename((string) $doc->file_path)),
+                    'dest_path' => $folder . '/fica/' . Str::slug($contactName) . '/' . ($doc->file_name ?: basename((string) $doc->file_path)),
                     'note'      => null,
                     'exists'    => true,
                 ];
@@ -192,9 +199,9 @@ class PpraSalesFileAggregationService
 
             foreach ($linked as $doc) {
                 $files[] = (object) [
-                    'label'     => $contact->name . ' — ' . ($doc->documentType?->label ?? 'linked FICA document'),
+                    'label'     => $contactName . ' — ' . ($doc->documentType?->label ?? 'linked FICA document'),
                     'source'    => $doc,
-                    'dest_path' => $folder . '/fica/' . Str::slug($contact->name) . '/' . ($doc->original_name ?: basename((string) $doc->storage_path)),
+                    'dest_path' => $folder . '/fica/' . Str::slug($contactName) . '/' . ($doc->original_name ?: basename((string) $doc->storage_path)),
                     'note'      => null,
                     'exists'    => true,
                 ];
