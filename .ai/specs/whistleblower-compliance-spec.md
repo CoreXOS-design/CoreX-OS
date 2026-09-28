@@ -352,6 +352,14 @@ Two paths send the seller-facing "why proper paperwork protects you" pack (`Sell
 
 A WhatsApp-shareable link (`SellerInfoShareLink`, 90-day expiry, public route `/info/{token}`) is generated alongside every auto-send batch (one per complaint, not per contact) and every standalone-tool "Generate WhatsApp Link" action.
 
+**Case-law content corrected, sourced, and linked (2026-09-28).** A read-only review of the three templates found the case citations were materially wrong: *Le Roux v Zietsman* was described as an MDF/non-disclosure-form case (it was a 2023 roof-defect/voetstoots case with no MDF in play), *Chuma v Bondcor* was cited as a double-commission ruling (it is a 2023 High Court sinkhole-non-disclosure case, unrelated to commission), and *ABSA Bank Ltd v Financial Intelligence Centre* was presented as a 2013 court case establishing FIC penalties (there is no such case — ABSA was fined R10 million by the South African Reserve Bank under the FIC Act in 2014, an administrative penalty, not litigation) — and the Wakefields citation carried the wrong SAFLII number (ZASCA 160 instead of ZASCA 161). All three templates were corrected against the actual judgments (facts supplied by Johan directly) and now:
+- Cite *Wakefields Real Estate v Attree* [2011] ZASCA 161 only for double-commission/effective-cause risk.
+- Cite *Le Roux v Zietsman* (SCA 2023) accurately for hidden-defect/voetstoots risk, with the real damages figures (R167,480 roof repairs, R68,038 lost income).
+- Add *Chuma v Bondcor* (High Court, Pretoria, 2023) for non-disclosure risk, beside Le Roux, with its real figures (R600,000 purchase price repaid, R37,000 transfer costs).
+- Replace the fictitious ABSA "case" with the real 2014 SARB administrative fine, and correct the FATF grey-list claim to include SA's actual removal date (24 October 2025) — the unsupported claim that the PPRA "may freeze suspicious transactions" was deleted (no source for it).
+- Every case name is hyperlinked at first mention in the body (SAFLII / lawlibrary.org.za), plus a "Read more" block near the end of every tier linking all three judgments, a news report on the Chuma case, three law-firm articles on double-commission/effective-cause, and the PPRA Code of Conduct. Links use inline styles only (no CSS classes) for Outlook/Gmail compatibility and open in a new tab.
+- **Verification note:** SAFLII, lawlibrary.org.za, iol.co.za, and theppra.org.za all sit behind a Cloudflare bot-challenge (`cf-mitigated: challenge`) that returns 403 to both `curl` and automated fetch tools — this could not be resolved to a mechanical HTTP 200 check for 5 of the 8 links; a real browser passes the challenge normally. The 3 law-firm article links (Miltons, Benaters, Shepstone & Wylie) verified 200 directly.
+
 ---
 
 ## 8. UI Surfaces
