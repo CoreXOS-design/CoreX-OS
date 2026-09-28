@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\GeneratePpraInspectionPackJob;
 use App\Models\Agency;
 use App\Models\Compliance\PpraInspectionGapNote;
+use App\Models\Compliance\PpraInspectionPack;
 use App\Services\Compliance\PpraFinancialYearListService;
 use App\Services\Compliance\PpraInspectionPackChecklistService;
 use App\Services\Compliance\PpraInspectionReportPdfService;
@@ -42,8 +44,64 @@ class PpraInspectionPackController extends Controller
         $agency = $this->resolveAgency($request);
 
         $rows = $this->checklist->checklistFor($agency);
+        $latestPack = PpraInspectionPack::where('agency_id', $agency->id)->latest('created_at')->first();
 
-        return view('admin.ppra-inspection-pack.index', compact('agency', 'rows'));
+        return view('admin.ppra-inspection-pack.index', compact('agency', 'rows', 'latestPack'));
+    }
+
+    /**
+     * "Download full inspection pack" (§6.9) — queues GeneratePpraInspectionPackJob
+     * and returns immediately; the checklist page polls/shows "Generating…".
+     * Regeneration contract: if sample_*_ids are already set on the current
+     * draft (from a prior generation or a picker visit), the job reuses them
+     * without reopening the picker.
+     */
+    public function generate(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+        $user = $request->user();
+
+        // currentDraftFor() only ever returns a queued/generated_at=null row
+        // — reuse it as-is if one exists. Otherwise this is a REGENERATION
+        // (the most recent pack already reached ready/failed): a fresh row
+        // still carries forward that pack's sample ids, per the
+        // regeneration contract (§6.9) — never silently drops a saved
+        // picker selection just because the pack it was saved on finished.
+        $draft = PpraInspectionPack::currentDraftFor($agency);
+        if ($draft) {
+            $pack = $draft;
+        } else {
+            $previous = PpraInspectionPack::where('agency_id', $agency->id)->latest('created_at')->first();
+            $pack = PpraInspectionPack::create([
+                'agency_id'            => $agency->id,
+                'requested_by_user_id' => $user->id,
+                'status'               => 'queued',
+                'sample_deal_ids'      => $previous?->sample_deal_ids,
+                'sample_rental_ids'    => $previous?->sample_rental_ids,
+                'sample_listing_ids'   => $previous?->sample_listing_ids,
+            ]);
+        }
+
+        GeneratePpraInspectionPackJob::dispatch($pack->id);
+
+        return redirect()->route('admin.ppra-inspection-pack.index')
+            ->with('success', 'Generating your PPRA inspection pack — you\'ll be notified when it\'s ready.');
+    }
+
+    /**
+     * Download a finished pack's ZIP. Agency-scope re-checked (mirrors
+     * AgencyDocumentsViewerController::download()'s multi-tenant check) AND
+     * ppra_inspection_pack.generate re-checked — no public/unauthenticated
+     * share link (§6.9).
+     */
+    public function download(Request $request, PpraInspectionPack $pack)
+    {
+        $agency = $this->resolveAgency($request);
+        abort_unless($pack->agency_id === $agency->id, 403);
+        abort_unless($pack->status === 'ready' && $pack->zip_path, 404);
+        abort_unless(is_file($pack->zip_path), 404);
+
+        return response()->download($pack->zip_path, 'PPRA-Inspection-Pack-' . $pack->id . '.zip');
     }
 
     /**

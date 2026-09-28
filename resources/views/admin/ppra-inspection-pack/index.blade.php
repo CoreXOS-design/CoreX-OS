@@ -21,8 +21,30 @@
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                     Download Inspection Report
                 </a>
+
+                {{-- Phase J — §6.9. Full ZIP pack: Report + every source document sampled for k/l/m. --}}
+                @if($latestPack && $latestPack->status === 'generating')
+                    <span class="corex-btn-outline text-xs" style="pointer-events:none; opacity:0.7;">Generating…</span>
+                @elseif($latestPack && $latestPack->status === 'ready' && $latestPack->generated_at)
+                    <a href="{{ route('admin.ppra-inspection-pack.download', $latestPack) }}" class="corex-btn-outline text-xs">Download full inspection pack</a>
+                    <form method="POST" action="{{ route('admin.ppra-inspection-pack.generate') }}" class="inline">
+                        @csrf
+                        <button type="submit" class="corex-btn-outline text-xs">Regenerate</button>
+                    </form>
+                @else
+                    <form method="POST" action="{{ route('admin.ppra-inspection-pack.generate') }}" class="inline">
+                        @csrf
+                        <button type="submit" class="corex-btn-outline text-xs">Download full inspection pack</button>
+                    </form>
+                @endif
             </div>
         </div>
+
+        @if($latestPack && $latestPack->status === 'failed')
+            <div class="mt-3 rounded-md px-4 py-2.5 text-xs" style="background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 10%, transparent); color:var(--ds-crimson,#c41e3a); border:1px solid color-mix(in srgb, var(--ds-crimson,#c41e3a) 25%, transparent);">
+                Pack generation failed: {{ $latestPack->error_message ?: 'Unknown error.' }} — click "Download full inspection pack" to try again.
+            </div>
+        @endif
     </div>
 
     @if(session('success'))
