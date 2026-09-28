@@ -4,10 +4,10 @@
 #
 #   Usage:  cd /corex-qa1 && ./scripts/qa-deploy.sh
 #
-# Deploys whatever is on origin/QA1 to the qa1 host: fast-forward pull → (only if
-# frontend changed) npm build → migrate → reference data → permission keys →
-# clear caches → reload the shared php8.2-fpm pool → restart the qa1 worker.
-# Idempotent; safe to re-run.
+# Deploys whatever is on origin/QA1 to the qa1 host: fast-forward pull →
+# storage permissions → (only if frontend changed) npm build → migrate →
+# reference data → permission keys → clear caches → reload the shared
+# php8.2-fpm pool → restart the qa1 worker. Idempotent; safe to re-run.
 #
 # NOT for staging/live. Refuses to run anywhere but the qa1 checkout. The general
 # scripts/deploy.sh is BANNED on qa1 — this is the blessed path.
@@ -98,7 +98,34 @@ if [ "$OLDHEAD" = "$NEWHEAD" ]; then
     echo "   (no new commits — running deploy steps anyway to activate current code)"
 fi
 
-echo "-- 2. frontend build if assets changed OR the build marker doesn't match HEAD --"
+echo "-- 2. enforce storage/ + bootstrap/cache/ ownership + permissions --"
+# 2026-09-28 — storage/app/whistleblow/complaints turned up owned root:www-data
+# mode 2755 (no group-write) instead of the www-data:www-data 2775 every other
+# runtime-written storage/app subdir has. Root cause: some artisan invocation
+# ran as root (a manual sudo session, most likely) and mkdir()'d that specific
+# subdirectory before php-fpm (www-data) ever did — PHP's mkdir($path, 0755)
+# calls throughout the app pass an explicit mode with no group-write bit, so
+# ANY subdirectory a non-www-data process creates first carries this defect,
+# not just this one. www-data (php-fpm) can then never write into it again —
+# found via WhistleblowComplaintService::generatePdf() throwing "Permission
+# denied" on approve(), blocking every new whistleblow complaint. Fixed every
+# deploy, not once: chown/chmod the whole storage/ + bootstrap/cache/ tree
+# back to www-data:www-data with group-write, so any directory that drifted
+# (by any process, any time) self-heals within one deploy cycle. Runs before
+# composer install / migrate / seeders / caches below, since those can
+# themselves write into storage/bootstrap-cache and should see correct
+# ownership too. Same fix landed in scripts/deploy.sh STEP 5 (staging/live).
+PERM_OUT="$( { sudo chown -R www-data:www-data storage bootstrap/cache || chown -R www-data:www-data storage bootstrap/cache; } 2>&1 && \
+             { sudo chmod -R ug+rwX storage bootstrap/cache || chmod -R ug+rwX storage bootstrap/cache; } 2>&1 )"
+PERM_STATUS=$?
+if [ $PERM_STATUS -ne 0 ]; then
+    echo "$PERM_OUT"
+    echo "ABORT: storage/bootstrap-cache ownership+permission enforcement failed (exit $PERM_STATUS)." >&2
+    exit 1
+fi
+echo "   storage/ + bootstrap/cache/ → www-data:www-data, group-writable (ug+rwX)"
+
+echo "-- 3. frontend build if assets changed OR the build marker doesn't match HEAD --"
 # Any .blade.php counts as a frontend change too, not just resources/js|css —
 # Tailwind's classes come from scanning Blade templates for class-name
 # strings, not from resources/css source, so a Blade-only change introducing
@@ -175,7 +202,7 @@ else
     echo "   marker $BUILD_MARKER matches HEAD ($NEWHEAD) — skip npm build"
 fi
 
-echo "-- 3. composer install if composer.lock changed OR the vendor marker doesn't match HEAD --"
+echo "-- 4. composer install if composer.lock changed OR the vendor marker doesn't match HEAD --"
 # 2026-09-25 — same disease as step 2's old frontend-build gate: this used
 # to decide "does vendor/ need reinstalling" purely from OLDHEAD→NEWHEAD
 # movement across THIS pull. When the commit being deployed was already
@@ -220,7 +247,7 @@ else
     echo "   marker $COMPOSER_MARKER matches HEAD ($NEWHEAD) — skip composer install"
 fi
 
-echo "-- 4. migrate (idempotent) --"
+echo "-- 5. migrate (idempotent) --"
 # 2026-09-22 — a failed migration's real error (the actual SQL error, the
 # migration filename, the stack trace) can easily exceed 4 lines; `tail -4`
 # could cut it down to nothing useful while the script carried on to
@@ -234,7 +261,7 @@ if [ $MIGRATE_STATUS -ne 0 ]; then
 fi
 echo "$MIGRATE_OUT" | tail -4
 
-echo "-- 5. reference data (global seeder-owned rows; idempotent) --"
+echo "-- 6. reference data (global seeder-owned rows; idempotent) --"
 # 2026-09-22 — this command has its own hard-failure path (AT-265: deploy
 # halted if role_permissions is empty after provisioning), 6 lines of
 # error+warn text that `tail -3` could cut mid-message. NOTE: unlike step
@@ -272,24 +299,24 @@ echo "$REFDATA_OUT" | tail -3
 # swallowed on every run, on every deploy, since the day this step was
 # added. Fix: never drop a WARNING/ERROR line, whatever else gets
 # summarised down.
-echo "-- 6. permission keys (additive — customisations preserved) --"
+echo "-- 7. permission keys (additive — customisations preserved) --"
 PERM_SYNC_OUT="$(php artisan corex:sync-permissions --merge-defaults 2>&1)"
 echo "$PERM_SYNC_OUT" | grep -E "WARNING|ERROR" || true
 echo "$PERM_SYNC_OUT" | tail -3
 
-echo "-- 7. clear caches --"
+echo "-- 8. clear caches --"
 php artisan config:clear 2>&1 | tail -1
 php artisan route:clear 2>&1 | tail -1
 php artisan view:clear 2>&1 | tail -1
 
-echo "-- 8. reload $FPM (clears opcache) --"
+echo "-- 9. reload $FPM (clears opcache) --"
 sudo systemctl reload "$FPM" 2>&1 | tail -1 || systemctl reload "$FPM" 2>&1 | tail -1
 
-echo "-- 9. restart qa1 worker --"
+echo "-- 10. restart qa1 worker --"
 sudo systemctl restart "$WORKER" 2>&1 | tail -1 || systemctl restart "$WORKER" 2>&1 | tail -1
 php artisan queue:restart 2>&1 | tail -1
 
-echo "-- 10. smoke: app boots (route table resolves) --"
+echo "-- 11. smoke: app boots (route table resolves) --"
 php artisan route:list >/dev/null 2>&1 && echo "   route table OK" || { echo "   ROUTE TABLE FAILED — investigate"; exit 1; }
 
 echo "== qa-deploy DONE @ $NEWHEAD =="
