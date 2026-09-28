@@ -129,6 +129,10 @@
                             </div>
                         @elseif($row->item === 'g')
                             <a href="{{ route('admin.ppra-inspection-pack.letterhead') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Generate letterhead</a>
+                        @elseif($row->item === 'i')
+                            <a href="{{ route('admin.ppra-inspection-pack.transformation.index') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">
+                                {{ $row->status === 'red' ? 'Write / upload statement' : 'Manage statement' }}
+                            </a>
                         @else
                             <span class="text-xs" style="color:var(--text-muted);">—</span>
                         @endif

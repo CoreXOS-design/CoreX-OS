@@ -224,6 +224,31 @@
                     <p class="evidence">No principal practitioner identified — check user designations.</p>
                 @endif
             @endif
+
+            {{-- Item (i) — transformation initiatives: structured rows or a
+                 reference to the uploaded document (§6.5). --}}
+            @if($row->item === 'i' && isset($transformation) && $transformation)
+                @if($transformation->entry_type === 'structured' && is_array($transformation->structured_data) && count($transformation->structured_data))
+                    <table>
+                        <thead>
+                            <tr><th>Description</th><th style="width:14%;">Start</th><th style="width:14%;">End</th><th style="width:20%;">People Involved</th><th style="width:14%;">Spend (ZAR)</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach($transformation->structured_data as $initiative)
+                            <tr>
+                                <td>{{ $initiative['description'] ?? '—' }}</td>
+                                <td>{{ !empty($initiative['start_date']) ? \Illuminate\Support\Carbon::parse($initiative['start_date'])->format('d M Y') : '—' }}</td>
+                                <td>{{ !empty($initiative['end_date']) ? \Illuminate\Support\Carbon::parse($initiative['end_date'])->format('d M Y') : '—' }}</td>
+                                <td>{{ $initiative['people_involved'] ?? '—' }}</td>
+                                <td>{{ isset($initiative['spend_amount']) && $initiative['spend_amount'] !== '' ? number_format((float) $initiative['spend_amount'], 2) : '—' }}</td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                @elseif($transformation->entry_type === 'document')
+                    <p class="evidence"><strong>Uploaded statement:</strong> {{ $transformation->document_original_name }} &mdash; saved {{ $transformation->created_at->format('d M Y') }}.</p>
+                @endif
+            @endif
         @endif
     </div>
     @endforeach

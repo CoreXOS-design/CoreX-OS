@@ -1185,6 +1185,20 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
         Route::post('/gap-notes/{gapNote}/resolve', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'resolveGapNote'])->name('gap-notes.resolve');
         Route::delete('/gap-notes/{gapNote}', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'destroyGapNote'])->name('gap-notes.destroy');
     });
+
+    // Item (i) — transformation initiatives (Phase D, v3). §6.5.
+    Route::prefix('transformation')->name('transformation.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'index'])->name('index');
+        Route::get('/{noteId}/download', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'download'])->name('download');
+
+        Route::middleware('permission:ppra_inspection_pack.configure')->group(function () {
+            Route::post('/structured', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'storeStructured'])->name('store-structured');
+            Route::post('/document', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'storeDocument'])->name('store-document');
+            Route::post('/draft', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'draft'])->name('draft');
+            Route::delete('/{note}', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'destroy'])->name('destroy');
+            Route::post('/{noteId}/restore', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'restore'])->name('restore');
+        });
+    });
 });
 
 // ===== PUBLIC PROPERTY PREVIEW (shareable, no auth required) =====

@@ -5,20 +5,22 @@ namespace App\Services\Compliance;
 use App\Models\Agency;
 use App\Models\Compliance\AgencyComplianceProvision;
 use App\Models\Compliance\AgencyDocumentTypeConfig;
+use App\Models\Compliance\AgencyTransformationNote;
 use App\Models\Compliance\PpraInspectionGapNote;
 use Illuminate\Support\Collection;
 
 /**
- * PPRA Inspection Pack — Phase A + B + C. .ai/specs/ppra-inspection-pack.md §5.
+ * PPRA Inspection Pack — Phase A + B + C + D. .ai/specs/ppra-inspection-pack.md §5.
  *
  * Computes the live a-m checklist for an agency. Wired so far:
  * a, b, d, e, h (agency-vault-backed, Phase A), c, f, g (practitioner
  * FFC roster + letterhead, Phase B/C — v3 sources c/f from
  * PractitionerFfcRosterService, role-filtered + UserDocument-backed, per
- * Johan's 2026-09-28 ruling). Items i/j/k/l/m are returned with status
- * 'pending' ("not yet available" — later phases) so the checklist page and
- * Inspection Report keep a stable 13-row shape from day one without
- * guessing at data later phases will add.
+ * Johan's 2026-09-28 ruling), i (transformation initiatives, Phase D — v3
+ * structured-or-document, either satisfies the item). Items j/k/l/m are
+ * returned with status 'pending' ("not yet available" — later phases) so
+ * the checklist page and Inspection Report keep a stable 13-row shape from
+ * day one without guessing at data later phases will add.
  */
 class PpraInspectionPackChecklistService
 {
@@ -40,7 +42,6 @@ class PpraInspectionPackChecklistService
     ];
 
     private const PENDING_ITEMS = [
-        'i' => 'Transformation Initiatives',
         'j' => 'Sales/Rentals List — Current Financial Year',
         'k' => 'Sales Files Sampled',
         'l' => 'Rental Files Sampled',
@@ -81,6 +82,7 @@ class PpraInspectionPackChecklistService
         $rows->push($this->practitionerFfcRow($agency, 'c', 'Principal\'s FFCs', $principals, false, true));
         $rows->push($this->practitionerFfcRow($agency, 'f', 'Practitioner List & FFC Numbers', $fullRoster, true));
         $rows->push($this->letterheadRow($agency));
+        $rows->push($this->transformationRow($agency));
 
         foreach (self::PENDING_ITEMS as $key => $label) {
             $rows->push((object) [
@@ -195,6 +197,46 @@ class PpraInspectionPackChecklistService
             'status'      => $status,
             'why'         => $why,
             'evidence'    => $status === 'green' ? 'Letterhead available on demand' : null,
+            'gap_note'    => $gapNote,
+            'document'    => null,
+            'upload_configs' => collect(),
+        ];
+    }
+
+    /**
+     * Item i — transformation initiatives (Phase D, v3). Green once a
+     * current version exists, whichever entry_type it is — either path
+     * independently satisfies the item (§6.5).
+     */
+    private function transformationRow(Agency $agency): object
+    {
+        $item = 'i';
+        $current = AgencyTransformationNote::currentFor($agency->id);
+
+        if (! $current) {
+            $status = 'red';
+            $why = 'No transformation initiatives statement on file — write one or upload a document.';
+        } else {
+            $status = 'green';
+            $why = $current->entry_type === 'document'
+                ? "Statement uploaded: {$current->summary}."
+                : "Statement on file: {$current->summary}.";
+        }
+
+        $gapNote = null;
+        if (in_array($status, ['amber', 'red'], true)) {
+            $gapNote = PpraInspectionGapNote::currentFor($agency->id, $item);
+        } else {
+            PpraInspectionGapNote::where('agency_id', $agency->id)->forItem($item)->open()->update(['resolved_at' => now()]);
+        }
+
+        return (object) [
+            'item'        => $item,
+            'label'       => 'Transformation Initiatives',
+            'requirement' => "The agency's B-BBEE / transformation initiatives — written in CoreX or an uploaded statement.",
+            'status'      => $status,
+            'why'         => $why,
+            'evidence'    => $current?->summary,
             'gap_note'    => $gapNote,
             'document'    => null,
             'upload_configs' => collect(),

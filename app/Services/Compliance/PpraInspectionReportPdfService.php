@@ -3,6 +3,7 @@
 namespace App\Services\Compliance;
 
 use App\Models\Agency;
+use App\Models\Compliance\AgencyTransformationNote;
 use App\Models\User;
 use App\Services\Compliance\Concerns\GeneratesPdfViaPuppeteer;
 
@@ -36,6 +37,7 @@ class PpraInspectionReportPdfService
         $gaps = $rows->whereIn('status', ['amber', 'red'])->values();
         $roster = $this->practitionerRoster->rosterFor($agency->id);
         $principals = $this->practitionerRoster->principalsFor($agency->id);
+        $transformation = AgencyTransformationNote::currentFor($agency->id);
 
         $reportReference = 'PPRA-' . $agency->id . '-' . now()->format('Ymd-Hi');
 
@@ -45,6 +47,7 @@ class PpraInspectionReportPdfService
             'gaps'            => $gaps,
             'roster'          => $roster,
             'principals'      => $principals,
+            'transformation'  => $transformation,
             'reportReference' => $reportReference,
             'generatedBy'     => $generatedBy,
             'generatedAt'     => now(),
