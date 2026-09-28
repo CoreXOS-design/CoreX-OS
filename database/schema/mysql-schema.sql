@@ -818,7 +818,6 @@ CREATE TABLE `agency_service_provider_contacts` (
   `role` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `id_number` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `default_delivery_mode` enum('secure_link','direct_attachment') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `default_channel` enum('email','whatsapp') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_active` tinyint(1) NOT NULL DEFAULT '1',
@@ -857,7 +856,7 @@ CREATE TABLE `agency_service_providers` (
   `agency_id` bigint unsigned NOT NULL,
   `contact_id` bigint unsigned DEFAULT NULL,
   `name` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `specialty` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other',
+  `specialty` enum('electrician','entomologist','plumber','gas','electric_fence','transfer_attorney','bond_attorney','conveyancer','bond_originator','external_agency','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'other',
   `is_transfer_attorney` tinyint(1) NOT NULL DEFAULT '0',
   `is_bond_attorney` tinyint(1) NOT NULL DEFAULT '0',
   `company` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -6121,7 +6120,7 @@ CREATE TABLE `documents` (
   `mime_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `size` bigint unsigned NOT NULL DEFAULT '0',
   `document_type_id` bigint unsigned DEFAULT NULL,
-  `source_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'upload',
+  `source_type` varchar(50) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'upload',
   `source_id` bigint unsigned DEFAULT NULL,
   `deal_id` bigint unsigned DEFAULT NULL,
   `custom_field_key` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -8868,7 +8867,7 @@ CREATE TABLE `p24_import_rows` (
   `external_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `payload_json` json DEFAULT NULL,
   `mapped_json` json DEFAULT NULL,
-  `action` enum('create','update','skip','choose','link') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'create',
+  `action` enum('create','update','skip','choose','link') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'create',
   `status` enum('pending','confirmed','excluded','error') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'pending',
   `resolved_agent_id` bigint unsigned DEFAULT NULL,
   `target_id` bigint unsigned DEFAULT NULL,
@@ -10798,8 +10797,8 @@ CREATE TABLE `properties` (
   `features_json_meta` json DEFAULT NULL COMMENT 'Per-feature audit: {pool:{source:ai|manual,confidence:0.92,confirmed_by_user_id:5,confirmed_at:...}}',
   `pet_friendly` tinyint(1) DEFAULT NULL,
   `spaces_json` json DEFAULT NULL,
-  `spaces_json_legacy_backup` json DEFAULT NULL,
   `rental_inspection_form_seeded_at` timestamp NULL DEFAULT NULL,
+  `spaces_json_legacy_backup` json DEFAULT NULL,
   `agent_id` bigint unsigned NOT NULL,
   `pp_second_agent_id` bigint unsigned DEFAULT NULL,
   `pp_agent_image_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -10838,8 +10837,6 @@ CREATE TABLE `properties` (
   `electricity_included` tinyint(1) NOT NULL DEFAULT '0',
   `levies_included` tinyint(1) NOT NULL DEFAULT '0',
   `rental_details_custom_field_values` json DEFAULT NULL,
-  `rental_advert_block_enabled` tinyint(1) NOT NULL DEFAULT '0',
-  `advertise_core_fields` json DEFAULT NULL,
   `p24_syndication_enabled` tinyint(1) NOT NULL DEFAULT '0',
   `p24_syndication_status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `p24_stats_synced_at` timestamp NULL DEFAULT NULL,
@@ -11384,9 +11381,9 @@ CREATE TABLE `property_rooms` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `property_id` bigint unsigned NOT NULL,
-  `type` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `label` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `source` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
+  `type` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `label` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `source` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `is_retired` tinyint(1) NOT NULL DEFAULT '0',
   `created_by_user_id` bigint unsigned DEFAULT NULL,
@@ -12323,14 +12320,14 @@ CREATE TABLE `rental_application_checklist_items` (
   `agency_id` bigint unsigned NOT NULL,
   `application_section_id` bigint unsigned NOT NULL,
   `template_item_id` bigint unsigned DEFAULT NULL,
-  `name` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `help_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `help_text` text COLLATE utf8mb4_unicode_ci,
   `note_required` tinyint(1) NOT NULL DEFAULT '0',
   `document_required` tinyint(1) NOT NULL DEFAULT '0',
   `is_derived` tinyint(1) NOT NULL DEFAULT '0',
-  `derived_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `state` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'not_started',
-  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `derived_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `state` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'not_started',
+  `note` text COLLATE utf8mb4_unicode_ci,
   `set_by_user_id` bigint unsigned DEFAULT NULL,
   `set_at` timestamp NULL DEFAULT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
@@ -12355,9 +12352,9 @@ CREATE TABLE `rental_application_checklist_sections` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_application_id` bigint unsigned NOT NULL,
   `template_section_id` bigint unsigned DEFAULT NULL,
-  `name` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
-  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `description` text COLLATE utf8mb4_unicode_ci,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -12696,6 +12693,12 @@ CREATE TABLE `rental_application_qualifying_settings` (
   `return_gate_method` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `return_gate_attempt_max` tinyint unsigned DEFAULT NULL,
   `return_gate_attempt_window_minutes` smallint unsigned DEFAULT NULL,
+  `identity_gate_enabled` tinyint(1) DEFAULT NULL,
+  `identity_gate_otp_length` tinyint unsigned DEFAULT NULL,
+  `identity_gate_otp_expiry_minutes` int unsigned DEFAULT NULL,
+  `identity_gate_attempt_max` int unsigned DEFAULT NULL,
+  `identity_gate_attempt_window_minutes` int unsigned DEFAULT NULL,
+  `identity_gate_resend_cooldown_seconds` int unsigned DEFAULT NULL,
   `required_field_keys` json DEFAULT NULL,
   `marital_status_options` json DEFAULT NULL,
   `credit_bureau_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -12704,12 +12707,6 @@ CREATE TABLE `rental_application_qualifying_settings` (
   `field_label_overrides` json DEFAULT NULL,
   `field_help_text_overrides` json DEFAULT NULL,
   `field_order` json DEFAULT NULL,
-  `identity_gate_enabled` tinyint(1) DEFAULT NULL,
-  `identity_gate_otp_length` tinyint unsigned DEFAULT NULL,
-  `identity_gate_otp_expiry_minutes` int unsigned DEFAULT NULL,
-  `identity_gate_attempt_max` int unsigned DEFAULT NULL,
-  `identity_gate_attempt_window_minutes` int unsigned DEFAULT NULL,
-  `identity_gate_resend_cooldown_seconds` int unsigned DEFAULT NULL,
   `lock_property_after_submission` tinyint(1) DEFAULT NULL,
   `tag_contact_as_tenant_on_approval` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -12859,7 +12856,7 @@ CREATE TABLE `rental_approvals` (
   `rental_work_order_id` bigint unsigned DEFAULT NULL,
   `quote_id_at_decision` bigint unsigned DEFAULT NULL,
   `quote_amount_at_decision` decimal(10,2) DEFAULT NULL,
-  `quote_supplier_name_at_decision` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `quote_supplier_name_at_decision` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `decision` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `approval_route` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `evidence_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
@@ -12888,12 +12885,12 @@ CREATE TABLE `rental_checklist_template_items` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `template_section_id` bigint unsigned NOT NULL,
-  `name` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `help_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `help_text` text COLLATE utf8mb4_unicode_ci,
   `note_required` tinyint(1) NOT NULL DEFAULT '0',
   `document_required` tinyint(1) NOT NULL DEFAULT '0',
   `is_derived` tinyint(1) NOT NULL DEFAULT '0',
-  `derived_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `derived_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -12914,7 +12911,7 @@ DROP TABLE IF EXISTS `rental_checklist_template_sections`;
 CREATE TABLE `rental_checklist_template_sections` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `name` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -12982,9 +12979,9 @@ CREATE TABLE `rental_fault_report_updates` (
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NOT NULL,
   PRIMARY KEY (`id`),
-  KEY `rfru_fault_report_fk` (`rental_fault_report_id`),
   KEY `rfru_created_by_fk` (`created_by_user_id`),
   KEY `rfru_agency_report_idx` (`agency_id`,`rental_fault_report_id`),
+  KEY `rfru_fault_report_fk` (`rental_fault_report_id`),
   CONSTRAINT `rfru_agency_fk` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rfru_created_by_fk` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rfru_fault_report_fk` FOREIGN KEY (`rental_fault_report_id`) REFERENCES `rental_fault_reports` (`id`) ON DELETE CASCADE
@@ -13102,8 +13099,8 @@ CREATE TABLE `rental_inspection_forms` (
   `branch_id` bigint unsigned DEFAULT NULL,
   `rental_inspection_id` bigint unsigned NOT NULL,
   `version` int unsigned NOT NULL,
-  `content_hash` char(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `pdf_storage_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `content_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `pdf_storage_path` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
   `manifest_json` json NOT NULL,
   `page_count` smallint unsigned NOT NULL,
   `box_count` int unsigned NOT NULL,
@@ -13162,8 +13159,8 @@ CREATE TABLE `rental_inspection_items` (
   `kind` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `label` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
   `space_type` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
   `sort_order` int unsigned NOT NULL DEFAULT '0',
-  `source` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'manual',
   `is_retired` tinyint(1) NOT NULL DEFAULT '0',
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -13304,8 +13301,8 @@ CREATE TABLE `rental_inspection_photo_notes` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_inspection_id` bigint unsigned NOT NULL,
   `rental_inspection_photo_id` bigint unsigned NOT NULL,
-  `classification_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `classification_key` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `note` text COLLATE utf8mb4_unicode_ci NOT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `updated_by_user_id` bigint unsigned DEFAULT NULL,
   `archived_by_user_id` bigint unsigned DEFAULT NULL,
@@ -13351,9 +13348,9 @@ CREATE TABLE `rental_inspection_photos` (
   KEY `rental_inspection_photos_uploaded_by_user_id_foreign` (`uploaded_by_user_id`),
   KEY `ri_photos_agency_observation_idx` (`agency_id`,`rental_inspection_observation_id`),
   KEY `ri_photos_inspection_fk` (`rental_inspection_id`),
-  KEY `ri_photos_room_fk` (`property_room_id`),
   KEY `ri_photos_tagged_by_fk` (`tagged_by_user_id`),
   KEY `ri_photos_archived_by_fk` (`archived_by_user_id`),
+  KEY `ri_photos_room_fk` (`property_room_id`),
   CONSTRAINT `rental_inspection_photos_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rental_inspection_photos_uploaded_by_user_id_foreign` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `ri_photos_archived_by_fk` FOREIGN KEY (`archived_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
@@ -13376,9 +13373,9 @@ CREATE TABLE `rental_inspection_room_notes` (
   `created_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `rental_inspection_room_notes_rental_inspection_id_foreign` (`rental_inspection_id`),
-  KEY `rental_inspection_room_notes_property_room_id_foreign` (`property_room_id`),
   KEY `rental_inspection_room_notes_created_by_user_id_foreign` (`created_by_user_id`),
   KEY `ri_room_notes_agency_inspection_room_idx` (`agency_id`,`rental_inspection_id`,`property_room_id`),
+  KEY `rental_inspection_room_notes_property_room_id_foreign` (`property_room_id`),
   CONSTRAINT `rental_inspection_room_notes_agency_id_foreign` FOREIGN KEY (`agency_id`) REFERENCES `agencies` (`id`) ON DELETE CASCADE,
   CONSTRAINT `rental_inspection_room_notes_created_by_user_id_foreign` FOREIGN KEY (`created_by_user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   CONSTRAINT `rental_inspection_room_notes_property_room_id_foreign` FOREIGN KEY (`property_room_id`) REFERENCES `property_rooms` (`id`) ON DELETE CASCADE,
@@ -13394,10 +13391,10 @@ CREATE TABLE `rental_inspection_scan_marks` (
   `rental_inspection_scan_id` bigint unsigned NOT NULL,
   `rental_inspection_item_id` bigint unsigned NOT NULL,
   `page_number` smallint unsigned NOT NULL,
-  `detected_condition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `detected_condition_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `detected_confidence` decimal(3,2) DEFAULT NULL,
   `ambiguous` tinyint(1) NOT NULL DEFAULT '0',
-  `confirmed_condition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `confirmed_condition_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `confirmed_by_user_id` bigint unsigned DEFAULT NULL,
   `confirmed_at` timestamp NULL DEFAULT NULL,
   `applied_observation_id` bigint unsigned DEFAULT NULL,
@@ -13426,11 +13423,11 @@ CREATE TABLE `rental_inspection_scans` (
   `branch_id` bigint unsigned DEFAULT NULL,
   `rental_inspection_id` bigint unsigned NOT NULL,
   `rental_inspection_form_id` bigint unsigned DEFAULT NULL,
-  `original_filename` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `storage_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `mime_type` varchar(120) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `status` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'processing',
-  `failure_reason` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `original_filename` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `storage_path` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `mime_type` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'processing',
+  `failure_reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `decoded_inspection_id` bigint unsigned DEFAULT NULL,
   `decoded_form_version` int unsigned DEFAULT NULL,
   `page_count` smallint unsigned DEFAULT NULL,
@@ -13485,13 +13482,13 @@ CREATE TABLE `rental_inspection_settings` (
   `refusal_reason_presets` json DEFAULT NULL,
   `inspection_feature_labels` json DEFAULT NULL,
   `room_type_item_defaults` json DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
   `room_type_walking_order` json DEFAULT NULL,
   `condition_states` json DEFAULT NULL,
   `photo_note_classifications` json DEFAULT NULL,
   `baseline_condition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `omr_mark_threshold` decimal(3,2) DEFAULT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  `updated_at` timestamp NULL DEFAULT NULL,
   `require_notes_blocks_progression` tinyint(1) DEFAULT NULL,
   `auto_pair_photos_enabled` tinyint(1) DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -13507,12 +13504,12 @@ CREATE TABLE `rental_inspection_signatures` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_inspection_id` bigint unsigned NOT NULL,
   `party_role` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `disposition` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'signed',
+  `disposition` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'signed',
   `party_contact_id` bigint unsigned DEFAULT NULL,
   `recorded_by_user_id` bigint unsigned DEFAULT NULL,
   `party_signature_path` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `wet_ink_upload_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `refusal_reason_preset` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `wet_ink_upload_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `refusal_reason_preset` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `refusal_reason_note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `disposition_recorded_at` timestamp NOT NULL,
   `superseded_at` timestamp NULL DEFAULT NULL,
@@ -13542,14 +13539,14 @@ CREATE TABLE `rental_inspections` (
   `previous_inspection_id` bigint unsigned DEFAULT NULL,
   `property_id` bigint unsigned NOT NULL,
   `type` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `electricity_meter_reading` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `water_meter_reading` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `furnished_status` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `property_type` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `electricity_meter_reading` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `water_meter_reading` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `furnished_status` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `property_type` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `keys_count` int unsigned DEFAULT NULL,
-  `keys_description` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `keys_description` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `remotes_count` int unsigned DEFAULT NULL,
-  `remotes_description` varchar(191) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `remotes_description` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `move_in_date_recorded` date DEFAULT NULL,
   `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `scheduled_for` date DEFAULT NULL,
@@ -13559,10 +13556,10 @@ CREATE TABLE `rental_inspections` (
   `cancelled_at` timestamp NULL DEFAULT NULL,
   `cancelled_by_user_id` bigint unsigned DEFAULT NULL,
   `cancel_reason` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `public_token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `public_token` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `public_token_expires_at` timestamp NULL DEFAULT NULL,
-  `overall_notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `archived_by_user_id` bigint unsigned DEFAULT NULL,
+  `overall_notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -13595,13 +13592,13 @@ CREATE TABLE `rental_inventories` (
   `agency_id` bigint unsigned NOT NULL,
   `property_id` bigint unsigned NOT NULL,
   `lease_id` bigint unsigned DEFAULT NULL,
-  `status` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `status` varchar(30) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
   `signing_deadline_at` timestamp NULL DEFAULT NULL,
   `completed_at` timestamp NULL DEFAULT NULL,
   `cancelled_at` timestamp NULL DEFAULT NULL,
   `cancelled_by_user_id` bigint unsigned DEFAULT NULL,
-  `cancel_reason` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `public_token` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `cancel_reason` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `public_token` varchar(64) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `public_token_expires_at` timestamp NULL DEFAULT NULL,
   `archived_by_user_id` bigint unsigned DEFAULT NULL,
   `created_by_user_id` bigint unsigned DEFAULT NULL,
@@ -13634,9 +13631,9 @@ CREATE TABLE `rental_inventory_line_dispositions` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_inventory_line_id` bigint unsigned NOT NULL,
   `rental_inventory_id` bigint unsigned NOT NULL,
-  `disposition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `disposition_key` varchar(60) COLLATE utf8mb4_unicode_ci NOT NULL,
   `quantity_found` int unsigned DEFAULT NULL,
-  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `notes` text COLLATE utf8mb4_unicode_ci,
   `recorded_by_user_id` bigint unsigned DEFAULT NULL,
   `recorded_at` timestamp NOT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -13680,10 +13677,10 @@ CREATE TABLE `rental_inventory_lines` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_inventory_id` bigint unsigned NOT NULL,
   `property_room_id` bigint unsigned DEFAULT NULL,
-  `room_label` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `room_label` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `quantity` int unsigned DEFAULT '1',
-  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `condition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `condition_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `sort_order` int unsigned NOT NULL DEFAULT '0',
   `is_retired` tinyint(1) NOT NULL DEFAULT '0',
   `created_by_user_id` bigint unsigned DEFAULT NULL,
@@ -13708,12 +13705,12 @@ CREATE TABLE `rental_inventory_photos` (
   `agency_id` bigint unsigned NOT NULL,
   `rental_inventory_id` bigint unsigned NOT NULL,
   `property_room_id` bigint unsigned DEFAULT NULL,
-  `side` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'move_in',
-  `storage_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `side` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'move_in',
+  `storage_path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `file_size_bytes` bigint unsigned DEFAULT NULL,
   `uploaded_by_user_id` bigint unsigned DEFAULT NULL,
   `archived_by_user_id` bigint unsigned DEFAULT NULL,
-  `client_idempotency_key` char(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `client_idempotency_key` char(36) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
@@ -13761,7 +13758,7 @@ CREATE TABLE `rental_inventory_settings` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `disposition_presets` json DEFAULT NULL,
-  `baseline_disposition_key` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `baseline_disposition_key` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `condition_states` json DEFAULT NULL,
   `auto_send_report_enabled` tinyint(1) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -13778,12 +13775,12 @@ CREATE TABLE `rental_inventory_signatures` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
   `rental_inventory_id` bigint unsigned NOT NULL,
-  `party_role` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `party_role` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
   `party_contact_id` bigint unsigned DEFAULT NULL,
-  `disposition` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `party_signature_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `refusal_reason_preset` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `refusal_reason_note` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `disposition` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `party_signature_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `refusal_reason_preset` varchar(60) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `refusal_reason_note` text COLLATE utf8mb4_unicode_ci,
   `recorded_by_user_id` bigint unsigned DEFAULT NULL,
   `disposition_recorded_at` timestamp NULL DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -13900,8 +13897,8 @@ CREATE TABLE `rental_work_order_quotes` (
   `agency_service_provider_id` bigint unsigned NOT NULL,
   `amount` decimal(10,2) NOT NULL,
   `quote_date` date NOT NULL,
-  `document_storage_path` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `detail_text` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `document_storage_path` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `detail_text` text COLLATE utf8mb4_unicode_ci,
   `is_selected` tinyint(1) NOT NULL DEFAULT '0',
   `captured_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -15094,16 +15091,16 @@ DROP TABLE IF EXISTS `signed_document_distribution_logs`;
 CREATE TABLE `signed_document_distribution_logs` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT,
   `agency_id` bigint unsigned NOT NULL,
-  `distributable_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `distributable_type` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `distributable_id` bigint unsigned NOT NULL,
-  `channel` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `mode` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `recipient_role` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `channel` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `mode` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `recipient_role` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `recipient_contact_id` bigint unsigned DEFAULT NULL,
-  `recipient_email` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `status` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
-  `message_id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `recipient_email` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `message_id` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `error` text COLLATE utf8mb4_unicode_ci,
   `sent_by_user_id` bigint unsigned DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
@@ -17997,253 +17994,249 @@ INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1229,'2026_08_29_0
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1230,'2026_08_29_000012_add_signer_phone_and_address_to_signature_requests_table',248);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1231,'2026_08_31_240001_add_finalization_state_to_signature_templates_table',248);
 INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1232,'2026_08_31_240002_create_docuperfect_esign_settings_table',248);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1233,'2026_09_04_124038_add_passport_number_for_esign_identity_gate',249);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1234,'2026_09_04_124100_add_esign_gate_settings_to_docuperfect_esign_settings',249);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1235,'2026_09_04_160000_add_whatsapp_resend_enabled_to_docuperfect_esign_settings',249);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1236,'2026_09_04_170000_add_rental_amount_words_named_field',249);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1237,'2026_09_07_025135_remove_esign_gate_settings_from_docuperfect_esign_settings',249);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1238,'2026_09_07_134131_add_outgoing_smtp_fields_to_communication_mailboxes_table',249);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1239,'2026_09_04_150000_create_rental_applications_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1240,'2026_09_04_150001_create_rental_application_signatures_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1241,'2026_09_04_150002_create_rental_application_document_requirements_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1242,'2026_09_04_150003_seed_rental_application_document_types',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1243,'2026_09_07_090000_create_rental_application_checklist_configs_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1244,'2026_09_07_100000_reconstruct_id_number_on_agency_service_provider_contacts',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1245,'2026_09_07_100001_reconstruct_widen_specialty_to_varchar_on_agency_service_providers',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1246,'2026_09_07_100002_reconstruct_whatsapp_resend_enabled_on_docuperfect_esign_settings',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1247,'2026_09_07_130000_add_draft_status_to_rental_applications',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1248,'2026_09_07_150000_create_rental_application_assessments_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1249,'2026_09_07_150000_create_rental_application_status_history_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1250,'2026_09_07_150001_create_rental_application_qualifying_settings_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1251,'2026_09_07_160000_create_rental_application_document_highlights_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1252,'2026_09_08_120000_add_authorisation_fields_to_rental_applications',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1253,'2026_09_08_130000_create_rental_application_decline_email_settings_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1254,'2026_09_08_140000_create_rental_application_audit_log_table',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1255,'2026_09_08_150000_replace_authoriser_list_with_ro_co_tiers',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1256,'2026_09_08_160000_add_still_living_and_rental_term_months_to_rental_applications',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1257,'2026_09_08_170000_add_incremental_poll_watermarks_to_communication_mailboxes',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1258,'2026_09_08_170100_add_poll_lookback_hours_to_agencies',250);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1259,'2026_09_08_170000_replace_income_multiplier_with_gross_income_percentage',251);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1260,'2026_09_08_180000_create_rental_application_income_expense_items_tables',251);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1261,'2026_09_08_190000_add_statement_months_to_rental_application_assessments',251);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1262,'2026_09_08_180000_drop_poll_lookback_hours_in_favour_of_uid_tracking',252);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1264,'2026_09_08_200000_add_marks_version_to_rental_application_document_highlights',254);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1265,'2026_09_08_200000_add_has_unpaid_transactions_to_rental_application_assessments',255);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1266,'2026_09_08_190000_add_strike_out_and_added_by_to_rental_application_items',256);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1267,'2026_09_08_190100_add_replaces_item_id_to_rental_application_items',257);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1268,'2026_09_08_210000_add_messages_behind_estimate_to_communication_mailboxes',258);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1269,'2026_09_09_010000_add_test_connection_rate_limit_settings_to_agencies',259);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1270,'2026_09_08_210000_add_reopen_generation_to_rental_applications',260);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1271,'2026_09_08_210100_add_generation_to_rental_application_signatures',261);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1272,'2026_09_08_210200_create_rental_application_generations_table',262);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1273,'2026_09_08_210300_add_reopen_link_expiry_to_rental_application_qualifying_settings',262);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1274,'2026_09_09_020000_add_poll_backoff_to_communication_mailboxes',263);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1275,'2026_09_08_220000_add_reopened_status_to_rental_applications',264);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1276,'2026_09_09_030000_create_communication_host_circuit_breakers_table',265);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1277,'2026_09_09_040000_create_outbound_mail_guard_captures_table',266);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1278,'2026_09_09_040100_create_outbound_mail_guard_toggle_audit_table',266);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1279,'2026_09_09_040000_create_rental_application_mark_color_settings_table',267);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1280,'2026_09_09_040000_add_auth_lock_to_communication_host_circuit_breakers',268);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1284,'2026_09_09_060000_create_rental_application_highlighters_table',269);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1285,'2026_09_09_060100_seed_and_backfill_rental_application_highlighters',269);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1286,'2026_09_09_060200_drop_rental_application_mark_color_settings_table',269);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1287,'2026_09_09_050000_add_error_detail_to_communication_mailboxes',270);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1288,'2026_09_09_070000_add_created_by_to_rental_application_highlighters_table',271);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1289,'2026_09_09_060000_reconcile_hfcoastal_host_auth_failure_count',272);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1290,'2026_09_09_080000_add_communication_poll_chunk_size_to_agencies',273);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1291,'2026_09_10_010000_add_rental_application_status_to_contacts',274);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1292,'2026_09_07_160000_repair_document_names_containing_path_separators',275);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1293,'2026_09_10_020000_add_applicant_notified_at_to_rental_applications',276);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1294,'2026_09_10_030000_create_rental_application_approval_email_settings_table',277);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1295,'2026_09_10_040000_grant_contact_rental_history_view_alongside_contacts_view',278);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1296,'2026_09_10_070000_restore_agency_1_admin_rental_applications_view_scope',279);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1297,'2026_09_10_100000_create_deal_properties_table',280);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1298,'2026_09_10_120000_add_rental_term_fields_to_contact_matches',281);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1299,'2026_09_10_090000_backfill_contact_rental_application_status',282);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1301,'2026_09_10_080000_create_rental_application_document_marks_table',284);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1302,'2026_09_10_080100_backfill_rental_application_document_marks_from_json',284);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1303,'2026_09_10_140000_add_entry_date_to_rental_application_items',285);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1304,'2026_09_10_150000_add_statement_period_dates_to_rental_application_assessments',286);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1305,'2026_09_10_100000_grant_buyer_pipeline_view_alongside_core_matches_view',287);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1306,'2026_09_10_160000_add_current_rental_due_day_to_rental_applications',288);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1307,'2026_09_10_150000_create_rental_application_document_table',289);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1308,'2026_09_10_170000_create_rental_application_document_validity_windows_table',290);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1309,'2026_09_10_110000_change_allocated_price_to_decimal_on_deal_properties',291);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1310,'2026_09_10_120000_backfill_allocated_price_for_existing_single_property_deals',291);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1311,'2026_09_10_200000_add_lock_property_after_submission_to_rental_application_qualifying_settings',292);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1312,'2026_09_10_210000_add_furnished_and_utilities_to_properties',293);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1313,'2026_09_10_220000_backfill_furnished_status_property_settings',294);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1314,'2026_09_10_230000_add_buyer_kanban_column_limit_to_agency_contact_settings',295);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1315,'2026_09_11_000000_add_tag_contact_as_tenant_on_approval_to_rental_application_qualifying_settings',296);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1316,'2026_09_11_000001_seed_tenant_contact_type_if_missing',296);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1317,'2026_09_11_010000_add_current_living_situation_to_rental_applications',297);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1318,'2026_09_11_100000_add_entry_fields_to_rental_application_document_marks',298);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1319,'2026_09_11_100100_backfill_income_expense_items_to_unanchored_marks',299);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1320,'2026_09_12_090000_add_agency_id_to_rental_application_signatures',300);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1321,'2026_09_12_100000_migrate_rental_application_archive_permission',301);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1322,'2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps',302);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1323,'2026_09_12_100000_add_draft_saved_at_to_rental_applications',302);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1324,'2026_09_12_100001_add_autosave_debounce_to_rental_application_qualifying_settings',302);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1325,'2026_09_12_200000_add_autosave_rate_limit_to_rental_application_qualifying_settings',303);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1326,'2026_09_13_000000_add_capture_type_to_rental_application_highlighters',304);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1327,'2026_09_14_120000_add_struck_out_to_rental_application_document_marks',305);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1328,'2026_09_13_000000_add_document_rate_limit_to_rental_application_qualifying_settings',306);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1329,'2026_09_13_100000_add_document_closure_and_route_rate_limits_to_rental_application_qualifying_settings',307);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1330,'2026_09_15_090000_add_decline_email_draft_to_rental_applications',308);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1332,'2026_09_15_090000_create_rental_application_decline_reason_templates_table',309);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1333,'2026_09_15_090100_seed_rental_application_decline_reason_templates',310);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1334,'2026_09_13_130000_add_pre_tenant_link_status_to_properties',311);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1335,'2026_09_13_110000_add_require_fica_before_authorisation_to_rental_application_qualifying_settings',312);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1336,'2026_09_13_130000_add_return_gate_settings_to_rental_application_qualifying_settings',313);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1337,'2026_09_16_090000_add_approved_subject_to_fica_at_to_rental_applications',314);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1338,'2026_09_15_100000_add_identity_gate_settings_to_rental_application_qualifying_settings',315);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1339,'2026_09_15_100100_add_identity_gate_to_rental_applications',315);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1340,'2026_09_16_100000_add_deleted_at_to_contact_property',316);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1341,'2026_09_13_140000_add_submission_requirements_to_rental_application_qualifying_settings',317);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1348,'2026_09_14_150000_add_received_by_user_id_to_portal_leads_table',318);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1349,'2026_09_14_150100_add_agent_id_to_contact_matches_table',318);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1350,'2026_09_14_150200_create_contact_match_reassignments_table',318);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1351,'2026_09_14_150300_add_core_matches_working_window_days_to_agency_contact_settings_table',318);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1352,'2026_09_14_150400_add_set_aside_at_to_contact_matches_table',318);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1353,'2026_09_14_150500_create_contact_match_shares_table',318);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1354,'2026_09_14_150600_add_soft_deletes_to_contact_match_shares_table',319);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1355,'2026_09_14_150700_create_contact_match_share_properties_table',319);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1356,'2026_09_14_150800_create_contact_match_link_opens_table',319);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1357,'2026_09_15_090000_add_token_and_confirmation_to_contact_match_shares_table',320);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1358,'2026_09_15_090100_add_price_drop_threshold_to_agency_contact_settings',320);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1359,'2026_09_17_090000_create_leases_table',321);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1360,'2026_09_17_090100_create_lease_tenants_table',321);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1361,'2026_09_17_090200_create_lease_escalations_table',321);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1362,'2026_09_17_090300_create_lease_settings_table',321);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1363,'2026_09_17_100000_create_rental_inspection_items_table',322);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1364,'2026_09_17_100100_create_rental_inspections_table',322);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1365,'2026_09_17_100200_create_rental_inspection_observations_table',322);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1366,'2026_09_17_100300_create_rental_inspection_photos_table',322);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1367,'2026_09_17_100400_create_rental_inspection_discrepancies_table',322);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1368,'2026_09_17_100500_create_rental_inspection_signatures_table',322);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1369,'2026_09_17_100600_create_rental_inspection_settings_table',322);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1370,'2026_09_15_100000_add_p24_imported_at_to_properties_table',323);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1371,'2026_09_17_000000_add_deleted_at_to_rental_application_document_validity_windows',323);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1372,'2026_09_17_000100_backfill_contact_matches_agent_id',323);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1373,'2026_09_19_090000_add_field_display_config_to_rental_application_qualifying_settings',324);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1374,'2026_09_19_090100_add_field_config_snapshot_to_rental_applications',324);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1375,'2026_09_20_090000_add_field_config_snapshot_to_rental_application_generations',325);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1376,'2026_09_20_100000_create_rental_application_custom_fields_table',326);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1377,'2026_09_20_100100_add_custom_field_values_to_rental_applications',326);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1378,'2026_09_20_110000_add_custom_field_key_to_documents',327);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1379,'2026_09_25_100000_create_rental_fault_reports_table',328);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1380,'2026_09_25_100100_create_rental_fault_report_photos_table',328);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1381,'2026_09_25_100200_register_rental_fault_report_created_notification',328);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1382,'2026_09_26_100000_create_rental_approvals_table',329);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1383,'2026_09_26_100100_register_rental_fault_report_resolved_notification',329);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1384,'2026_09_27_100000_create_rental_work_order_settings_table',330);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1385,'2026_09_27_100100_add_rental_no_approval_spend_threshold_to_leases_table',330);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1386,'2026_09_28_100000_create_rental_work_orders_table',331);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1387,'2026_09_28_100100_create_rental_work_order_updates_table',331);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1388,'2026_09_28_100200_create_rental_work_order_photos_table',331);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1389,'2026_09_28_100300_add_work_order_foreign_keys_deferred_from_stage1_2',331);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1390,'2026_09_28_100400_register_rental_work_order_notifications',331);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1391,'2026_09_20_120000_add_credit_bureau_name_to_rental_application_qualifying_settings',332);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1392,'2026_09_29_100000_add_archived_by_to_rental_inspections_table',333);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1393,'2026_09_30_100000_rebuild_rental_inspection_signatures_for_three_party_signing',334);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1394,'2026_09_30_100100_add_refusal_reason_presets_to_rental_inspection_settings_table',334);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1395,'2026_09_30_100200_add_inspection_feature_labels_to_rental_inspection_settings_table',335);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1396,'2026_09_30_100300_add_room_type_item_defaults_to_rental_inspection_settings_table',336);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1397,'2026_09_30_100400_create_property_rooms_table',337);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1398,'2026_09_30_100500_add_property_room_id_and_source_to_rental_inspection_items_table',337);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1399,'2026_09_30_100600_add_rental_inspection_form_seeded_at_to_properties_table',337);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1400,'2026_09_21_100000_create_property_rental_details_custom_fields_table',338);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1401,'2026_09_21_110000_add_spaces_json_legacy_backup_to_properties_table',339);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1402,'2026_09_21_090000_add_tenanted_label_to_rental_application_qualifying_settings',340);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1403,'2026_10_01_100000_add_wet_ink_to_rental_inspection_signatures',341);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1404,'2026_09_21_150000_add_room_type_walking_order_to_rental_inspection_settings_table',342);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1405,'2026_10_01_110000_add_header_block_to_rental_inspections',343);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1406,'2026_09_21_120000_create_rental_inspection_item_findings_table',344);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1407,'2026_10_01_120000_create_rental_inventories_table',345);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1408,'2026_10_01_120100_create_rental_inventory_lines_table',346);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1409,'2026_10_01_120200_create_rental_inventory_signatures_table',346);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1410,'2026_09_21_150000_add_rental_details_custom_field_values_to_properties_table',347);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1411,'2026_09_21_160000_add_rental_advert_block_to_properties_table',348);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1412,'2026_09_21_160000_add_condition_states_to_rental_inspection_settings_table',349);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1413,'2026_09_21_160100_create_rental_inspection_room_notes_table',349);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1414,'2026_09_21_160200_add_overall_notes_to_rental_inspections_table',349);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1415,'2026_10_01_130000_create_rental_inventory_settings_table',350);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1416,'2026_10_01_130100_create_rental_inventory_line_dispositions_table',350);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1417,'2026_09_22_090000_add_baseline_condition_key_to_rental_inspection_settings_table',351);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1418,'2026_09_22_100000_create_rental_fault_report_updates_table',352);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1419,'2026_10_02_100000_add_property_room_to_rental_inventory_lines',353);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1420,'2026_10_02_100100_create_rental_inventory_photos_table',353);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1421,'2026_10_02_100200_create_rental_inventory_line_photos_table',353);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1422,'2026_09_22_140000_add_room_and_tray_support_to_rental_inspection_photos_table',354);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1423,'2026_09_21_180000_backfill_rental_price_type_property_settings',355);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1424,'2026_09_21_190000_backfill_lease_type_property_settings',355);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1425,'2026_09_22_100000_add_show_lease_type_field_to_lease_settings_table',355);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1426,'2026_09_29_100000_add_rental_no_approval_spend_threshold_to_properties',356);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1427,'2026_09_29_100100_drop_rental_no_approval_spend_threshold_from_leases',356);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1428,'2026_09_29_100200_create_rental_work_order_quotes_table',356);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1429,'2026_09_22_150000_add_sort_order_to_rental_inspection_items_table',357);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1430,'2026_09_22_160000_create_rental_inspection_photo_matches_table',358);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1431,'2026_09_30_100700_add_deferred_foreign_keys_for_later_created_tables',359);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1432,'2026_10_02_100300_add_archived_by_user_id_to_rental_inventory_photos_table',360);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1433,'2026_10_02_150000_create_rental_inspection_forms_table',361);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1434,'2026_09_30_100800_add_require_notes_blocks_progression_to_rental_inspection_settings_table',362);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1435,'2026_10_02_160000_add_quote_snapshot_to_rental_approvals_table',363);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1436,'2026_10_02_160000_add_omr_mark_threshold_to_rental_inspection_settings_table',364);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1437,'2026_10_02_160100_create_rental_inspection_scans_table',364);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1438,'2026_10_02_160200_create_rental_inspection_scan_marks_table',364);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1439,'2026_10_02_100400_add_approved_deposit_amount_to_rental_applications',365);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1440,'2026_10_02_100500_add_deposit_amount_is_default_to_properties',365);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1441,'2026_10_02_100600_add_default_deposit_months_to_lease_settings',365);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1442,'2026_10_02_160300_make_rental_inventory_lines_quantity_nullable',366);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1443,'2026_10_02_160300_add_previous_inspection_id_to_rental_inspections_table',367);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1444,'2026_10_02_160400_add_public_link_to_rental_inspections_table',367);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1445,'2026_10_02_160500_add_public_link_expiry_days_to_rental_inspection_settings_table',367);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1446,'2026_10_03_100000_create_rental_inspection_photo_match_groups_table',367);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1447,'2026_10_03_100100_create_rental_inspection_photo_match_group_members_table',367);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1448,'2026_10_03_100200_migrate_pairwise_photo_matches_into_groups',367);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1449,'2026_09_24_090000_add_approval_mode_to_rental_application_qualifying_settings',368);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1450,'2026_10_03_200000_create_rental_checklist_template_sections_table',368);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1451,'2026_10_03_200100_create_rental_checklist_template_items_table',368);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1452,'2026_10_03_200200_create_rental_application_checklist_sections_table',368);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1453,'2026_10_03_200300_create_rental_application_checklist_items_table',368);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1454,'2026_10_03_200400_create_rental_review_panel_preferences_table',368);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1455,'2026_10_03_200500_add_require_checklist_complete_to_rental_application_qualifying_settings',368);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1456,'2026_09_25_090000_add_checklist_snapshotted_at_to_rental_applications',369);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1457,'2026_10_03_200600_add_tpn_document_type',370);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1458,'2026_10_03_200700_add_checklist_item_id_to_documents_table',370);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1459,'2026_10_03_200800_add_document_required_to_rental_checklist_template_items_table',370);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1460,'2026_10_03_200900_add_document_required_to_rental_application_checklist_items_table',370);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1461,'2026_10_03_200600_add_auto_pair_photos_enabled_to_rental_inspection_settings_table',371);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1462,'2026_10_03_210000_create_rental_inspection_photo_notes_table',372);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1463,'2026_10_03_210100_add_photo_note_classifications_to_rental_inspection_settings_table',372);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1464,'2026_10_02_170000_create_rental_inventory_room_marks_table',373);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1465,'2026_10_02_180000_add_condition_states_to_rental_inventory_settings_table',373);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1466,'2026_10_02_180100_add_condition_key_to_rental_inventory_lines_table',373);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1467,'2026_10_02_190000_add_side_to_rental_inventory_photos_table',373);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1468,'2026_10_02_190100_add_baseline_disposition_key_to_rental_inventory_settings_table',373);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1469,'2026_10_03_220000_create_rental_inspection_screen_preferences_table',374);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1470,'2026_09_28_120000_register_whistleblow_submitted_notification',375);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1471,'2026_09_28_130000_add_satisfies_group_to_agency_document_type_configs',376);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1472,'2026_09_28_130100_seed_bee_affidavit_and_trial_balance_document_types',377);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1473,'2026_09_28_130200_create_ppra_inspection_gap_notes_table',377);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1474,'2026_09_28_150000_create_agency_transformation_notes_table',378);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1475,'2026_10_04_090000_make_rental_inventories_lease_id_nullable',379);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1476,'2026_10_04_100000_create_signed_document_distribution_logs_table',380);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1477,'2026_10_04_100100_add_auto_send_report_enabled_to_rental_inspection_settings_table',380);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1478,'2026_10_03_230000_add_is_principal_practitioner_to_users_table',381);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1479,'2026_10_03_231500_add_financial_year_start_month_to_agencies_table',381);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1480,'2026_10_04_100200_widen_documents_source_type_column',382);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1481,'2026_10_05_090000_add_public_link_to_rental_inventories_table',383);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1482,'2026_10_05_090100_add_distribution_settings_to_rental_inventory_settings_table',383);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1483,'2026_09_28_170000_create_ppra_inspection_packs_table',384);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1484,'2026_09_28_170100_add_ppra_pack_sample_sizes_to_agencies_table',384);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1485,'2026_09_19_120000_add_imported_released_at_to_properties_table',385);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1486,'2026_09_19_130000_add_daily_digest_enabled_to_users_table',385);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1487,'2026_09_21_000000_add_one_email_sub_user_columns',385);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1488,'2026_09_21_000001_add_agency_id_to_rentals_table',385);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1489,'2026_09_21_000002_add_agency_id_to_tv_messages_table',385);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1490,'2026_09_21_000100_add_choose_and_link_to_p24_import_rows_action',385);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1491,'2026_09_26_000000_scrub_cross_agency_rental_agents',385);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1492,'2026_10_05_090200_clear_ppra_sample_rental_ids_pre_lease_migration',385);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1493,'2026_10_05_090300_add_mandate_register_settings_to_agencies_table',385);
-INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1494,'2026_10_05_090400_add_ppra_pack_generation_complete_notification_event_type',385);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1233,'2026_09_07_160000_repair_document_names_containing_path_separators',249);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1234,'2026_09_04_124038_add_passport_number_for_esign_identity_gate',250);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1235,'2026_09_04_124100_add_esign_gate_settings_to_docuperfect_esign_settings',250);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1236,'2026_09_04_160000_add_whatsapp_resend_enabled_to_docuperfect_esign_settings',250);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1237,'2026_09_04_170000_add_rental_amount_words_named_field',250);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1238,'2026_09_07_025135_remove_esign_gate_settings_from_docuperfect_esign_settings',250);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1239,'2026_09_07_134131_add_outgoing_smtp_fields_to_communication_mailboxes_table',250);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1240,'2026_09_08_170000_add_incremental_poll_watermarks_to_communication_mailboxes',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1241,'2026_09_08_170100_add_poll_lookback_hours_to_agencies',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1242,'2026_09_08_180000_drop_poll_lookback_hours_in_favour_of_uid_tracking',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1243,'2026_09_08_210000_add_messages_behind_estimate_to_communication_mailboxes',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1244,'2026_09_09_010000_add_test_connection_rate_limit_settings_to_agencies',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1245,'2026_09_09_020000_add_poll_backoff_to_communication_mailboxes',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1246,'2026_09_09_030000_create_communication_host_circuit_breakers_table',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1247,'2026_09_09_040000_add_auth_lock_to_communication_host_circuit_breakers',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1248,'2026_09_09_040000_create_outbound_mail_guard_captures_table',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1249,'2026_09_09_040100_create_outbound_mail_guard_toggle_audit_table',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1250,'2026_09_09_050000_add_error_detail_to_communication_mailboxes',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1251,'2026_09_09_060000_reconcile_hfcoastal_host_auth_failure_count',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1252,'2026_09_09_080000_add_communication_poll_chunk_size_to_agencies',251);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1253,'2026_09_04_150000_create_rental_applications_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1254,'2026_09_04_150001_create_rental_application_signatures_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1255,'2026_09_04_150002_create_rental_application_document_requirements_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1256,'2026_09_04_150003_seed_rental_application_document_types',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1257,'2026_09_07_090000_create_rental_application_checklist_configs_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1258,'2026_09_07_130000_add_draft_status_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1259,'2026_09_07_150000_create_rental_application_assessments_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1260,'2026_09_07_150000_create_rental_application_status_history_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1261,'2026_09_07_150001_create_rental_application_qualifying_settings_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1262,'2026_09_07_160000_create_rental_application_document_highlights_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1263,'2026_09_08_120000_add_authorisation_fields_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1264,'2026_09_08_130000_create_rental_application_decline_email_settings_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1265,'2026_09_08_140000_create_rental_application_audit_log_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1266,'2026_09_08_150000_replace_authoriser_list_with_ro_co_tiers',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1267,'2026_09_08_160000_add_still_living_and_rental_term_months_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1268,'2026_09_08_170000_replace_income_multiplier_with_gross_income_percentage',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1269,'2026_09_08_180000_create_rental_application_income_expense_items_tables',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1270,'2026_09_08_190000_add_statement_months_to_rental_application_assessments',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1271,'2026_09_08_190000_add_strike_out_and_added_by_to_rental_application_items',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1272,'2026_09_08_190100_add_replaces_item_id_to_rental_application_items',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1273,'2026_09_08_200000_add_has_unpaid_transactions_to_rental_application_assessments',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1274,'2026_09_08_200000_add_marks_version_to_rental_application_document_highlights',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1275,'2026_09_08_210000_add_reopen_generation_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1276,'2026_09_08_210100_add_generation_to_rental_application_signatures',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1277,'2026_09_08_210200_create_rental_application_generations_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1278,'2026_09_08_210300_add_reopen_link_expiry_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1279,'2026_09_08_220000_add_reopened_status_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1280,'2026_09_09_040000_create_rental_application_mark_color_settings_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1281,'2026_09_09_060000_create_rental_application_highlighters_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1282,'2026_09_09_060100_seed_and_backfill_rental_application_highlighters',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1283,'2026_09_09_060200_drop_rental_application_mark_color_settings_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1284,'2026_09_09_070000_add_created_by_to_rental_application_highlighters_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1285,'2026_09_10_010000_add_rental_application_status_to_contacts',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1286,'2026_09_10_020000_add_applicant_notified_at_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1287,'2026_09_10_030000_create_rental_application_approval_email_settings_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1288,'2026_09_10_040000_grant_contact_rental_history_view_alongside_contacts_view',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1289,'2026_09_10_070000_restore_agency_1_admin_rental_applications_view_scope',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1290,'2026_09_10_080000_create_rental_application_document_marks_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1291,'2026_09_10_080100_backfill_rental_application_document_marks_from_json',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1292,'2026_09_10_090000_backfill_contact_rental_application_status',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1293,'2026_09_10_100000_create_deal_properties_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1294,'2026_09_10_100000_grant_buyer_pipeline_view_alongside_core_matches_view',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1295,'2026_09_10_110000_change_allocated_price_to_decimal_on_deal_properties',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1296,'2026_09_10_120000_add_rental_term_fields_to_contact_matches',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1297,'2026_09_10_120000_backfill_allocated_price_for_existing_single_property_deals',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1298,'2026_09_10_140000_add_entry_date_to_rental_application_items',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1299,'2026_09_10_150000_add_statement_period_dates_to_rental_application_assessments',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1300,'2026_09_10_150000_create_rental_application_document_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1301,'2026_09_10_160000_add_current_rental_due_day_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1302,'2026_09_10_170000_create_rental_application_document_validity_windows_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1303,'2026_09_10_200000_add_lock_property_after_submission_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1304,'2026_09_10_210000_add_furnished_and_utilities_to_properties',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1305,'2026_09_10_220000_backfill_furnished_status_property_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1306,'2026_09_10_230000_add_buyer_kanban_column_limit_to_agency_contact_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1307,'2026_09_11_000000_add_tag_contact_as_tenant_on_approval_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1308,'2026_09_11_000001_seed_tenant_contact_type_if_missing',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1309,'2026_09_11_010000_add_current_living_situation_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1310,'2026_09_11_100000_add_entry_fields_to_rental_application_document_marks',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1311,'2026_09_11_100100_backfill_income_expense_items_to_unanchored_marks',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1312,'2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1313,'2026_09_12_090000_add_agency_id_to_rental_application_signatures',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1314,'2026_09_12_100000_add_draft_saved_at_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1315,'2026_09_12_100000_migrate_rental_application_archive_permission',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1316,'2026_09_12_100001_add_autosave_debounce_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1317,'2026_09_12_200000_add_autosave_rate_limit_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1318,'2026_09_13_000000_add_capture_type_to_rental_application_highlighters',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1319,'2026_09_13_000000_add_document_rate_limit_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1320,'2026_09_13_100000_add_document_closure_and_route_rate_limits_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1321,'2026_09_13_110000_add_require_fica_before_authorisation_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1322,'2026_09_13_130000_add_pre_tenant_link_status_to_properties',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1323,'2026_09_13_130000_add_return_gate_settings_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1324,'2026_09_13_140000_add_submission_requirements_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1325,'2026_09_14_120000_add_struck_out_to_rental_application_document_marks',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1326,'2026_09_14_150000_add_received_by_user_id_to_portal_leads_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1327,'2026_09_14_150100_add_agent_id_to_contact_matches_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1328,'2026_09_14_150200_create_contact_match_reassignments_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1329,'2026_09_14_150300_add_core_matches_working_window_days_to_agency_contact_settings_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1330,'2026_09_14_150400_add_set_aside_at_to_contact_matches_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1331,'2026_09_14_150500_create_contact_match_shares_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1332,'2026_09_14_150600_add_soft_deletes_to_contact_match_shares_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1333,'2026_09_14_150700_create_contact_match_share_properties_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1334,'2026_09_14_150800_create_contact_match_link_opens_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1335,'2026_09_15_090000_add_decline_email_draft_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1336,'2026_09_15_090000_add_token_and_confirmation_to_contact_match_shares_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1337,'2026_09_15_090000_create_rental_application_decline_reason_templates_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1338,'2026_09_15_090100_add_price_drop_threshold_to_agency_contact_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1339,'2026_09_15_090100_seed_rental_application_decline_reason_templates',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1340,'2026_09_15_100000_add_identity_gate_settings_to_rental_application_qualifying_settings',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1341,'2026_09_15_100000_add_p24_imported_at_to_properties_table',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1342,'2026_09_15_100100_add_identity_gate_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1343,'2026_09_16_090000_add_approved_subject_to_fica_at_to_rental_applications',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1344,'2026_09_16_100000_add_deleted_at_to_contact_property',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1345,'2026_09_17_000000_add_deleted_at_to_rental_application_document_validity_windows',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1346,'2026_09_17_000100_backfill_contact_matches_agent_id',252);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1347,'2026_09_19_120000_add_imported_released_at_to_properties_table',253);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1348,'2026_09_19_130000_add_daily_digest_enabled_to_users_table',253);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1349,'2026_09_21_000000_add_one_email_sub_user_columns',253);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1350,'2026_09_21_000001_add_agency_id_to_rentals_table',253);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1351,'2026_09_21_000002_add_agency_id_to_tv_messages_table',253);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1352,'2026_09_21_000100_add_choose_and_link_to_p24_import_rows_action',253);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1353,'2026_09_26_000000_scrub_cross_agency_rental_agents',253);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1354,'2026_09_28_120000_register_whistleblow_submitted_notification',254);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1355,'2026_09_17_090000_create_leases_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1356,'2026_09_17_090100_create_lease_tenants_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1357,'2026_09_17_090200_create_lease_escalations_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1358,'2026_09_17_090300_create_lease_settings_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1359,'2026_09_17_100000_create_rental_inspection_items_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1360,'2026_09_17_100100_create_rental_inspections_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1361,'2026_09_17_100200_create_rental_inspection_observations_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1362,'2026_09_17_100300_create_rental_inspection_photos_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1363,'2026_09_17_100400_create_rental_inspection_discrepancies_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1364,'2026_09_17_100500_create_rental_inspection_signatures_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1365,'2026_09_17_100600_create_rental_inspection_settings_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1366,'2026_09_19_090000_add_field_display_config_to_rental_application_qualifying_settings',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1367,'2026_09_19_090100_add_field_config_snapshot_to_rental_applications',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1368,'2026_09_20_090000_add_field_config_snapshot_to_rental_application_generations',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1369,'2026_09_20_100000_create_rental_application_custom_fields_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1370,'2026_09_20_100100_add_custom_field_values_to_rental_applications',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1371,'2026_09_20_110000_add_custom_field_key_to_documents',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1372,'2026_09_20_120000_add_credit_bureau_name_to_rental_application_qualifying_settings',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1373,'2026_09_21_090000_add_tenanted_label_to_rental_application_qualifying_settings',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1374,'2026_09_21_100000_create_property_rental_details_custom_fields_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1375,'2026_09_21_110000_add_spaces_json_legacy_backup_to_properties_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1376,'2026_09_21_120000_create_rental_inspection_item_findings_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1377,'2026_09_21_150000_add_rental_details_custom_field_values_to_properties_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1378,'2026_09_21_150000_add_room_type_walking_order_to_rental_inspection_settings_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1379,'2026_09_21_160000_add_condition_states_to_rental_inspection_settings_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1380,'2026_09_21_160100_create_rental_inspection_room_notes_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1381,'2026_09_21_160200_add_overall_notes_to_rental_inspections_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1382,'2026_09_21_180000_backfill_rental_price_type_property_settings',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1383,'2026_09_21_190000_backfill_lease_type_property_settings',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1384,'2026_09_22_090000_add_baseline_condition_key_to_rental_inspection_settings_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1385,'2026_09_22_100000_add_show_lease_type_field_to_lease_settings_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1386,'2026_09_22_100000_create_rental_fault_report_updates_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1387,'2026_09_22_140000_add_room_and_tray_support_to_rental_inspection_photos_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1388,'2026_09_22_150000_add_sort_order_to_rental_inspection_items_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1389,'2026_09_22_160000_create_rental_inspection_photo_matches_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1390,'2026_09_24_090000_add_approval_mode_to_rental_application_qualifying_settings',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1391,'2026_09_25_090000_add_checklist_snapshotted_at_to_rental_applications',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1392,'2026_09_25_100000_create_rental_fault_reports_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1393,'2026_09_25_100100_create_rental_fault_report_photos_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1394,'2026_09_25_100200_register_rental_fault_report_created_notification',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1395,'2026_09_26_100000_create_rental_approvals_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1396,'2026_09_26_100100_register_rental_fault_report_resolved_notification',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1397,'2026_09_27_100000_create_rental_work_order_settings_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1398,'2026_09_27_100100_add_rental_no_approval_spend_threshold_to_leases_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1399,'2026_09_28_100000_create_rental_work_orders_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1400,'2026_09_28_100100_create_rental_work_order_updates_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1401,'2026_09_28_100200_create_rental_work_order_photos_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1402,'2026_09_28_100300_add_work_order_foreign_keys_deferred_from_stage1_2',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1403,'2026_09_28_100400_register_rental_work_order_notifications',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1404,'2026_09_28_130000_add_satisfies_group_to_agency_document_type_configs',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1405,'2026_09_28_130100_seed_bee_affidavit_and_trial_balance_document_types',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1406,'2026_09_28_130200_create_ppra_inspection_gap_notes_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1407,'2026_09_28_150000_create_agency_transformation_notes_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1408,'2026_09_28_170000_create_ppra_inspection_packs_table',255);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1409,'2026_09_29_100000_add_archived_by_to_rental_inspections_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1410,'2026_09_29_100000_add_rental_no_approval_spend_threshold_to_properties',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1411,'2026_09_29_100100_drop_rental_no_approval_spend_threshold_from_leases',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1412,'2026_09_29_100200_create_rental_work_order_quotes_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1413,'2026_09_30_100000_rebuild_rental_inspection_signatures_for_three_party_signing',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1414,'2026_09_30_100100_add_refusal_reason_presets_to_rental_inspection_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1415,'2026_09_30_100200_add_inspection_feature_labels_to_rental_inspection_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1416,'2026_09_30_100300_add_room_type_item_defaults_to_rental_inspection_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1417,'2026_09_30_100400_create_property_rooms_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1418,'2026_09_30_100500_add_property_room_id_and_source_to_rental_inspection_items_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1419,'2026_09_30_100600_add_rental_inspection_form_seeded_at_to_properties_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1420,'2026_09_30_100700_add_deferred_foreign_keys_for_later_created_tables',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1421,'2026_09_30_100800_add_require_notes_blocks_progression_to_rental_inspection_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1422,'2026_10_01_100000_add_wet_ink_to_rental_inspection_signatures',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1423,'2026_10_01_110000_add_header_block_to_rental_inspections',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1424,'2026_10_01_120000_create_rental_inventories_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1425,'2026_10_01_120100_create_rental_inventory_lines_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1426,'2026_10_01_120200_create_rental_inventory_signatures_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1427,'2026_10_01_130000_create_rental_inventory_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1428,'2026_10_01_130100_create_rental_inventory_line_dispositions_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1429,'2026_10_02_100000_add_property_room_to_rental_inventory_lines',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1430,'2026_10_02_100100_create_rental_inventory_photos_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1431,'2026_10_02_100200_create_rental_inventory_line_photos_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1432,'2026_10_02_100300_add_archived_by_user_id_to_rental_inventory_photos_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1433,'2026_10_02_100400_add_approved_deposit_amount_to_rental_applications',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1434,'2026_10_02_100500_add_deposit_amount_is_default_to_properties',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1435,'2026_10_02_100600_add_default_deposit_months_to_lease_settings',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1436,'2026_10_02_150000_create_rental_inspection_forms_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1437,'2026_10_02_160000_add_omr_mark_threshold_to_rental_inspection_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1438,'2026_10_02_160000_add_quote_snapshot_to_rental_approvals_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1439,'2026_10_02_160100_create_rental_inspection_scans_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1440,'2026_10_02_160200_create_rental_inspection_scan_marks_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1441,'2026_10_02_160300_add_previous_inspection_id_to_rental_inspections_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1442,'2026_10_02_160300_make_rental_inventory_lines_quantity_nullable',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1443,'2026_10_02_160400_add_public_link_to_rental_inspections_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1444,'2026_10_02_160500_add_public_link_expiry_days_to_rental_inspection_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1445,'2026_10_02_170000_create_rental_inventory_room_marks_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1446,'2026_10_02_180000_add_condition_states_to_rental_inventory_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1447,'2026_10_02_180100_add_condition_key_to_rental_inventory_lines_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1448,'2026_10_02_190000_add_side_to_rental_inventory_photos_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1449,'2026_10_02_190100_add_baseline_disposition_key_to_rental_inventory_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1450,'2026_10_03_100000_create_rental_inspection_photo_match_groups_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1451,'2026_10_03_100100_create_rental_inspection_photo_match_group_members_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1452,'2026_10_03_100200_migrate_pairwise_photo_matches_into_groups',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1453,'2026_10_03_200000_create_rental_checklist_template_sections_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1454,'2026_10_03_200100_create_rental_checklist_template_items_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1455,'2026_10_03_200200_create_rental_application_checklist_sections_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1456,'2026_10_03_200300_create_rental_application_checklist_items_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1457,'2026_10_03_200400_create_rental_review_panel_preferences_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1458,'2026_10_03_200500_add_require_checklist_complete_to_rental_application_qualifying_settings',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1459,'2026_10_03_200600_add_auto_pair_photos_enabled_to_rental_inspection_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1460,'2026_10_03_200600_add_tpn_document_type',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1461,'2026_10_03_200700_add_checklist_item_id_to_documents_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1462,'2026_10_03_200800_add_document_required_to_rental_checklist_template_items_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1463,'2026_10_03_200900_add_document_required_to_rental_application_checklist_items_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1464,'2026_10_03_210000_create_rental_inspection_photo_notes_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1465,'2026_10_03_210100_add_photo_note_classifications_to_rental_inspection_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1466,'2026_10_03_220000_create_rental_inspection_screen_preferences_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1467,'2026_10_03_230000_add_is_principal_practitioner_to_users_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1468,'2026_10_03_231500_add_financial_year_start_month_to_agencies_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1469,'2026_10_03_231600_add_ppra_pack_sample_sizes_to_agencies_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1470,'2026_10_04_090000_make_rental_inventories_lease_id_nullable',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1471,'2026_10_04_100000_create_signed_document_distribution_logs_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1472,'2026_10_04_100100_add_auto_send_report_enabled_to_rental_inspection_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1473,'2026_10_04_100200_widen_documents_source_type_column',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1474,'2026_10_05_090000_add_public_link_to_rental_inventories_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1475,'2026_10_05_090100_add_distribution_settings_to_rental_inventory_settings_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1476,'2026_10_05_090200_clear_ppra_sample_rental_ids_pre_lease_migration',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1477,'2026_10_05_090300_add_mandate_register_settings_to_agencies_table',256);
+INSERT INTO `migrations` (`id`, `migration`, `batch`) VALUES (1478,'2026_10_05_090400_add_ppra_pack_generation_complete_notification_event_type',256);
