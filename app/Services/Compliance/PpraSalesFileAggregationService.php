@@ -158,6 +158,10 @@ class PpraSalesFileAggregationService
         $files = [];
         $missing = [];
 
+        if ($deal->contacts->isEmpty()) {
+            return [$files, ['No contacts (buyer/seller/other party) are linked to this deal — FICA cannot be resolved.']];
+        }
+
         foreach ($deal->contacts as $contact) {
             $submission = FicaSubmission::where('contact_id', $contact->id)->approved()->latest('id')->first()
                 ?? FicaSubmission::where('contact_id', $contact->id)->latest('id')->first();
