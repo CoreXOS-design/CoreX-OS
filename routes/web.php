@@ -1202,6 +1202,18 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
             Route::post('/{noteId}/restore', [\App\Http\Controllers\Admin\PpraTransformationController::class, 'restore'])->name('restore');
         });
     });
+
+    // Shared sample picker — Phase F, §6.8a. Pure infrastructure consumed
+    // by items k/l/m (Phases G/H/I); {mode} is deal|rental|listing.
+    Route::prefix('sample-picker')->name('sample-picker.')->group(function () {
+        Route::get('/preview', [\App\Http\Controllers\Admin\PpraSamplePickerController::class, 'preview'])->name('preview');
+        Route::get('/{mode}/search', [\App\Http\Controllers\Admin\PpraSamplePickerController::class, 'search'])->name('search');
+        Route::get('/{mode}/most-recent', [\App\Http\Controllers\Admin\PpraSamplePickerController::class, 'mostRecent'])->name('most-recent');
+
+        Route::middleware('permission:ppra_inspection_pack.configure')->group(function () {
+            Route::post('/{mode}', [\App\Http\Controllers\Admin\PpraSamplePickerController::class, 'store'])->name('store');
+        });
+    });
 });
 
 // ===== PUBLIC PROPERTY PREVIEW (shareable, no auth required) =====

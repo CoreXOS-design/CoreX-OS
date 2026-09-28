@@ -1285,21 +1285,40 @@ class SettingsController extends Controller
 
     /**
      * PPRA Inspection Pack Phase E — item (j), .ai/specs/ppra-inspection-pack.md §6.7/§11.
+     * Phase F (v3, §4.6a) adds the three sample-picker sizes onto the same
+     * form/saver. Each is validated only when present in the request — the
+     * onboarding wizard step (§6.1) posts a SUBSET of this saver's fields,
+     * and treating an absent field as "clear to null" would silently wipe
+     * a value the wizard step never rendered.
      */
     public function savePpraInspectionPackSettings(Request $request)
     {
         abort_unless(auth()->user()?->hasPermission('ppra_inspection_pack.configure'), 403);
 
-        $data = $request->validate([
-            'financial_year_start_month' => 'required|integer|min:1|max:12',
-        ]);
+        $sampleSizeFields = ['ppra_pack_sales_sample_size', 'ppra_pack_rental_sample_size', 'ppra_pack_mandate_sample_size'];
+
+        $rules = ['financial_year_start_month' => 'required|integer|min:1|max:12'];
+        foreach ($sampleSizeFields as $field) {
+            if ($request->has($field)) {
+                $rules[$field] = 'required|integer|min:1|max:50';
+            }
+        }
+
+        $data = $request->validate($rules);
 
         $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->agency_id);
         if (!$agency) {
             return redirect()->back()->with('error', 'Agency not found.');
         }
 
-        $agency->update(['financial_year_start_month' => $data['financial_year_start_month']]);
+        $updates = ['financial_year_start_month' => $data['financial_year_start_month']];
+        foreach ($sampleSizeFields as $field) {
+            if (array_key_exists($field, $data)) {
+                $updates[$field] = $data[$field];
+            }
+        }
+
+        $agency->update($updates);
 
         return redirect()->route('corex.settings', ['s' => 'ppra-inspection-pack-settings'])
             ->with('success', 'PPRA Inspection Pack settings saved.');

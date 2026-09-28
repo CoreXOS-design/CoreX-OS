@@ -3967,7 +3967,7 @@
         <div x-show="activeSection === 'ppra-inspection-pack-settings'" x-cloak class="p-6 space-y-6">
             <div>
                 <h2 class="text-lg font-bold" style="color:var(--text-primary);">PPRA Inspection Pack</h2>
-                <p class="text-sm mt-1" style="color:var(--text-secondary);">Configure the financial year used by the current-FY sales/rentals list (item j).</p>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Configure the financial year used by the current-FY sales/rentals list (item j) and the sample sizes used by the deal/rental/mandate file-sample picker (items k/l/m).</p>
             </div>
 
             <form method="POST" action="{{ route('corex.settings.ppra-inspection-pack.save') }}" class="space-y-6">
@@ -3981,6 +3981,27 @@
                         <option value="{{ $i + 1 }}" {{ (int) ($agency->financial_year_start_month ?? 3) === $i + 1 ? 'selected' : '' }}>{{ $monthName }}</option>
                         @endforeach
                     </select>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl">
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">Sales sample size (item k)</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">How many sale deals the picker allows selecting for the inspection pack.</p>
+                        <input type="number" min="1" max="50" name="ppra_pack_sales_sample_size" value="{{ $agency->ppra_pack_sales_sample_size ?? 5 }}"
+                            class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">Rental sample size (item l)</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">How many rentals the picker allows selecting for the inspection pack.</p>
+                        <input type="number" min="1" max="50" name="ppra_pack_rental_sample_size" value="{{ $agency->ppra_pack_rental_sample_size ?? 5 }}"
+                            class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">Mandate sample size (item m)</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">How many active listings the picker allows selecting for the inspection pack.</p>
+                        <input type="number" min="1" max="50" name="ppra_pack_mandate_sample_size" value="{{ $agency->ppra_pack_mandate_sample_size ?? 5 }}"
+                            class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
                 </div>
 
                 <button type="submit" class="corex-btn-primary">Save Settings</button>

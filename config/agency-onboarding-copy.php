@@ -753,6 +753,21 @@ return [
              'label' => 'Financial year starts in',
              'explain' => 'The month your agency\'s financial year begins — used by the PPRA Inspection Pack to bound its "current financial year" sales and rentals list.',
              'affects' => 'Which sales and rentals count as "this financial year" on the PPRA Inspection Pack (Admin → PPRA Inspection Pack). Does not affect any other report.'],
+            // PPRA Inspection Pack Phase F — .ai/specs/ppra-inspection-pack.md
+            // §4.6a/§6.8a. Plain number inputs always post a value, so no §6.1
+            // has()-guard is needed here either.
+            ['key' => 'ppra_pack_sales_sample_size', 'source' => 'agency', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 50,
+             'label' => 'Sales file sample size',
+             'explain' => 'How many sale deals an admin can pick for the PPRA Inspection Pack\'s sales file sample (item k).',
+             'affects' => 'The maximum number of sale deals selectable in the PPRA Inspection Pack\'s sample picker for item k.'],
+            ['key' => 'ppra_pack_rental_sample_size', 'source' => 'agency', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 50,
+             'label' => 'Rental file sample size',
+             'explain' => 'How many rentals an admin can pick for the PPRA Inspection Pack\'s rental file sample (item l).',
+             'affects' => 'The maximum number of rentals selectable in the PPRA Inspection Pack\'s sample picker for item l.'],
+            ['key' => 'ppra_pack_mandate_sample_size', 'source' => 'agency', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 50,
+             'label' => 'Mandate/MDF sample size',
+             'explain' => 'How many active listings an admin can pick for the PPRA Inspection Pack\'s mandate/MDF sample (item m).',
+             'affects' => 'The maximum number of active listings selectable in the PPRA Inspection Pack\'s sample picker for item m.'],
         ],
     ],
 

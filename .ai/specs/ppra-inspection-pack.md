@@ -1,6 +1,6 @@
 # PPRA Inspection Pack — Specification
 
-**Status:** Draft v3 — Phases A and B shipped; C onward re-planned around Johan's item-by-item rulings below
+**Status:** Draft v3 — Phases A–F shipped; G onward re-planned around Johan's item-by-item rulings below
 **Author:** Claude (senior engineering), from the read-only PPRA s25 investigation of 2026-09-28
 **Date:** 28 September 2026
 **Spec location:** `.ai/specs/ppra-inspection-pack.md`
@@ -177,6 +177,13 @@ Schema::create('ppra_inspection_gap_notes', function (Blueprint $table) {
 "Current" note for an item = latest non-deleted, non-resolved row for that agency + slug. `resolved_at` is set two ways: automatically, the next time the checklist re-computes that item as green (the checklist service resolves any open note for a now-clean item), or manually via a "mark resolved now" action. Full CRUD: create/edit a note (upsert — editing creates a new row exactly like `agency_transformation_notes`' versioning, so the remediation history for an item is itself auditable), archive (soft-delete, e.g. added in error), and a small embedded "Remediation Log" list on the checklist page (search — item, note text; sort — due date / created date, default due date ascending; filter — open vs. resolved, overdue; pagination) satisfying the §1a CRUD-list floor without a standalone nav entry.
 
 ### 4.5 New table: `ppra_inspection_packs`
+
+**Created in Phase F, not Phase J as originally sequenced.** Phase F's own
+deliverable (the shared sample picker, §6.8a) persists selected sample ids
+onto this table, so the table must exist before Phase F ships. Phase J's
+scope is unchanged apart from this: it adds the queued job, download route,
+and notification on top of a table that already exists by the time it
+starts.
 
 ```php
 Schema::create('ppra_inspection_packs', function (Blueprint $table) {
@@ -490,11 +497,13 @@ The new practitioner register (§6.6), the sample picker (§6.8a) and its k/l/m 
 - FY-bounding + manual override + PDF/CSV export on DR2 deals list and rentals list, split sales/rentals.
 - Checklist row j + Report section (including the overwrite-on-reactivation caveat) wired.
 
-**Phase F — shared sample-picker component (§6.8a)**
-- Reusable Blade/Alpine picker (deal/rental/listing modes), search/filter/multi-select/N-quick-select.
-- Persists to `ppra_inspection_packs.sample_deal_ids`/`sample_rental_ids`/`sample_listing_ids`.
-- No standalone checklist row — pure infrastructure consumed by Phases G/H/I.
-- New agency settings: `ppra_pack_sales_sample_size`, `ppra_pack_rental_sample_size`, `ppra_pack_mandate_sample_size` (§4.6a).
+**Phase F — shipped (`<PHASE_F_SHA>`) — shared sample-picker component (§6.8a)**
+- Reusable Blade/Alpine picker (`resources/views/components/ppra-sample-picker.blade.php`), deal/rental/listing modes, search (address/agent/contact name for deal, address/agent for rental/listing), filter (date range, status, agent), multi-select capped at the agency's configured N, "select N most recent" quick-action. Backed by `PpraSamplePickerService` (`app/Services/Compliance/PpraSamplePickerService.php`) and `PpraSamplePickerController` (`app/Http/Controllers/Admin/PpraSamplePickerController.php`).
+- Persists to `ppra_inspection_packs.sample_deal_ids`/`sample_rental_ids`/`sample_listing_ids`, via `PpraInspectionPack::findOrCreateDraftFor()` — the agency's current `status='queued'`/`generated_at=null` row, created on first picker use if none exists yet. This is the resolution to a design question the spec itself left open: §6.8a says "Selection is per-pack, not a standing setting" but no pack exists until Phase J's "Download full inspection pack" is ever clicked. A find-or-create draft pack lets the picker (and, later, the checklist's item k/l/m "Choose sample" action) persist a selection before any generation has been requested; Phase J's `GeneratePpraInspectionPackJob` consumes whichever draft is current at dispatch time.
+- **`ppra_inspection_packs` migration (§4.5) moved from Phase J to Phase F.** Phase F's own deliverable requires the table to persist to; Phase J's remaining scope (job/route/notification/regeneration) is unchanged and builds on the table created here — Phase J's build-sequence entry below is updated to reflect this.
+- New agency settings: `ppra_pack_sales_sample_size`, `ppra_pack_rental_sample_size`, `ppra_pack_mandate_sample_size` (§4.6a) — `/corex/settings` → PPRA Inspection Pack section (same form/saver as the FY setting) and the Setup Wizard's Compliance step (non-negotiable §10a), all three, same as the FY setting's own precedent.
+- No standalone checklist row shipped — pure infrastructure consumed by Phases G/H/I, as specced. A **temporary, unlinked verification harness** was added at `/admin/ppra-inspection-pack/sample-picker/preview` (permission `ppra_inspection_pack.view`, direct-URL only, no sidebar/nav entry, no link from the checklist page) purely so this phase's deliverable is browser-testable ahead of G/H/I wiring the real k/l/m rows. Remove this route once Phase I lands (the real rows supersede it).
+- "Rental" mode is the `Rental` model (the lease record, `rentals` table) — agency-scoped via `whereHas('branch', ...)` since `Rental` carries `branch_id` not `agency_id` directly. "Listing" mode reuses `Property::onMarket()` (not the FY-bounded `PpraFinancialYearListService::advertisedListings()` — that reuse is item m's job in Phase I per §6.8d, not Phase F's).
 
 **Phase G — item k: sales file samples**
 - Deep per-deal aggregation (§6.8b): deal + pipeline, all deal docs, property-level mandate/MDF, FICA all parties, communications log, commission/proforma.
@@ -512,7 +521,7 @@ The new practitioner register (§6.6), the sample picker (§6.8a) and its k/l/m 
 - Checklist row m wired to both the register (status) and the picker (evidence).
 
 **Phase J — full inspection pack**
-- Migration `ppra_inspection_packs` (v3 schema: `sample_listing_ids` in place of the old sample-count columns, §4.5), `notification_event_types` row.
+- `ppra_inspection_packs` table already exists (migration moved to Phase F — the table is required there to back the sample picker's persistence). Phase J adds the `notification_event_types` row only.
 - `GeneratePpraInspectionPackJob` (bundles source files from Phases A–I around the Phase-A Report renderer, including trial balance from the vault per item e), download route, notification, regeneration contract (§6.9).
 - **First real queued-job QA on Staging**, not QA1 (BUILD_STANDARD constraint, §6.9 note).
 
