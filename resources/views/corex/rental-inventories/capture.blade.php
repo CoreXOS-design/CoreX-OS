@@ -225,7 +225,7 @@
 
     {{-- Sec 13.11 - ONE Alpine scope for the whole tab panel: pill strip and stacked room panels share rooms/lines/activeRoomId on their common ancestor. --}}
     <div class="flex-1 overflow-y-auto prop-tab-panel"
-         @if($inventory) x-data="rentalInventoryCapture({{ $inventory->id }}, {{ $property->id }}, '{{ $spaceStoreUrl ?? '' }}')" @endif>
+         @if($inventory) x-data="rentalInventoryCapture({{ $inventory->id }}, {{ $property->id }}, '{{ $spaceStoreUrl ?? '' }}', '{{ $seedSpacesFromListingUrl ?? '' }}')" @endif>
         <div id="inv-sticky-shell">
             @include('corex.properties.partials._property-shell-tabs', [
                 'property' => $property, 'isNew' => $isNew, 'allDriveDocs' => $allDriveDocs, 'coreMatches' => $coreMatches,
@@ -312,9 +312,20 @@
                      through finds them, same as on the inspection side. --}}
                 <div class="rounded-md p-3" style="background: var(--surface-2);">
                     <template x-if="!rooms.length">
-                        <p class="text-xs pb-2" style="color: var(--text-secondary);">
-                            This property has no spaces set up yet — add the first one below. Inventory and Inspections share the same room list.
-                        </p>
+                        <div class="pb-2 space-y-2">
+                            <p class="text-xs" style="color: var(--text-secondary);">
+                                This property has no spaces set up yet — add the first one below.
+                            </p>
+                            {{-- Johan, 2026-09-28: "why ask the agent to retype something we
+                                 know." One click, seeded from the listing's own advertising
+                                 Spaces (bedrooms, bathrooms, flatlets, etc.) — the SAME source
+                                 Inspections' own "Build from advertising details" button reads.
+                                 Never silent: an explicit click, a confirm dialog, and an
+                                 honest error (e.g. no advertising Spaces yet) if it can't. --}}
+                            <button type="button" :disabled="seedBusy" @click="seedSpacesFromListing()"
+                                    class="text-xs font-semibold rounded-md text-white px-3 py-1.5" style="background:var(--brand-button,#0ea5e9);"
+                                    x-text="seedBusy ? 'Creating…' : 'Create spaces from listing'"></button>
+                        </div>
                     </template>
                     <form @submit.prevent="addSpace()" class="flex items-end gap-2 flex-wrap">
                         <div>
@@ -620,10 +631,11 @@
 @if($inventory)
 @push('scripts')
 <script>
-function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
+function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpacesFromListingUrl) {
     return {
         csrf: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
         baseUrl: `/corex/rental-inventories/${inventoryId}`,
+        seedSpacesFromListingUrl,
         spaceStoreUrl,
         rooms: @json($roomsForJs),
         lines: @json($linesForJs),
@@ -803,6 +815,7 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
         newSpace: { space_type: '', label: '' },
         spaceBusy: false,
         spaceError: '',
+        seedBusy: false,
         // §13 — "Copy from last inventory."
         copyBusy: false,
         copyError: '',
@@ -1027,6 +1040,43 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl) {
                 });
             } finally {
                 this.spaceBusy = false;
+            }
+        },
+
+        // Johan, 2026-09-28: "why ask the agent to retype something we
+        // know." Same endpoint Inspections' own "Build from advertising
+        // details" button calls (RentalInspectionFormSeeder::
+        // seedFromAdvertising()) — reads the property's advertising Spaces
+        // (spaces_json), creates one real PropertyRoom per unit. One-time
+        // per property (the seeder's own 409 guard) and never silent — an
+        // explicit click behind a confirm, with the failure (e.g. no
+        // advertising Spaces yet) surfaced via the same spaceError slot
+        // addSpace() already uses.
+        async seedSpacesFromListing() {
+            if (!confirm('Create spaces from this property\'s advertising Spaces (bedrooms, bathrooms, etc.)? You can edit or add more afterwards.')) return;
+            this.seedBusy = true;
+            this.spaceError = '';
+            try {
+                const res = await fetch(this.seedSpacesFromListingUrl, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({}),
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    this.spaceError = body.message || 'Could not create spaces from the listing — try again.';
+                    return;
+                }
+                const result = await res.json();
+                (result.rooms || []).forEach(room => {
+                    if (!this.rooms.some(r => r.id === room.id)) {
+                        this.rooms.push({ id: room.id, label: room.label });
+                        this._initRoomState({ id: room.id });
+                    }
+                });
+                this.$nextTick(() => this._setupScrollSpy());
+            } finally {
+                this.seedBusy = false;
             }
         },
 

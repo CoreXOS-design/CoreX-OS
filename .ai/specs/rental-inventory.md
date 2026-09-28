@@ -2237,3 +2237,52 @@ proving "full inventory capture" is not just a page that loads),
 CRUD-floor entry point, not just the property-embedded one). All rental-path tests in the same file
 (the leased property's own resolve/capture/reload loop) re-run unchanged and still pass, proving no
 regression to the tenancy path.
+
+---
+
+## 16. "Create spaces from listing" — one click, reusing the Inspections seeder (2026-09-28)
+
+Real-browser follow-up from §15: Johan verified 15726's Inventory tab now opens, but "no spaces set up
+yet" on a listing that plainly has bedrooms/bathrooms/garages/flatlets — his own standing ruling, "why
+ask the agent to retype something we know."
+
+**Not a new seeder.** Investigated first: `RentalInspectionFormSeeder::seedFromAdvertising()`
+(`app/Services/Rentals/RentalInspectionFormSeeder.php`) already exists, already does exactly this for
+Inspections' own blank-property state — reads the property's own advertising Spaces
+(`properties.spaces_json`, the structured data an agent fills in when building the listing) and creates
+one real `PropertyRoom` per unit. Confirmed directly against 15726's own `spaces_json` on QA1: it
+already lists Bedroom×6, Bathroom×5, Parking×6, Pool×1, Kitchen×3, Garden×1, **Flatlet×2** ("Flatlet 1",
+"Flatlet 2"), Lounge×3, Dining Room×1, Laundry Room×1, Patio×1, Pool Shed×1, Storeroom×2, Veranda×1,
+Yard×1 — the exact "flatlets" Johan named, already captured as real structured data, not something a
+beds/baths/garages COUNT column could ever expose (a flatlet isn't a bedroom/bathroom/garage). Building
+a second seeder off those count columns would have been strictly worse than what already existed.
+
+**What changed — wiring only, no new backend code:**
+- `RentalInventoryCaptureController::show()` passes a new `seedSpacesFromListingUrl` to the view —
+  `route('corex.properties.rental-inspection-items.seed-from-advertising', $property)`, the SAME route
+  the Inspections tab's own "Build from advertising details" button already calls
+  (`RentalInspectionRecordingController::seedFromAdvertising()` → `RentalInspectionFormSeeder`). Same
+  permission (`access_properties`), same one-time 409 guard (`rental_inspection_form_seeded_at`), same
+  underlying table — a room seeded from Inventory is immediately visible to Inspections and vice versa,
+  because it is the identical write path §4b already established for the single-room "Add space" case.
+- `capture.blade.php`'s blank-state block gained a "Create spaces from listing" button, shown only when
+  `!rooms.length`, behind a confirm dialog (mirroring the Inspections tab's own confirm wording), never
+  auto-run. A failed seed (no advertising Spaces yet, or already seeded) surfaces its message through the
+  same `spaceError` slot the manual "Add space" form already uses — never silent.
+- On success, every room the endpoint returns is merged into the Alpine `rooms` array (`_initRoomState()`
+  per room, same as `addSpace()`) — the agent lands on a screen with every real space already listed,
+  editable/removable exactly like a manually-added one.
+- The helper sentence "Inventory and Inspections share the same room list" removed from the blank state
+  per Johan's explicit ask (screen space) — the first sentence ("no spaces set up yet — add the first
+  one below") stays, now sitting directly above the new button.
+
+**Deliberately not built:** no bedroom/bathroom/garage-count-based fallback for a property with no
+`spaces_json` at all — that property genuinely has no listing data to seed from, and the existing
+seeder's own honest 409 ("no advertising Spaces yet") already covers it, same as it already does for
+Inspections today. If Johan wants a fallback for that case, that is a separate, explicit ask.
+
+**Proven, not assumed** — `test_a_blank_property_offers_create_spaces_from_listing_and_seeds_real_rooms`
+(`tests/Feature/RentalInventory/RentalInventoryCaptureTest.php`): a property with `spaces_json` carrying
+two bedrooms and a flatlet, no `PropertyRoom` rows yet — the button is offered, the old shared-room
+sentence is gone, the seed endpoint returns rooms named "Bedroom 1"/"Bedroom 2"/"Flatlet 1", and a
+reload of the capture screen shows them. 12/12 tests green in the file (1 new, 11 unchanged from §15).

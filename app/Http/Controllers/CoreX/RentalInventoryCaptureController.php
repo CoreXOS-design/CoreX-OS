@@ -138,6 +138,22 @@ class RentalInventoryCaptureController extends Controller
             // table, same query, same permission (access_properties).
             'spaceStoreUrl' => route('corex.properties.rental-inspection-items.store', $property),
             'spaceTypes' => config('property-spaces.all_space_types', []),
+            // Johan, 2026-09-28, on 15726: "why ask the agent to retype
+            // something we know" — a one-click way to seed spaces from the
+            // listing instead of typing every bedroom/bathroom by hand.
+            // Reuses the EXACT SAME endpoint/service the Inspections tab's
+            // own "Build from advertising details" button already calls
+            // (RentalInspectionFormSeeder::seedFromAdvertising(), via
+            // RentalInspectionRecordingController::seedFromAdvertising()) —
+            // not a second seeder built from beds/baths/garages counts. It
+            // reads the property's own advertising Spaces (spaces_json),
+            // which already carries every real unit — including a Flatlet
+            // count no beds/baths/garages column would ever expose — and
+            // creates one real PropertyRoom per unit, editable afterwards
+            // exactly like a manually-added space. One-time per property
+            // (the seeder's own 409 guard, shared with Inspections) and
+            // never runs silently — always an explicit agent click.
+            'seedSpacesFromListingUrl' => route('corex.properties.rental-inspection-items.seed-from-advertising', $property),
         ]);
     }
 

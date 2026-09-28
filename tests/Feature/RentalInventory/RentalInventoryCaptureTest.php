@@ -398,4 +398,56 @@ final class RentalInventoryCaptureTest extends TestCase
         $inventory = RentalInventory::where('property_id', $saleProperty->id)->firstOrFail();
         $this->assertNull($inventory->lease_id);
     }
+
+    /**
+     * Johan, 2026-09-28, on 15726: "why ask the agent to retype something we
+     * know" — a blank property's Inventory tab now offers a one-click way to
+     * seed real PropertyRoom rows from the listing's own advertising Spaces
+     * (spaces_json), reusing the EXACT SAME endpoint Inspections' own "Build
+     * from advertising details" button already calls
+     * (RentalInspectionFormSeeder::seedFromAdvertising()) — not a second
+     * beds/baths/garages-based seeder. Proves the button is offered when
+     * blank, the seed endpoint creates rooms from real advertising units
+     * (including a Flatlet, which no beds/baths/garages column would ever
+     * expose), and those rooms are immediately visible back on the capture
+     * screen — editable afterwards, never auto-created without the click.
+     */
+    public function test_a_blank_property_offers_create_spaces_from_listing_and_seeds_real_rooms(): void
+    {
+        $blankProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Blank Property With Advertising Spaces', 'status' => 'active', 'listing_type' => 'sale',
+            'spaces_json' => [
+                'spaces' => [
+                    ['type' => 'Bedroom', 'count' => 2, 'units' => [
+                        ['label' => 'Bedroom 1', 'features' => []],
+                        ['label' => 'Bedroom 2', 'features' => []],
+                    ], 'featuresAll' => [], 'descriptionAll' => ''],
+                    ['type' => 'Flatlet', 'count' => 1, 'units' => [
+                        ['label' => 'Flatlet 1', 'features' => []],
+                    ], 'featuresAll' => [], 'descriptionAll' => ''],
+                ],
+                'features' => [],
+            ],
+        ]);
+
+        $response = $this->get(route('corex.properties.inventory.show', $blankProperty));
+        $response->assertOk();
+        $response->assertSee('Create spaces from listing', false);
+        $response->assertDontSee('Inventory and Inspections share the same room list');
+
+        $seedResponse = $this->postJson(
+            route('corex.properties.rental-inspection-items.seed-from-advertising', $blankProperty)
+        )->assertOk();
+
+        $roomLabels = collect($seedResponse->json('rooms'))->pluck('label');
+        $this->assertTrue($roomLabels->contains('Bedroom 1'));
+        $this->assertTrue($roomLabels->contains('Bedroom 2'));
+        $this->assertTrue($roomLabels->contains('Flatlet 1'));
+
+        $reload = $this->get(route('corex.properties.inventory.show', $blankProperty));
+        $reload->assertOk();
+        $reload->assertSee('Bedroom 1', false);
+        $reload->assertSee('Flatlet 1', false);
+    }
 }
