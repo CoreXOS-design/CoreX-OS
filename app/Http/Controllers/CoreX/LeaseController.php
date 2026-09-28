@@ -22,6 +22,9 @@ use Illuminate\View\View;
  */
 class LeaseController extends Controller
 {
+    /** §39, 2026-09-28 — "Expiring soon" summary tile window; no agency-configurable setting exists for this yet (see index()'s own note). */
+    private const LEASE_EXPIRING_SOON_DAYS = 60;
+
     /**
      * The Leases list screen. Search: property address, tenant name(s).
      * Sort: end_date (default, ascending — soonest to expire first), start_date,
@@ -75,6 +78,12 @@ class LeaseController extends Controller
             $query->where('leases.end_date', '<=', $dateTo);
         }
 
+        // §39 — the summary tiles' own "Expiring soon" exception tile.
+        if ($request->boolean('expiring_soon')) {
+            $query->where('leases.status', Lease::STATUS_ACTIVE)
+                ->whereBetween('leases.end_date', [now(), now()->addDays(self::LEASE_EXPIRING_SOON_DAYS)]);
+        }
+
         if ($sort === 'property') {
             $query->join('properties', 'properties.id', '=', 'leases.property_id')
                 ->orderBy('properties.title', $direction)
@@ -87,12 +96,37 @@ class LeaseController extends Controller
 
         $leases = $query->paginate(25)->withQueryString();
 
+        // §39, 2026-09-28 — Johan: a summary tiles row, the same reused
+        // FICA/rental-applications pattern as rental-inspections (§39
+        // there). Status tiles are the real enum (Lease::STATUS_*), not
+        // invented. Exception tile: "Expiring soon" — an active lease
+        // whose end_date falls within the next LEASE_EXPIRING_SOON_DAYS
+        // days. No agency-configurable renewal-reminder-window setting
+        // exists on this model today (checked — nothing to reuse); adding
+        // one is a real setting (Non-negotiable #10a: Setup Wizard entry,
+        // saver, the works) and out of scope for a tiles row. A fixed
+        // 60-day default is used instead, same "sensible fixed default,
+        // no new setting" call as any other unconfigured threshold —
+        // flagged here for Johan if he wants it made configurable later.
+        $leaseTileBase = fn () => Lease::query()->visibleTo($user, $request->get('scope'));
+        $tileCounts = [
+            'draft' => $leaseTileBase()->where('leases.status', Lease::STATUS_DRAFT)->count(),
+            'active' => $leaseTileBase()->where('leases.status', Lease::STATUS_ACTIVE)->count(),
+            'expired' => $leaseTileBase()->where('leases.status', Lease::STATUS_EXPIRED)->count(),
+            'cancelled' => $leaseTileBase()->where('leases.status', Lease::STATUS_CANCELLED)->count(),
+            'expiring_soon' => $leaseTileBase()
+                ->where('leases.status', Lease::STATUS_ACTIVE)
+                ->whereBetween('leases.end_date', [now(), now()->addDays(self::LEASE_EXPIRING_SOON_DAYS)])
+                ->count(),
+        ];
+
         return view('corex.leases.index', [
             'leases' => $leases,
             'sort' => $sort,
             'direction' => $direction,
             'hasAnyLeases' => $hasAnyLeases,
-            'filters' => $request->only(['q', 'status', 'property_id', 'branch_id', 'date_from', 'date_to']),
+            'filters' => $request->only(['q', 'status', 'property_id', 'branch_id', 'date_from', 'date_to', 'expiring_soon']),
+            'tileCounts' => $tileCounts,
         ]);
     }
 
