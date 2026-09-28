@@ -53,6 +53,21 @@ storage/p17_*.html
 storage/idx*.html
 .claude/scheduled_tasks.lock
 
+# .ai/STANDARDS.md Standard -1w — rotated log history, pure history with no
+# live read path. Written externally by /etc/logrotate.d/corex-laravel, never
+# hand-authored.
+storage/logs/*.log.[0-9]*
+storage/logs/*.log.[0-9]*.gz
+
+# .ai/STANDARDS.md Standard -1w — generated e-sign web-template blade files
+# (WebTemplateBladeEnsurer.php / TemplateController::generateCdsBladeView()).
+# Regenerated on demand from the template's stored DB data; NOT a source of
+# truth and must never be stashed/removed by a deploy pre-flight's dirty-tree
+# check. Untracked-but-protected: already-committed template-*.blade.php
+# files already in the repo are unaffected — gitignore only stops new,
+# not-yet-committed ones from showing as clutter.
+resources/views/docuperfect/web-templates/cds/template-*.blade.php
+
 /backups/
 /storage/backups/
 bootstrap/cache/events.php
