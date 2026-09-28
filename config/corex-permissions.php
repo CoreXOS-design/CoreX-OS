@@ -750,6 +750,12 @@ return [
         ['key' => 'compliance.whistleblow.view_all_agency','label' => 'View All Agency Complaints',            'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 53],
         ['key' => 'compliance.whistleblow.configure',      'label' => 'Configure Approvers & PPRA Email',      'section' => 'compliance', 'type' => 'action', 'module' => 'compliance_whistleblow', 'sort_order' => 54],
 
+        // ── PPRA Inspection Pack (Admin — admin/super_admin only, no branch_manager/agent) ──
+        ['key' => 'ppra_inspection_pack.view',      'label' => 'View PPRA Inspection Pack',                 'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 1],
+        ['key' => 'ppra_inspection_pack.export',    'label' => 'Export PPRA Inspection Pack Data',          'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 2],
+        ['key' => 'ppra_inspection_pack.generate',  'label' => 'Generate Full PPRA Inspection Pack',        'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 3],
+        ['key' => 'ppra_inspection_pack.configure', 'label' => 'Configure PPRA Inspection Pack Settings',   'section' => 'admin', 'type' => 'action', 'module' => 'ppra_inspection_pack', 'sort_order' => 4],
+
         // ── Branches — Split Branches (Phase 2 branch isolation) ──
         // view_all = bypass BranchScope (see all branches in the agency)
         // switch   = use the "View as Branch" dropdown to impersonate a branch

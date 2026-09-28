@@ -1164,6 +1164,22 @@ Route::prefix('admin/knowledge')->middleware(['auth', 'permission:access_knowled
     Route::post('/categories/reorder', [\App\Http\Controllers\Admin\KnowledgeController::class, 'reorderCategories'])->name('admin.knowledge.reorderCategories');
 });
 
+// ===== PPRA INSPECTION PACK (Admin — admin/super_admin only) =====
+// .ai/specs/ppra-inspection-pack.md — Phase A. Pure Admin feature, Johan's
+// ruling 2026-09-28 — never gated below admin/super_admin, never nested
+// under Compliance.
+Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.required', 'permission:ppra_inspection_pack.view'])->name('admin.ppra-inspection-pack.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'index'])->name('index');
+    Route::get('/report', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'report'])->name('report');
+    Route::get('/remediation-log', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'remediationLog'])->name('remediation-log');
+
+    Route::middleware('permission:ppra_inspection_pack.configure')->group(function () {
+        Route::post('/gap-notes', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'storeGapNote'])->name('gap-notes.store');
+        Route::post('/gap-notes/{gapNote}/resolve', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'resolveGapNote'])->name('gap-notes.resolve');
+        Route::delete('/gap-notes/{gapNote}', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'destroyGapNote'])->name('gap-notes.destroy');
+    });
+});
+
 // ===== PUBLIC PROPERTY PREVIEW (shareable, no auth required) =====
 // 2026-08-24 (Johan) — throttle:30,1 per the resilience audit; raw sequential
 // property ID, previously unthrottled.
