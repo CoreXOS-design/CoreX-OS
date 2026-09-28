@@ -9,8 +9,26 @@
           <button type="button" @click="ensureUnlocked()"
                   x-text="unlocked ? 'Place my signature' : 'Unlock my signature'"></button>
           ... on a placement target: @click="place($event, 'signature')" (or 'initial') ...
-          @include('signature._placer')   {{-- PIN modal, inside this x-data scope --}}
+          @include('signature._placer')   (the PIN modal, inside this x-data scope)
       </div>
+
+    NOTE for anyone editing this docblock: never write a literal Blade
+    comment-open/comment-close token pair anywhere in here, even to
+    describe one in prose — Blade's own comment stripper is not
+    nesting-aware, it just regex-matches from the FIRST comment-open token
+    to the NEXT comment-close token it finds ANYWHERE after it, so a
+    written-out example of the token pair closes THIS comment early and
+    dumps everything after it (a stray closing div from the usage example
+    above, this whole paragraph, etc.) as literal, rendered page content
+    into every single consumer of this file. Confirmed live twice while
+    fixing this exact bug 2026-09-28: once from the original docblock's own
+    inline annotation on the @include line above, and once again from an
+    EARLIER version of this very explanation, which — despite being an
+    explanation OF the bug — repeated the same literal token pair several
+    times and reintroduced the identical failure it was describing. Spell
+    out or paraphrase the token pair in prose if you ever need to refer to
+    it again; never type it literally outside line 1 and this block's own
+    closing line.
 
     After unlock, `signatureImg` / `initialImg` hold the decrypted PNG data-URIs;
     `place(event, type)` returns the image so the consumer can drop it at the click.

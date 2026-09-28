@@ -1169,6 +1169,39 @@
                          empty grey copy of every item — the row falls back
                          to a single, full-width column
                          (.rir-compare-row-solo) for the one working cell. --}}
+                    {{-- §33, 2026-09-28 (Johan, property 5294) — a completed
+                         inspection ("In — completed · 59/59") rendered every
+                         item as the greyed, disabled button grid with NO
+                         condition selected and NO photos, even though the
+                         data genuinely existed (room headings correctly
+                         showed "5/5 · 3 photos total"). Root cause, confirmed
+                         pre-existing via `git blame` (73d8969cb3,
+                         2026-09-23 — five days before 650cd2cce, this
+                         file's own predecessor-cell fix, which never
+                         touched this line): the TAIL cell's own include
+                         just below passed `$sectionJs` (a raw JS
+                         expression like `tailSection()`, evaluating to the
+                         STRING 'in'/'out') as `inspectionJs` while ALSO
+                         setting `readOnly` true once `$tailReadOnly` is
+                         true (completed) — but rental-inspection-item-
+                         cell.blade.php's own docblock is explicit:
+                         `readOnly=true` means `inspectionJs` MUST be an
+                         INSPECTION OBJECT expression (exactly what the
+                         PREDECESSOR cell passes, `$predecessorJs` /
+                         `chainPredecessor`, one line above), read via
+                         conditionForInspection()/itemPhotosForInspection()
+                         — both do `insp.observations`/`insp.photos`, and a
+                         plain STRING has neither, so both silently
+                         returned empty/null for every item on every
+                         completed inspection ever viewed. `$tailInspectionJs`
+                         below is computed once, PHP-side: unchanged
+                         ($sectionJs, a section-type string — correct for
+                         the editable accessors readOnly=false reads
+                         through) while still recording/awaiting_signature;
+                         `currentInspection($sectionJs)` (resolves to the
+                         real chainTail object) once completed — the exact
+                         fix the predecessor cell already had. --}}
+                    @php($tailInspectionJs = $tailReadOnly ? "currentInspection({$sectionJs})" : $sectionJs)
                     <template x-for="item in group.items" :key="item.id">
                         {{-- §27.3 — the filter reads the TAIL side's
                              condition and hides/shows the WHOLE row (both
@@ -1184,7 +1217,7 @@
                             </template>
                             <div class="rir-compare-cell pl-3 space-y-1.5">
                                 <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
-                                @include('corex.properties.partials.rental-inspection-item-cell', ['inspectionJs' => $sectionJs, 'readOnly' => $tailReadOnly])
+                                @include('corex.properties.partials.rental-inspection-item-cell', ['inspectionJs' => $tailInspectionJs, 'readOnly' => $tailReadOnly])
                                 @unless($tailReadOnly)
                                 {{-- Bulk case: item → room and item → untagged are both
                                      single-destination even in bulk, so this is two plain
@@ -1221,6 +1254,27 @@
                         </div>
                     </template>
                     @endunless
+                    @if($tailReadOnly)
+                    {{-- §33, 2026-09-28 (Johan, property 5294) — "the room
+                         notes, read-only." Before this, a completed
+                         inspection's room notes weren't just non-editable —
+                         the ENTIRE block above (including a look at the
+                         text) sat inside @unless($tailReadOnly), so they
+                         were omitted from the completed view completely.
+                         roomNoteFor() (unlike conditionForInspection() /
+                         itemPhotosForInspection() above) already resolves
+                         `section` via currentInspection(section) internally
+                         — no predecessor/tail-object split needed here,
+                         $sectionJs is correct as-is in both branches. Only
+                         rendered when a note actually exists — no empty
+                         box for a room nobody wrote anything about. --}}
+                    <template x-if="group.room && roomNoteFor({{ $sectionJs }}, group.room.id)?.note">
+                        <div class="pl-3 pt-1 space-y-0.5">
+                            <span class="text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);">Room notes</span>
+                            <p class="text-xs" style="color:var(--text-primary); white-space:pre-wrap;" x-text="roomNoteFor({{ $sectionJs }}, group.room.id)?.note"></p>
+                        </div>
+                    </template>
+                    @endif
                 </div>
             </div>
         </template>
@@ -1349,25 +1403,49 @@
                     </template>
                 </div>
 
+                {{-- §34, 2026-09-28 (Johan's ruling) — the agent's own
+                     signature must use the SAME PIN signature CoreX already
+                     uses elsewhere for agents, not a second, separately-
+                     built hand-drawn pad — tenant/landlord above are
+                     unaffected (a tenant/landlord has no CoreX account, no
+                     saved signature, no PIN; the hand-drawn canvas stays
+                     exactly right for them). Reused verbatim:
+                     `signature/_placer.blade.php` + its `signaturePlacer()`
+                     Alpine component — the SAME reusable "place my
+                     signature" widget already shared by e-sign and the CMA
+                     certificate generator (per that file's own docblock),
+                     backed by the SAME `AgentSignatureService` /
+                     `AgentSignatureController` (`/signature/status`,
+                     `/signature/unlock`, `/signature/asset/{type}`) an
+                     agent already set up once in My Portal — nothing new
+                     built, only consumed. `context` is scoped per
+                     inspection (`'rental-inspection:' + id`) so the PIN
+                     unlock (and the decrypted image it reveals) never
+                     leaks across documents, same isolation the component's
+                     own docblock describes for e-sign/CMA. --}}
                 <div class="py-1.5">
                     <div class="flex items-center justify-between gap-3">
                         <span class="text-sm font-semibold" style="color:var(--text-primary);">Agent</span>
                         <template x-if="agentDisposition({{ $sectionJs }})">
                             <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Signed</span>
                         </template>
-                        <template x-if="!agentDisposition({{ $sectionJs }}) && allRequiredPartiesDispositioned({{ $sectionJs }})">
-                            <button type="button" @click="openSigningFor({{ $sectionJs }} + '_agent')"
-                                    class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Sign</button>
-                        </template>
                     </div>
-                    <template x-if="activeSigningKey === ({{ $sectionJs }} + '_agent')">
-                        <div class="space-y-2 pt-2">
-                            <canvas x-init="$nextTick(() => initSignaturePadFor({{ $sectionJs }} + '_agent', $el))"
-                                    class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
-                            <div class="flex items-center gap-2">
-                                <button type="button" @click="clearSignatureFor({{ $sectionJs }} + '_agent')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Clear</button>
-                                <button type="button" @click="saveAgentSignatureFor({{ $sectionJs }})" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
-                            </div>
+                    <template x-if="!agentDisposition({{ $sectionJs }}) && allRequiredPartiesDispositioned({{ $sectionJs }})">
+                        <div class="pt-2" x-data="signaturePlacer({ context: 'rental-inspection:' + currentInspection({{ $sectionJs }}).id })" x-init="init()">
+                            <template x-if="!signatureImg">
+                                <button type="button" @click="ensureUnlocked()"
+                                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Sign with PIN</button>
+                            </template>
+                            <template x-if="signatureImg">
+                                <div class="space-y-2">
+                                    <img :src="signatureImg" alt="Your saved signature" class="rounded-md" style="height:70px; background:#fff; border:1px solid var(--border); padding:4px;">
+                                    <div class="flex items-center gap-2">
+                                        <button type="button" @click="signatureImg = null; unlocked = false;" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Not you? Unlock again</button>
+                                        <button type="button" @click="saveAgentSignatureFor({{ $sectionJs }}, signatureImg)" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Confirm &amp; save signature</button>
+                                    </div>
+                                </div>
+                            </template>
+                            @include('signature._placer')
                         </div>
                     </template>
                 </div>

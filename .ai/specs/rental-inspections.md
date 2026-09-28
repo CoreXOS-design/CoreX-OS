@@ -5825,4 +5825,146 @@ corruption shape varies with timing, since this is a genuine race, but it was wr
 3. A room note typed while a condition click in a different room commits (no debounce, immediate) —
    passed both before and after (already safe, confirmed unchanged by the fix).
 
+## 33. Completed inspection shows every item as blank/unrecorded — condition, notes, photos, room notes
+all missing despite the data existing (2026-09-28, Johan, property 5294)
+
+Johan recorded and completed 5294's In inspection (header read "In — completed · 59/59"). Every item
+rendered as the greyed, disabled button grid with NO condition selected and NO photos — e.g. "Bedroom 1
+— 5/5 · 3 photos total" in the room heading, but Ceiling showed no highlighted condition and no photo
+tiles. The data genuinely existed (the counts proved it); only the completed/read-only RENDER was wrong.
+
+**Root cause, confirmed pre-existing via `git blame` (`73d8969cb3`, 2026-09-23 — five days before
+`650cd2cce`, this file's own predecessor-cell fix from earlier the same day as this section, which never
+touched the line in question):** the tail cell's own item-cell include
+(`rental-inspection-recording.blade.php`) passed `$sectionJs` — a raw JS expression like `tailSection()`,
+evaluating to the STRING `'in'`/`'out'` — as `inspectionJs`, while `readOnly` becomes true once
+`$tailReadOnly` is true (completed). But `rental-inspection-item-cell.blade.php`'s own docblock is
+explicit: `readOnly=true` means `inspectionJs` MUST be an INSPECTION OBJECT expression — exactly what the
+PREDECESSOR cell already passes (`$predecessorJs` / `chainPredecessor`) — read via
+`conditionForInspection()`/`itemPhotosForInspection()`, both of which do `insp.observations`/
+`insp.photos`. A plain STRING has neither, so both silently returned empty/null for every item on every
+completed inspection ever viewed, on this build, since the day it shipped.
+
+**Fix:** `$tailInspectionJs` computed once, PHP-side, right before the item x-for loop — unchanged
+(`$sectionJs`) while the tail is still editable (the existing accessors resolve the section internally
+and were never broken); `currentInspection($sectionJs)` (resolves to the real `chainTail` object) once
+`$tailReadOnly` is true — the exact pattern the predecessor cell already used.
+
+**Room notes were a second, independent gap** — not just non-editable but omitted entirely: the whole
+room-notes block sat inside `@unless($tailReadOnly)` with no read-only counterpart at all. Added an
+`@if($tailReadOnly)` branch showing the note as plain text (only when one exists — no empty box for a
+room nobody wrote anything about), reusing the existing `roomNoteFor()` accessor unchanged (it already
+resolves `section` internally, no object/string split needed there).
+
+**A third, genuinely separate bug surfaced while verifying the room-notes fix live, and blocked it
+outright until found:** `roomNoteFor()`/`_commitRoomNote()` read/wrote `insp.roomNotes` (camelCase) —
+but `RentalInspection::tabPayloadFor()` eager-loads the relation as `roomNotes` (the PHP method name),
+and Eloquent's own `toArray()`/JSON serialization snake_cases a multi-word relation key by default. Every
+OTHER relation this file reads (`observations`, `photos`, `signatures`, `discrepancies`) is a single
+word, so this is the first place that default ever mattered — confirmed directly in the raw page source,
+the server payload genuinely carries the data under `"room_notes"`, not `"roomNotes"`. `insp.roomNotes`
+was therefore ALWAYS `undefined`, silently, on every load — not a thrown error, just nothing found. This
+means the bug was never limited to the completed view: `roomNoteField()` (used to seed the EDITABLE
+textarea when a room is first opened) called the same broken `roomNoteFor()`, so an EXISTING room note
+never pre-populated on a fresh page load either, in the editable view, since the day room notes shipped
+(2026-09-22) — not data loss (the note was always safely in the database, and `_commitRoomNote()` only
+ever appends, per §3.2's own "immutable, latest wins" design), but a real "did my note just disappear"
+scare, and the direct reason the read-only display added above returned nothing until this was found.
+Fixed by renaming all three `insp.roomNotes` references (`show.blade.php`) to `insp.room_notes`, matching
+what the server actually sends.
+
+**Verified live**, real headless Chrome, real QA1 data, property `5577`'s inspection `20` taken all the
+way through mark-good/refuse-tenant/refuse-landlord/agent-sign/complete as user 365 (never 5294, never
+user 22):
+- Condition highlighted + note text: two items ("Ceiling"→Damaged→"CRACKED TILE NEAR DOOR",
+  "Walls"→Damaged→"STAIN ON CEILING CORNER") both rendered correctly highlighted with their notes visible
+  in the completed view, confirmed via DOM inspection of the actual rendered button/text state, not just
+  the underlying data.
+- Photo tile: a real photo tagged to one of those two items' observations rendered as an actual `<img>`
+  tile pointing at its real storage URL in the completed view (test photo removed — soft-deleted —
+  immediately after verification, per this project's no-hard-deletes rule; the file itself was written
+  under this worktree's own local storage, never touching a real upload).
+- Room notes: two different rooms' latest notes ("CEILING FAN LOOSE, RATTLES", "DAMP PATCH UNDER SINK")
+  both rendered as plain read-only text in the completed view.
+- Regression check: the same property's OTHER, still-draft inspection (editable path, `tailReadOnly`
+  false) still accepted a condition click normally after these changes — the `$tailInspectionJs`/
+  `room_notes` fixes only ever change behaviour for the completed/read-only branch or correct a
+  previously-always-broken read, never the already-working editable path.
+
+**`awaiting_signature` checked, not affected:** this status renders via the SAME fully-editable branch as
+draft/in_progress (`show.blade.php`'s own gate is `chainTail.status !== 'completed'`, which covers
+`awaiting_signature` too) — items display correctly there via the already-working editable accessors, so
+this bug never applied. Whether an inspection should still be editable once `awaiting_signature` (signing
+implies the content is finalized) is a real, separate product question, not raised or ruled on here.
+
+**Signed-PDF/report view checked, not affected:** `RentalInspectionReportPdfService` is a wholly separate,
+server-side PHP path — no relation to the JS accessor bug above — that pulls `$inspection->observations`
+directly via real Eloquent relations. It deliberately excludes photos already, by Johan's own 2026-09-23
+design ruling recorded in that file's own docblock ("printing the photos will be a shitshow... the
+inspection reports will turn into 100 pages") — a QR/link to the public page carries the photos instead.
+Nothing to fix here; this was a pre-existing, deliberate, and correct design.
+
+## 34. Agent signature — reused the existing PIN signature, not a second one (2026-09-28, Johan's ruling)
+
+Johan's ruling: the AGENT's own signature on an inspection must use the SAME PIN signature CoreX already
+uses elsewhere for agents, not a separately-built hand-drawn pad — reuse, don't rebuild.
+
+**Found and reused, verbatim:** `resources/views/signature/_placer.blade.php` — the existing, documented,
+reusable "place my signature" widget (its own docblock: "Consumed by BOTH e-sign and the CMA certificate
+generator") — backed by `App\Services\AgentSignatureService` / `App\Http\Controllers\
+AgentSignatureController` (`GET /signature/status`, `POST /signature/unlock`, `GET
+/signature/asset/{type}`), which in turn reads `App\Models\AgentSignature` (an agent's own saved
+signature/initial images + bcrypt-hashed PIN, set once in My Portal). Nothing new was built — this is the
+FIRST real consumer of this component beyond its own documentation.
+
+**What changed, tenant/landlord untouched:** only the AGENT's own signing block
+(`rental-inspection-recording.blade.php`) was replaced — the hand-drawn `SignaturePad` canvas + "Save
+signature" button became a nested `x-data="signaturePlacer({ context: 'rental-inspection:' + <inspection
+id> })"` scope: "Sign with PIN" → `ensureUnlocked()` opens the shared PIN modal → on a correct PIN, the
+agent's own decrypted saved-signature image loads and previews → "Confirm & save signature" posts it
+through the SAME `saveAgentSignatureFor()`/`_saveDisposition()` endpoint every other party's signature
+already goes through (only the SOURCE of the image data-URI changed — where it was `pad.toDataURL(...)`
+from a canvas, it is now the already-decrypted image the PIN unlock handed back). Tenant/landlord keep
+their existing hand-drawn canvas exactly as-is — they have no CoreX account, no saved signature, no PIN,
+so the shared widget genuinely doesn't apply to them; this was never proposed. `context` is scoped
+per-inspection (`'rental-inspection:' + id`) so a PIN unlock — and the decrypted image it reveals — can
+never leak across two different documents, the same isolation the component's own docblock already
+describes for e-sign/CMA.
+
+**Two real, pre-existing bugs found and fixed IN THE SHARED COMPONENT while wiring up its first real
+consumer** — both were latent because nothing had actually rendered this component inside a real page
+before:
+
+1. `signature/_placer.blade.php`'s own top docblock had a literal Blade comment-open/comment-close token
+   pair NESTED inside its own USAGE example text (annotating the `@include` line: "(the PIN modal, inside
+   this x-data scope)" was originally written as a real inline comment). Blade's comment stripper is not
+   nesting-aware — it regex-matches from the FIRST comment-open token to the very NEXT comment-close
+   token it finds anywhere after it — so the OUTER comment actually closed right there, and everything
+   below it (a stray `</div>` from the usage example, the "After unlock..." paragraph, this whole block's
+   own real closing token) rendered as LITERAL page content on every single consumer of this file,
+   corrupting whatever DOM it landed in. This had never been caught because nothing had used the
+   component in a real page render before this build. Fixed by de-Bladeifying the inline annotation
+   (plain parentheses) and rewriting the explanation of the bug itself to never repeat the same literal
+   token pair in prose — confirmed live, twice, that doing so reintroduces the identical failure.
+2. This component's own `<script>` (defining the global `signaturePlacer()` Alpine function) is meant to
+   print once, globally, via Blade's `@once`. The REAL agent-signing usage sits many layers deep inside
+   nested `<template x-if>` blocks (inspection exists → `status === 'awaiting_signature'` → not yet
+   dispositioned) — Alpine clones a `<template>`'s content into the live DOM at runtime, and per the HTML
+   spec a `<script>` tag inside a `<template>` is inert and never auto-executes, even the first time it's
+   cloned in. Confirmed live: "signaturePlacer is not defined" on the very first attempt. Fixed with a
+   tiny, invisible, otherwise-unused `x-data="signaturePlacer({ context: '_boot' })"` instantiation placed
+   directly inside the Inspections tab's own `x-data` wrapper (`show.blade.php`) — real, always-present
+   DOM from first paint (that wrapper uses `x-show`, never `x-if`), so its own `@include` runs completely
+   normally and the script prints there; `@once` then correctly skips re-printing it for the real, nested
+   usage later on the page, which only needs the (Alpine-directive-based, not `<script>`-based) modal HTML
+   anyway.
+
+**Verified live**, real headless Chrome, real QA1 data, property `5577`'s inspection `20`, user 365 (a
+PIN + saved signature/initial images configured on user 365's own account for this test, via
+`AgentSignatureService::save()` directly — never touching 5294 or user 22): clicked "Sign with PIN" →
+PIN modal opened → entered the correct PIN → the saved signature image loaded and previewed (confirmed
+via its actual `data:image/png;...` src matching what was configured) → "Confirm & save signature" →
+`agentDisposition('in')` became truthy (a real signature row now exists) → "Complete" succeeded,
+`chainTail.status` became `'completed'`.
+
 `php -l` and a Blade compile-string check both clean on `show.blade.php`.

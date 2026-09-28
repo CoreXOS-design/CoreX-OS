@@ -4635,6 +4635,32 @@
                   independent in_inspection/out_inspection keys). --}}
              x-effect="if (activeTab === 'inspections' && open['inspection']) sbCollapsed = true">
 
+            {{-- §34, 2026-09-28 — forces signature/_placer.blade.php's own
+                 <script> (defining the GLOBAL signaturePlacer() function)
+                 to execute during the page's normal, non-templated parse.
+                 The real agent-signing usage
+                 (rental-inspection-recording.blade.php) lives deep inside
+                 several nested <template x-if> layers (inspection exists →
+                 status === 'awaiting_signature' → not yet dispositioned) —
+                 Alpine clones a <template>'s content into the live DOM at
+                 runtime, and per the HTML spec a <script> tag inside a
+                 <template> is inert and NEVER auto-executes, even the
+                 first time it's cloned in (confirmed live: without this,
+                 "signaturePlacer is not defined"). This div itself sits
+                 directly inside THIS x-data (x-show only, never x-if — a
+                 real, always-present DOM node from first paint), so its
+                 own @include below runs completely normally. Blade's own
+                 @once inside _placer.blade.php then makes this the ONE
+                 place the script ever prints; the real, nested usage
+                 later on this page includes the same partial again for
+                 its own PIN-modal HTML only (unlike a <script> tag,
+                 Alpine DOES correctly bind directives in template-cloned
+                 content, so that part works with no special handling) —
+                 @once silently skips re-printing the script there.
+                 Invisible, inert, never actually used as a signature
+                 placer in its own right. --}}
+            <div x-data="signaturePlacer({ context: '_boot' })" style="display:none" aria-hidden="true">@include('signature._placer')</div>
+
             <div x-show="error" x-cloak class="text-xs" style="color:#ef4444;" x-text="error"></div>
 
             {{-- Item 2, 2026-09-22 — ONE quiet save indicator for the whole
@@ -7869,10 +7895,31 @@
                 // belongs to the whole room, not any single item. Latest
                 // note for a room is "current" — same pattern as
                 // conditionFor() above for item observations.
+                //
+                // §34, 2026-09-28 — was `insp.roomNotes` (camelCase) here
+                // and in _commitRoomNote() below. RentalInspection::
+                // tabPayloadFor() eager-loads the relation as `roomNotes`
+                // (the method name), but Eloquent's own toArray()/JSON
+                // serialization snake_cases a multi-word relation key by
+                // default — every OTHER relation this file reads
+                // (observations, photos, signatures, discrepancies) is a
+                // single word, so this is the first place that default
+                // ever mattered, and the mismatch was never caught: it
+                // silently returned null/undefined instead of throwing.
+                // Confirmed live, property 5577: the server payload
+                // genuinely carries the data under `room_notes` (checked
+                // the raw page source directly), so `insp.roomNotes` was
+                // ALWAYS undefined, on every load, for every room, in both
+                // the editable view (roomNoteField() below silently seeded
+                // an empty textarea over a real saved note on every page
+                // reload — not data loss, since _commitRoomNote() still
+                // only ever appends, but a real "your note disappeared"
+                // scare) and the new completed read-only display this
+                // round adds (rental-inspection-recording.blade.php).
                 roomNoteFor(section, roomId) {
                     const insp = this.currentInspection(section);
                     if (!insp) return null;
-                    const mine = (insp.roomNotes || []).filter(n => n.property_room_id === roomId);
+                    const mine = (insp.room_notes || []).filter(n => n.property_room_id === roomId);
                     if (!mine.length) return null;
                     return mine.reduce((a, b) => (a.created_at > b.created_at ? a : b));
                 },
@@ -7899,8 +7946,8 @@
                     if (!text || !insp) return;
                     await this._autosave(async () => {
                         const note = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/rooms/${room.id}/notes`, { note: text });
-                        insp.roomNotes = insp.roomNotes || [];
-                        insp.roomNotes.push(note);
+                        insp.room_notes = insp.room_notes || [];
+                        insp.room_notes.push(note);
                     });
                 },
 
@@ -8242,13 +8289,21 @@
                     finally { this.wetInkBusy[key] = false; }
                 },
 
-                async saveAgentSignatureFor(section) {
-                    const key = section + '_agent';
-                    const pad = this.signaturePads[key];
-                    if (!pad || pad.isEmpty()) { this.lifecycleError = 'Draw a signature first.'; return; }
+                // §34, 2026-09-28 (Johan's ruling) — was a hand-drawn
+                // canvas (SignaturePad, same as tenant/landlord); the agent
+                // now uses their own saved PIN signature instead (the SAME
+                // `signaturePlacer()` widget e-sign/the CMA certificate
+                // generator already use — rental-inspection-recording.
+                // blade.php's own docblock on this call site has the full
+                // reasoning). The image arrives already decrypted/ready
+                // from that component's own PIN-unlock flow, not drawn
+                // here — this function's only job is the same POST every
+                // other disposition already goes through.
+                async saveAgentSignatureFor(section, signatureImageDataUri) {
+                    if (!signatureImageDataUri) { this.lifecycleError = 'Unlock your saved signature first.'; return; }
                     await this._saveDisposition(section, {
-                        party_role: 'agent', disposition: 'signed', signature_image: pad.toDataURL('image/png'),
-                    }, key);
+                        party_role: 'agent', disposition: 'signed', signature_image: signatureImageDataUri,
+                    }, section + '_agent');
                 },
 
                 async _saveDisposition(section, payload, key) {
