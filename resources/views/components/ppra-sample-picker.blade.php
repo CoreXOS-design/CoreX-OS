@@ -19,7 +19,6 @@
 <x-modal :name="$name" max-width="2xl">
     <div
         x-data="ppraSamplePicker(@js($searchUrl), @js($mostRecentUrl), @js($storeUrl))"
-        x-init="init()"
         x-on:open-modal.window="$event.detail == '{{ $name }}' && search()"
         class="flex flex-col"
         style="max-height: 85vh;"
@@ -106,9 +105,16 @@ function ppraSamplePicker(searchUrl, mostRecentUrl, storeUrl) {
         filters: { search: '', date_from: '', date_to: '' },
         results: [], selected: [], sampleSize: 5,
         page: 1, lastPage: 1, total: 0, loading: false, saving: false, saveError: '',
+        // Alpine calls a data method literally named `init` automatically on
+        // component init — an `x-init="init()"` directive on the element on
+        // top of that double-fires it (once automatic, once explicit),
+        // which was firing every search (and its findOrCreateDraftFor call)
+        // twice per modal on every page load. No x-init directive here;
+        // this method is the only init hook.
         init() { this.search(); },
         search() {
             this.loading = true;
+            this.saveError = '';
             const qs = new URLSearchParams({ ...this.filters, page: this.page }).toString();
             fetch(`${searchUrl}?${qs}`, { headers: { 'Accept': 'application/json' } })
                 .then(r => r.json())
@@ -119,12 +125,14 @@ function ppraSamplePicker(searchUrl, mostRecentUrl, storeUrl) {
                     this.sampleSize = data.sample_size;
                     this.selected = data.selected_ids || [];
                 })
+                .catch(() => { this.saveError = 'Could not load results — please retry.'; })
                 .finally(() => { this.loading = false; });
         },
         selectMostRecent() {
             fetch(mostRecentUrl, { headers: { 'Accept': 'application/json' } })
                 .then(r => r.json())
-                .then(data => { this.selected = data.ids; });
+                .then(data => { this.selected = data.ids; })
+                .catch(() => { this.saveError = 'Could not select the most recent records — please retry.'; });
         },
         toggle(id) {
             if (this.selected.includes(id)) {
