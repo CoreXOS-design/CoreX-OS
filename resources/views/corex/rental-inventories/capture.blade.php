@@ -476,28 +476,39 @@
                                         </div>
                                     </div>
                                 </template>
-                                <div x-show="!linesFor(room.id).length" class="flex items-center justify-between gap-2 py-1">
-                                    <p class="text-xs" style="color: var(--text-muted);">No items yet.</p>
-                                    {{-- §12 — the room-level counterpart to a line: an
-                                         explicit "I checked, there's nothing here"
-                                         confirmation, the same shape as rental-
-                                         inspections' "Mark room N/A". Only offered
-                                         while the room genuinely has no items — once
-                                         a real item exists the room already satisfies
-                                         the completion gate through that line, and
-                                         marking it empty too would just be
-                                         contradictory. No "unmark": same one-way
-                                         shape as inspections' own control. --}}
-                                    <template x-if="!isRoomMarkedEmpty(room.id)">
+                                <p x-show="!linesFor(room.id).length" class="text-xs py-1" style="color: var(--text-muted);">No items yet.</p>
+                            </div>
+
+                            {{-- §12, made prominent 2026-09-28 (Johan, property 5294) —
+                                 "every space needs a VISIBLE 'Nothing in this room'
+                                 button right on the space, next to Add item." Was
+                                 buried as plain text inside the "No items yet." row
+                                 above; moved to its own row directly beside the
+                                 always-open Add row below, styled as a real button.
+                                 Same rule as before: only offered while the room
+                                 genuinely has no items — once a real item exists the
+                                 room already satisfies the completion gate through
+                                 that line, and marking it empty too would be
+                                 contradictory. NOW reversible (Johan's explicit ask)
+                                 via the new DELETE .../mark-empty endpoint — counts as
+                                 checked either way, exactly like the POST already did. --}}
+                            <div x-show="!linesFor(room.id).length" class="flex items-center gap-2 pb-2">
+                                <template x-if="!isRoomMarkedEmpty(room.id)">
+                                    <button type="button" tabindex="-1" :disabled="markRoomBusy[room.id]"
+                                            @click="markRoomEmpty(room)"
+                                            class="text-xs font-semibold rounded-md px-3 py-1.5"
+                                            style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                                            x-text="markRoomBusy[room.id] ? 'Marking…' : 'Nothing in this room'"></button>
+                                </template>
+                                <template x-if="isRoomMarkedEmpty(room.id)">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs font-semibold rounded-md px-3 py-1.5" style="background:color-mix(in srgb, var(--ds-green,#16a34a) 12%, transparent); color: var(--ds-green,#16a34a);">&#10003; Nothing in this room</span>
                                         <button type="button" tabindex="-1" :disabled="markRoomBusy[room.id]"
-                                                @click="markRoomEmpty(room)"
-                                                class="text-xs font-semibold shrink-0" style="color: var(--text-secondary);"
-                                                x-text="markRoomBusy[room.id] ? 'Marking…' : 'Nothing in this room'"></button>
-                                    </template>
-                                    <template x-if="isRoomMarkedEmpty(room.id)">
-                                        <span class="text-xs font-semibold shrink-0" style="color: var(--ds-green,#16a34a);">&#10003; Nothing in this room</span>
-                                    </template>
-                                </div>
+                                                @click="unmarkRoomEmpty(room)"
+                                                class="text-xs font-semibold" style="color: var(--text-secondary); text-decoration:underline;"
+                                                x-text="markRoomBusy[room.id] ? 'Undoing…' : 'Undo'"></button>
+                                    </div>
+                                </template>
                             </div>
 
                             {{-- Add line — spreadsheet-grid capture (Johan,
@@ -837,6 +848,18 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpac
                 this.lineSnapshots[l.id] = { quantity: l.quantity, description: l.description };
             });
             this.initFirstActiveRoom();
+            // Johan, 2026-09-28 — "each clickable to jump to that space."
+            // The show/sign page links its own unvisited-room list here as
+            // `#room-panel-{id}`, the SAME id scrollToRoom()/the scrollspy
+            // already address panels by. Overrides initFirstActiveRoom()'s
+            // own default pick when a specific room was actually requested.
+            // $nextTick — the sticky-offset measurement below (and the
+            // panels themselves) need one render pass to exist first.
+            const requestedRoomMatch = window.location.hash.match(/^#room-panel-(\d+)$/);
+            if (requestedRoomMatch) {
+                const requestedRoomId = Number(requestedRoomMatch[1]);
+                this.$nextTick(() => this.scrollToRoom(requestedRoomId));
+            }
             // §13.11/§13.12 — the sticky tab-bar+pill-strip group's REAL
             // rendered height, published as a CSS custom property so
             // every room panel's scroll-margin-top (set in the <style>
@@ -1370,10 +1393,10 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpac
         // §12 — "nothing in this room," the explicit counterpart to a room
         // with real lines in it. Idempotent: marking an already-marked room
         // again just refreshes who/when server-side; client state doesn't
-        // change. No "unmark" control — same one-way shape as rental-
-        // inspections' own markRoomNa(); if the agent later adds a real
-        // item, the room satisfies the completion gate through that line
-        // instead, and the earlier mark simply stops mattering.
+        // change. Reversible (Johan, 2026-09-28) via unmarkRoomEmpty() below —
+        // if the agent later adds a real item, the room satisfies the
+        // completion gate through that line instead, and the mark simply
+        // stops mattering (no need to unmark it first).
         isRoomMarkedEmpty(roomId) { return this.markedEmptyRoomIds.has(Number(roomId)); },
         async markRoomEmpty(room) {
             this.markRoomBusy[room.id] = true;
@@ -1384,6 +1407,21 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpac
                 });
                 if (!res.ok) return;
                 this.markedEmptyRoomIds.add(Number(room.id));
+            } finally {
+                this.markRoomBusy[room.id] = false;
+            }
+        },
+        // Johan, 2026-09-28 — the "Undo." Same URI as markRoomEmpty(), DELETE
+        // instead of POST (RESTful counterpart, not a second endpoint).
+        async unmarkRoomEmpty(room) {
+            this.markRoomBusy[room.id] = true;
+            try {
+                const res = await fetch(`${this.baseUrl}/rooms/${room.id}/mark-empty`, {
+                    method: 'DELETE',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                });
+                if (!res.ok) return;
+                this.markedEmptyRoomIds.delete(Number(room.id));
             } finally {
                 this.markRoomBusy[room.id] = false;
             }

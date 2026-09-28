@@ -348,9 +348,14 @@ class RentalInventory extends Model implements SignedDocumentDistributable
 
         $unvisited = $this->unvisitedRooms();
         if ($unvisited->isNotEmpty()) {
-            $names = $unvisited->pluck('label')->implode(', ');
-            $verb = $unvisited->count() === 1 ? 'has' : 'have';
-            throw new \LogicException("Cannot complete: {$names} {$verb} not been checked yet. Add items to it, or mark it as having nothing in it, before completing this inventory.");
+            // Johan, 2026-09-28 — "the red completion warning must list the
+            // unchecked rooms by name, each clickable to jump to that
+            // space." Structured exception (message text unchanged) so the
+            // controller can hand the frontend real {id, label} rows to
+            // link, not a sentence to parse room names back out of.
+            throw new \App\Exceptions\RentalInventoryUnvisitedRoomsException(
+                $unvisited->map(fn (PropertyRoom $room) => ['id' => $room->id, 'label' => $room->label])->all()
+            );
         }
 
         $outstanding = $this->outstandingSignatories();

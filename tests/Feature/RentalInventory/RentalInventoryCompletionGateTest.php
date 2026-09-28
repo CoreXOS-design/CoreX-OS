@@ -253,4 +253,91 @@ final class RentalInventoryCompletionGateTest extends TestCase
 
         $blankInventory->markCompleted();
     }
+
+    /**
+     * Johan, 2026-09-28, property 5294 — "the space then shows 'Nothing in
+     * this room' plus an Undo." The DELETE counterpart to markRoomEmpty()
+     * (same URI, RESTful verb) — a room can be un-marked and go back to
+     * genuinely unvisited, which the completion gate must then refuse
+     * again exactly as if it had never been marked.
+     */
+    public function test_unmark_room_empty_reverses_the_mark_and_the_room_becomes_unvisited_again(): void
+    {
+        RentalInventoryLine::create([
+            'agency_id' => $this->agency->id, 'rental_inventory_id' => $this->inventory->id,
+            'property_room_id' => $this->lounge->id, 'room_label' => 'Lounge',
+            'quantity' => 1, 'description' => 'Samsung TV 55"',
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        RentalInventoryRoomMark::create([
+            'agency_id' => $this->agency->id, 'rental_inventory_id' => $this->inventory->id,
+            'property_room_id' => $this->bedroom->id, 'marked_empty_by_user_id' => $this->agent->id,
+            'marked_empty_at' => now(),
+        ]);
+        $this->assertCount(0, $this->inventory->fresh()->unvisitedRooms());
+
+        $this->deleteJson(route('corex.rental-inventories.rooms.unmark-empty', [$this->inventory, $this->bedroom]))
+            ->assertOk();
+
+        $this->assertSame(0, RentalInventoryRoomMark::where('rental_inventory_id', $this->inventory->id)
+            ->where('property_room_id', $this->bedroom->id)->count());
+        $this->assertCount(1, $this->inventory->fresh()->unvisitedRooms());
+        $this->assertSame('Bedroom 1', $this->inventory->fresh()->unvisitedRooms()->first()->label);
+    }
+
+    public function test_unmark_room_empty_is_idempotent_for_an_already_unmarked_room(): void
+    {
+        $this->deleteJson(route('corex.rental-inventories.rooms.unmark-empty', [$this->inventory, $this->bedroom]))
+            ->assertOk();
+    }
+
+    public function test_unmark_room_empty_404s_for_a_room_on_a_different_property(): void
+    {
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->agent->id, 'branch_id' => $this->branch->id,
+            'title' => 'Other Property', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $foreignRoom = PropertyRoom::create([
+            'agency_id' => $this->agency->id, 'property_id' => $otherProperty->id,
+            'type' => 'lounge', 'label' => 'Foreign Lounge', 'source' => 'manual', 'sort_order' => 1,
+            'created_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->deleteJson(route('corex.rental-inventories.rooms.unmark-empty', [$this->inventory, $foreignRoom]))
+            ->assertStatus(404);
+    }
+
+    /**
+     * Johan, 2026-09-28 — "the red completion warning must list the
+     * unchecked rooms by name, each clickable to jump to that space."
+     * RentalInventoryUnvisitedRoomsException carries the structured
+     * {id, label} list; the complete() endpoint must surface it in the
+     * JSON body, not just fold it into the plain-language message.
+     */
+    public function test_complete_endpoint_returns_the_structured_unvisited_room_list(): void
+    {
+        RentalInventoryLine::create([
+            'agency_id' => $this->agency->id, 'rental_inventory_id' => $this->inventory->id,
+            'property_room_id' => $this->lounge->id, 'room_label' => 'Lounge',
+            'quantity' => 1, 'description' => 'Samsung TV 55"',
+            'created_by_user_id' => $this->agent->id,
+        ]);
+        $this->signAgentOnly();
+
+        $response = $this->postJson(route('corex.rental-inventories.complete', $this->inventory));
+
+        $response->assertStatus(409);
+        $response->assertJsonPath('unvisited_rooms.0.id', $this->bedroom->id);
+        $response->assertJsonPath('unvisited_rooms.0.label', 'Bedroom 1');
+        $response->assertJsonPath('message', 'Cannot complete: Bedroom 1 has not been checked yet. Add items to it, or mark it as having nothing in it, before completing this inventory.');
+    }
+
+    /** The zero-lines/outstanding-signature refusals are plain \LogicException — no unvisited_rooms key to confuse the frontend into rendering an empty room list. */
+    public function test_complete_endpoint_omits_unvisited_rooms_for_other_kinds_of_refusal(): void
+    {
+        $response = $this->postJson(route('corex.rental-inventories.complete', $this->inventory));
+
+        $response->assertStatus(409);
+        $response->assertJsonMissingPath('unvisited_rooms');
+    }
 }

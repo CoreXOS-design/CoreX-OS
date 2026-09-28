@@ -150,6 +150,29 @@ class RentalInventoryRecordingController extends Controller
     }
 
     /**
+     * DELETE /corex/rental-inventories/{inventory}/rooms/{room}/mark-empty —
+     * Johan, 2026-09-28 — the "Undo" half of markRoomEmpty() above: a mark
+     * is a mutable "is this room currently considered checked-and-empty"
+     * STATE, not an append-only evidence record like a line/photo/signature
+     * (non-negotiable #1's soft-delete rule protects evidence, not a
+     * reversible checkbox) — hard-deleting the mark row itself is the
+     * correct un-mark, exactly mirroring how markRoomEmpty() itself writes
+     * via updateOrCreate rather than an append-only history table.
+     * Idempotent: unmarking an already-unmarked (or never-marked) room is a
+     * no-op, not an error — there's nothing wrong with clicking Undo twice.
+     */
+    public function unmarkRoomEmpty(Request $request, RentalInventory $rentalInventory, PropertyRoom $room): JsonResponse
+    {
+        abort_if((int) $room->property_id !== (int) $rentalInventory->property_id, 404);
+
+        RentalInventoryRoomMark::where('rental_inventory_id', $rentalInventory->id)
+            ->where('property_room_id', $room->id)
+            ->delete();
+
+        return response()->json(['message' => 'Mark removed.']);
+    }
+
+    /**
      * POST /corex/rental-inventories/{inventory}/copy-from-last — §13,
      * Johan's approved mockup: "a furnished flat is re-let with the same
      * contents, and re-typing forty lines is the work we are supposed to be
@@ -303,6 +326,11 @@ class RentalInventoryRecordingController extends Controller
     ): JsonResponse {
         try {
             $rentalInventory->markCompleted();
+        } catch (\App\Exceptions\RentalInventoryUnvisitedRoomsException $e) {
+            // Johan, 2026-09-28 — the structured room list, so the show
+            // page can render each name as a link to that space instead of
+            // just the plain-language sentence.
+            return response()->json(['message' => $e->getMessage(), 'unvisited_rooms' => $e->rooms], 409);
         } catch (\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 409);
         }

@@ -3416,6 +3416,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // §12 — the "nothing in this room" mark the completion gate checks for.
         Route::post('/{rentalInventory}/rooms/{room}/mark-empty', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'markRoomEmpty'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.rooms.mark-empty');
+        // Johan, 2026-09-28 — the Undo. Same URI, DELETE verb, RESTful
+        // counterpart to the POST above — never a duplicate mechanism.
+        Route::delete('/{rentalInventory}/rooms/{room}/mark-empty', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'unmarkRoomEmpty'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.rooms.unmark-empty');
         // §13 — "Copy from last inventory," a re-let property's own prior record.
         Route::post('/{rentalInventory}/copy-from-last', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'copyFromLastInventory'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.copy-from-last');

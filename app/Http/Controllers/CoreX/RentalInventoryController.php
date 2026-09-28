@@ -135,13 +135,27 @@ class RentalInventoryController extends Controller
     {
         $rentalInventory->load([
             'property', 'lease.tenants.contact',
-            'lines.createdBy',
+            'lines.createdBy', 'lines.room',
+            'roomMarks',
             'signatures.partyContact', 'signatures.recordedByUser',
             'createdBy', 'cancelledBy',
         ]);
 
+        // Johan, 2026-09-28, property 5294/inventory 8 — "lists only
+        // Bedroom 1" (this page used to group $inventory->lines by
+        // room_label, so a room with zero lines simply never appeared).
+        // Every real space the property has now renders, whatever its
+        // state — the SAME PropertyRoom source/order the capture screen
+        // and the completion gate's own unvisitedRooms() already use, one
+        // source of truth, never a second room list.
+        $rooms = \App\Models\PropertyRoom::where('property_id', $rentalInventory->property_id)
+            ->where('is_retired', false)
+            ->orderBy('sort_order')->orderBy('id')
+            ->get();
+
         return view('corex.rental-inventories.show', [
             'inventory' => $rentalInventory,
+            'rooms' => $rooms,
             // Reuses the SAME agency-configurable list RentalInspection's
             // refusal capture already uses — one list of "why didn't this
             // party sign," not a second one for a second document.

@@ -2399,3 +2399,71 @@ files but never emails, the manual resend endpoint always sends regardless of th
 resend endpoint refuses a not-yet-completed inventory, the public page renders for a valid token and the
 generic unavailable page for an invalid one, regenerating a public link invalidates the previous token
 immediately, and the settings toggle's has()-guard rejects a submission missing its own field.
+
+---
+
+## 18. Real-usage follow-up on property 5294/inventory 8 (2026-09-28)
+
+Johan, testing a real inventory: (1) "Nothing in this room" needed to be a visible button right on
+every space, next to Add — it existed already (§12) but was buried as plain text inside the "No items
+yet." row, easy to miss; (2) the completion warning's room names needed to be clickable, jumping to
+that space; (3) the show/sign page "lists only Bedroom 1 and shows the signatures block TWICE (once
+with dates, once without)."
+
+**§12's mark-empty control, made prominent and reversible.** Moved out of the "No items yet." sub-row
+into its own row directly above the always-open Add-line grid (§13), styled as a real bordered button
+rather than plain text — same rule as before (only offered while the room genuinely has zero lines).
+New, Johan's explicit ask: reversible. `DELETE /corex/rental-inventories/{inventory}/rooms/{room}/
+mark-empty` (`RentalInventoryRecordingController::unmarkRoomEmpty()`) — the RESTful counterpart to the
+existing POST, same URI, never a second endpoint. Hard-deletes the `RentalInventoryRoomMark` row itself
+(not a soft-delete) — deliberate: the mark is a mutable "is this room currently checked-and-empty"
+STATE, not append-only evidence like a line/photo/signature, so non-negotiable #1's soft-delete rule
+doesn't apply to it, exactly as `markRoomEmpty()`'s own `updateOrCreate()` (mutate-in-place, not a
+history table) already established.
+
+**Clickable unvisited-room list.** New `App\Exceptions\RentalInventoryUnvisitedRoomsException`
+(mirrors `RentalInspectionRequiredNotesMissingException`'s own shape exactly) — thrown by
+`RentalInventory::markCompleted()` in place of a bare `\LogicException`, carrying the structured
+`array<{id, label}>` room list alongside the SAME message text the plain exception already had (every
+existing test asserting that message string is unaffected). `RentalInventoryRecordingController::
+complete()` catches it ahead of the generic `\LogicException` catch and adds `unvisited_rooms` to the
+409 JSON body. The show/sign page's `completeInventory()` renders each name as a link to
+`/corex/properties/{id}/inventory#room-panel-{roomId}` — the exact id `scrollToRoom()`/the scrollspy on
+the capture screen already address panels by. New: the capture screen's own `init()` now checks
+`location.hash` for that same `#room-panel-N` pattern on load and calls `scrollToRoom()` immediately,
+overriding `initFirstActiveRoom()`'s own default pick — a deep link from the show page's warning lands
+the agent scrolled straight to the room in question, not the first unopened one.
+
+**Show/sign page — every space, one signatures block.** Two independent bugs, same page:
+
+- **"Lists only Bedroom 1"** — `$linesByRoom = $inventory->lines->groupBy('room_label')` only ever
+  produced a group for a room that already had a LINE; a room with zero lines (whether genuinely
+  unvisited or marked empty) never appeared at all. Replaced with the same PropertyRoom-driven
+  iteration the capture screen and `unvisitedRooms()` already use — every real space renders,
+  showing its items, "✓ Nothing in this room," or "Not checked." A line with no `property_room_id`
+  at all (pre-§0b legacy data, or this page's own free-text "Add item" form) still gets its own
+  group, keyed by `room_label`, appended after the real rooms — the same fallback
+  `RentalInventoryReportPdfService` already established, not a third shape.
+- **"Signatures shown twice (once with dates, once without)"** — the read-only "Signatures" list
+  (full detail: date, signature image, refusal reason/note) always rendered every recorded
+  disposition; the interactive recording section BELOW it also rendered every party, including
+  already-dispositioned ones, as a compact dateless "Signed"/"Refused" summary — for an inventory
+  where every party has already signed but completion is still blocked by unchecked rooms (inventory
+  8's exact state), this showed the same fact twice in two different shapes on one page. Fixed by
+  making the recording section ACTION-only: a dispositioned party's entire row (name, compact
+  status, everything) is removed from that section's markup — no longer merely re-conditioned — so
+  their ONLY appearance on the page is the read-only block's own full-detail row. `_save()`
+  (signing/refusal) now reloads the page on success, matching `completeInventory()`'s own existing
+  behaviour, so the row disappearing from the recording section and appearing in the read-only list
+  happen in the exact same reload, never a moment where either shows stale/duplicate state.
+
+**Proven, not assumed** — 3 new tests in `tests/Feature/RentalInventory/RentalInventoryShowPageTest.php`
+(every room state renders regardless of lines; the old compact-status template's exact literal markup
+is confirmed gone from the compiled page, not merely re-conditioned — Alpine's `<template x-if>`
+content is present in server-rendered HTML regardless of the runtime condition, so asserting absence
+only proves something when the markup was actually deleted, which this checks; a fully-visited/
+fully-signed inventory still renders cleanly) plus 6 new tests in `RentalInventoryCompletionGateTest.php`
+(unmark reverses a mark and the room becomes unvisited again; unmark is idempotent; unmark 404s for a
+foreign room; the complete endpoint's JSON carries the structured `unvisited_rooms` list with correct
+id/label; other refusal kinds omit that key entirely). 66/66 tests green across the whole
+`tests/Feature/RentalInventory/` directory (9 new, 57 pre-existing unchanged).

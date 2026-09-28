@@ -15,7 +15,19 @@
         'awaiting_signature' => 'ds-badge-info',
         default => 'ds-badge-muted',
     };
-    $linesByRoom = $inventory->lines->groupBy('room_label');
+    // Johan, 2026-09-28, property 5294/inventory 8 — "lists only Bedroom 1."
+    // Grouping by room_label only ever showed rooms that already had a
+    // line; every OTHER real space (a room with zero items, or one only
+    // marked empty) simply never rendered. Grouped by property_room_id now
+    // — $rooms (every real PropertyRoom, controller-supplied) drives the
+    // section below, this is just the per-room line lookup. A line with no
+    // property_room_id at all (pre-§0b legacy data, or the free-text
+    // "Add item" form's own room_label) still needs somewhere to live —
+    // grouped separately by its own room_label, appended after the real
+    // rooms, same fallback RentalInventoryReportPdfService already uses.
+    $linesByRoomId = $inventory->lines->groupBy('property_room_id');
+    $legacyLineGroups = $linesByRoomId->get(null, collect())->groupBy('room_label');
+    $markedEmptyRoomIds = $inventory->roomMarks->pluck('property_room_id')->flip();
     // §0a/§15 — a property-level inventory (no lease) is most commonly a
     // sale, so the owner-side party reads as "Seller" rather than
     // "Landlord" there; a lease-attached inventory is unchanged. The
@@ -126,9 +138,48 @@
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Items</h2>
 
-        @forelse($linesByRoom as $room => $lines)
+        {{-- Every real space the property has, whatever its state — the
+             SAME PropertyRoom source/order the capture screen and
+             unvisitedRooms() (§12) already use. A room shows its items, its
+             "Nothing in this room" mark, or "Not checked" — never simply
+             absent because it happens to have zero lines (the bug Johan
+             found on inventory 8/property 5294: only Bedroom 1 rendered). --}}
+        @forelse($rooms as $room)
+            @php $roomLines = $linesByRoomId->get($room->id, collect()); @endphp
             <div class="space-y-1">
-                <h3 class="text-xs font-bold uppercase tracking-wide" style="color: var(--text-secondary);">{{ $room }}</h3>
+                <h3 class="text-xs font-bold uppercase tracking-wide" style="color: var(--text-secondary);">{{ $room->label }}</h3>
+                @forelse($roomLines as $line)
+                    <div class="flex items-start justify-between gap-3 py-1 text-sm" style="border-bottom: 1px solid var(--border);">
+                        <div><span class="font-semibold">{{ $line->quantity }}x</span> {{ $line->description }}</div>
+                        @permission('rental_inventories.create')
+                        @if(!in_array($inventory->status, ['completed', 'cancelled']))
+                        <form method="POST" action="{{ route('corex.rental-inventories.lines.retire', [$inventory, $line]) }}" onsubmit="return confirm('Remove this line? It stays in the record, marked removed.');" class="shrink-0">
+                            @csrf
+                            <button type="submit" class="text-xs" style="color: var(--ds-crimson,#c41e3a); background:none; border:none; cursor:pointer;">Remove</button>
+                        </form>
+                        @endif
+                        @endpermission
+                    </div>
+                @empty
+                    @if($markedEmptyRoomIds->has($room->id))
+                        <p class="text-xs" style="color: var(--ds-green,#16a34a);">&#10003; Nothing in this room</p>
+                    @else
+                        <p class="text-xs" style="color: var(--text-muted);">Not checked</p>
+                    @endif
+                @endforelse
+            </div>
+        @empty
+            <p class="text-xs" style="color: var(--text-muted);">This property has no spaces set up yet.</p>
+        @endforelse
+
+        {{-- Legacy/free-text lines with no property_room_id — pre-§0b data,
+             or a line added via this page's own "Add item" form below
+             (which posts a bare room_label, not a real room). Kept visible,
+             never silently dropped just because they don't match a real
+             PropertyRoom. --}}
+        @foreach($legacyLineGroups as $roomLabel => $lines)
+            <div class="space-y-1">
+                <h3 class="text-xs font-bold uppercase tracking-wide" style="color: var(--text-secondary);">{{ $roomLabel }}</h3>
                 @foreach($lines as $line)
                     <div class="flex items-start justify-between gap-3 py-1 text-sm" style="border-bottom: 1px solid var(--border);">
                         <div><span class="font-semibold">{{ $line->quantity }}x</span> {{ $line->description }}</div>
@@ -143,9 +194,7 @@
                     </div>
                 @endforeach
             </div>
-        @empty
-            <p class="text-xs" style="color: var(--text-muted);">No items recorded yet.</p>
-        @endforelse
+        @endforeach
 
         @permission('rental_inventories.create')
         @if(!in_array($inventory->status, ['completed', 'cancelled']))
@@ -153,7 +202,7 @@
             @csrf
             <input type="text" name="room_label" required placeholder="Room (e.g. Lounge)" list="room-labels" class="prop-input sm:col-span-2">
             <datalist id="room-labels">
-                @foreach($linesByRoom->keys() as $room)<option value="{{ $room }}"></option>@endforeach
+                @foreach($rooms->pluck('label')->merge($legacyLineGroups->keys())->unique() as $room)<option value="{{ $room }}"></option>@endforeach
             </datalist>
             <input type="number" name="quantity" min="0" required placeholder="Qty" class="prop-input" style="width:5rem;">
             <input type="text" name="description" required placeholder="e.g. Wooden TV table" class="prop-input sm:col-span-2">
@@ -201,100 +250,119 @@
         @permission('rental_inventories.create')
         @if(!in_array($inventory->status, ['completed', 'cancelled']))
         <div class="space-y-2 pt-2">
+            {{-- Johan, 2026-09-28 — "shows the signatures block TWICE (once
+                 with dates, once without)." A party who already has a
+                 disposition has their FULL record (date, signature image,
+                 refusal reason/note) in the read-only "Signatures" list
+                 above — this recording section is ACTION-only now, so a
+                 dispositioned party's whole row simply doesn't render here
+                 a second time, rather than repeating a compact "Signed"/
+                 "Refused" summary. _save() reloads the page on success
+                 (matching completeInventory()'s own behaviour), so the row
+                 disappearing here and appearing above happen in the same
+                 reload, never out of sync. --}}
             @foreach($inventory->lease?->tenants ?? [] as $tenant)
-                <div class="py-1.5" style="border-bottom:1px solid var(--border);">
-                    <div class="flex items-center justify-between gap-3">
-                        <span class="text-sm" x-text="tenantName({{ $tenant->contact_id }}, '{{ addslashes($tenant->contact?->full_name ?? 'Tenant') }}')"></span>
-                        <template x-if="dispositionFor('tenant', {{ $tenant->contact_id }})">
-                            <span class="text-xs font-semibold uppercase" style="color:var(--text-muted);" x-text="dispositionFor('tenant', {{ $tenant->contact_id }}).disposition === 'refused' ? 'Refused' : 'Signed'"></span>
-                        </template>
-                        <template x-if="!dispositionFor('tenant', {{ $tenant->contact_id }})">
+                <template x-if="!dispositionFor('tenant', {{ $tenant->contact_id }})">
+                    <div class="py-1.5" style="border-bottom:1px solid var(--border);">
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="text-sm" x-text="tenantName({{ $tenant->contact_id }}, '{{ addslashes($tenant->contact?->full_name ?? 'Tenant') }}')"></span>
                             <div class="flex items-center gap-2">
                                 <button type="button" @click="openSigningFor('tenant_{{ $tenant->contact_id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Sign</button>
                                 <button type="button" @click="openRefusalFor('tenant_{{ $tenant->contact_id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Refuses</button>
                             </div>
+                        </div>
+                        <template x-if="activeSigningKey === 'tenant_{{ $tenant->contact_id }}'">
+                            <div class="space-y-2 pt-2">
+                                <canvas x-init="$nextTick(() => initSignaturePadFor('tenant_{{ $tenant->contact_id }}', $el))" class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
+                                <div class="flex items-center gap-2">
+                                    <button type="button" @click="clearSignatureFor('tenant_{{ $tenant->contact_id }}')" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Clear</button>
+                                    <button type="button" @click="saveSignatureFor('tenant', {{ $tenant->contact_id }})" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="activeRefusalKey === 'tenant_{{ $tenant->contact_id }}'">
+                            <div class="space-y-2 pt-2">
+                                <select x-model="refusalField('tenant_{{ $tenant->contact_id }}').preset" class="prop-input w-full">
+                                    <option value="">Select a reason…</option>
+                                    @foreach($refusalReasonPresets as $preset)<option value="{{ $preset['key'] }}">{{ $preset['label'] }}</option>@endforeach
+                                </select>
+                                <input type="text" x-show="refusalField('tenant_{{ $tenant->contact_id }}').preset === 'other'" x-model="refusalField('tenant_{{ $tenant->contact_id }}').note" placeholder="Note (required for 'Other')" class="prop-input w-full">
+                                <button type="button" @click="saveRefusalFor('tenant', {{ $tenant->contact_id }})" :disabled="!refusalField('tenant_{{ $tenant->contact_id }}').preset" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Record refusal</button>
+                            </div>
                         </template>
                     </div>
-                    <template x-if="activeSigningKey === 'tenant_{{ $tenant->contact_id }}'">
-                        <div class="space-y-2 pt-2">
-                            <canvas x-init="$nextTick(() => initSignaturePadFor('tenant_{{ $tenant->contact_id }}', $el))" class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
-                            <div class="flex items-center gap-2">
-                                <button type="button" @click="clearSignatureFor('tenant_{{ $tenant->contact_id }}')" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Clear</button>
-                                <button type="button" @click="saveSignatureFor('tenant', {{ $tenant->contact_id }})" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
-                            </div>
-                        </div>
-                    </template>
-                    <template x-if="activeRefusalKey === 'tenant_{{ $tenant->contact_id }}'">
-                        <div class="space-y-2 pt-2">
-                            <select x-model="refusalField('tenant_{{ $tenant->contact_id }}').preset" class="prop-input w-full">
-                                <option value="">Select a reason…</option>
-                                @foreach($refusalReasonPresets as $preset)<option value="{{ $preset['key'] }}">{{ $preset['label'] }}</option>@endforeach
-                            </select>
-                            <input type="text" x-show="refusalField('tenant_{{ $tenant->contact_id }}').preset === 'other'" x-model="refusalField('tenant_{{ $tenant->contact_id }}').note" placeholder="Note (required for 'Other')" class="prop-input w-full">
-                            <button type="button" @click="saveRefusalFor('tenant', {{ $tenant->contact_id }})" :disabled="!refusalField('tenant_{{ $tenant->contact_id }}').preset" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Record refusal</button>
-                        </div>
-                    </template>
-                </div>
+                </template>
             @endforeach
 
             @if($landlordContact = $inventory->property?->sellerOwnerContact())
-                <div class="py-1.5" style="border-bottom:1px solid var(--border);">
-                    <div class="flex items-center justify-between gap-3">
-                        <span class="text-sm">{{ $landlordContact->full_name }} ({{ $ownerPartyLabel }})</span>
-                        <template x-if="dispositionFor('landlord', {{ $landlordContact->id }})">
-                            <span class="text-xs font-semibold uppercase" style="color:var(--text-muted);" x-text="dispositionFor('landlord', {{ $landlordContact->id }}).disposition === 'refused' ? 'Refused' : 'Signed'"></span>
-                        </template>
-                        <template x-if="!dispositionFor('landlord', {{ $landlordContact->id }})">
+                <template x-if="!dispositionFor('landlord', {{ $landlordContact->id }})">
+                    <div class="py-1.5" style="border-bottom:1px solid var(--border);">
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="text-sm">{{ $landlordContact->full_name }} ({{ $ownerPartyLabel }})</span>
                             <div class="flex items-center gap-2">
                                 <button type="button" @click="openSigningFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Sign</button>
                                 <button type="button" @click="openRefusalFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Refuses</button>
                             </div>
+                        </div>
+                        <template x-if="activeSigningKey === 'landlord_{{ $landlordContact->id }}'">
+                            <div class="space-y-2 pt-2">
+                                <canvas x-init="$nextTick(() => initSignaturePadFor('landlord_{{ $landlordContact->id }}', $el))" class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
+                                <div class="flex items-center gap-2">
+                                    <button type="button" @click="clearSignatureFor('landlord_{{ $landlordContact->id }}')" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Clear</button>
+                                    <button type="button" @click="saveSignatureFor('landlord', {{ $landlordContact->id }})" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="activeRefusalKey === 'landlord_{{ $landlordContact->id }}'">
+                            <div class="space-y-2 pt-2">
+                                <select x-model="refusalField('landlord_{{ $landlordContact->id }}').preset" class="prop-input w-full">
+                                    <option value="">Select a reason…</option>
+                                    @foreach($refusalReasonPresets as $preset)<option value="{{ $preset['key'] }}">{{ $preset['label'] }}</option>@endforeach
+                                </select>
+                                <input type="text" x-show="refusalField('landlord_{{ $landlordContact->id }}').preset === 'other'" x-model="refusalField('landlord_{{ $landlordContact->id }}').note" placeholder="Note (required for 'Other')" class="prop-input w-full">
+                                <button type="button" @click="saveRefusalFor('landlord', {{ $landlordContact->id }})" :disabled="!refusalField('landlord_{{ $landlordContact->id }}').preset" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Record refusal</button>
+                            </div>
                         </template>
                     </div>
-                    <template x-if="activeSigningKey === 'landlord_{{ $landlordContact->id }}'">
-                        <div class="space-y-2 pt-2">
-                            <canvas x-init="$nextTick(() => initSignaturePadFor('landlord_{{ $landlordContact->id }}', $el))" class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
-                            <div class="flex items-center gap-2">
-                                <button type="button" @click="clearSignatureFor('landlord_{{ $landlordContact->id }}')" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Clear</button>
-                                <button type="button" @click="saveSignatureFor('landlord', {{ $landlordContact->id }})" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
-                            </div>
-                        </div>
-                    </template>
-                    <template x-if="activeRefusalKey === 'landlord_{{ $landlordContact->id }}'">
-                        <div class="space-y-2 pt-2">
-                            <select x-model="refusalField('landlord_{{ $landlordContact->id }}').preset" class="prop-input w-full">
-                                <option value="">Select a reason…</option>
-                                @foreach($refusalReasonPresets as $preset)<option value="{{ $preset['key'] }}">{{ $preset['label'] }}</option>@endforeach
-                            </select>
-                            <input type="text" x-show="refusalField('landlord_{{ $landlordContact->id }}').preset === 'other'" x-model="refusalField('landlord_{{ $landlordContact->id }}').note" placeholder="Note (required for 'Other')" class="prop-input w-full">
-                            <button type="button" @click="saveRefusalFor('landlord', {{ $landlordContact->id }})" :disabled="!refusalField('landlord_{{ $landlordContact->id }}').preset" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Record refusal</button>
-                        </div>
-                    </template>
-                </div>
+                </template>
             @else
                 <p class="text-xs" style="color: var(--text-muted);">Landlord: not linked to this property — nothing to sign.</p>
             @endif
 
-            <div class="py-1.5">
-                <div class="flex items-center justify-between gap-3">
-                    <span class="text-sm font-semibold">Agent</span>
-                    <template x-if="dispositionFor('agent', null)"><span class="text-xs font-semibold uppercase" style="color:var(--text-muted);">Signed</span></template>
-                    <template x-if="!dispositionFor('agent', null) && allRequiredPartiesDispositioned">
-                        <button type="button" @click="openSigningFor('agent')" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Sign</button>
+            <template x-if="!dispositionFor('agent', null)">
+                <div class="py-1.5">
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-sm font-semibold">Agent</span>
+                        <template x-if="allRequiredPartiesDispositioned">
+                            <button type="button" @click="openSigningFor('agent')" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Sign</button>
+                        </template>
+                    </div>
+                    <template x-if="activeSigningKey === 'agent'">
+                        <div class="space-y-2 pt-2">
+                            <canvas x-init="$nextTick(() => initSignaturePadFor('agent', $el))" class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
+                            <div class="flex items-center gap-2">
+                                <button type="button" @click="clearSignatureFor('agent')" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Clear</button>
+                                <button type="button" @click="saveSignatureFor('agent', null)" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
+                            </div>
+                        </div>
                     </template>
                 </div>
-                <template x-if="activeSigningKey === 'agent'">
-                    <div class="space-y-2 pt-2">
-                        <canvas x-init="$nextTick(() => initSignaturePadFor('agent', $el))" class="w-full block rounded-md" style="height:110px; touch-action:none; cursor:crosshair; background:#fff; border:1px solid var(--border);"></canvas>
-                        <div class="flex items-center gap-2">
-                            <button type="button" @click="clearSignatureFor('agent')" class="text-xs px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Clear</button>
-                            <button type="button" @click="saveSignatureFor('agent', null)" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save signature</button>
-                        </div>
-                    </div>
+            </template>
+
+            <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;">
+                <p x-text="lifecycleError"></p>
+                {{-- Johan, 2026-09-28 — each unchecked room named, clickable
+                     to the capture screen's own panel for that space
+                     (scrollToRoom() there reads the exact same room-panel-N
+                     id this href targets). --}}
+                <template x-if="unvisitedRooms.length">
+                    <ul class="mt-1 space-y-0.5" style="list-style: disc; padding-left: 1.25rem;">
+                        <template x-for="room in unvisitedRooms" :key="room.id">
+                            <li><a :href="captureUrlFor(room.id)" class="underline" style="color:#ef4444;" x-text="room.label"></a></li>
+                        </template>
+                    </ul>
                 </template>
             </div>
-
-            <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>
             <div class="flex justify-end">
                 <button type="button" @click="completeInventory()" class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">Complete</button>
             </div>
@@ -415,16 +483,37 @@ function rentalInventoryShow(inventoryId) {
                     body: JSON.stringify(payload),
                 });
                 if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Request failed (${res.status}).`); }
-                const signature = await res.json();
-                this.signatures.push({ party_role: signature.party_role, party_contact_id: signature.party_contact_id, disposition: signature.disposition });
-                if (isSigning) this.activeSigningKey = null; else this.activeRefusalKey = null;
+                // Johan, 2026-09-28 — reload so the read-only "Signatures"
+                // list above picks up this party's full record (date,
+                // signature image, refusal reason/note) in the SAME reload
+                // that removes their now-redundant row from this recording
+                // section (dispositionFor() re-evaluates against a fresh
+                // page load's own $signaturesForJs) — the two can never
+                // show conflicting/duplicate state even for a moment.
+                window.location.reload();
             } catch (e) { this.lifecycleError = e.message; }
+        },
+        // Johan, 2026-09-28 — "the red completion warning must list the
+        // unchecked rooms by name, each clickable to jump to that space."
+        // unvisitedRooms holds the server's structured {id, label} list
+        // (RentalInventoryUnvisitedRoomsException) when that's the specific
+        // reason completion was refused; empty for any other refusal
+        // (nothing recorded yet, outstanding signature, etc.) so the
+        // markup below only ever renders links when they mean something.
+        unvisitedRooms: [],
+        captureUrlFor(roomId) {
+            return {{ Js::from(route('corex.properties.inventory.show', $inventory->property_id)) }} + '#room-panel-' + roomId;
         },
         async completeInventory() {
             this.lifecycleError = '';
+            this.unvisitedRooms = [];
             try {
                 const res = await fetch(`${this.baseUrl}/complete`, { method: 'POST', headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' } });
-                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Request failed (${res.status}).`); }
+                if (!res.ok) {
+                    const j = await res.json().catch(() => ({}));
+                    this.unvisitedRooms = j.unvisited_rooms || [];
+                    throw new Error(j.message || `Request failed (${res.status}).`);
+                }
                 window.location.reload();
             } catch (e) { this.lifecycleError = e.message; }
         },
