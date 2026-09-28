@@ -86,7 +86,7 @@
                 <p class="text-sm" style="color:var(--text-muted);">
                     {{ request()->hasAny(['search','role','status'])
                         ? 'Try a different search, role, or status.'
-                        : ($principalOnly ? 'Check user designations — item (c) matches on "Principal" in the designation field.' : 'No active agent, branch manager, or admin users on this agency.') }}
+                        : ($principalOnly ? 'Set "Principal Property Practitioner" on a user\'s profile (Admin → Users → Edit) to add them here.' : 'No active agent, branch manager, or admin users on this agency.') }}
                 </p>
             </div>
         @else

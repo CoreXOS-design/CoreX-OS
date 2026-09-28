@@ -5,17 +5,19 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\Compliance\PpraInspectionGapNote;
+use App\Services\Compliance\PpraFinancialYearListService;
 use App\Services\Compliance\PpraInspectionPackChecklistService;
 use App\Services\Compliance\PpraInspectionReportPdfService;
 use App\Services\Compliance\PpraLetterheadSampleService;
 use App\Services\Compliance\PpraPractitionerRegisterPdfService;
+use App\Services\Compliance\PpraSalesRentalsPdfService;
 use App\Services\Compliance\PractitionerFfcRosterService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * PPRA Inspection Pack — Phase A + B + C. .ai/specs/ppra-inspection-pack.md
+ * PPRA Inspection Pack — Phase A + B + C + D + E. .ai/specs/ppra-inspection-pack.md
  * Pure Admin feature (Johan's ruling, 2026-09-28) — every action here is
  * gated ppra_inspection_pack.* (admin/super_admin only, see routes/web.php).
  */
@@ -27,6 +29,8 @@ class PpraInspectionPackController extends Controller
         private PractitionerFfcRosterService $practitionerRoster = new PractitionerFfcRosterService(),
         private PpraLetterheadSampleService $letterheadPdf = new PpraLetterheadSampleService(),
         private PpraPractitionerRegisterPdfService $practitionerPdf = new PpraPractitionerRegisterPdfService(),
+        private PpraFinancialYearListService $fyList = new PpraFinancialYearListService(),
+        private PpraSalesRentalsPdfService $salesRentalsPdfSvc = new PpraSalesRentalsPdfService(),
     ) {
     }
 
@@ -161,7 +165,7 @@ class PpraInspectionPackController extends Controller
     /**
      * Practitioner FFC register — full CRUD-list floor (§6.6). Item (f) is
      * this screen unfiltered; item (c) is this screen with ?principal=1
-     * (§6.6a's designation-LIKE match, via PractitionerFfcRosterService::principalsFor()).
+     * (users.is_principal_practitioner, via PractitionerFfcRosterService::principalsFor() — Phase E).
      */
     public function practitioners(Request $request)
     {
@@ -258,6 +262,77 @@ class PpraInspectionPackController extends Controller
         $pdfPath = $this->letterheadPdf->generate($agency);
 
         return response()->download($pdfPath, basename($pdfPath))->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Item (j) — current FY sales/rentals list, "active and advertised". §6.7.
+     * FY-bound by default (agencies.financial_year_start_month); a custom
+     * date_from/date_to pair overrides it for this view only (not persisted).
+     */
+    public function salesRentals(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+
+        [$from, $to] = $this->fyList->resolveRange($agency, $request->input('date_from'), $request->input('date_to'));
+
+        $sales = $this->fyList->advertisedListings($agency, 'sale', $from, $to);
+        $rentals = $this->fyList->advertisedListings($agency, 'rental', $from, $to);
+
+        if ($search = $request->input('search')) {
+            $needle = strtolower($search);
+            $filter = fn ($p) => str_contains(strtolower($p->address ?? ''), $needle);
+            $sales = $sales->filter($filter)->values();
+            $rentals = $rentals->filter($filter)->values();
+        }
+
+        $perPage = 25;
+        $salesCurrentPage = (int) $request->input('sales_page', 1);
+        $rentalsCurrentPage = (int) $request->input('rentals_page', 1);
+        $salesPage = new LengthAwarePaginator($sales->forPage($salesCurrentPage, $perPage)->values(), $sales->count(), $perPage, $salesCurrentPage, ['pageName' => 'sales_page', 'path' => $request->url(), 'query' => $request->query()]);
+        $rentalsPage = new LengthAwarePaginator($rentals->forPage($rentalsCurrentPage, $perPage)->values(), $rentals->count(), $perPage, $rentalsCurrentPage, ['pageName' => 'rentals_page', 'path' => $request->url(), 'query' => $request->query()]);
+
+        $rangeLabel = $this->fyList->rangeLabel($from, $to);
+        $isCustomRange = (bool) ($request->input('date_from') && $request->input('date_to'));
+
+        return view('admin.ppra-inspection-pack.sales-rentals', compact('agency', 'salesPage', 'rentalsPage', 'rangeLabel', 'isCustomRange', 'from', 'to'));
+    }
+
+    public function salesRentalsPdf(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+        [$from, $to] = $this->fyList->resolveRange($agency, $request->input('date_from'), $request->input('date_to'));
+
+        $sales = $this->fyList->advertisedListings($agency, 'sale', $from, $to);
+        $rentals = $this->fyList->advertisedListings($agency, 'rental', $from, $to);
+
+        $pdfPath = $this->salesRentalsPdfSvc->generate($agency, $sales, $rentals, $this->fyList->rangeLabel($from, $to));
+
+        return response()->download($pdfPath, basename($pdfPath))->deleteFileAfterSend(true);
+    }
+
+    public function salesRentalsCsv(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+        [$from, $to] = $this->fyList->resolveRange($agency, $request->input('date_from'), $request->input('date_to'));
+
+        $sales = $this->fyList->advertisedListings($agency, 'sale', $from, $to);
+        $rentals = $this->fyList->advertisedListings($agency, 'rental', $from, $to);
+
+        $filename = 'sales-rentals-' . now()->format('Ymd-His') . '.csv';
+
+        $callback = function () use ($sales, $rentals) {
+            $out = fopen('php://output', 'w');
+            fputcsv($out, ['Type', 'Address', 'Suburb', 'Listed Date']);
+            foreach ($sales as $p) {
+                fputcsv($out, ['Sale', $p->address, $p->suburb ?? '', optional($p->listed_date)->format('Y-m-d') ?? '']);
+            }
+            foreach ($rentals as $p) {
+                fputcsv($out, ['Rental', $p->address, $p->suburb ?? '', optional($p->listed_date)->format('Y-m-d') ?? '']);
+            }
+            fclose($out);
+        };
+
+        return response()->streamDownload($callback, $filename, ['Content-Type' => 'text/csv']);
     }
 
     private function resolveAgency(Request $request): Agency

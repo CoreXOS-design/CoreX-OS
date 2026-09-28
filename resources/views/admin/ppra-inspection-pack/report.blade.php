@@ -221,7 +221,7 @@
                         </tbody>
                     </table>
                 @else
-                    <p class="evidence">No principal practitioner identified — check user designations.</p>
+                    <p class="evidence">No user is flagged Principal Property Practitioner for this agency.</p>
                 @endif
             @endif
 
@@ -248,6 +248,17 @@
                 @elseif($transformation->entry_type === 'document')
                     <p class="evidence"><strong>Uploaded statement:</strong> {{ $transformation->document_original_name }} &mdash; saved {{ $transformation->created_at->format('d M Y') }}.</p>
                 @endif
+            @endif
+
+            {{-- Item (j) — sales/rentals FY list caveat (§6.7). --}}
+            @if($row->item === 'j')
+                <p class="evidence" style="font-style:italic;">
+                    "Advertised" is derived from Property24/PrivateProperty activation and the agency's own website
+                    syndication. P24/PrivateProperty carry only the most recent activation date, not a full on/off
+                    history — a property advertised, pulled, and re-advertised within this financial year still
+                    correctly counts as advertised, but multiple separate windows within the year cannot be
+                    reconstructed from those two columns alone.
+                </p>
             @endif
         @endif
     </div>

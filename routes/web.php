@@ -1173,11 +1173,14 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
     Route::get('/report', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'report'])->name('report');
     Route::get('/remediation-log', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'remediationLog'])->name('remediation-log');
     Route::get('/practitioners', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitioners'])->name('practitioners');
+    Route::get('/sales-rentals', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'salesRentals'])->name('sales-rentals');
 
     Route::middleware('permission:ppra_inspection_pack.export')->group(function () {
         Route::get('/practitioner-register.pdf', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitionerRegisterPdf'])->name('practitioner-register.pdf');
         Route::get('/practitioner-register.csv', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitionerRegisterCsv'])->name('practitioner-register.csv');
         Route::get('/letterhead', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'letterhead'])->name('letterhead');
+        Route::get('/sales-rentals.pdf', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'salesRentalsPdf'])->name('sales-rentals.pdf');
+        Route::get('/sales-rentals.csv', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'salesRentalsCsv'])->name('sales-rentals.csv');
     });
 
     Route::middleware('permission:ppra_inspection_pack.configure')->group(function () {
@@ -3798,6 +3801,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // ── Whistleblower Settings ──
     Route::post('/settings/whistleblow', [CoreXSettingsController::class, 'saveWhistleblowSettings'])->middleware('permission:compliance.whistleblow.configure')->name('corex.settings.whistleblow.save');
+    Route::post('/settings/ppra-inspection-pack', [CoreXSettingsController::class, 'savePpraInspectionPackSettings'])->middleware('permission:ppra_inspection_pack.configure')->name('corex.settings.ppra-inspection-pack.save');
 
     // ── FICA Officer Appointments (unified) ──
     Route::post('/settings/fica-officers/primary', [\App\Http\Controllers\Compliance\FicaOfficerAppointmentsController::class, 'savePrimary'])

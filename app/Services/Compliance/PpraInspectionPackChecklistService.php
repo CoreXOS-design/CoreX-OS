@@ -10,14 +10,15 @@ use App\Models\Compliance\PpraInspectionGapNote;
 use Illuminate\Support\Collection;
 
 /**
- * PPRA Inspection Pack — Phase A + B + C + D. .ai/specs/ppra-inspection-pack.md §5.
+ * PPRA Inspection Pack — Phase A + B + C + D + E. .ai/specs/ppra-inspection-pack.md §5.
  *
  * Computes the live a-m checklist for an agency. Wired so far:
  * a, b, d, e, h (agency-vault-backed, Phase A), c, f, g (practitioner
  * FFC roster + letterhead, Phase B/C — v3 sources c/f from
  * PractitionerFfcRosterService, role-filtered + UserDocument-backed, per
  * Johan's 2026-09-28 ruling), i (transformation initiatives, Phase D — v3
- * structured-or-document, either satisfies the item). Items j/k/l/m are
+ * structured-or-document, either satisfies the item), j (sales/rentals FY
+ * list, Phase E — v3 "active and advertised" derivation). Items k/l/m are
  * returned with status 'pending' ("not yet available" — later phases) so
  * the checklist page and Inspection Report keep a stable 13-row shape from
  * day one without guessing at data later phases will add.
@@ -26,6 +27,7 @@ class PpraInspectionPackChecklistService
 {
     public function __construct(
         private PractitionerFfcRosterService $practitionerRoster = new PractitionerFfcRosterService(),
+        private PpraFinancialYearListService $fyList = new PpraFinancialYearListService(),
     ) {
     }
 
@@ -42,7 +44,6 @@ class PpraInspectionPackChecklistService
     ];
 
     private const PENDING_ITEMS = [
-        'j' => 'Sales/Rentals List — Current Financial Year',
         'k' => 'Sales Files Sampled',
         'l' => 'Rental Files Sampled',
         'm' => 'Mandates + MDFs, Active Listings',
@@ -83,6 +84,7 @@ class PpraInspectionPackChecklistService
         $rows->push($this->practitionerFfcRow($agency, 'f', 'Practitioner List & FFC Numbers', $fullRoster, true));
         $rows->push($this->letterheadRow($agency));
         $rows->push($this->transformationRow($agency));
+        $rows->push($this->salesRentalsRow($agency));
 
         foreach (self::PENDING_ITEMS as $key => $label) {
             $rows->push((object) [
@@ -120,7 +122,7 @@ class PpraInspectionPackChecklistService
         if ($roster->isEmpty()) {
             $status = 'red';
             $why = $principalOnly
-                ? 'No principal practitioner identified — check user designations.'
+                ? 'No user is flagged Principal Property Practitioner — set it on their user profile.'
                 : 'No active practitioners found in the agency roster.';
         } else {
             $gaps = $roster->filter(fn ($a) => in_array($a['ffc']['status'], ['red', 'amber'], true));
@@ -238,6 +240,37 @@ class PpraInspectionPackChecklistService
             'why'         => $why,
             'evidence'    => $current?->summary,
             'gap_note'    => $gapNote,
+            'document'    => null,
+            'upload_configs' => collect(),
+        ];
+    }
+
+    /**
+     * Item j — current FY sales/rentals list, "active and advertised" (Phase
+     * E, v3). Always green once the FY window can be computed (it always
+     * can — financial_year_start_month defaults to March), since the item
+     * IS the list itself, not a document that can be missing; a zero-listing
+     * agency still satisfies it, with "0 sales, 0 rentals" stated plainly.
+     */
+    private function salesRentalsRow(Agency $agency): object
+    {
+        $item = 'j';
+        [$from, $to] = $this->fyList->resolveRange($agency);
+        $counts = $this->fyList->counts($agency, $from, $to);
+        $rangeLabel = $this->fyList->rangeLabel($from, $to);
+
+        $why = "{$counts['sales']} sales, {$counts['rentals']} rentals advertised in {$rangeLabel}.";
+
+        PpraInspectionGapNote::where('agency_id', $agency->id)->forItem($item)->open()->update(['resolved_at' => now()]);
+
+        return (object) [
+            'item'        => $item,
+            'label'       => 'Sales/Rentals List — Current Financial Year',
+            'requirement' => 'Every property that was active and advertised at any point during the current financial year, split into sales and rentals.',
+            'status'      => 'green',
+            'why'         => $why,
+            'evidence'    => $why,
+            'gap_note'    => null,
             'document'    => null,
             'upload_configs' => collect(),
         ];

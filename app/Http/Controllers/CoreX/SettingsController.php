@@ -1282,4 +1282,26 @@ class SettingsController extends Controller
         return redirect()->route('corex.settings', ['s' => 'whistleblow-settings'])
             ->with('success', 'Compliance reporting settings saved.');
     }
+
+    /**
+     * PPRA Inspection Pack Phase E — item (j), .ai/specs/ppra-inspection-pack.md §6.7/§11.
+     */
+    public function savePpraInspectionPackSettings(Request $request)
+    {
+        abort_unless(auth()->user()?->hasPermission('ppra_inspection_pack.configure'), 403);
+
+        $data = $request->validate([
+            'financial_year_start_month' => 'required|integer|min:1|max:12',
+        ]);
+
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find(auth()->user()->agency_id);
+        if (!$agency) {
+            return redirect()->back()->with('error', 'Agency not found.');
+        }
+
+        $agency->update(['financial_year_start_month' => $data['financial_year_start_month']]);
+
+        return redirect()->route('corex.settings', ['s' => 'ppra-inspection-pack-settings'])
+            ->with('success', 'PPRA Inspection Pack settings saved.');
+    }
 }

@@ -133,6 +133,12 @@
                             <a href="{{ route('admin.ppra-inspection-pack.transformation.index') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">
                                 {{ $row->status === 'red' ? 'Write / upload statement' : 'Manage statement' }}
                             </a>
+                        @elseif($row->item === 'j')
+                            <div class="flex flex-col gap-1">
+                                <a href="{{ route('admin.ppra-inspection-pack.sales-rentals') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">View list</a>
+                                <a href="{{ route('admin.ppra-inspection-pack.sales-rentals.pdf') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export PDF</a>
+                                <a href="{{ route('admin.ppra-inspection-pack.sales-rentals.csv') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export CSV</a>
+                            </div>
                         @else
                             <span class="text-xs" style="color:var(--text-muted);">—</span>
                         @endif

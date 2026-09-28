@@ -8,7 +8,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * PPRA Inspection Pack Phase C (v3) — items (c)/(f), .ai/specs/ppra-inspection-pack.md §6.6.
+ * PPRA Inspection Pack Phase C/E (v3) — items (c)/(f), .ai/specs/ppra-inspection-pack.md §6.6.
  *
  * v3 replaces Phase B's AgentFfcRosterService for this module: the roster is
  * role-filtered (agent/branch_manager/admin only — Johan's ruling, 2026-09-28)
@@ -17,6 +17,13 @@ use Illuminate\Support\Collection;
  * users.ffc_certificate_path / AgentApplication.ffc_expiry columns. The FFC
  * NUMBER itself still lives on users.ffc_number — that field is distinct from
  * the certificate file and is unaffected by this ruling.
+ *
+ * Phase E (2026-09-28, Johan) — item (c)'s principal roster now sources from
+ * the real `users.is_principal_practitioner` flag (admin-edited, audit-logged
+ * via AgentPrincipalPractitionerFlagChanged), replacing the earlier
+ * `designation LIKE '%Principal%'` heuristic. principalsFor() queries the
+ * flag directly rather than filtering rosterFor()'s role-restricted list,
+ * since the flag is agency-scoped and independent of role.
  *
  * AgentFfcRosterService is left untouched — it still backs /compliance/agents,
  * which is a different screen with a different roster definition (all active
@@ -44,12 +51,22 @@ class PractitionerFfcRosterService
         return $this->buildRoster($users);
     }
 
-    /** Item (c): the same roster, filtered to whoever's designation names them a principal (§6.6a). */
+    /**
+     * Item (c): every active user flagged is_principal_practitioner=true
+     * for this agency (Phase E, v3 — real flag, not a designation guess).
+     * Independent of rosterFor()'s role restriction, since the flag itself
+     * is the source of truth for "who is a principal" regardless of role.
+     */
     public function principalsFor(int $agencyId): Collection
     {
-        return $this->rosterFor($agencyId)
-            ->filter(fn (array $row) => str_contains(strtolower($row['designation'] ?? ''), 'principal'))
-            ->values();
+        $users = User::where('agency_id', $agencyId)
+            ->where('is_active', true)
+            ->where('is_principal_practitioner', true)
+            ->whereNull('deleted_at')
+            ->orderBy('name')
+            ->get();
+
+        return $this->buildRoster($users);
     }
 
     private function buildRoster(Collection $users): Collection

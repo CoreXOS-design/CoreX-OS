@@ -155,6 +155,7 @@
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
+                    $can('ppra_inspection_pack.configure') ? ['key'=>'ppra-inspection-pack-settings', 'label'=>'PPRA Inspection Pack', 'type'=>'section', 'keywords'=>'ppra inspection pack financial year s25'] : null,
                     ($u && $u->hasFeature('proforma-invoices') && $can('proforma.manage'))
                         ? ['key'=>'proforma-settings', 'label'=>'Proforma Invoices', 'type'=>'link', 'href'=>route('admin.proforma-settings'), 'keywords'=>'accounting invoice numbering vat bank details terms']
                         : null,
@@ -3954,6 +3955,42 @@
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
                     Download Lawyer Review Pack
                 </a>
+            </div>
+        </div>
+        @endif
+
+        {{-- ============================================================
+             PPRA INSPECTION PACK SETTINGS — Phase E, item (j).
+             .ai/specs/ppra-inspection-pack.md §6.7/§11.
+             ============================================================ --}}
+        @if(auth()->user()?->hasPermission('ppra_inspection_pack.configure'))
+        <div x-show="activeSection === 'ppra-inspection-pack-settings'" x-cloak class="p-6 space-y-6">
+            <div>
+                <h2 class="text-lg font-bold" style="color:var(--text-primary);">PPRA Inspection Pack</h2>
+                <p class="text-sm mt-1" style="color:var(--text-secondary);">Configure the financial year used by the current-FY sales/rentals list (item j).</p>
+            </div>
+
+            <form method="POST" action="{{ route('corex.settings.ppra-inspection-pack.save') }}" class="space-y-6">
+                @csrf
+
+                <div>
+                    <label class="text-sm font-semibold" style="color:var(--text-primary);">Financial year starts in</label>
+                    <p class="text-xs mb-2" style="color:var(--text-muted);">Used to bound the "current financial year" sales/rentals list on the PPRA Inspection Pack. Default: March.</p>
+                    <select name="financial_year_start_month" class="w-full max-w-xs rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        @foreach(['January','February','March','April','May','June','July','August','September','October','November','December'] as $i => $monthName)
+                        <option value="{{ $i + 1 }}" {{ (int) ($agency->financial_year_start_month ?? 3) === $i + 1 ? 'selected' : '' }}>{{ $monthName }}</option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <button type="submit" class="corex-btn-primary">Save Settings</button>
+            </form>
+
+            <div class="rounded-md p-4" style="border:1px solid var(--border); background:var(--surface-2);">
+                <p class="text-xs" style="color:var(--text-secondary);">
+                    The full PPRA Inspection Pack checklist, its Inspection Report, and the current-FY sales/rentals list
+                    live under <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Inspection Pack</a>.
+                </p>
             </div>
         </div>
         @endif

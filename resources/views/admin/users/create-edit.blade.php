@@ -371,6 +371,18 @@
                                {{ old('show_in_performance_reports', $isEdit ? (int)($user->show_in_performance_reports ?? 1) : 1) ? 'checked' : '' }}>
                         Show on Performance &amp; ROI Report
                     </label>
+                    {{-- Principal Property Practitioner — PPRA Inspection Pack item (c),
+                         .ai/specs/ppra-inspection-pack.md §6.6a. Agency-scoped, several
+                         users may hold it. Every change is audit-logged (domain_event_log
+                         via AgentPrincipalPractitionerFlagChanged). Default off — an admin
+                         opts a user in deliberately, never inferred. --}}
+                    <label class="flex items-center gap-2.5 text-sm cursor-pointer" style="color:var(--text-secondary);">
+                        <input type="hidden" name="is_principal_practitioner" value="0">
+                        <input type="checkbox" name="is_principal_practitioner" value="1" class="rounded"
+                               style="accent-color:var(--brand-icon, #0ea5e9);"
+                               {{ old('is_principal_practitioner', $isEdit ? (int)($user->is_principal_practitioner ?? 0) : 0) ? 'checked' : '' }}>
+                        Principal Property Practitioner
+                    </label>
                     {{-- Agency Public API — agent appears on the agency website(s). Spec §2 (layer 3).
                          Only shown once the agency has a website (≥1 API key). --}}
                     @php

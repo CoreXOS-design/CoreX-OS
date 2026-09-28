@@ -725,6 +725,18 @@ return [
             // spec §5.1. Guarded internally by the 'fica_referral_settings_present'
             // hidden marker (§6.1) — the partial always renders it.
             ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveReferralSettings'],
+            // PPRA Inspection Pack Phase E — item (j), .ai/specs/ppra-inspection-pack.md
+            // §6.7/§10a. A required <select> always posts a value, so no §6.1
+            // has()-guard is needed here (that rule protects optional checkboxes only).
+            ['controller' => SettingsController::class, 'method' => 'savePpraInspectionPackSettings'],
+        ],
+        'controls' => [
+            ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
+             'options' => ['1' => 'January', '2' => 'February', '3' => 'March', '4' => 'April', '5' => 'May', '6' => 'June',
+                           '7' => 'July', '8' => 'August', '9' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'],
+             'label' => 'Financial year starts in',
+             'explain' => 'The month your agency\'s financial year begins — used by the PPRA Inspection Pack to bound its "current financial year" sales and rentals list.',
+             'affects' => 'Which sales and rentals count as "this financial year" on the PPRA Inspection Pack (Admin → PPRA Inspection Pack). Does not affect any other report.'],
         ],
     ],
 

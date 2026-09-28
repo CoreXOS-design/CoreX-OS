@@ -152,6 +152,7 @@ class User extends Authenticatable
         // Flags
         'can_capture_rentals',
         'counts_for_branch_split',
+        'is_principal_practitioner',
 
         // Contact fields (email signatures, profile, presentations)
         'phone',
@@ -255,6 +256,7 @@ class User extends Authenticatable
         'pp_exclusivity_explainer_seen_at' => 'datetime',
         'password' => 'hashed',
         'is_active' => 'boolean',
+        'is_principal_practitioner' => 'boolean',
         'show_in_performance_reports' => 'boolean',
         'is_assistant' => 'boolean',
         'fica_required' => 'boolean',
