@@ -6645,6 +6645,49 @@
                 },
                 retrySave() { if (this.saveState.retry) this.saveState.retry(); },
 
+                // §32, 2026-09-28 (Johan, property 5294) — the bug class this
+                // pair closes: several autosave commits used to
+                // `Object.assign(insp, updated)` where `updated` was a bare
+                // `$rentalInspection->fresh()` (every plain COLUMN on the
+                // row — meter readings, overall_notes, etc. — no relations).
+                // Any TWO of those commits racing (e.g. typing a meter
+                // reading, then typing overall notes before the meter
+                // save's own response has landed) let the SLOWER response's
+                // stale snapshot stomp the field the OTHER one just wrote —
+                // or, worse, land WHILE the agent is still actively typing
+                // into a field this commit's response also carries an
+                // (older) value for, visibly corrupting/truncating what
+                // they were mid-typing. Reproduced live, before this fix:
+                // typing a meter reading then "INSPECTION LOOKS FINE
+                // OVERALL" into Overall notes saved as "INE OVERALL" —
+                // truncated, not just visually, PERSISTED.
+                //
+                // The rule (also recorded in .ai/specs/rental-inspections.md
+                // §32.4): an autosave response may only ever update the
+                // fields ITS OWN request sent — never the whole object.
+                //
+                // Two flavours, because not every field carries the same
+                // risk:
+                // - _mergeIfUnchanged() — for fields a user can be ACTIVELY
+                //   TYPING into via a live x-model (header block, overall
+                //   notes): only apply the server's value if the local
+                //   value is STILL EXACTLY what was sent (captured in
+                //   `snapshot` before the request went out) — if it
+                //   changed locally in the meantime (still typing, or a
+                //   newer save is already in flight), the newer local edit
+                //   wins and the stale response is simply dropped for that
+                //   field.
+                // - _mergeFields() — for fields NOTHING ever types into
+                //   (lifecycle status/timestamps, server-computed) — always
+                //   safe to apply directly, no snapshot needed, since
+                //   nothing else concurrently writes to them.
+                _mergeIfUnchanged(insp, snapshot, updated, fields) {
+                    fields.forEach(f => { if (insp[f] === snapshot[f]) insp[f] = updated[f]; });
+                },
+                _mergeFields(insp, updated, fields) {
+                    fields.forEach(f => { insp[f] = updated[f]; });
+                },
+
                 itemError: '',
                 itemBusy: false,
                 newItem: { kind: 'space', label: '', space_type: '', property_room_id: '' },
@@ -7872,11 +7915,15 @@
                 async _commitOverallNotes(section) {
                     const insp = this.currentInspection(section);
                     if (!insp) return;
+                    // §32, 2026-09-28 — snapshot taken NOW (send time), not
+                    // read again after the request resolves — see
+                    // _mergeIfUnchanged()'s own docblock above.
+                    const snapshot = { overall_notes: insp.overall_notes };
                     await this._autosave(async () => {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/overall-notes`, {
-                            overall_notes: insp.overall_notes || null,
+                            overall_notes: snapshot.overall_notes || null,
                         });
-                        Object.assign(insp, updated);
+                        this._mergeIfUnchanged(insp, snapshot, updated, ['overall_notes']);
                     });
                 },
 
@@ -7930,7 +7977,17 @@
                     this.lifecycleError = '';
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/complete`, {});
-                        Object.assign(insp, updated);
+                        // §32, 2026-09-28 — was Object.assign(insp, updated),
+                        // a bare fresh() carrying every plain column
+                        // (meter readings, overall_notes, ...), not just
+                        // what this action actually changed
+                        // (RentalInspection::markCompleted() only ever
+                        // touches these three) — an agent completing the
+                        // inspection right after typing overall notes could
+                        // have that typing clobbered by this response.
+                        // Nothing types into these three directly, so a
+                        // plain merge (no snapshot/unchanged check) is safe.
+                        this._mergeFields(insp, updated, ['status', 'completed_at', 'fault_report_deadline_at']);
                     } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section, e); }
                 },
 
@@ -7942,7 +7999,10 @@
                     this.lifecycleError = '';
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/start-awaiting-signature`, {});
-                        Object.assign(insp, updated);
+                        // §32, 2026-09-28 — same reasoning as completeInspection()
+                        // just above: RentalInspection::startAwaitingSignature()
+                        // only ever touches these two.
+                        this._mergeFields(insp, updated, ['status', 'signing_deadline_at']);
                     } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section || 'out', e); }
                 },
 
@@ -7962,18 +8022,31 @@
                 async _commitDetails(section) {
                     const insp = this.currentInspection(section);
                     if (!insp) return;
+                    // §32, 2026-09-28 — snapshot taken NOW (send time), not
+                    // read again after the request resolves — see
+                    // _mergeIfUnchanged()'s own docblock above. Reproduced
+                    // live, before this fix: typing a meter reading here,
+                    // then immediately typing into Overall notes before
+                    // this request's own response landed, corrupted the
+                    // Overall notes text down to its last few characters —
+                    // this response's stale overall_notes snapshot (via the
+                    // old Object.assign(insp, updated)) overwrote it
+                    // mid-keystroke.
+                    const fields = ['electricity_meter_reading', 'water_meter_reading', 'furnished_status', 'keys_count', 'keys_description', 'remotes_count', 'remotes_description', 'move_in_date_recorded'];
+                    const snapshot = {};
+                    fields.forEach(f => { snapshot[f] = insp[f]; });
                     await this._autosave(async () => {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/details`, {
-                            electricity_meter_reading: insp.electricity_meter_reading || null,
-                            water_meter_reading: insp.water_meter_reading || null,
-                            furnished_status: insp.furnished_status || null,
-                            keys_count: insp.keys_count ?? null,
-                            keys_description: insp.keys_description || null,
-                            remotes_count: insp.remotes_count ?? null,
-                            remotes_description: insp.remotes_description || null,
-                            move_in_date_recorded: insp.move_in_date_recorded || null,
+                            electricity_meter_reading: snapshot.electricity_meter_reading || null,
+                            water_meter_reading: snapshot.water_meter_reading || null,
+                            furnished_status: snapshot.furnished_status || null,
+                            keys_count: snapshot.keys_count ?? null,
+                            keys_description: snapshot.keys_description || null,
+                            remotes_count: snapshot.remotes_count ?? null,
+                            remotes_description: snapshot.remotes_description || null,
+                            move_in_date_recorded: snapshot.move_in_date_recorded || null,
                         });
-                        Object.assign(insp, updated);
+                        this._mergeIfUnchanged(insp, snapshot, updated, fields);
                     });
                 },
 
