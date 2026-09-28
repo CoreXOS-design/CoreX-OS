@@ -1185,6 +1185,12 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
         Route::get('/mandate-register.zip', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'mandateRegisterZip'])->name('mandate-register.zip');
     });
 
+    // Phase J — full inspection pack (§6.9): generate (queued) + download.
+    Route::middleware('permission:ppra_inspection_pack.generate')->group(function () {
+        Route::post('/generate', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'generate'])->name('generate');
+        Route::get('/{pack}/download', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'download'])->whereNumber('pack')->name('download');
+    });
+
     Route::middleware('permission:ppra_inspection_pack.configure')->group(function () {
         Route::post('/gap-notes', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'storeGapNote'])->name('gap-notes.store');
         Route::post('/gap-notes/{gapNote}/resolve', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'resolveGapNote'])->name('gap-notes.resolve');

@@ -1,6 +1,6 @@
 # PPRA Inspection Pack — Specification
 
-**Status:** Draft v3 — Phases A–I shipped (items a-m all real); Phase J (full pack generation) remaining
+**Status:** Draft v3 — Phases A–J shipped (full module complete). Phase J's queued job logic verified via synchronous smoke test on QA1 only — QA1 runs no queue worker, so real queued-execution QA still happens on Staging per this spec's own §6.9 note.
 **Author:** Claude (senior engineering), from the read-only PPRA s25 investigation of 2026-09-28
 **Date:** 28 September 2026
 **Spec location:** `.ai/specs/ppra-inspection-pack.md`
@@ -528,10 +528,13 @@ The new practitioner register (§6.6), the sample picker (§6.8a) and its k/l/m 
 - Two new settings (`agencies.ppra_mandate_register_red_threshold_pct` default 10, `agencies.ppra_zip_max_files` default 200) — `/corex/settings` → PPRA Inspection Pack section (extends the existing Phase E/F form) and the Setup Wizard's Compliance step, same precedent as every other PPRA setting (non-negotiable §10a).
 - Checklist row m wired to both the register (status — "Fix gaps (register)" / "View register") and the picker (evidence — "Choose sample"), two distinct actions on one row.
 
-**Phase J — full inspection pack**
-- `ppra_inspection_packs` table already exists (migration moved to Phase F — the table is required there to back the sample picker's persistence). Phase J adds the `notification_event_types` row only.
-- `GeneratePpraInspectionPackJob` (bundles source files from Phases A–I around the Phase-A Report renderer, including trial balance from the vault per item e), download route, notification, regeneration contract (§6.9).
-- **First real queued-job QA on Staging**, not QA1 (BUILD_STANDARD constraint, §6.9 note).
+**Phase J — shipped (`<PHASE_J_SHA>`) — full inspection pack**
+- `notification_event_types` row (`ppra_pack.generation_complete`) added via a dedicated migration backfill — doesn't fit `NotificationEventTypeSeeder`'s `row()` helper (built for threshold-configurable reminders; this is a plain one-shot completion alert) and whistleblow's own equivalent row wasn't seeded either, so a direct idempotent insert was the simplest correct path (non-negotiable §10a's own sanctioned alternative to seeder registration).
+- `App\Notifications\PpraPackReadyNotification` — database + mail, same shape as `WhistleblowSubmittedNotification`/`FicaReferralReturnedNotification` (rides the AT-235 gateway; `via()` is the `->notify()` fallback only, real channel selection is the notification_event_types row's own flags).
+- `GeneratePpraInspectionPackJob` — bundles the Report (§6.2's own renderer, frozen) + vault docs a/b/d/e/h + practitioner/principal FFC certs (c/f) + a fresh letterhead (g) + the transformation-initiatives document if `entry_type=document` (i) + the sampled deal/rental/listing file sets (k/l/m), reusing the EXACT SAME manifests `PpraSalesFileAggregationService`/`PpraRentalFileAggregationService`/`PpraMandateFileAggregationService` already produce for the Report's per-file index — this job is the one place that actually writes a ZIP from them. On any failure: `status=failed`, `error_message` set, logged, never left stuck at `generating`.
+- `POST /admin/ppra-inspection-pack/generate` (permission `.generate`) — creates or reuses the current draft pack, dispatches the job, redirects immediately; checklist page shows "Generating…" while `status=generating`. Regeneration contract: if no live draft exists (the prior pack already reached ready/failed), a fresh pack carries forward that prior pack's `sample_*_ids` rather than dropping a saved selection.
+- `GET /admin/ppra-inspection-pack/{pack}/download` (permission `.generate`) — agency-scope re-checked, `status=ready` + `zip_path` existence re-checked, no public/unauthenticated link.
+- **Verification, stated honestly**: QA1's `QUEUE_CONNECTION=database` with no worker process running here — confirmed via `.env` — so a real HTTP-dispatched job never actually executes on this box; this is exactly the constraint the spec's own §6.9 QA note names. Verified what QA1 CAN prove: the route/dispatch layer (pack row created correctly, redirects, "Generating…" state renders) via Playwright, and the job's own bundling LOGIC against real sampled a-m data via a direct synchronous `handle()` invocation (bypassing the queue entirely, matching BUILD_STANDARD's own suggested smoke-test pattern) — producing a real, valid, non-empty ZIP with the Report and every sampled file's manifest inside it. This is NOT proof that real queued execution works end to end — that first real QA happens on Staging, unchanged from the spec's own instruction.
 
 ---
 
