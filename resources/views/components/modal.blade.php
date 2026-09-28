@@ -58,7 +58,7 @@ $maxWidth = [
 >
     <div
         x-show="show"
-        class="fixed inset-0 transform transition-all"
+        class="fixed inset-0 transition-opacity"
         @if($dismissible)
         x-on:click="show = false"
         @endif
@@ -74,7 +74,7 @@ $maxWidth = [
 
     <div
         x-show="show"
-        class="mb-6 rounded-md overflow-hidden shadow-xl transform transition-all sm:w-full {{ $maxWidth }} sm:mx-auto"
+        class="mb-6 rounded-md overflow-hidden shadow-xl transform transition-[opacity,transform] sm:w-full {{ $maxWidth }} sm:mx-auto"
         style="background: var(--surface); color: var(--text-primary);"
         x-transition:enter="ease-out duration-300"
         x-transition:enter-start="opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95"
