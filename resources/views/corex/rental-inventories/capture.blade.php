@@ -232,14 +232,18 @@
                 'mode' => 'link', 'activeTabKey' => 'inventory',
             ])
 
-            @if($inventory)
+            @if($inventory && $isDraft)
             {{-- §13.11 — the room-pill strip, now pure quick-navigation
                  (scroll-to, not switch-to) — Johan: "it's not separate
                  tabs, it's just quick navigation to get to that section."
                  Sticks together with the tab bar above it as one group
                  (see #inv-sticky-shell); overflow-x-auto + flex-nowrap is
                  the whole "never wraps" mechanism, same as every other
-                 horizontal strip on this page. --}}
+                 horizontal strip on this page. Gated on $isDraft alongside
+                 the room panels themselves (2026-09-28) — once completed/
+                 cancelled, those panels don't render at all, so a chip
+                 that scroll-to's a #room-panel-N that no longer exists in
+                 the DOM would be a dead click. --}}
             <div x-show="rooms.length" class="flex items-center gap-2 overflow-x-auto px-4 sm:px-6 py-2" style="flex-wrap:nowrap; background:var(--surface); border-bottom:1px solid var(--border);">
                 <template x-for="room in rooms" :key="room.id">
                     {{-- Same :style clobber trap as the dot below — the
@@ -288,9 +292,24 @@
                     Something went wrong loading this property's inventory. Refresh the page — if this keeps happening, contact support.
                 </div>
             @else
-                @if(in_array($inventory->status, ['completed', 'cancelled']))
-                    <div class="rounded-md p-3 text-xs" style="background: var(--surface-2); color: var(--text-secondary);">
-                        This inventory is {{ $inventory->status }} and read-only here.
+                @if(!$isDraft)
+                    {{-- Johan, 2026-09-28 — "a completed/signed inventory is a
+                         legal record, and a cancelled one is closed. Neither
+                         may be edited." This banner is the ONLY thing this
+                         screen renders once $isDraft is false — every edit
+                         control below (Add space, room lines/marks/photos,
+                         the tagger) is gated on the SAME flag, so there is
+                         never a control visible here for the server's
+                         RentalInventory::assertEditable() 409 to silently
+                         swallow. --}}
+                    <div class="rounded-md p-3 text-xs font-semibold" style="background: var(--surface-2); color: var(--text-secondary);">
+                        @if($inventory->status === 'completed')
+                            Completed — signed record, read-only.
+                        @elseif($inventory->status === 'cancelled')
+                            Cancelled — closed, read-only.
+                        @else
+                            {{ ucfirst($inventory->status) }} — read-only here.
+                        @endif
                         <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="font-semibold" style="color: var(--brand-button,#0ea5e9);">Open the full record</a>
                         @if($inventory->status === 'completed')
                             for signatures and the move-out comparison.
@@ -301,6 +320,18 @@
                         <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Signatures &amp; complete →</a>
                     </div>
                 @endif
+
+                @if($isDraft)
+                {{-- Johan, 2026-09-28 — everything from here down (Add space,
+                     every room panel, the tagger modal) is the EDIT surface
+                     for this inventory's content, and renders ONLY while
+                     $isDraft. A completed/cancelled inventory shows the
+                     banner above and nothing else here — no hidden-but-
+                     reachable control, no button left disabled with no
+                     explanation, just genuinely absent markup. Viewing a
+                     locked inventory's rooms/lines/photos happens on the
+                     full record page (the banner's own link) instead of a
+                     second read-only rendering of this same markup. --}}
 
                 {{-- Add space — Johan: "we specced inventory being blank then you can
                      create the spaces same as with inspections." Same write path
@@ -633,6 +664,7 @@
                         </template>
                     </div>
                 </div>
+                @endif
             @endif
         </div>
     </div>

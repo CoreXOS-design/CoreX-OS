@@ -2509,3 +2509,122 @@ signed PDF each re-checked over real HTTPS as user 365 after every fix; final pr
 embedded as raster objects (not referenced/streamed) alongside the QR. Existing
 `RentalInventoryDistributionTest::test_public_share_page_renders_for_a_valid_token...` re-run and green
 after each round. Both throwaway inventories (12 and 13) kept live, undeleted, until Johan says archive.
+
+## 20. Two more real-usage bugs from property 5294/inventory 8 (2026-09-28, Johan) — dead buttons, then a completed/cancelled record still editable
+
+Same property/inventory as §18, two more findings from Johan's own browser walk. Both server- and
+UI-side; property 5294/inventory 8 itself was READ-ONLY throughout both fixes (view-only in Chrome by
+Johan, a Tinker/HTTP read by the fixing lane) — every write proved against a throwaway property+room on
+agency 1 as user 365.
+
+### 20.1 "Nothing in this room"/Undo permanently disabled — `markRoomBusy` never initialised
+
+All ten of a room's buttons (including "Add space") rendered `disabled="disabled"` on a DRAFT inventory —
+Johan's own `Alpine.$data(root)` check showed `markRoomBusy` as `{}`, no busy state, yet the buttons
+stayed stuck. Root cause: `_initRoomState(room)` (capture.blade.php) already initialises
+`lineBusy[room.id] = false` for every room but never did the matching `markRoomBusy[room.id] = false` —
+so it read `undefined` from first paint. Alpine's `:disabled` binding forwards that straight to the DOM's
+`toggleAttribute('disabled', undefined)`; a WebIDL optional-boolean argument passed as literal
+`undefined` is spec'd as the argument being **omitted**, so it just flips the attribute's CURRENT state
+instead of forcing it false. A freshly-rendered button has no `disabled` attribute yet, so the very first
+Alpine effect ADDS it — permanently, since the button can never be clicked afterward to run the code that
+would set a real boolean. Same bug class already documented in `scripts/rental-click-through.mjs`'s own
+header (the rental-applications strike button, 2026-09-15) — an undefined-bound boolean attribute, not a
+genuine busy state. "Add space" appearing disabled in the same report was unrelated and correct: that
+binding checks blank label/type fields, a real boolean, legitimately disabled until filled in.
+
+**Fix:** one line added to `_initRoomState()` — `this.markRoomBusy[room.id] = false;` — so every room
+(server-seeded at load, or added live via "Add space") gets a genuine boolean from first paint.
+
+**Verified** on a throwaway property (21063) + room (175), agency 1, real Puppeteer click-through as user
+365 against `qatesting1.corexos.co.za`: button loads not disabled → click → `POST .../mark-empty` → 201 →
+room shows "✓ Nothing in this room" → Undo → `DELETE .../mark-empty` → 200 → reverts cleanly. Fixture
+cleaned up (property soft-deleted, room retired via `is_retired` — it has no `SoftDeletes` trait, see its
+own docblock — inventory soft-deleted, mark row removed). Landed `c17075362`.
+
+### 20.2 A completed/signed inventory (or a cancelled one) was still fully editable
+
+§18's "Open the full record" banner (shown when `status` is `completed`/`cancelled`) was informational
+only — every edit control below it (Add space, room lines, condition chips, marks, photo upload/tag/
+retire, the tagger modal) still rendered and still worked. No server endpoint checked status either. A
+completed inventory is a signed legal record; a cancelled one is closed — neither may be edited, full
+stop (Johan, explicit).
+
+**Server side** — `RentalInventory::isDraft()` / `assertEditable()` (throws the new, renderable
+`App\Exceptions\RentalInventoryNotEditableException`, a 409 with a plain message naming the status —
+mirrors `DraftListingException`'s own Laravel-11 renderable-exception shape). Deliberately `isDraft()`
+as an allow-list of the one editable status, not a block-list of `['completed','cancelled']` — the same
+reasoning `EnforcesMarketingReadiness::enforceListingNotDraft()`'s own docblock already gives for why a
+block-list quietly misses a new status later (this model even carries an unused, never-actually-set
+`STATUS_AWAITING_SIGNATURE` constant that a block-list would silently treat as editable). Called at the
+top of every capture-write endpoint on both controllers:
+
+- `RentalInventoryRecordingController`: `storeLine`, `updateLine`, `retireLine`, `storeLineDisposition`,
+  `markRoomEmpty`, `unmarkRoomEmpty`, `copyFromLastInventory`, `storeLineMoveOutPhoto`, `storeSignature`,
+  and `complete()` (closes a pre-existing side gap too — completing an already-completed/cancelled
+  inventory used to silently re-run `markCompleted()` with no guard at all; now a clean 409). Deliberately
+  NOT applied to `resendReport()` — it already requires `status === completed` (the opposite direction)
+  and must stay reachable post-completion; resending a filed report is not editing the record.
+- `RentalInventoryCaptureController`: `storePhotos`, `archivePhoto`, `attachLinePhoto`, `detachLinePhoto`.
+  Not applied to `show()` — a locked inventory's capture route must still render (the banner itself).
+
+**Not guarded here, and why:** "Add space"/"Create spaces from listing" call
+`RentalInspectionRecordingController::storeItem()`/`seedFromAdvertising()` — a property-scoped endpoint
+SHARED with Inspections, with no concept of "this rental inventory" at all (it isn't even passed one).
+Adding an inventory-status check there would incorrectly block Inspections' own, entirely unrelated
+room-creation flow. Closed on the UI side instead (below) — the control simply never renders once the
+inventory isn't a draft, which fully closes the practical gap without touching a controller three other
+features share.
+
+**UI side** — `RentalInventoryCaptureController::show()` now passes `isDraft` (`$inventory->isDraft()`)
+to the view. `capture.blade.php`:
+
+- The status banner (previously an `in_array($inventory->status, ['completed','cancelled'])` block-list,
+  now `@if(!$isDraft)` for the same allow-list reasoning as the server guard) shows the exact copy Johan
+  asked for: "Completed — signed record, read-only." / "Cancelled — closed, read-only." — plus the
+  existing "Open the full record" link.
+- Every edit control (Add space, Copy-from-last, every room panel — lines, condition chips, marks, photo
+  upload/tag/retire — and the tag-to-photo modal) now sits inside one `@if($isDraft)` block and simply
+  does not render when locked — no hidden-but-reachable control, no button left disabled with nothing
+  explaining why. Viewing a locked inventory's actual content (lines, photos, signatures) happens on the
+  full record page (the banner's own link, already the dedicated read view) rather than building a second
+  read-only rendering of this same markup.
+- The room-pill quick-navigation strip is gated the same way (`$inventory && $isDraft`) — without the
+  room panels rendered, a pill that scrolls to a `#room-panel-N` that no longer exists in the DOM would be
+  a dead click.
+
+**Proven, not assumed** — a throwaway property/lease/inventory on agency 1 as user 365 (never property
+5294): a draft inventory's room lines/photos/marks/signatures all still work exactly as before (existing
+15/15 `RentalInventoryCompletionGateTest` + capture-flow tests green, no regressions — draft is the only
+status those tests ever exercise via HTTP). Then, on the SAME inventory marked completed via the real
+`/complete` endpoint: every one of the guarded write endpoints (`storeLine`, `updateLine`, `retireLine`,
+`markRoomEmpty`, `unmarkRoomEmpty`, `copyFromLastInventory`, `storePhotos`, `attachLinePhoto`,
+`detachLinePhoto`, `storeSignature`, `complete` again) returns 409 with a plain message; the capture page
+for that same inventory shows the "Completed — signed record, read-only" banner and renders zero edit
+controls (asserted by their absence in the compiled HTML, not merely re-conditioned). Fixture soft-
+deleted/retired afterward, same convention as §20.1. New permanent regression coverage:
+`tests/Feature/RentalInventory/RentalInventoryLockedAfterCompletionTest.php` (18 tests — every guarded
+endpoint on both statuses, `resendReport()`'s opposite-direction guard confirmed unaffected, the capture
+page's rendered/not-rendered edit surface for draft vs. completed).
+
+**Found along the way, not a bug:** `RentalInventory::currentFor()`/`currentForProperty()` (the resolvers
+`RentalInventoryCaptureController::show()` calls) deliberately exclude cancelled records from being
+"current" — pre-existing, intentional (a cancelled inventory shouldn't block starting over). This means
+the capture screen can never actually land on a cancelled inventory's own banner: the very next visit
+transparently starts a fresh draft instead. capture.blade.php's cancelled-status banner text is kept
+anyway (correct if that resolution behaviour ever changes), but the cancelled lock's real, reachable
+enforcement is the server-side 409 guard plus `RentalInventoryController::show()`'s own pre-existing
+`@if(!in_array($inventory->status, ['completed','cancelled']))` guards on the full record page. Locked in
+by `test_visiting_the_capture_page_after_cancellation_starts_a_fresh_draft_not_the_cancelled_one`.
+
+### 20.3 Also fixed: a false-positive sandbox gap in `verify-alpine-render.mjs`
+
+Found while first diagnosing §20.1: the render gate's `fakeEl()` stub was missing `getAttribute`, so the
+completely standard, correct `document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')`
+(capture.blade.php's own CSRF read) surfaced as a false "CONSTRUCTION ERROR" — the exact same
+false-failure shape the file's own comments already document twice (`dataset`, `getContext`, both
+2026-09-12). Added `getAttribute: () => null` (a real element's honest behaviour for a missing
+attribute) to the same `fakeEl()` object. Not the actual §20.1 bug (that one only ever showed up under a
+real browser — see `scripts/rental-click-through.mjs`'s own header for why a static sandbox can't catch
+an `undefined`-bound boolean attribute either), but a real gap in the gate itself, worth closing so the
+next legitimate `?.getAttribute(...)` call doesn't hit the same false crash.

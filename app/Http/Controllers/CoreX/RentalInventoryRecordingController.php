@@ -31,6 +31,8 @@ class RentalInventoryRecordingController extends Controller
      */
     public function storeLine(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
+        $rentalInventory->assertEditable();
+
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
             'room_label' => ['nullable', 'required_without:property_room_id', 'string', 'max:100'],
@@ -62,6 +64,7 @@ class RentalInventoryRecordingController extends Controller
     public function updateLine(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
     {
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        $rentalInventory->assertEditable();
 
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
@@ -84,6 +87,7 @@ class RentalInventoryRecordingController extends Controller
     public function retireLine(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
     {
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        $rentalInventory->assertEditable();
 
         $line->retire();
 
@@ -99,6 +103,7 @@ class RentalInventoryRecordingController extends Controller
     public function storeLineDisposition(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
     {
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        $rentalInventory->assertEditable();
 
         $validated = $request->validate([
             'disposition_key' => ['required', 'string', 'max:60'],
@@ -133,6 +138,7 @@ class RentalInventoryRecordingController extends Controller
     public function markRoomEmpty(Request $request, RentalInventory $rentalInventory, PropertyRoom $room): JsonResponse
     {
         abort_if((int) $room->property_id !== (int) $rentalInventory->property_id, 404);
+        $rentalInventory->assertEditable();
 
         $mark = RentalInventoryRoomMark::updateOrCreate(
             [
@@ -164,6 +170,7 @@ class RentalInventoryRecordingController extends Controller
     public function unmarkRoomEmpty(Request $request, RentalInventory $rentalInventory, PropertyRoom $room): JsonResponse
     {
         abort_if((int) $room->property_id !== (int) $rentalInventory->property_id, 404);
+        $rentalInventory->assertEditable();
 
         RentalInventoryRoomMark::where('rental_inventory_id', $rentalInventory->id)
             ->where('property_room_id', $room->id)
@@ -184,6 +191,8 @@ class RentalInventoryRecordingController extends Controller
      */
     public function copyFromLastInventory(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
+        $rentalInventory->assertEditable();
+
         $prior = $rentalInventory->priorInventory();
         if (! $prior) {
             return response()->json(['message' => 'This property has no earlier inventory to copy from.'], 404);
@@ -211,6 +220,7 @@ class RentalInventoryRecordingController extends Controller
     public function storeLineMoveOutPhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
     {
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        $rentalInventory->assertEditable();
 
         $validated = $request->validate([
             'photos' => ['required', 'array', 'min:1', 'max:10'],
@@ -266,6 +276,8 @@ class RentalInventoryRecordingController extends Controller
      */
     public function storeSignature(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
+        $rentalInventory->assertEditable();
+
         $validated = $request->validate([
             'party_role' => ['required', 'string', 'in:' . implode(',', [
                 RentalInventorySignature::PARTY_TENANT,
@@ -325,6 +337,7 @@ class RentalInventoryRecordingController extends Controller
         \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
     ): JsonResponse {
         try {
+            $rentalInventory->assertEditable();
             $rentalInventory->markCompleted();
         } catch (\App\Exceptions\RentalInventoryUnvisitedRoomsException $e) {
             // Johan, 2026-09-28 — the structured room list, so the show

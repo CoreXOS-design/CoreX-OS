@@ -72,6 +72,28 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         });
     }
 
+    /**
+     * A completed inventory is a signed record; a cancelled one is closed.
+     * Neither may be edited — draft is the ONLY status new content (lines,
+     * photos, marks, dispositions, signatures) may be written against.
+     * `awaiting_signature` is a declared-but-never-actually-set status on
+     * this model (RentalInventory never transitions into it — only
+     * RentalInspection does), kept only so a future signing-in-progress
+     * stage doesn't silently fall through this check as editable.
+     */
+    public function isDraft(): bool
+    {
+        return $this->status === self::STATUS_DRAFT;
+    }
+
+    /** @throws \App\Exceptions\RentalInventoryNotEditableException */
+    public function assertEditable(): void
+    {
+        if (! $this->isDraft()) {
+            throw new \App\Exceptions\RentalInventoryNotEditableException($this);
+        }
+    }
+
     public function property(): BelongsTo
     {
         return $this->belongsTo(Property::class);

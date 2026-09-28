@@ -118,6 +118,13 @@ class RentalInventoryCaptureController extends Controller
             'allDriveDocs' => $allDriveDocs,
             'coreMatches' => $coreMatches,
             'inventory' => $inventory,
+            // A completed inventory is a signed legal record and a
+            // cancelled one is closed — neither may be edited from this
+            // screen. Drives whether the capture markup (Add space, room
+            // lines, marks, photo controls) renders at all; see
+            // RentalInventory::isDraft()/assertEditable() for the matching
+            // server-side 409 guard on every write endpoint.
+            'isDraft' => $inventory ? $inventory->isDraft() : false,
             'rooms' => $rooms,
             'roomsForJs' => $roomsForJs,
             'linesForJs' => $linesForJs,
@@ -176,6 +183,8 @@ class RentalInventoryCaptureController extends Controller
      */
     public function storePhotos(Request $request, RentalInventory $rentalInventory): JsonResponse
     {
+        $rentalInventory->assertEditable();
+
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
             'rental_inventory_line_id' => ['nullable', 'integer', 'exists:rental_inventory_lines,id'],
@@ -246,6 +255,7 @@ class RentalInventoryCaptureController extends Controller
     public function archivePhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryPhoto $photo): JsonResponse
     {
         abort_if((int) $photo->rental_inventory_id !== (int) $rentalInventory->id, 404);
+        $rentalInventory->assertEditable();
 
         $photo->archive($request->user());
 
@@ -257,6 +267,7 @@ class RentalInventoryCaptureController extends Controller
     {
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
         abort_unless((int) $photo->rental_inventory_id === (int) $rentalInventory->id, 404);
+        $rentalInventory->assertEditable();
 
         $line->photos()->syncWithoutDetaching([$photo->id => ['agency_id' => $line->agency_id]]);
 
@@ -267,6 +278,7 @@ class RentalInventoryCaptureController extends Controller
     public function detachLinePhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line, RentalInventoryPhoto $photo): JsonResponse
     {
         abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        $rentalInventory->assertEditable();
 
         $line->photos()->detach($photo->id);
 
