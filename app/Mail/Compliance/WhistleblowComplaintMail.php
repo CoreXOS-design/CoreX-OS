@@ -2,20 +2,16 @@
 
 namespace App\Mail\Compliance;
 
+use App\Mail\Signatures\BaseSignatureMail;
 use App\Models\Agency;
 use App\Models\Compliance\WhistleblowComplaint;
-use Illuminate\Bus\Queueable;
-use Illuminate\Mail\Mailable;
-use Illuminate\Mail\Mailables\Address;
+use App\Models\User;
 use Illuminate\Mail\Mailables\Attachment;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
-use Illuminate\Queue\SerializesModels;
 
-class WhistleblowComplaintMail extends Mailable
+class WhistleblowComplaintMail extends BaseSignatureMail
 {
-    use Queueable, SerializesModels;
-
     public WhistleblowComplaint $complaint;
     public Agency $agency;
     public bool $isDemoMode;
@@ -27,12 +23,23 @@ class WhistleblowComplaintMail extends Mailable
         'tier_3' => 'Tier 3 — Unregistered Practitioner',
     ];
 
-    public function __construct(WhistleblowComplaint $complaint)
+    /**
+     * 2026-09-28 — $approver (the agent who approved this complaint, i.e.
+     * $complaint->approvedBy) is who this submission goes out AS: fromAgent()
+     * drives the From/Reply-To and lets ComplianceMailDispatcher route the
+     * send through their own communication mailbox so it lands in their Sent
+     * Items, same as every other CoreX outbound.
+     */
+    public function __construct(WhistleblowComplaint $complaint, ?User $approver = null)
     {
         $this->complaint  = $complaint;
         $this->agency     = Agency::withoutGlobalScopes()->find($complaint->agency_id);
         $this->isDemoMode = !config('compliance.whistleblow.ppra_live_send', false);
         $this->tierLabel  = self::$tierLabels[$complaint->tier] ?? $complaint->tier;
+
+        if ($approver) {
+            $this->fromAgent($approver);
+        }
     }
 
     public function envelope(): Envelope
@@ -70,19 +77,11 @@ class WhistleblowComplaintMail extends Mailable
             $cc[] = $complaint->approvedBy->email;
         }
 
-        $fromAddress = $agency->whistleblow_compliance_officer_email ?? config('mail.from.address');
-        $fromName = $agencyShort;
-
-        $replyTo = [];
-        if ($complaint->approvedBy) {
-            $replyTo[] = new Address($complaint->approvedBy->email, $complaint->approvedBy->name);
-        }
-
         return new Envelope(
-            from: new Address($fromAddress, $fromName),
+            from: $this->getFromAddress(),
             to: $toList,
             cc: $cc,
-            replyTo: $replyTo,
+            replyTo: $this->getReplyTo(),
             subject: $subject,
         );
     }
