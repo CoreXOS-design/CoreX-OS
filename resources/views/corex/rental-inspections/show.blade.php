@@ -364,6 +364,11 @@
             the inspection ended (Johan: "none of these should feel like
             [an error state] in the UI").
         --}}
+        {{-- §17.5's own original design deliberately keeps a superseded row
+             visible here (with its own "Superseded" note below, pointing at
+             the replacement) rather than hiding it — unlike the report PDF/
+             public page/inventory show page, which show the live row only.
+             Kept as-is; not changed by this pass. --}}
         @foreach($inspection->signatures as $signature)
             @php
                 $partyLabel = match($signature->party_role) {
@@ -398,7 +403,12 @@
                         the refused block above, cold, eighteen months from now.
                     --}}
                     <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
-                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Signed on paper (wet-ink)</span>
+                        {{-- Conductor brief 2026-09-29 — wording standardised
+                             to "Signed on paper — scan on file" everywhere
+                             this disposition renders (report PDF, public
+                             page, live recording screen); this page
+                             previously read "Signed on paper (wet-ink)". --}}
+                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Signed on paper — scan on file</span>
                         @if($signature->superseded_at)
                             <div class="text-xs mt-0.5" style="color: var(--ds-amber, #d97706);">
                                 Superseded — replaced by a corrected upload{{ $signature->supersededBy ? ' below' : '' }}.
@@ -413,6 +423,17 @@
                                 Uploaded by {{ $signature->recordedByUser->name }} on {{ $signature->disposition_recorded_at?->format('Y-m-d H:i') }} — attested by the agent's own signature below.
                             </div>
                         @endif
+                    </div>
+                @elseif($signature->disposition === 'awaiting_wet_ink')
+                    {{-- Conductor brief 2026-09-29 — this page had no branch
+                         for this new disposition at all before this pass; it
+                         fell through to the @else block below and rendered
+                         an awaiting party as "Refused to sign" with a bogus
+                         reason label (refusal_reason_preset is null for this
+                         disposition — a real gap this fix closes). --}}
+                    <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
+                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Awaiting paper signature</span>
+                        <div class="text-xs mt-0.5" style="color: var(--text-secondary);">Sent {{ $signature->disposition_recorded_at?->format('Y-m-d H:i') }} — upload the scan once it comes back.</div>
                     </div>
                 @else
                     <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
