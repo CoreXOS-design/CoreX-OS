@@ -5597,3 +5597,88 @@ top-aligned line per §31):
 property 5792, user 365: divider position relative to the pill strip's right edge and Photos:shown's left
 edge, plus confirmation every control is still `2.75rem` tall with centres aligned, recorded in this
 fix's own landing commit.
+
+## 32. Compare-row duplicate rendering + nav-bar not staying on screen (2026-09-28, Johan, property 5294)
+
+Two bugs Johan found on property 5294's Inspection panel, on a chain's first inspection ("in", no
+predecessor). Both fixed in `rental-inspection-recording.blade.php` only.
+
+### 32.1 Every item appeared to render twice — the predecessor cell must not appear with nothing to compare
+
+**Root cause, part one (why the layout looked stacked, not side-by-side).** `.rir-compare-row` (the
+shared room/item comparison grid, §26/`rir-compare-row`/`rir-compare-cell`) declared its
+`display:grid; grid-template-columns:1fr 1fr` **inline**, on the same element as
+`x-show="itemMatchesFilter(...)"`. Alpine's `x-show` toggles visibility via
+`el.style.setProperty('display','none')` on hide and `el.style.removeProperty('display')` on show —
+the show path does not restore whatever custom `display` value was inline before, it deletes the
+`display` entry outright, and per Alpine's own `once()`-gated toggle this fires even on the very FIRST
+evaluation when a row starts visible (the normal case, since the default filter matches everything). A
+bare `<div>` then falls back to the UA default `display:block`, and the two `.rir-compare-cell` children
+stack instead of sitting side by side. **Fix:** the grid declaration moved into a real CSS class
+(`.rir-compare-row` in this file's own `<style>` block) — a class-based rule is never touched by
+`x-show`, which only ever mutates the element's own INLINE `style.display`. Verified live (Puppeteer,
+real QA1 data, property 5792 — a chain WITH a predecessor): rows render `display:grid`, two
+non-overlapping 496px-wide cells side by side, and stay that way through a filter toggle
+(Needs-attention → All), the exact hide/show cycle that broke it before.
+
+**Root cause, part two (why the SAME item appeared twice).** The row unconditionally rendered a
+predecessor cell (item label + a greyed, disabled copy of the condition buttons, via
+`rental-inspection-item-cell.blade.php`'s `readOnly=true` branch) even when `$predecessorJs`
+(`chainPredecessor`) is null — a deliberate 2026-09-23 design (property 5792, this file's own docblock):
+"a null predecessor renders every item's cell as its own empty state, row by row." Correct when a
+predecessor inspection EXISTS but hasn't recorded a given item; wrong for the chain's first inspection,
+where there is no predecessor at all — the header directly above the grid already special-cased this
+(`!$predecessorJs` → "First inspection in this chain — nothing yet to compare against"), the item rows
+never did. **Fix:** the predecessor cell is now wrapped in `<template x-if="{{ $predecessorJs }}">`, the
+same gate the header already uses. No predecessor at all → only the tail cell renders, full width
+(`.rir-compare-row-solo`, `display:block`, one column). Predecessor exists but this item has nothing
+recorded on it → unchanged, still an empty grey cell (still a meaningful signal — the existing spec's
+own reasoning at line ~44 of this file's own docblock stands for that case).
+
+**Verified**: `php -l` clean, Blade compile-string clean. Real authenticated headless Chrome, real QA1
+data: property 5792 (predecessor exists, 6-inspection chain) — two-cell grid, both cells populated,
+496px each, confirmed with a filter-toggle regression pass; property 5577 (chain's first inspection, no
+predecessor) — one-cell, full-width (1008px), `.rir-compare-row-solo` applied, confirmed across all 81
+items and after the same filter-toggle pass. Neither is property 5294; verification ran as user 365
+(`qa1-browser-verify@corexos.local`), never user 22.
+
+### 32.2 Room nav bar (room pills + Photos:shown + All/Needs attention/Not yet recorded) not staying on screen
+
+Johan: clicking a room lower down (e.g. Garden) left the user scrolled past the nav bar, with no way to
+pick the next room without scrolling all the way back up.
+
+**Why plain `position:sticky` — the pattern already proven elsewhere on this same page
+(`_property-shell-tabs.blade.php`'s own tab bar, `show.blade.php:3868`'s gallery tag bar) — does NOT
+work here.** Checked live, real QA1 data (property 5792): this nav bar lives inside the "Inspection"
+collapsible card (`show.blade.php:4903`, class `.prop-section`), and `.prop-section` itself has
+`overflow:hidden` (`corex.css:608`) — there purely to clip the card's own rounded corners, shared by
+every collapsible section on the properties page (Identity/Pricing/Mandate/Items/Inspection alike), so
+not this feature's to change. An `overflow:hidden` ancestor sitting between a `position:sticky` element
+and its real scrolling ancestor (`.prop-tab-panel`) becomes the sticky element's containing block
+instead — and since `.prop-section` itself never scrolls, a sticky descendant of it just scrolls away
+with the card. Measured directly: scrolling `.prop-tab-panel` moved a plain-sticky nav bar by the exact
+same distance as the scroll (fully unpinned), while the actual (shell) tab bar — which has no such
+ancestor — stayed correctly fixed throughout.
+
+**Fix:** a small, self-contained `x-init` scroll listener on the nav bar itself (vanilla JS, not a new
+method on `show.blade.php`'s `rentalImages()` factory — this is a presentation-only concern of one bar,
+kept local to this partial). It watches `.prop-tab-panel`'s scroll position and switches the bar to
+`position:fixed` (confirmed no ancestor sets `transform`/`filter`/`contain`, so `fixed` escapes the
+`overflow:hidden` clipping that defeats `sticky`) once its natural position would scroll above the
+shared tab bar's own bottom edge, computing `top`/`left`/`width` from `.prop-tab-panel`'s live
+`getBoundingClientRect()` so it reads as pinned directly under the tab bar, same width as the tab
+content — and back to normal flow once scrolled back above the pin point. A same-height placeholder
+(inserted once, at init) keeps the layout from jumping while pinned.
+
+Each room heading (`rental-inspection-recording.blade.php`'s `insp-room-{ro|rw}-*` anchors, the same
+elements `scrollToInspectionRoom()`'s `scrollIntoView({block:'start'})` targets) got a
+`.rir-room-anchor { scroll-margin-top: 115px }` (tab-bar height 55px + nav-bar height 52px + a few px
+breathing room, both measured live, never guessed from a spec sheet) so a clicked room's heading now
+stops just under the pinned bars instead of landing hidden behind them.
+
+**Verified**: real headless Chrome, real QA1 data, property 5792 and property 5577 (never 5294), user
+365 only. Nav bar measured pinned (`top` tracking the tab bar's own bottom edge exactly, zero overlap)
+at `scrollTop` 0, 1500, and scrolled to the very bottom of a 5600px/16600px-tall panel on the two test
+properties respectively. Deep-scroll room-click test: starting at `scrollTop 14907`, clicking a room
+chip near the top of the list moved the panel to `scrollTop 2536` (a real ~12,371px scroll), and the nav
+bar was still correctly pinned with zero overlap immediately after.

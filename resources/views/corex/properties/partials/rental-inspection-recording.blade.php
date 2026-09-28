@@ -211,6 +211,46 @@
        and non-interactive rather than removed, so the agent always sees
        every real room and never wonders where one went. */
     .rir-space-tab-empty { opacity: 0.35; cursor: not-allowed; }
+    /* §32, 2026-09-28 (Johan, property 5294) — this grid MUST live in a real
+       CSS class, never inline on an x-show'd element. Alpine's x-show
+       toggles visibility by calling el.style.removeProperty('display') on
+       show() (packages/alpinejs/src/directives/x-show.js) — that call does
+       not restore whatever custom display value was previously inline, it
+       just deletes the "display" entry outright, and per Alpine's own
+       once()-gated toggle() this fires even on the very FIRST evaluation
+       when the row starts visible (the normal case). An inline
+       `style="display:grid; ..."` on the same element as `x-show` is
+       therefore wiped the moment Alpine's show() runs, and a bare <div>
+       falls back to the UA default `display:block` — the two
+       .rir-compare-cell children then stack instead of sitting side by
+       side. A class-based rule is never touched by x-show (that directive
+       only ever mutates the element's own INLINE style.display), so this
+       is the fix, not a style preference. */
+    .rir-compare-row { display:grid; grid-template-columns:1fr 1fr; gap:1rem; border-bottom:1px solid var(--border); }
+    /* §32, 2026-09-28 — chain's first inspection, no predecessor: the row
+       renders only the tail cell (x-if gate above), so the grid collapses
+       to a single full-width column instead of an empty second track.
+       Two-class selector so this always wins over .rir-compare-row above
+       regardless of declaration order. */
+    .rir-compare-row.rir-compare-row-solo { display:block; }
+    /* §32, 2026-09-28 (Johan, property 5294) — "that bar must stay on
+       screen while scrolling the inspection." Positioning itself (fixed
+       top/left/width while pinned) is computed and applied inline by the
+       x-init scroll-listener on this element (own docblock at this file's
+       "rir-insp-nav-sticky" div — plain `position:sticky` cannot work here,
+       see that docblock for the measured, verified reason). This class
+       only sets what never changes between pinned/unpinned. z-index sits
+       above ordinary tab content but below every modal/overlay on this
+       page (compare viewer, tag panels, etc. all use z-[9999]/z-20+ — see
+       show.blade.php). */
+    .rir-insp-nav-sticky { z-index:15; }
+    /* §32, 2026-09-28 — offsets scrollToInspectionRoom()'s
+       scrollIntoView({block:'start'}) (show.blade.php) so a clicked room's
+       heading stops just under the pinned tab bar + .rir-insp-nav-sticky
+       pill bar, not hidden behind them. = tab-bar height (55px, measured
+       live) + pill-bar height (52px, measured live) + a few px breathing
+       room, never guessed from Tailwind's spec sheet. */
+    .rir-room-anchor { scroll-margin-top: 115px; }
 </style>
 {{-- $sectionJs override — see this file's own top docblock. --}}
 @php($sectionJs = $sectionJs ?? "'{$section}'")
@@ -585,8 +625,81 @@
              with items-start, all three start at the row's own top edge,
              so their centres coincide automatically; the pill strip's
              scrollbar simply extends below that shared line, in its own
-             space, never pulling anything else out of alignment. --}}
-        <div class="flex items-start gap-2 flex-wrap lg:flex-nowrap" x-show="activeItems().length">
+             space, never pulling anything else out of alignment.
+
+             §32, 2026-09-28 (Johan, property 5294) — "that bar must stay
+             on screen while scrolling the inspection." Plain CSS
+             `position:sticky` (the property-shell tab bar's own pattern,
+             `_property-shell-tabs.blade.php:50`, and the gallery tag bar's,
+             `show.blade.php:3868`) does NOT work here — checked live,
+             real headless Chrome, real QA1 data (property 5792): this bar
+             lives inside the "Inspection" collapsible card
+             (`show.blade.php:4903`, `.prop-section`), and `.prop-section`
+             itself has `overflow:hidden` (corex.css:608, there purely to
+             clip the card's own rounded corners — shared by every
+             collapsible section on this page, Identity/Pricing/Mandate/
+             Items/Inspection alike, so it is NOT this feature's to change).
+             An `overflow:hidden` ancestor between a sticky element and its
+             real scrolling ancestor (`.prop-tab-panel`) becomes the
+             sticky's new containing block instead — and since `.prop-
+             section` itself never scrolls, `position:sticky` on a
+             descendant of it just scrolls away with the card. Confirmed by
+             direct measurement: scrolling `.prop-tab-panel` by 3201px moved
+             this bar by the same 3201px (fully unpinned) while the actual
+             tab bar — which sits OUTSIDE any `.prop-section`, so has no
+             such ancestor — stayed correctly fixed at the same viewport
+             position throughout.
+
+             x-init below is the fix: a small, self-contained scroll
+             listener on `.prop-tab-panel` that switches this bar to
+             `position:fixed` (which — confirmed, no ancestor sets
+             `transform`/`filter`/`contain` — escapes `overflow:hidden`
+             clipping entirely, unlike `sticky`) once its natural position
+             would scroll above the shared tab bar, computing `top`/`left`/
+             `width` from the panel's own live rect so it still reads as
+             "pinned under the tab bar, same width as the tab content" —
+             and back to normal flow once scrolled above the pin point. A
+             same-height placeholder keeps the layout from jumping while
+             pinned. Deliberately vanilla JS, not a new method on
+             show.blade.php's `rentalImages()` factory: this behaviour is
+             purely a presentation/scroll concern of this one bar, self-
+             contained to this partial, never touching the shared
+             component's data/method surface. --}}
+        <div class="flex items-start gap-2 flex-wrap lg:flex-nowrap rir-insp-nav-sticky" x-show="activeItems().length"
+             x-init="
+                (() => {
+                    const bar = $el;
+                    const panel = bar.closest('.prop-tab-panel');
+                    const tabBar = document.querySelector('.sticky.top-0');
+                    if (!panel || !tabBar) return;
+                    const placeholder = document.createElement('div');
+                    placeholder.style.display = 'none';
+                    bar.parentNode.insertBefore(placeholder, bar);
+                    const update = () => {
+                        const pinTop = tabBar.getBoundingClientRect().bottom;
+                        const naturalTop = (bar.style.position === 'fixed' ? placeholder : bar).getBoundingClientRect().top;
+                        if (naturalTop <= pinTop) {
+                            if (bar.style.position !== 'fixed') {
+                                placeholder.style.display = 'block';
+                                placeholder.style.height = bar.offsetHeight + 'px';
+                                bar.style.position = 'fixed';
+                                bar.style.zIndex = '15';
+                                bar.style.background = 'var(--surface)';
+                            }
+                            const panelRect = panel.getBoundingClientRect();
+                            bar.style.top = pinTop + 'px';
+                            bar.style.left = panelRect.left + 'px';
+                            bar.style.width = panelRect.width + 'px';
+                        } else if (bar.style.position === 'fixed') {
+                            bar.style.position = bar.style.top = bar.style.left = bar.style.width = '';
+                            placeholder.style.display = 'none';
+                        }
+                    };
+                    panel.addEventListener('scroll', update, { passive: true });
+                    window.addEventListener('resize', update);
+                    update();
+                })()
+             ">
             {{-- position:relative, 2026-09-27 — the fade overlay below
                  anchors to THIS wrapper's own right edge, not the row's. --}}
             <div class="flex-1 min-w-0 overflow-x-auto" style="position:relative;">
@@ -682,7 +795,15 @@
              underneath the room's own gallery already means "N room
              photos" by its position, unchanged. --}}
         <template x-for="group in roomGroups()" :key="group.room ? 'room-' + group.room.id : 'general'">
-            <div class="space-y-1 pt-2"
+            {{-- §32, 2026-09-28 — scrollToInspectionRoom() (show.blade.php)
+                 scrolls this element to scrollIntoView({block:'start'}).
+                 Now that the tab bar + .rir-insp-nav-sticky pill bar are
+                 both pinned on top of the scroll container, "start" would
+                 land this heading directly underneath them, hidden behind
+                 the pinned bars, unless the browser knows to stop short —
+                 .rir-room-anchor's scroll-margin-top (own docblock in this
+                 file's <style> block) is exactly that "stop short" amount. --}}
+            <div class="space-y-1 pt-2 rir-room-anchor"
                  :id="'insp-room-{{ $roomIdPrefix }}-' + (group.room ? group.room.id : 'general')"
                  x-show="roomMatchesFilter({{ $sectionJs }}, group)">
                 <div class="flex items-center justify-between gap-2 rounded-md px-1 -mx-1"
@@ -900,18 +1021,33 @@
                          null-safe reads (conditionForInspection() /
                          itemPhotosForInspection()) render that cell's own
                          empty state in the same footprint — the row never
-                         collapses or shifts. --}}
+                         collapses or shifts.
+
+                         §32, 2026-09-28 (Johan, property 5294) — that
+                         "nothing recorded" empty-state reasoning above only
+                         holds when a predecessor inspection EXISTS but
+                         hasn't recorded this particular item; it never
+                         applied to the chain's first inspection, where
+                         there is no predecessor at all. That case now skips
+                         the predecessor cell entirely (x-if below, same
+                         gate as this row's own header just above,
+                         §27/`$predecessorJs`) rather than rendering an
+                         empty grey copy of every item — the row falls back
+                         to a single, full-width column
+                         (.rir-compare-row-solo) for the one working cell. --}}
                     <template x-for="item in group.items" :key="item.id">
                         {{-- §27.3 — the filter reads the TAIL side's
                              condition and hides/shows the WHOLE row (both
                              cells) together, never splitting a row so only
                              one cell reacts. --}}
-                        <div class="rir-compare-row py-2" style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; border-bottom:1px solid var(--border);"
+                        <div class="rir-compare-row py-2" :class="{{ $predecessorJs }} ? '' : 'rir-compare-row-solo'"
                              x-show="itemMatchesFilter({{ $sectionJs }}, item)">
+                            <template x-if="{{ $predecessorJs }}">
                             <div class="rir-compare-cell pl-3 space-y-1.5">
                                 <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
                                 @include('corex.properties.partials.rental-inspection-item-cell', ['inspectionJs' => $predecessorJs, 'readOnly' => true])
                             </div>
+                            </template>
                             <div class="rir-compare-cell pl-3 space-y-1.5">
                                 <span class="text-sm" style="color:var(--text-primary);" x-text="item.label"></span>
                                 @include('corex.properties.partials.rental-inspection-item-cell', ['inspectionJs' => $sectionJs, 'readOnly' => $tailReadOnly])
