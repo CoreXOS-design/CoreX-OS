@@ -6,6 +6,7 @@ use App\Models\Agency;
 use App\Models\Compliance\AgencyTransformationNote;
 use App\Models\Compliance\PpraInspectionPack;
 use App\Models\Deal;
+use App\Models\Lease;
 use App\Models\User;
 use App\Services\Compliance\Concerns\GeneratesPdfViaPuppeteer;
 
@@ -28,6 +29,7 @@ class PpraInspectionReportPdfService
         private PpraInspectionPackChecklistService $checklist = new PpraInspectionPackChecklistService(),
         private PractitionerFfcRosterService $practitionerRoster = new PractitionerFfcRosterService(),
         private PpraSalesFileAggregationService $salesFileAggregation = new PpraSalesFileAggregationService(),
+        private PpraRentalFileAggregationService $rentalFileAggregation = new PpraRentalFileAggregationService(),
     ) {
     }
 
@@ -42,6 +44,7 @@ class PpraInspectionReportPdfService
         $principals = $this->practitionerRoster->principalsFor($agency->id);
         $transformation = AgencyTransformationNote::currentFor($agency->id);
         $kSample = $this->salesFileSample($agency);
+        $lSample = $this->rentalFileSample($agency);
 
         $reportReference = 'PPRA-' . $agency->id . '-' . now()->format('Ymd-Hi');
 
@@ -53,6 +56,7 @@ class PpraInspectionReportPdfService
             'principals'      => $principals,
             'transformation'  => $transformation,
             'kSample'         => $kSample,
+            'lSample'         => $lSample,
             'reportReference' => $reportReference,
             'generatedBy'     => $generatedBy,
             'generatedAt'     => now(),
@@ -102,6 +106,33 @@ class PpraInspectionReportPdfService
             ->map(fn ($id) => $deals->get($id))
             ->filter()
             ->map(fn (Deal $deal) => $this->salesFileAggregation->aggregate($deal))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Item l's per-file index (§6.2 item 5 / §6.8c) — one manifest per
+     * currently-sampled Lease. Empty array (not null) when nothing has
+     * been sampled yet, so the Report can print "No rental files sampled
+     * for this pack" (§9 edge case) rather than a missing section.
+     *
+     * @return array<int, object>
+     */
+    private function rentalFileSample(Agency $agency): array
+    {
+        $draft = PpraInspectionPack::currentDraftFor($agency);
+        $ids = $draft?->sample_rental_ids ?? [];
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        $leases = Lease::whereIn('id', $ids)->get()->keyBy('id');
+
+        return collect($ids)
+            ->map(fn ($id) => $leases->get($id))
+            ->filter()
+            ->map(fn (Lease $lease) => $this->rentalFileAggregation->aggregate($lease))
             ->values()
             ->all();
     }

@@ -9,10 +9,11 @@ use App\Models\Compliance\AgencyTransformationNote;
 use App\Models\Compliance\PpraInspectionGapNote;
 use App\Models\Compliance\PpraInspectionPack;
 use App\Models\Deal;
+use App\Models\Lease;
 use Illuminate\Support\Collection;
 
 /**
- * PPRA Inspection Pack — Phase A + B + C + D + E + G. .ai/specs/ppra-inspection-pack.md §5.
+ * PPRA Inspection Pack — Phase A + B + C + D + E + G + H. .ai/specs/ppra-inspection-pack.md §5.
  *
  * Computes the live a-m checklist for an agency. Wired so far:
  * a, b, d, e, h (agency-vault-backed, Phase A), c, f, g (practitioner
@@ -21,11 +22,12 @@ use Illuminate\Support\Collection;
  * Johan's 2026-09-28 ruling), i (transformation initiatives, Phase D — v3
  * structured-or-document, either satisfies the item), j (sales/rentals FY
  * list, Phase E — v3 "active and advertised" derivation), k (sales file
- * samples, Phase G — §6.8b, real `info` row reading the current draft
- * pack's sample_deal_ids). Items l/m are still returned with status
- * 'pending' ("not yet available" — Phases H/I) so the checklist page and
- * Inspection Report keep a stable 13-row shape without guessing at data
- * later phases will add.
+ * samples, Phase G — §6.8b), l (rental file samples, Phase H — §6.8c,
+ * reads sample_rental_ids as Lease ids, not the old Rental model — see
+ * PpraSamplePickerService's own docblock). Item m is still returned with
+ * status 'pending' ("not yet available" — Phase I) so the checklist page
+ * and Inspection Report keep a stable 13-row shape without guessing at
+ * data a later phase will add.
  */
 class PpraInspectionPackChecklistService
 {
@@ -48,7 +50,6 @@ class PpraInspectionPackChecklistService
     ];
 
     private const PENDING_ITEMS = [
-        'l' => 'Rental Files Sampled',
         'm' => 'Mandates + MDFs, Active Listings',
     ];
 
@@ -89,6 +90,7 @@ class PpraInspectionPackChecklistService
         $rows->push($this->transformationRow($agency));
         $rows->push($this->salesRentalsRow($agency));
         $rows->push($this->salesFileSampleRow($agency));
+        $rows->push($this->rentalFileSampleRow($agency));
 
         foreach (self::PENDING_ITEMS as $key => $label) {
             $rows->push((object) [
@@ -310,6 +312,45 @@ class PpraInspectionPackChecklistService
             'item'        => $item,
             'label'       => 'Sales Files Sampled',
             'requirement' => 'A sample of ' . $sampleSize . ' sale deals (agency setting) with every document, communication and pipeline record CoreX holds for each.',
+            'status'      => 'info',
+            'why'         => $why,
+            'evidence'    => $evidence,
+            'gap_note'    => null,
+            'document'    => null,
+            'upload_configs' => collect(),
+        ];
+    }
+
+    /**
+     * Item l — rental file samples (Phase H, §6.8c/§5). `info` row, never
+     * pass/fail — reads the agency's current DRAFT pack read-only, same
+     * pattern as item k. sample_rental_ids holds Lease ids (Phase H
+     * changed this from the old Rental model — see
+     * PpraSamplePickerService's own docblock for why).
+     */
+    private function rentalFileSampleRow(Agency $agency): object
+    {
+        $item = 'l';
+        $draft = PpraInspectionPack::currentDraftFor($agency);
+        $sampleSize = $agency->ppra_pack_rental_sample_size ?: 5;
+        $ids = $draft?->sample_rental_ids ?? [];
+
+        if (empty($ids)) {
+            $why = "No rental files sampled yet — pick up to {$sampleSize} leases and pull the application, lease, inspections, MDF, FICA and communications for each.";
+            $evidence = null;
+        } else {
+            $count = count($ids);
+            $labels = Lease::whereIn('id', $ids)->with('property')->get()
+                ->map(fn (Lease $l) => $l->property->address ?? ('Lease #' . $l->id))
+                ->implode(', ');
+            $why = "{$count} lease(s) sampled: {$labels}.";
+            $evidence = $why;
+        }
+
+        return (object) [
+            'item'        => $item,
+            'label'       => 'Rental Files Sampled',
+            'requirement' => 'A sample of ' . $sampleSize . ' leases (agency setting) with the application, lease agreement, move-in/move-out inspections, inventory, MDF, FICA and communications for each.',
             'status'      => 'info',
             'why'         => $why,
             'evidence'    => $evidence,

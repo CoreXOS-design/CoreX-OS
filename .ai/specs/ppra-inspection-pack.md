@@ -1,6 +1,6 @@
 # PPRA Inspection Pack — Specification
 
-**Status:** Draft v3 — Phases A–G shipped; H onward re-planned around Johan's item-by-item rulings below
+**Status:** Draft v3 — Phases A–H shipped; I onward re-planned around Johan's item-by-item rulings below
 **Author:** Claude (senior engineering), from the read-only PPRA s25 investigation of 2026-09-28
 **Date:** 28 September 2026
 **Spec location:** `.ai/specs/ppra-inspection-pack.md`
@@ -394,16 +394,22 @@ Admin picks N closed/active sale deals (agency setting, default 5, §11) via §6
 
 ### 6.8c Item (l) — Rental file samples
 
-Same picker (§6.8a), N rentals (agency setting, default 5, §11), sourced from the lease/Rental tab + the property + its contacts:
-- Mandate (property-level).
-- Rental application.
-- Lease agreement.
-- Move-in and move-out inspection reports — if only one exists (e.g. an ongoing lease with no move-out yet), the pack includes what exists and the index page states which is missing and why, not a silent gap.
-- MDF (property-level).
-- FICA for both tenant and landlord.
-- Communications logged on the rental/lease record.
+**Deviation from the text below, ruled by Johan 2026-09-28 (Phase H build):** Phase F's picker "rental" mode originally searched `App\Models\Rental` (the `rentals` table) — a thin commission-tracking record (branch, free-text address, dates) with **no FK to property, contact, RentalApplication, or anything else** the items below need. 58 rows existed for HFC with zero connection to the 141 real `RentalApplication` records for the same agency. Building item l's aggregation against that model would have meant fuzzy-matching free-text addresses to find the right property/tenant/FICA/lease/inspection records — exactly the kind of guess this spec's own "no shortcuts" standard forbids for a regulator-facing pack. Ruling: **the picker's "rental" mode now anchors on `App\Models\Lease` instead** (`PpraSamplePickerService::rentals()`, `sample_rental_ids` now stores `Lease` ids). Only test packs existed at the time of this change (one pack, one stale id) — cleared via migration rather than migrated/translated, since a Rental id carries no meaningful mapping to a Lease id. The bullet list below is otherwise unchanged from the original spec — Lease is simply the correct anchor to reach it from.
 
-**Output**: same shape as (k) — one folder per rental (`l-rental-sample/{property-or-lease-reference}/`), plus a per-file index page in the Report's item (l) section.
+Same picker (§6.8a), N leases (agency setting, default 5, §11) — a concluded rental in the selected financial year is what an inspector actually samples. From each Lease:
+- Its `RentalApplication` (via `Lease.rental_application_id` — **not guaranteed present**: only 5/13 leases for HFC have one; a lease without one gets an explicit missing-reason, not a fuzzy-matched substitute).
+- The Property (`Lease.property_id`, direct FK) and its mandate.
+- Tenant Contact(s) (`Lease.tenants()` → `LeaseTenant.contact_id`) and the landlord (`Property::sellerOwnerContact()`).
+- FICA for each party — tenant(s) and landlord, same per-contact resolution as item k.
+- The lease agreement document (`document_types.slug = 'lease_agreement'`, filed on the RentalApplication's documents — confirmed real, actively-used slug).
+- Move-in and move-out inspection reports (`RentalInspection`, linked via `lease_id` directly) — if only one exists (e.g. an ongoing lease with no move-out yet), the pack includes what exists and the index page states which is missing and why, not a silent gap.
+- The inventory (`RentalInventory`, linked via `lease_id` directly).
+- MDF (property-level — same `mandate`+`disclosure` slug stand-in as item k; the real catalogue has no separate "MDF" slug).
+- Communications logged against the lease's property and tenant/landlord contacts — `CommunicationLink` never links a `RentalApplication` or `Lease` directly (confirmed: this codebase's `linkable_type` values are only Contact/Property/Document/DealV2 and its own sub-types), so this resolves via the lease's property and contacts instead.
+
+Picker search runs over lease address (via property) / tenant / landlord / agent name; date filter is on the lease start date; scoped to the agency at the same own/branch/agency visibility level the rest of the pack uses (admin-only — no finer own/branch tier below that, per §6.8e's own established precedent). Never fuzzy-matches on address — every field is a real FK relation.
+
+**Output**: same shape as (k) — one folder per sampled lease (`l-rental-sample/{property-address-or-lease-id}/`), plus a per-file index page in the Report's item (l) section.
 
 ### 6.8d Item (m) — Mandate/MDF samples
 
@@ -503,7 +509,7 @@ The new practitioner register (§6.6), the sample picker (§6.8a) and its k/l/m 
 - **`ppra_inspection_packs` migration (§4.5) moved from Phase J to Phase F.** Phase F's own deliverable requires the table to persist to; Phase J's remaining scope (job/route/notification/regeneration) is unchanged and builds on the table created here — Phase J's build-sequence entry below is updated to reflect this.
 - New agency settings: `ppra_pack_sales_sample_size`, `ppra_pack_rental_sample_size`, `ppra_pack_mandate_sample_size` (§4.6a) — `/corex/settings` → PPRA Inspection Pack section (same form/saver as the FY setting) and the Setup Wizard's Compliance step (non-negotiable §10a), all three, same as the FY setting's own precedent.
 - No standalone checklist row shipped — pure infrastructure consumed by Phases G/H/I, as specced. A **temporary, unlinked verification harness** was added at `/admin/ppra-inspection-pack/sample-picker/preview` (permission `ppra_inspection_pack.view`, direct-URL only, no sidebar/nav entry, no link from the checklist page) purely so this phase's deliverable is browser-testable ahead of G/H/I wiring the real k/l/m rows. Remove this route once Phase I lands (the real rows supersede it).
-- "Rental" mode is the `Rental` model (the lease record, `rentals` table) — agency-scoped via `whereHas('branch', ...)` since `Rental` carries `branch_id` not `agency_id` directly. "Listing" mode reuses `Property::onMarket()` (not the FY-bounded `PpraFinancialYearListService::advertisedListings()` — that reuse is item m's job in Phase I per §6.8d, not Phase F's).
+- "Rental" mode was originally the `Rental` model (the commission-tracking record, `rentals` table) — agency-scoped via `whereHas('branch', ...)` since `Rental` carries `branch_id` not `agency_id` directly. **Superseded in Phase H (2026-09-28, Johan's ruling) — see §6.8c's own deviation note**: `Rental` has no FK to property/contact/anything item l needs, so "rental" mode now anchors on `App\Models\Lease` instead. "Listing" mode reuses `Property::onMarket()` (not the FY-bounded `PpraFinancialYearListService::advertisedListings()` — that reuse is item m's job in Phase I per §6.8d, not Phase F's).
 
 **Phase G — shipped (`<PHASE_G_SHA>`) — item k: sales file samples**
 - `PpraSalesFileAggregationService::aggregate(Deal $deal): object` — deep per-deal aggregation (§6.8b): pipeline-step summary, every `Document` filed `source_type='deal'` against the deal (mandate/OTP/MDF-disclosure/commission-proforma/whatever is filed — the real catalogue has no separate "MDF" slug; `mandate`+`disclosure` stand in for "mandate/MDF"), property-level mandate/disclosure documents deduplicated against the deal's own, FICA for every contact on the deal (`FicaDocument` + `linkedDocuments()`), and the DR2 communications log via `CommunicationLink` — bridged from the sampled DR1 `Deal` through `DealV2.legacy_deal_id`, which is **not** a guaranteed 1:1 link (confirmed: 96/169 DR1 deals on this agency have no DR2 twin) — a deal predating DR2 gets an explicit "not available" note, never a silently empty section. Returns a manifest (source + label + destination path inside the future `k-sales-sample/{deal-reference}/` ZIP folder) plus an explicit `missing` list — Phase J's job consumes this manifest to actually write the ZIP; this phase does not write one.

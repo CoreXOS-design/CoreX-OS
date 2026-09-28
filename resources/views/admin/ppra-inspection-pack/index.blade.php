@@ -143,6 +143,10 @@
                             <button type="button" x-data x-on:click="$dispatch('open-modal', 'k-sample-picker')" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">
                                 Choose sample
                             </button>
+                        @elseif($row->item === 'l')
+                            <button type="button" x-data x-on:click="$dispatch('open-modal', 'l-sample-picker')" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">
+                                Choose sample
+                            </button>
                         @else
                             <span class="text-xs" style="color:var(--text-muted);">—</span>
                         @endif
@@ -156,4 +160,5 @@
 </div>
 
 <x-ppra-sample-picker mode="deal" name="k-sample-picker" title="Choose sales sample" />
+<x-ppra-sample-picker mode="rental" name="l-sample-picker" title="Choose rental sample" />
 @endsection
