@@ -5968,3 +5968,98 @@ via its actual `data:image/png;...` src matching what was configured) → "Confi
 `chainTail.status` became `'completed'`.
 
 `php -l` and a Blade compile-string check both clean on `show.blade.php`.
+
+## 35. Completed inspection — real photos never rendered, tiles unclickable (2026-09-28, Johan, property 5294, "photos disappear")
+
+Johan reported this repeatedly across the weekend, including on a brand-new inspection created
+specifically to rule out old test data — same result both times, confirmed via Chrome after §33
+(`a71dc40b2`) had already shipped and gone live on QA1. §33 fixed conditions/notes rendering for a
+completed inspection; this is a distinct bug in the same area, in the PHOTO strip specifically.
+
+### 35.1 What was actually wrong
+
+`show.blade.php`'s `stripTilesForInspection(insp, item)` — the accessor `rental-inspection-item-
+cell.blade.php`'s readOnly branch calls to build the photo strip — ignored its own `insp` argument and
+unconditionally read `row.predecessorPhoto` off every paired row:
+
+```js
+stripTilesForInspection(insp, item) {
+    return this.pairedStripRows(item).map(row => ({ index: row.index, photo: row.predecessorPhoto }));
+},
+```
+
+That was correct for the ONE caller this function originally had — the genuine predecessor cell, which
+always passes `chainPredecessor`. §33 gave the completed/awaiting_signature TAIL cell a second, valid
+reason to call this same function, passing `currentInspection(tailSection())` (i.e. `chainTail`) once an
+inspection is read-only — but the function itself was never updated to tell the two callers apart. On
+any inspection that is FIRST in its chain (`chainPredecessor` is `null` — exactly property 5294's
+shape, and exactly what Johan's brand-new test inspection also was), `pairedRows()` has nothing to pair
+against, so every row comes back as `{ predecessorPhoto: null, tailPhoto: <the real, uploaded photo> }`.
+Reading `row.predecessorPhoto` off that row is `null` every time — the real photo was always present in
+the data, just read off the wrong side of the pair. This silently discarded a REAL uploaded photo on
+every single tile of every item, on every first-in-chain completed inspection — not a display glitch,
+not stale/corrupt data, the read accessor was structurally wrong for its second caller.
+
+Two knock-on symptoms, same root cause, not separate bugs: the `<img>` (`x-show="tile.photo"`) never
+shows because `tile.photo` is always null, and the tile's click handler (`@click="tile.photo &&
+openCompareViewer(...)"`) is a no-op for the same reason — so photo tiles appeared entirely unclickable,
+not just visually empty.
+
+### 35.2 Evidence ruling out every other explanation
+
+Before touching any code, checked and ruled out, against property 5294's real rows (read-only,
+`user 365`, no writes, no `user 22` session — Johan's own instruction):
+
+- **Soft-delete / archival cascade** — 0 of 5294's 32 photo rows are soft-deleted or archived
+  (`deleted_at`, `archived_by_user_id` both null on every row). Not the cause. (A same-day, unrelated
+  cleanup on inspections 28/29 had archived some near-empty photos elsewhere — confirmed that pass never
+  touched inspection 33.)
+- **Corrupt/near-empty files** — every one of 5294's 35 stored files (`storage/app/public/properties/
+  5294/*.jpg`) is a genuine 1280×960 JPEG, 33KB–228KB. No tiny/blank files, no upload-pipeline
+  compression bug. Not the cause.
+- **Broken FK linkage** — all 32 photos have non-null `rental_inspection_observation_id` and
+  `property_room_id`; none orphaned, none re-paired incorrectly by signing/completing. Not the cause.
+- **Missing comment/notes** — `rental_inspection_observations.notes` (e.g. obs 127, Bedroom 1 → Windows,
+  "Broken pane on left") is present in the DB, present in the server payload, and DOES render correctly
+  in the Windows item cell when checked against the correctly-identified DOM element. The original
+  four-symptom report's "no comments show" and "fewer than 5/5 items" did not reproduce once tested
+  against the right item — both were artifacts of an earlier diagnostic script clicking a selector that
+  matched both the visible ('ro') and hidden ('rw') copies of the same room header (they share
+  `roomOpenOverride` state), double-toggling the room closed again. Bedroom 1 genuinely has and renders
+  all 5 items (692 Ceiling, 693 Walls, 694 Floors, 695 Windows, 696 Doors).
+
+### 35.3 The fix
+
+`stripTilesForInspection()` now tells its two callers apart the same way `openCompareViewer(photo, insp)`
+already does elsewhere in this same file (`isTail = this.chainTail && insp && insp.id ===
+this.chainTail.id`) — reading `row.tailPhoto` for the tail cell, `row.predecessorPhoto` for the genuine
+predecessor cell:
+
+```js
+stripTilesForInspection(insp, item) {
+    const isTail = this.chainTail && insp && insp.id === this.chainTail.id;
+    return this.pairedStripRows(item).map(row => ({ index: row.index, photo: isTail ? row.tailPhoto : row.predecessorPhoto }));
+},
+```
+
+`openCompareViewer()` itself needed no change — it already branches on the identical `isTail` check, so
+once a tile's `photo` is correctly populated, clicking it was already wired to open the compare viewer
+on the correct side.
+
+### 35.4 Verified
+
+Real headless Chrome, real QA1 data (`corex_qa1`), `user 365` (agency 1, view-only — no writes, no
+`user 22` session), both before and after:
+
+- **Property 5294, inspection 33 (completed, no predecessor)** — Bedroom 1 → Walls (item 693, 3 real
+  photos on obs 109). Before: `stripTilesForInspection()` returned 3 rows, all `{ photo: null }`; DOM
+  showed 3 "NO MATCH" placeholders, 0 real thumbnails, clicking did nothing. After: all 3 tiles show
+  their real photo (`storage/properties/5294/*.jpg` src), 0 "NO MATCH" labels visible, clicking a tile
+  opens the compare viewer (`compareViewer.open === true`, `rightPhotoId` set, `primarySide: 'right'` —
+  correctly resolved as the tail side).
+- **Regression check, property 5792, inspection 32 (draft, real predecessor = inspection 29)** — item
+  628 (Walls, 5 real photos on the PREDECESSOR side, obs 88/inspection 29). `stripTilesForInspection
+  (chainPredecessor, item)` still correctly returns all 5 real predecessor photos — the genuine
+  predecessor cell, the function's original caller, is unaffected by this fix.
+
+`php -l` and a Blade compile-string check both clean on `show.blade.php`.

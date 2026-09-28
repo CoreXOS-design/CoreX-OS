@@ -7567,13 +7567,28 @@
                 stripPairCount(item) {
                     return this.pairedStripRows(item).length;
                 },
-                // Read-only (predecessor) cell — insp is an inspection object
-                // (kept as a parameter for call-site compatibility with
-                // item-cell.blade.php's readOnly branch; pairedStripRows()
-                // itself always reads this.chainPredecessor directly, same
-                // as it always has via itemPhotosForInspection() elsewhere).
+                // Read-only cell — insp is an inspection object. Two DISTINCT
+                // callers pass this: the genuine predecessor cell always
+                // passes chainPredecessor (§27, $predecessorJs), and — since
+                // §33's completed/awaiting_signature fix made the TAIL cell
+                // read-only too — item-cell.blade.php's tail include also
+                // calls this, passing $tailInspectionJs, i.e. chainTail once
+                // completed. Both go through the SAME pairedStripRows() pairs
+                // (predecessorPhoto/tailPhoto per row), so which field to
+                // read depends on WHICH side `insp` actually is — the
+                // previous version always read row.predecessorPhoto
+                // regardless, which was correct only for the genuine
+                // predecessor cell. On a chain's first inspection (no
+                // predecessor — property 5294, Johan, 2026-09-28) every row
+                // is an unmatched tail row (predecessorPhoto null), so the
+                // tail cell's own real photos were silently discarded and
+                // every tile rendered as an unclickable "NO MATCH" — same
+                // isTail comparison already used for this exact
+                // predecessor-vs-tail distinction elsewhere in this file
+                // (see openCompareViewer() above).
                 stripTilesForInspection(insp, item) {
-                    return this.pairedStripRows(item).map(row => ({ index: row.index, photo: row.predecessorPhoto }));
+                    const isTail = this.chainTail && insp && insp.id === this.chainTail.id;
+                    return this.pairedStripRows(item).map(row => ({ index: row.index, photo: isTail ? row.tailPhoto : row.predecessorPhoto }));
                 },
                 // Live (tail) cell — section is the section-type string.
                 stripTilesFor(section, item) {
