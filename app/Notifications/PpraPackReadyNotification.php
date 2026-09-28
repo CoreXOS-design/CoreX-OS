@@ -31,12 +31,25 @@ class PpraPackReadyNotification extends Notification
 
     public function toArray(object $notifiable): array
     {
+        // The bell dropdown (resources/views/layouts/corex-header.blade.php,
+        // notificationBell()) reads item.data.action_url (falling back to
+        // .url, then '#') — it does NOT read `deep_link`, even though
+        // `deep_link` is the convention several other notification classes
+        // use (WhistleblowSubmittedNotification, FicaReferralReturnedNotification,
+        // etc. — same gap, out of scope to fix here). Confirmed by grepping
+        // the bell's own template before assuming: without `action_url` this
+        // notification's bell entry silently linked to '#' — clicked, did
+        // nothing, no error. Both keys kept: `action_url` for the bell,
+        // `deep_link` for parity with the sibling classes' own convention.
+        $url = '/admin/ppra-inspection-pack/' . $this->pack->id . '/download';
+
         return [
-            'type'      => 'ppra_pack_generation_complete',
-            'title'     => 'PPRA inspection pack ready',
-            'body'      => 'Your requested PPRA inspection pack has finished generating and is ready to download.',
-            'pack_id'   => $this->pack->id,
-            'deep_link' => '/admin/ppra-inspection-pack/' . $this->pack->id . '/download',
+            'type'       => 'ppra_pack_generation_complete',
+            'title'      => 'PPRA inspection pack ready',
+            'body'       => 'Your requested PPRA inspection pack has finished generating and is ready to download.',
+            'pack_id'    => $this->pack->id,
+            'action_url' => $url,
+            'deep_link'  => $url,
         ];
     }
 

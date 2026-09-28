@@ -12,6 +12,25 @@
                 <p class="text-xs" style="color: var(--text-muted);">
                     Live readiness against a PPRA s25 inspection notice — {{ $agency->trading_name ?? $agency->name }}.
                 </p>
+                {{-- Johan, 2026-09-28: the bell alone is not reliable enough — this
+                     line is the page's own authoritative statement of the last
+                     pack's state, shown regardless of notification delivery. --}}
+                <p class="text-xs mt-1 font-semibold">
+                    @if($latestPack && $latestPack->status === 'generating')
+                        <span style="color:var(--text-muted);">Last pack: Generating…</span>
+                    @elseif($latestPack && $latestPack->status === 'queued')
+                        <span style="color:var(--text-muted);">Last pack: Queued</span>
+                    @elseif($latestPack && $latestPack->status === 'ready' && $latestPack->generated_at)
+                        <span style="color:#15803d;">Last pack: Ready</span>
+                        <span style="color:var(--text-muted); font-weight:normal;"> ({{ $latestPack->generated_at->format('d M Y H:i') }}) — </span>
+                        <a href="{{ route('admin.ppra-inspection-pack.download', $latestPack) }}" style="color:var(--brand-icon,#0ea5e9);">Download</a>
+                    @elseif($latestPack && $latestPack->status === 'failed')
+                        <span style="color:var(--ds-crimson,#c41e3a);">Last pack: Failed</span>
+                        <span style="color:var(--text-muted); font-weight:normal;"> — {{ $latestPack->error_message ?: 'Unknown error.' }}</span>
+                    @else
+                        <span style="color:var(--text-muted); font-weight:normal;">No pack generated yet.</span>
+                    @endif
+                </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('admin.ppra-inspection-pack.remediation-log') }}" class="corex-btn-outline text-xs">
