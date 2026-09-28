@@ -1174,6 +1174,7 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
     Route::get('/remediation-log', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'remediationLog'])->name('remediation-log');
     Route::get('/practitioners', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitioners'])->name('practitioners');
     Route::get('/sales-rentals', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'salesRentals'])->name('sales-rentals');
+    Route::get('/mandate-register', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'mandateRegister'])->name('mandate-register');
 
     Route::middleware('permission:ppra_inspection_pack.export')->group(function () {
         Route::get('/practitioner-register.pdf', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'practitionerRegisterPdf'])->name('practitioner-register.pdf');
@@ -1181,6 +1182,7 @@ Route::prefix('admin/ppra-inspection-pack')->middleware(['auth', 'agency.require
         Route::get('/letterhead', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'letterhead'])->name('letterhead');
         Route::get('/sales-rentals.pdf', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'salesRentalsPdf'])->name('sales-rentals.pdf');
         Route::get('/sales-rentals.csv', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'salesRentalsCsv'])->name('sales-rentals.csv');
+        Route::get('/mandate-register.zip', [\App\Http\Controllers\Admin\PpraInspectionPackController::class, 'mandateRegisterZip'])->name('mandate-register.zip');
     });
 
     Route::middleware('permission:ppra_inspection_pack.configure')->group(function () {

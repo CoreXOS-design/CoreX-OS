@@ -768,6 +768,16 @@ return [
              'label' => 'Mandate/MDF sample size',
              'explain' => 'How many active listings an admin can pick for the PPRA Inspection Pack\'s mandate/MDF sample (item m).',
              'affects' => 'The maximum number of active listings selectable in the PPRA Inspection Pack\'s sample picker for item m.'],
+            // PPRA Inspection Pack Phase I — .ai/specs/ppra-inspection-pack.md
+            // §6.8e/§11. Plain number inputs, no §6.1 has()-guard needed.
+            ['key' => 'ppra_mandate_register_red_threshold_pct', 'source' => 'agency', 'type' => 'number', 'default' => 10, 'min' => 1, 'max' => 100,
+             'label' => 'Mandate register red threshold (%)',
+             'explain' => 'The percentage of active listings with a mandate/MDF/FICA gap that turns the PPRA Inspection Pack\'s item (m) red instead of amber.',
+             'affects' => 'The red/amber threshold shown on the PPRA Inspection Pack checklist\'s item (m) row and the mandate/MDF/FICA register.'],
+            ['key' => 'ppra_zip_max_files', 'source' => 'agency', 'type' => 'number', 'default' => 200, 'min' => 1, 'max' => 2000,
+             'label' => 'PPRA ZIP max files',
+             'explain' => 'The most files the PPRA Inspection Pack\'s mandate register "Download ZIP" (and other per-list ZIP exports) will ever bundle in one download.',
+             'affects' => 'How many files the mandate register\'s bulk ZIP export includes before it stops and reports the rest as available-but-not-included.'],
         ],
     ],
 

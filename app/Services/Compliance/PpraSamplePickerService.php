@@ -30,6 +30,11 @@ class PpraSamplePickerService
 {
     public const MODES = ['deal', 'rental', 'listing'];
 
+    public function __construct(
+        private PpraMandateRegisterService $mandateRegister = new PpraMandateRegisterService(),
+    ) {
+    }
+
     /** @return LengthAwarePaginator<int, array<string, mixed>> */
     public function search(Agency $agency, string $mode, array $filters, int $page = 1, int $perPage = 20): LengthAwarePaginator
     {
@@ -174,33 +179,43 @@ class PpraSamplePickerService
         return trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? ''));
     }
 
-    /** @return Collection<int, array<string,mixed>> */
+    /**
+     * @return Collection<int, array<string,mixed>>
+     *
+     * Phase I (2026-09-28) — changed from a plain Property::onMarket() scan
+     * to item j's own "active and advertised" derivation (§6.7, reused via
+     * PpraMandateRegisterService::activeAdvertisedListings()), per §6.8d:
+     * "not merely status = active in isolation." Phase F's own note flagged
+     * this as deliberately deferred to this phase.
+     */
     private function listings(Agency $agency, array $filters): Collection
     {
-        $query = Property::where('agency_id', $agency->id)->onMarket()->with('agent');
+        $listings = $this->mandateRegister->activeAdvertisedListings($agency)->load('agent');
 
         if ($search = trim((string) ($filters['search'] ?? ''))) {
-            $needle = "%{$search}%";
-            $query->where(function ($q) use ($needle) {
-                $q->where('address', 'like', $needle)
-                    ->orWhereHas('agent', fn ($a) => $a->where('name', 'like', $needle));
-            });
+            $needle = strtolower($search);
+            $listings = $listings->filter(function (Property $property) use ($needle) {
+                $address = strtolower((string) $property->address);
+                $agentName = strtolower((string) (optional($property->agent)->name ?? ''));
+
+                return str_contains($address, $needle) || str_contains($agentName, $needle);
+            })->values();
         }
 
         if ($from = $filters['date_from'] ?? null) {
-            $query->whereDate('listed_date', '>=', $from);
+            $listings = $listings->filter(fn (Property $p) => $p->listed_date && $p->listed_date->gte(\Carbon\Carbon::parse($from)))->values();
         }
         if ($to = $filters['date_to'] ?? null) {
-            $query->whereDate('listed_date', '<=', $to);
+            $listings = $listings->filter(fn (Property $p) => $p->listed_date && $p->listed_date->lte(\Carbon\Carbon::parse($to)))->values();
         }
         if ($status = $filters['status'] ?? null) {
-            $query->where('status', $status);
+            $listings = $listings->where('status', $status)->values();
         }
         if ($agentId = $filters['agent_id'] ?? null) {
-            $query->where('agent_id', $agentId);
+            $listings = $listings->where('agent_id', (int) $agentId)->values();
         }
 
-        return $query->orderByDesc('listed_date')->orderByDesc('id')->get()->map(fn (Property $property) => [
+        return $listings->sortByDesc(fn (Property $p) => $p->listed_date)->values()->map(fn (Property $property) => [
             'id'        => $property->id,
             'label'     => $property->address ?: ('Property #' . $property->id),
             'sub_label' => optional($property->agent)->name ?? '',

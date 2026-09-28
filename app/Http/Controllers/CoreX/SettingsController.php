@@ -1296,12 +1296,20 @@ class SettingsController extends Controller
         abort_unless(auth()->user()?->hasPermission('ppra_inspection_pack.configure'), 403);
 
         $sampleSizeFields = ['ppra_pack_sales_sample_size', 'ppra_pack_rental_sample_size', 'ppra_pack_mandate_sample_size'];
+        // Phase I — .ai/specs/ppra-inspection-pack.md §6.8e/§11.
+        $numericFields = array_merge($sampleSizeFields, ['ppra_mandate_register_red_threshold_pct', 'ppra_zip_max_files']);
 
         $rules = ['financial_year_start_month' => 'required|integer|min:1|max:12'];
         foreach ($sampleSizeFields as $field) {
             if ($request->has($field)) {
                 $rules[$field] = 'required|integer|min:1|max:50';
             }
+        }
+        if ($request->has('ppra_mandate_register_red_threshold_pct')) {
+            $rules['ppra_mandate_register_red_threshold_pct'] = 'required|integer|min:1|max:100';
+        }
+        if ($request->has('ppra_zip_max_files')) {
+            $rules['ppra_zip_max_files'] = 'required|integer|min:1|max:2000';
         }
 
         $data = $request->validate($rules);
@@ -1312,7 +1320,7 @@ class SettingsController extends Controller
         }
 
         $updates = ['financial_year_start_month' => $data['financial_year_start_month']];
-        foreach ($sampleSizeFields as $field) {
+        foreach ($numericFields as $field) {
             if (array_key_exists($field, $data)) {
                 $updates[$field] = $data[$field];
             }

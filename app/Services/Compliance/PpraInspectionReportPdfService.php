@@ -7,6 +7,7 @@ use App\Models\Compliance\AgencyTransformationNote;
 use App\Models\Compliance\PpraInspectionPack;
 use App\Models\Deal;
 use App\Models\Lease;
+use App\Models\Property;
 use App\Models\User;
 use App\Services\Compliance\Concerns\GeneratesPdfViaPuppeteer;
 
@@ -30,6 +31,7 @@ class PpraInspectionReportPdfService
         private PractitionerFfcRosterService $practitionerRoster = new PractitionerFfcRosterService(),
         private PpraSalesFileAggregationService $salesFileAggregation = new PpraSalesFileAggregationService(),
         private PpraRentalFileAggregationService $rentalFileAggregation = new PpraRentalFileAggregationService(),
+        private PpraMandateFileAggregationService $mandateFileAggregation = new PpraMandateFileAggregationService(),
     ) {
     }
 
@@ -45,6 +47,7 @@ class PpraInspectionReportPdfService
         $transformation = AgencyTransformationNote::currentFor($agency->id);
         $kSample = $this->salesFileSample($agency);
         $lSample = $this->rentalFileSample($agency);
+        $mSample = $this->mandateFileSample($agency);
 
         $reportReference = 'PPRA-' . $agency->id . '-' . now()->format('Ymd-Hi');
 
@@ -57,6 +60,7 @@ class PpraInspectionReportPdfService
             'transformation'  => $transformation,
             'kSample'         => $kSample,
             'lSample'         => $lSample,
+            'mSample'         => $mSample,
             'reportReference' => $reportReference,
             'generatedBy'     => $generatedBy,
             'generatedAt'     => now(),
@@ -133,6 +137,33 @@ class PpraInspectionReportPdfService
             ->map(fn ($id) => $leases->get($id))
             ->filter()
             ->map(fn (Lease $lease) => $this->rentalFileAggregation->aggregate($lease))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Item m's per-file index (§6.2 item 5 / §6.8d) — one manifest per
+     * currently-sampled Property. Empty array (not null) when nothing has
+     * been sampled yet, so the Report can print "No mandate/MDF files
+     * sampled for this pack" (§9 edge case) rather than a missing section.
+     *
+     * @return array<int, object>
+     */
+    private function mandateFileSample(Agency $agency): array
+    {
+        $draft = PpraInspectionPack::currentDraftFor($agency);
+        $ids = $draft?->sample_listing_ids ?? [];
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        $properties = Property::whereIn('id', $ids)->get()->keyBy('id');
+
+        return collect($ids)
+            ->map(fn ($id) => $properties->get($id))
+            ->filter()
+            ->map(fn (Property $property) => $this->mandateFileAggregation->aggregate($property))
             ->values()
             ->all();
     }

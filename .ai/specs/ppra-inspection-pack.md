@@ -1,6 +1,6 @@
 # PPRA Inspection Pack — Specification
 
-**Status:** Draft v3 — Phases A–H shipped; I onward re-planned around Johan's item-by-item rulings below
+**Status:** Draft v3 — Phases A–I shipped (items a-m all real); Phase J (full pack generation) remaining
 **Author:** Claude (senior engineering), from the read-only PPRA s25 investigation of 2026-09-28
 **Date:** 28 September 2026
 **Spec location:** `.ai/specs/ppra-inspection-pack.md`
@@ -520,11 +520,13 @@ The new practitioner register (§6.6), the sample picker (§6.8a) and its k/l/m 
 - Same shape as G for rentals (§6.8c): mandate, application, lease, in/out inspections, MDF, FICA tenant+landlord, communications.
 - Checklist row l wired.
 
-**Phase I — item m: mandate/MDF samples + the ongoing register**
-- `MarketingReadinessService::documentGateSummaryFor()`.
-- `/admin/ppra-inspection-pack/mandate-register` (§6.8e) — gap-monitoring feed for the checklist's live status.
-- Sample deep-aggregation via the picker (§6.8d): mandate, MDF, FICA of owners, body corporate rules, levy/rates statements, other property-drive docs.
-- Checklist row m wired to both the register (status) and the picker (evidence).
+**Phase I — shipped (`<PHASE_I_SHA>`) — item m: mandate/MDF samples + the ongoing register**
+- `MarketingReadinessService::documentGateSummaryFor(Property): array` — narrow, register-specific gate limited to mandate/disclosure(MDF)/fica, deliberately NOT `statusFor()`'s full contract (photos, details-complete, the agency's dynamic required-types list).
+- New `PpraMandateRegisterService` — `activeAdvertisedListings()` reuses item j's own §6.7 derivation (`PpraFinancialYearListService::advertisedListings()`) with an open-ended window instead of one FY, merged across sale+rental listing types, filtered to `Property::OFF_MARKET_STATUSES` exclusion (the real "active" concept already used everywhere else in this codebase). `checklistStats()` drives item m's REAL red/amber/green status (unlike k/l's `info` rows) — green: 0 gaps; amber: 1+ gaps below the configurable threshold; red: at/above it. `search()` — full CRUD-list floor (search/sort/filter/pagination) for the new `/admin/ppra-inspection-pack/mandate-register` screen (§6.8e). `mandateMdfDocumentsForZip()` — the register's own bulk "Download ZIP" action, capped at the agency's configured max-files, never silently truncated (the response states how many were included vs. available).
+- New `PpraMandateFileAggregationService` — same manifest shape as k/l's aggregation services, broader per spec: mandate, MDF, FICA of owner(s) (`Property::contacts()` seller-side roles, falling back to a sole contact), body corporate rules (no missing-reason — spec says "where sectional title AND filed," conditional not universal), levy/rates statements, and a catch-all "Other Property Drive Documents" section for anything not in the named categories (§6.8d: "not filtered to only the named types").
+- Picker's "listing" mode changed from Phase F's placeholder `Property::onMarket()` scan to `PpraMandateRegisterService::activeAdvertisedListings()` — the deferral Phase F's own note flagged as deliberately Phase I's job (§6.8d: "not merely status = active in isolation").
+- Two new settings (`agencies.ppra_mandate_register_red_threshold_pct` default 10, `agencies.ppra_zip_max_files` default 200) — `/corex/settings` → PPRA Inspection Pack section (extends the existing Phase E/F form) and the Setup Wizard's Compliance step, same precedent as every other PPRA setting (non-negotiable §10a).
+- Checklist row m wired to both the register (status — "Fix gaps (register)" / "View register") and the picker (evidence — "Choose sample"), two distinct actions on one row.
 
 **Phase J — full inspection pack**
 - `ppra_inspection_packs` table already exists (migration moved to Phase F — the table is required there to back the sample picker's persistence). Phase J adds the `notification_event_types` row only.

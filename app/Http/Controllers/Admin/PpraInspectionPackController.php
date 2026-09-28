@@ -9,12 +9,14 @@ use App\Services\Compliance\PpraFinancialYearListService;
 use App\Services\Compliance\PpraInspectionPackChecklistService;
 use App\Services\Compliance\PpraInspectionReportPdfService;
 use App\Services\Compliance\PpraLetterheadSampleService;
+use App\Services\Compliance\PpraMandateRegisterService;
 use App\Services\Compliance\PpraPractitionerRegisterPdfService;
 use App\Services\Compliance\PpraSalesRentalsPdfService;
 use App\Services\Compliance\PractitionerFfcRosterService;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Auth;
+use ZipArchive;
 
 /**
  * PPRA Inspection Pack — Phase A + B + C + D + E. .ai/specs/ppra-inspection-pack.md
@@ -31,6 +33,7 @@ class PpraInspectionPackController extends Controller
         private PpraPractitionerRegisterPdfService $practitionerPdf = new PpraPractitionerRegisterPdfService(),
         private PpraFinancialYearListService $fyList = new PpraFinancialYearListService(),
         private PpraSalesRentalsPdfService $salesRentalsPdfSvc = new PpraSalesRentalsPdfService(),
+        private PpraMandateRegisterService $mandateRegister = new PpraMandateRegisterService(),
     ) {
     }
 
@@ -333,6 +336,79 @@ class PpraInspectionPackController extends Controller
         };
 
         return response()->streamDownload($callback, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    /**
+     * Item m — mandate/MDF/FICA register (§6.8e). Full CRUD-list floor:
+     * search/sort/filter/pagination over every active advertised listing.
+     * Distinct from the pack's sampled item (m) evidence (§6.8d) — this is
+     * the gap-monitoring feed that drives the checklist's live status.
+     */
+    public function mandateRegister(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+
+        $filters = $request->only(['search', 'branch_id', 'agent_id', 'date_from', 'date_to', 'status', 'sort']);
+        if ($request->has('advertised_only')) {
+            $filters['advertised_only'] = $request->input('advertised_only');
+        }
+
+        $page = (int) $request->input('page', 1);
+        $rows = $this->mandateRegister->search($agency, $filters, $page, 25);
+
+        $branches = \App\Models\Branch::where('agency_id', $agency->id)->orderBy('name')->get(['id', 'name']);
+
+        return view('admin.ppra-inspection-pack.mandate-register', compact('agency', 'rows', 'branches', 'filters'));
+    }
+
+    /**
+     * "Download ZIP of all mandates + MDFs" (§6.8e) — bulk export of the
+     * CURRENT filtered view, capped at the agency's configured max-files.
+     * Distinct artifact from the pack's item (m) sample — never conflated.
+     */
+    public function mandateRegisterZip(Request $request)
+    {
+        $agency = $this->resolveAgency($request);
+
+        $filters = $request->only(['search', 'branch_id', 'agent_id', 'date_from', 'date_to', 'status']);
+        if ($request->has('advertised_only')) {
+            $filters['advertised_only'] = $request->input('advertised_only');
+        }
+
+        $result = $this->mandateRegister->mandateMdfDocumentsForZip($agency, $filters);
+
+        $tempDir = storage_path('app/temp');
+        if (! is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+        $zipPath = $tempDir . '/mandate-register-' . $agency->id . '-' . now()->format('Ymd-His') . '.zip';
+
+        $zip = new ZipArchive();
+        $zip->open($zipPath, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+        $usedNames = [];
+        foreach ($result['documents'] as $document) {
+            $diskPath = \Illuminate\Support\Facades\Storage::disk($document->disk ?: 'local')->path($document->storage_path);
+            if (! is_file($diskPath)) {
+                continue;
+            }
+            $name = $document->original_name ?: basename($diskPath);
+            $suffix = 1;
+            $unique = $name;
+            while (in_array($unique, $usedNames, true)) {
+                $unique = pathinfo($name, PATHINFO_FILENAME) . "-{$suffix}." . pathinfo($name, PATHINFO_EXTENSION);
+                $suffix++;
+            }
+            $usedNames[] = $unique;
+            $zip->addFile($diskPath, $unique);
+        }
+        $zip->close();
+
+        $message = $result['capped']
+            ? "Included {$result['documents']->count()} of {$result['total_available']} available files (capped at the agency's configured max-files-per-ZIP)."
+            : "Included all {$result['documents']->count()} matching files.";
+
+        return response()->download($zipPath, basename($zipPath))->deleteFileAfterSend(true)
+            ->header('X-Mandate-Register-Zip-Summary', $message);
     }
 
     private function resolveAgency(Request $request): Agency

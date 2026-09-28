@@ -10,10 +10,11 @@ use App\Models\Compliance\PpraInspectionGapNote;
 use App\Models\Compliance\PpraInspectionPack;
 use App\Models\Deal;
 use App\Models\Lease;
+use App\Models\Property;
 use Illuminate\Support\Collection;
 
 /**
- * PPRA Inspection Pack — Phase A + B + C + D + E + G + H. .ai/specs/ppra-inspection-pack.md §5.
+ * PPRA Inspection Pack — Phase A + B + C + D + E + G + H + I. .ai/specs/ppra-inspection-pack.md §5.
  *
  * Computes the live a-m checklist for an agency. Wired so far:
  * a, b, d, e, h (agency-vault-backed, Phase A), c, f, g (practitioner
@@ -24,16 +25,18 @@ use Illuminate\Support\Collection;
  * list, Phase E — v3 "active and advertised" derivation), k (sales file
  * samples, Phase G — §6.8b), l (rental file samples, Phase H — §6.8c,
  * reads sample_rental_ids as Lease ids, not the old Rental model — see
- * PpraSamplePickerService's own docblock). Item m is still returned with
- * status 'pending' ("not yet available" — Phase I) so the checklist page
- * and Inspection Report keep a stable 13-row shape without guessing at
- * data a later phase will add.
+ * PpraSamplePickerService's own docblock), m (mandate/MDF samples + the
+ * ongoing register, Phase I — §6.8d/§6.8e, the only k/l/m item with a real
+ * red/amber/green status, driven by PpraMandateRegisterService::
+ * checklistStats() against ALL active advertised listings, not just the
+ * sample). Every item a-m is now real.
  */
 class PpraInspectionPackChecklistService
 {
     public function __construct(
         private PractitionerFfcRosterService $practitionerRoster = new PractitionerFfcRosterService(),
         private PpraFinancialYearListService $fyList = new PpraFinancialYearListService(),
+        private PpraMandateRegisterService $mandateRegister = new PpraMandateRegisterService(),
     ) {
     }
 
@@ -47,10 +50,6 @@ class PpraInspectionPackChecklistService
         'd' => ['slugs' => ['bank_confirmation'],  'label' => 'Trust Account Bank Confirmation Letter', 'requirement' => "A bank confirmation letter for the agency's trust account (Property Practitioners Act s54(1))."],
         'e' => ['slugs' => ['trial_balance'],      'label' => 'Trial Balance',  'requirement' => "The agency's latest trial balance / control accounts, from its accountant."],
         'h' => ['slugs' => ['bee_certificate', 'bee_affidavit'], 'label' => 'BEE Certificate or Sworn Affidavit', 'requirement' => 'A valid BEE certificate, or a sworn affidavit where none exists.'],
-    ];
-
-    private const PENDING_ITEMS = [
-        'm' => 'Mandates + MDFs, Active Listings',
     ];
 
     /**
@@ -91,20 +90,7 @@ class PpraInspectionPackChecklistService
         $rows->push($this->salesRentalsRow($agency));
         $rows->push($this->salesFileSampleRow($agency));
         $rows->push($this->rentalFileSampleRow($agency));
-
-        foreach (self::PENDING_ITEMS as $key => $label) {
-            $rows->push((object) [
-                'item'        => $key,
-                'label'       => $label,
-                'requirement' => null,
-                'status'      => 'pending',
-                'why'         => 'Not yet available — a later build phase.',
-                'evidence'    => null,
-                'gap_note'    => null,
-                'document'    => null,
-                'upload_configs' => collect(),
-            ]);
-        }
+        $rows->push($this->mandateFileSampleRow($agency));
 
         return $rows->sortBy('item')->values();
     }
@@ -355,6 +341,56 @@ class PpraInspectionPackChecklistService
             'why'         => $why,
             'evidence'    => $evidence,
             'gap_note'    => null,
+            'document'    => null,
+            'upload_configs' => collect(),
+        ];
+    }
+
+    /**
+     * Item m — mandate/MDF samples + the ongoing register (Phase I, §6.8d/
+     * §6.8e/§5). Unlike k/l, this row has a REAL red/amber/green status,
+     * driven by the register's aggregate stats against ALL active
+     * advertised listings — the sample (evidence for the inspector) is a
+     * separate concern from the gate (whether the agency is actually
+     * compliant right now), matching §6.8d's own "relationship to the
+     * ongoing register" note.
+     */
+    private function mandateFileSampleRow(Agency $agency): object
+    {
+        $item = 'm';
+        $stats = $this->mandateRegister->checklistStats($agency);
+        $why = "{$stats['total']}/{$stats['total']} active listings have every required document."; // overwritten below when there are gaps
+        if ($stats['gaps'] > 0) {
+            $ok = $stats['total'] - $stats['gaps'];
+            $why = "{$ok}/{$stats['total']} active listings have every required document — {$stats['gaps']} listing(s) have a mandate/MDF/FICA gap.";
+        } elseif ($stats['total'] === 0) {
+            $why = 'No active advertised listings for this agency.';
+        }
+
+        $draft = PpraInspectionPack::currentDraftFor($agency);
+        $sampleIds = $draft?->sample_listing_ids ?? [];
+        if (! empty($sampleIds)) {
+            $labels = Property::whereIn('id', $sampleIds)->get(['id', 'address'])
+                ->map(fn (Property $p) => $p->address ?: ('Property #' . $p->id))
+                ->implode(', ');
+            $why .= ' Sample: ' . count($sampleIds) . ' listing(s) — ' . $labels . '.';
+        }
+
+        $gapNote = null;
+        if (in_array($stats['status'], ['amber', 'red'], true)) {
+            $gapNote = PpraInspectionGapNote::currentFor($agency->id, $item);
+        } else {
+            PpraInspectionGapNote::where('agency_id', $agency->id)->forItem($item)->open()->update(['resolved_at' => now()]);
+        }
+
+        return (object) [
+            'item'        => $item,
+            'label'       => 'Mandates + MDFs, Active Listings',
+            'requirement' => 'Every active advertised listing has a valid mandate, MDF, and seller/owner FICA on file.',
+            'status'      => $stats['status'],
+            'why'         => $why,
+            'evidence'    => $why,
+            'gap_note'    => $gapNote,
             'document'    => null,
             'upload_configs' => collect(),
         ];

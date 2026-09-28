@@ -4004,6 +4004,25 @@
                     </div>
                 </div>
 
+                {{-- Phase I — .ai/specs/ppra-inspection-pack.md §6.8e/§11. --}}
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">Mandate register red threshold</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">The percentage of active listings with a mandate/MDF/FICA gap that turns item (m) red on the checklist. Below this, it's amber.</p>
+                        <div class="flex items-center gap-2">
+                            <input type="number" min="1" max="100" name="ppra_mandate_register_red_threshold_pct" value="{{ $agency->ppra_mandate_register_red_threshold_pct ?? 10 }}"
+                                class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <span class="text-sm" style="color:var(--text-muted);">%</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label class="text-sm font-semibold" style="color:var(--text-primary);">ZIP max files</label>
+                        <p class="text-xs mb-2" style="color:var(--text-muted);">The most files the mandate register's "Download ZIP" (and other per-list ZIP exports) will ever bundle at once.</p>
+                        <input type="number" min="1" max="2000" name="ppra_zip_max_files" value="{{ $agency->ppra_zip_max_files ?? 200 }}"
+                            class="w-full rounded-md text-sm px-3 py-2" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                </div>
+
                 <button type="submit" class="corex-btn-primary">Save Settings</button>
             </form>
 

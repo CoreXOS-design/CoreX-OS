@@ -341,6 +341,46 @@
                     @endforeach
                 @endif
             @endif
+
+            {{-- Item (m) — mandate/MDF samples, per-file index (§6.2 item 5 / §6.8d, Phase I). --}}
+            @if($row->item === 'm')
+                @if(!isset($mSample) || count($mSample) === 0)
+                    <p class="evidence">No mandate/MDF files sampled for this pack.</p>
+                @else
+                    @foreach($mSample as $sample)
+                        <p class="evidence"><strong>{{ $sample->reference }}</strong> &mdash; folder: <code>{{ $sample->folder }}</code></p>
+                        <table>
+                            <thead>
+                                <tr><th>Category</th><th>File</th><th>Path in ZIP</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach($sample->sections as $section)
+                                    @forelse($section['files'] as $file)
+                                        <tr>
+                                            <td>{{ $section['category'] }}</td>
+                                            <td>{{ $file->label }}{{ $file->note ? ' — ' . $file->note : '' }}</td>
+                                            <td>{{ $file->dest_path }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td>{{ $section['category'] }}</td>
+                                            <td colspan="2" style="color:#991b1b;">Nothing found for this category.</td>
+                                        </tr>
+                                    @endforelse
+                                @endforeach
+                            </tbody>
+                        </table>
+                        @if(count($sample->missing))
+                            <p class="evidence" style="color:#991b1b;">
+                                <strong>Missing:</strong>
+                                @foreach($sample->missing as $m)
+                                    {{ $m }}@if(!$loop->last)<br>@endif
+                                @endforeach
+                            </p>
+                        @endif
+                    @endforeach
+                @endif
+            @endif
         @endif
     </div>
     @endforeach

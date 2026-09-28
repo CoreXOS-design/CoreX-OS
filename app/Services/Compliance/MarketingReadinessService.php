@@ -3,6 +3,7 @@
 namespace App\Services\Compliance;
 
 use App\Models\DevSetting;
+use App\Models\DocumentType;
 use App\Models\FicaSubmission;
 use App\Models\Property;
 use App\Models\User;
@@ -13,6 +14,63 @@ class MarketingReadinessService
     public function __construct(
         private AgencyComplianceDocTypeService $docTypes = new AgencyComplianceDocTypeService(),
     ) {
+    }
+
+    /**
+     * PPRA Inspection Pack Phase I — .ai/specs/ppra-inspection-pack.md §6.8e.
+     * Narrow, register-specific gate check limited to mandate/MDF(disclosure)
+     * /FICA — deliberately NOT statusFor()'s full contract (photos, details-
+     * complete, the agency's dynamic "required types" list) so the register
+     * doesn't pay for checks it doesn't need, and never drifts if an agency's
+     * required-types configuration changes what statusFor() itself gates on.
+     *
+     * @return array{mandate: bool, mdf: bool, fica: bool}
+     */
+    public function documentGateSummaryFor(Property $property): array
+    {
+        $types = DocumentType::whereIn('slug', ['mandate', 'disclosure', 'fica'])->get()->keyBy('slug');
+        $sellerIds = $this->sellerContactIds($property);
+
+        $mandateType = $types->get('mandate');
+        $disclosureType = $types->get('disclosure');
+
+        $result = [
+            'mandate' => $mandateType ? $this->propertyHasDocType($property, $mandateType->id, $sellerIds) : false,
+            'mdf'     => $disclosureType ? $this->propertyHasDocType($property, $disclosureType->id, $sellerIds) : false,
+            'fica'    => false,
+        ];
+
+        if ($types->has('fica')) {
+            [$ficaPass] = $this->checkSellersFicaSubmissions($property, $sellerIds);
+            $result['fica'] = $ficaPass;
+        }
+
+        return $result;
+    }
+
+    private function propertyHasDocType(Property $property, int $typeId, \Illuminate\Support\Collection $sellerIds): bool
+    {
+        $onProperty = DB::table('document_properties as dp')
+            ->join('documents as d', 'd.id', '=', 'dp.document_id')
+            ->where('dp.property_id', $property->id)
+            ->where('d.document_type_id', $typeId)
+            ->whereNull('d.deleted_at')
+            ->exists();
+
+        if ($onProperty) {
+            return true;
+        }
+
+        if ($sellerIds->isEmpty()) {
+            return false;
+        }
+
+        return DB::table('document_contacts as dc')
+            ->join('documents as d', 'd.id', '=', 'dc.document_id')
+            ->whereIn('dc.contact_id', $sellerIds)
+            ->where('d.document_type_id', $typeId)
+            ->whereNull('d.deleted_at')
+            ->exists();
     }
 
     /**

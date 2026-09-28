@@ -147,6 +147,15 @@
                             <button type="button" x-data x-on:click="$dispatch('open-modal', 'l-sample-picker')" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">
                                 Choose sample
                             </button>
+                        @elseif($row->item === 'm')
+                            <div class="flex flex-col gap-1">
+                                <a href="{{ route('admin.ppra-inspection-pack.mandate-register') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">
+                                    {{ in_array($row->status, ['amber', 'red']) ? 'Fix gaps (register)' : 'View register' }}
+                                </a>
+                                <button type="button" x-data x-on:click="$dispatch('open-modal', 'm-sample-picker')" class="text-xs font-semibold text-left" style="color:var(--brand-icon,#0ea5e9);">
+                                    Choose sample
+                                </button>
+                            </div>
                         @else
                             <span class="text-xs" style="color:var(--text-muted);">—</span>
                         @endif
@@ -161,4 +170,5 @@
 
 <x-ppra-sample-picker mode="deal" name="k-sample-picker" title="Choose sales sample" />
 <x-ppra-sample-picker mode="rental" name="l-sample-picker" title="Choose rental sample" />
+<x-ppra-sample-picker mode="listing" name="m-sample-picker" title="Choose mandate sample" />
 @endsection
