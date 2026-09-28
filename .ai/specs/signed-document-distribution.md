@@ -97,6 +97,18 @@ own consumer; this one already covers you.
 - **PDF generation** is entirely the caller's job — `RentalInspectionReportPdfService::generate()`
   (unrelated to this service) produces the `Barryvdh\DomPDF\PDF` object; the caller calls `->output()`
   for bytes. The distribution service never generates a PDF itself.
+  **Johan's ruling, 2026-09-28** (report-fixes round, after verifying this service's own auto-email path
+  end to end): the PDF this service emails out must carry the actual signature image, not a text-only
+  "Signed" — it is the record a recipient with no CoreX login receives, and it has to stand on its own as
+  evidence. The existing "no photos in the PDF" rule (room/item photos still live behind the QR/public
+  link only, §15.9/§36 of `rental-inspections.md`) is explicitly **unchanged — it applies to line/room
+  photos, never to signature images.** Both PDF services (inspection + inventory) now embed
+  `party_signature_path` for a `disposition = signed` row via the shared
+  `App\Support\StorageDataUri::fromPublicStoragePath()` helper — base64 `data:` URI, read straight off
+  the 'public' disk, so DomPDF never fetches it over HTTP. Wet-ink evidence (`RentalInspectionSignature::
+  DISPOSITION_WET_INK`) is deliberately excluded from this — its own docblock: "never presentable as [a
+  signature] on screen" — it stays text + a link, exactly as before. Full writeup:
+  `rental-inspections.md` §38, `rental-inventory.md` §19.
 - **Print** is not a service method — it's `@media print` CSS on whatever public page your module
   already serves (see `resources/views/rental-inspections/public/show.blade.php`'s own `<style>`
   block for the pattern: hide screen-only card chrome, `break-inside:avoid` on each content section,

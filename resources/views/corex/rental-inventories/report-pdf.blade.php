@@ -28,6 +28,11 @@
     .cond-col { width: 30%; }
     .sig-table { width: 100%; margin-top: 16pt; border-collapse: collapse; }
     .sig-table td { font-size: 8pt; padding: 3pt 4pt; border-top: 0.5pt solid #ccc; }
+    {{-- Johan, 2026-09-28 — "the PDF is the signed record that gets
+         auto-emailed... it must carry the actual signature images." Kept
+         to a sensible size — this is a printed legal record, not a canvas
+         viewer. --}}
+    .sig-image { max-height: 50px; margin-top: 3pt; display: block; }
 </style>
 </head>
 <body>
@@ -106,6 +111,9 @@
                     <td>
                         {{ $signature->disposition === 'signed' ? 'Signed' : 'Refused to sign' }}
                         {{ $signature->disposition_recorded_at?->format('d M Y, H:i') }}
+                        @if($signature->disposition === 'signed' && ($signatureImages[$signature->id] ?? null))
+                            <img class="sig-image" src="{{ $signatureImages[$signature->id] }}" alt="{{ ucfirst($signature->party_role) }} signature">
+                        @endif
                     </td>
                 </tr>
             @endforeach

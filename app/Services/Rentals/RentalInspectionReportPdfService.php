@@ -5,6 +5,7 @@ namespace App\Services\Rentals;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionSetting;
+use App\Support\StorageDataUri;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\QrCode;
@@ -125,12 +126,28 @@ class RentalInspectionReportPdfService
             $qrDataUri = (new PngWriter())->write($qrCode)->getDataUri();
         }
 
+        // Johan, 2026-09-28 — "the PDF is the signed record that gets
+        // auto-emailed... it must carry the actual signature images. A
+        // text-only 'signed' PDF is not acceptable." Wet-ink evidence is
+        // deliberately excluded — RentalInspectionSignature::
+        // DISPOSITION_WET_INK's own docblock: "never presentable as [a
+        // signature] on screen," the same reason it already renders as
+        // text + a link rather than an image everywhere else. Only a real
+        // canvas-drawn signature (disposition=signed) gets embedded.
+        $signatureRows = collect($inspection->signatureSummaryRows())->map(function (array $row) {
+            $row['signature_image_data_uri'] = $row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED
+                ? StorageDataUri::fromPublicStoragePath($row['signature']->party_signature_path)
+                : null;
+
+            return $row;
+        })->all();
+
         return Pdf::loadView('corex.rental-inspections.report-pdf', [
             'inspection' => $inspection,
             'rows' => $rows,
             'publicUrl' => $publicUrl,
             'qrDataUri' => $qrDataUri,
-            'signatureRows' => $inspection->signatureSummaryRows(),
+            'signatureRows' => $signatureRows,
             'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
         ])->setPaper('a4', 'portrait');

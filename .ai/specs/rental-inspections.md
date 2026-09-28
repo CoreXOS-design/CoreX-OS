@@ -6219,3 +6219,49 @@ read-only, no writes: opened a real photo tile on Bedroom 1 → Windows — the 
 visible (`display:none` via `x-show`).
 
 `php -l` clean on `show.blade.php`.
+
+## 38. Signed PDF report — embeds the actual signature image, not text-only "Signed" (2026-09-28, Johan's ruling)
+
+Johan, verifying the report-fixes work from §36/§41 (public share page + signed PDF) live: the signed
+PDF is the record that gets auto-emailed to the tenant and landlord (`SignedDocumentDistributionService`,
+§41) — a text-only "Signed" line is not acceptable for a document standing in as legal evidence of who
+actually signed. **Explicit ruling: leave the existing "no photos in the PDF" rule (§15.9/§36) exactly as
+it is — item/room photos still live behind the QR/public-link only — this applies to signature images
+only.** A signature is not a room photo; it is the one piece of visual evidence the whole document exists
+to carry, and it was the only thing genuinely missing.
+
+**What was built.** `App\Support\StorageDataUri::fromPublicStoragePath()` — a small, shared, stateless
+helper (used by both this report and Inventory's own, §19 of `rental-inventory.md`; the gap was one class,
+not two instances) that reads a `party_signature_path` (or any other 'public'-disk-stored path) straight
+off disk and returns a `data:` URI. **Base64, never a URL** — DomPDF's `isRemoteEnabled` stays off, so the
+PDF-generation path never makes an HTTP round trip to its own app (or, worse, becomes a live SSRF vector)
+just to fetch an image it could read locally. `party_signature_path`/`wet_ink_upload_path` are always
+stored as the PUBLIC URL form (`Storage::disk('public')->url($path)`, e.g.
+`/storage/properties/{id}/.../sig_....png`) — the helper strips everything up to and including the
+`/storage/` segment to recover the real disk-relative key before reading. Returns `null` (never throws) on
+a missing/unreadable file — a signature image is evidence, never load-bearing for whether the PDF itself
+renders.
+
+**Wet-ink stays exactly as it already was — text + a link, never an inline image.** This is not an
+oversight; `RentalInspectionSignature::DISPOSITION_WET_INK`'s own docblock is explicit: "evidence of a
+real signature, but never presentable as one on screen." A canvas-drawn signature and a photographed
+paper page are different classes of evidence, and rendering both identically inline would blur exactly the
+distinction that docblock exists to hold. Only `disposition === DISPOSITION_SIGNED` (`party_signature_path`)
+gets embedded.
+
+**Wiring.** `RentalInspectionReportPdfService::generate()` maps `RentalInspection::signatureSummaryRows()`'s
+own output (§41), adding one new `signature_image_data_uri` key per row (null for refused/wet-ink/not-
+required rows) — the SAME shared resolver the public page also reads, still the one place "who signed, and
+how" is decided; only the PDF service ever calls `StorageDataUri` on top of it. `report-pdf.blade.php`
+renders it with a new `.sig-image` class (`max-height: 50px` — Johan's own sizing call, "a sensible size…
+this is a printed legal record, not a canvas viewer") directly under the existing "Signed" text, inside the
+same signatures table cell — no layout restructuring.
+
+**Verified**, real throwaway data, never property 5294 (per Johan's own standing instruction on this whole
+report-fixes round): property 21062/inspection 36 (2 items, 3 real 400×150 canvas signatures — tenant,
+landlord, agent — same real-sized-PNG fixture built for §19's inventory proof), downloaded the real,
+live-generated PDF over real HTTPS as user 365, and confirmed via `pdfimages -list` that the QR code AND
+all three signature images are genuinely embedded as raster objects in the PDF (not just referenced) —
+four images total, three at 400×150 matching the real signature dimensions exactly, none of them
+served/streamed over HTTP at render time (base64-inlined, confirmed by inspecting the compiled Blade
+source — no `<img src="https://...">` for a signature anywhere in this file).

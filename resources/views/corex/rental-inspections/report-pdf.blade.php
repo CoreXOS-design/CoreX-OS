@@ -44,6 +44,11 @@
     .notes-callout-blue  { background: #eaf6fc; border-left-color: {{ $severityColors['blue'] }}; }
     .sig-table { width: 100%; margin-top: 16pt; border-collapse: collapse; }
     .sig-table td { font-size: 8pt; padding: 3pt 4pt; border-top: 0.5pt solid #ccc; }
+    {{-- Johan, 2026-09-28 — "the PDF is the signed record that gets
+         auto-emailed... it must carry the actual signature images." Kept
+         to a sensible size — this is a printed legal record, not a canvas
+         viewer. --}}
+    .sig-image { max-height: 50px; margin-top: 3pt; display: block; }
 </style>
 </head>
 <body>
@@ -149,6 +154,9 @@
                         Signed (wet-ink upload)
                     @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED)
                         <span class="cond-blue">Signed</span>
+                        @if($row['signature_image_data_uri'])
+                            <img class="sig-image" src="{{ $row['signature_image_data_uri'] }}" alt="{{ $row['role'] }} signature">
+                        @endif
                     @else
                         <span class="muted">Outstanding</span>
                     @endif

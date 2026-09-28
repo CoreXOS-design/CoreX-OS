@@ -2467,3 +2467,45 @@ fully-signed inventory still renders cleanly) plus 6 new tests in `RentalInvento
 foreign room; the complete endpoint's JSON carries the structured `unvisited_rooms` list with correct
 id/label; other refusal kinds omit that key entirely). 66/66 tests green across the whole
 `tests/Feature/RentalInventory/` directory (9 new, 57 pre-existing unchanged).
+
+## 19. Report-fixes round — empty rooms, signature identity, and real signature images on the signed record (2026-09-28, Johan)
+
+Four bugs found and fixed in one sequence, verifying the Job 3 distribution wiring (§17) end to end for
+real on a throwaway property/lease/inventory (agency 1, user 365; never property 5294 or its own
+inventories — Johan's standing instruction for this whole round):
+
+1. **Empty-marked rooms silently absent from the PDF and the public page.** Both
+   `RentalInventoryReportPdfService::generate()` and `RentalInventoryPublicController::show()` grouped
+   rooms purely from `$inventory->lines` — a room with an explicit `RentalInventoryRoomMark` (§12) but no
+   lines never appeared on either document, indistinguishable from a room nobody ever checked. The
+   authenticated show page already got this right in the same-day "every-space" rebuild; the PDF and
+   public page were the two surfaces that never got the matching fix. Both now also load `roomMarks.room`
+   and render a "Checked — nothing recorded in this room" section for any room that carries a mark but no
+   lines, in the property's own room order, alongside the item-table sections.
+2. **The agent's signature row showed no name** on the show page, the public page, AND the signed PDF —
+   one bug class, three surfaces. `RentalInventoryRecordingController::storeSignature()` never sets
+   `party_contact_id` for `party_role = 'agent'` (an agent is a CoreX user, not a Contact), so every place
+   that resolved a signer's name via `partyContact` alone silently printed a bare "Agent". Fixed by falling
+   back to the signature's own `recordedByUser` relation (the real person who signed) everywhere the role
+   label is rendered.
+3. **The public page never rendered a signature image at all** — parity fix with the rental-inspection
+   public page, which already does. Same `<img src="{{ $signature->party_signature_path }}">` pattern.
+4. **The signed PDF never embedded a signature image either — text-only "Signed."** Johan's ruling: the
+   PDF is the record that gets auto-emailed to the tenant and landlord; a text-only "signed" PDF is not
+   acceptable evidence. **The existing "no photos in the PDF" rule (line/room photos still live behind the
+   QR/public-link only) is explicitly unchanged — this applies to signature images only.** Built via the
+   SAME shared helper as the inspection report's own fix (`.ai/specs/rental-inspections.md` §38) —
+   `App\Support\StorageDataUri::fromPublicStoragePath()` — reading the file straight off the 'public' disk
+   and returning a base64 `data:` URI (never a URL DomPDF would have to fetch over HTTP). Inventory has no
+   wet-ink disposition, so this is a straight `disposition === 'signed' → embed` map keyed by signature id
+   (`RentalInventoryReportPdfService::generate()`), rendered via a `.sig-image` class (`max-height: 50px`)
+   directly under the existing "Signed" text in `report-pdf.blade.php`'s signatures table.
+
+**Verified, real throwaway data, never property 5294**, three separate rounds as each bug was found and
+fixed (property 21061/inventory 12 for #1; property 21062/inventory 13, re-signed with real 400×150
+canvas-drawn PNGs after an initial pass used 1×1 placeholders, for #2/#3/#4): public page, show page, and
+signed PDF each re-checked over real HTTPS as user 365 after every fix; final proof for #4 via
+`pdfimages -list` on the live-downloaded PDF, confirming 3 real 400×150 signature images genuinely
+embedded as raster objects (not referenced/streamed) alongside the QR. Existing
+`RentalInventoryDistributionTest::test_public_share_page_renders_for_a_valid_token...` re-run and green
+after each round. Both throwaway inventories (12 and 13) kept live, undeleted, until Johan says archive.

@@ -3,6 +3,8 @@
 namespace App\Services\Rentals;
 
 use App\Models\RentalInventory;
+use App\Models\RentalInventorySignature;
+use App\Support\StorageDataUri;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Endroid\QrCode\ErrorCorrectionLevel;
 use Endroid\QrCode\QrCode;
@@ -66,12 +68,24 @@ class RentalInventoryReportPdfService
             $qrDataUri = (new PngWriter())->write($qrCode)->getDataUri();
         }
 
+        // Johan, 2026-09-28 — "the PDF is the signed record that gets
+        // auto-emailed... it must carry the actual signature images. A
+        // text-only 'signed' PDF is not acceptable." Inventory has no
+        // wet-ink disposition, so unlike the inspection PDF this is a
+        // straight "signed → embed" map, keyed by signature id (this
+        // view reads $inventory->signatures directly, not a shared
+        // signatureSummaryRows()-style resolver).
+        $signatureImages = $inventory->signatures
+            ->filter(fn (RentalInventorySignature $s) => $s->disposition === RentalInventorySignature::DISPOSITION_SIGNED)
+            ->mapWithKeys(fn (RentalInventorySignature $s) => [$s->id => StorageDataUri::fromPublicStoragePath($s->party_signature_path)]);
+
         return Pdf::loadView('corex.rental-inventories.report-pdf', [
             'inventory' => $inventory,
             'linesByRoom' => $linesByRoom,
             'emptyRoomLabels' => $emptyRoomLabels,
             'publicUrl' => $publicUrl,
             'qrDataUri' => $qrDataUri,
+            'signatureImages' => $signatureImages,
         ])->setPaper('a4', 'portrait');
     }
 
