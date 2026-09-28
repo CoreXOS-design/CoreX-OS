@@ -3,9 +3,9 @@
 # CoreX OS — Deploy Script (DEPLOY-1 v2)
 #
 # Replaces the legacy four-line deploy with a single safe, ordered pipeline:
-# pre-flight → off-server backup → maintenance → pull → migrate → reference-
-# seed → build → cache+opcache → queue restart → verify → up. Aborts on any
-# failure; the backup taken in step 2 is the rollback source.
+# pre-flight → off-server backup → maintenance → pull → storage permissions →
+# migrate → reference-seed → build → cache+opcache → queue restart → verify →
+# up. Aborts on any failure; the backup taken in step 2 is the rollback source.
 #
 # Usage:
 #   /corex-staging/scripts/deploy.sh staging
@@ -37,6 +37,8 @@
 #       /bin/systemctl reload nginx
 #       /usr/bin/supervisorctl
 #       /bin/systemctl restart hfc-queue* / corex-worker* (if present)
+#       /bin/chown -R www-data:www-data storage bootstrap/cache   (STEP 5, 2026-09-28)
+#       /bin/chmod -R ug+rwX storage bootstrap/cache               (STEP 5, 2026-09-28)
 # =============================================================================
 
 set -euo pipefail
@@ -354,10 +356,36 @@ EXPECTED_SHA=$(git rev-parse "origin/$BRANCH")
 ok "Pulled: $PREV_SHA → $NEW_SHA"
 
 # =============================================================================
-# STEP 5 — COMPOSER + MIGRATE
+# STEP 5 — STORAGE PERMISSIONS (bug class fix, 2026-09-28)
 # =============================================================================
-CURRENT_STEP="5 / composer + migrate"
-step 5 "composer install (--no-dev) + php artisan migrate --force"
+CURRENT_STEP="5 / storage permissions"
+step 5 "enforce storage/ + bootstrap/cache/ ownership + permissions"
+
+# 2026-09-28 — storage/app/whistleblow/complaints turned up owned root:www-data
+# mode 2755 (no group-write) on QA1, instead of the www-data:www-data 2775
+# every other runtime-written storage/app subdir has. Root cause: some artisan
+# invocation ran as root (a manual sudo session, most likely) and mkdir()'d
+# that specific subdirectory before php-fpm (www-data) ever did — PHP's
+# mkdir($path, 0755) calls throughout the app pass an explicit mode with no
+# group-write bit, so ANY subdirectory a non-www-data process creates first
+# carries this defect, not just this one. www-data (php-fpm) can then never
+# write into it again — found via WhistleblowComplaintService::generatePdf()
+# throwing "Permission denied" on approve(), blocking every new whistleblow
+# complaint. Fixed every deploy, not once: chown/chmod the whole storage/ +
+# bootstrap/cache/ tree back to www-data:www-data with group-write, so any
+# directory that drifted (by any process, any time) self-heals within one
+# deploy cycle rather than persisting indefinitely. Runs before composer
+# install / migrate / seeders / caches below, since those can themselves
+# write into storage/bootstrap-cache and should see correct ownership too.
+sudo chown -R www-data:www-data storage bootstrap/cache
+sudo chmod -R ug+rwX storage bootstrap/cache
+ok "storage/ + bootstrap/cache/ → www-data:www-data, group-writable (ug+rwX)"
+
+# =============================================================================
+# STEP 6 — COMPOSER + MIGRATE
+# =============================================================================
+CURRENT_STEP="6 / composer + migrate"
+step 6 "composer install (--no-dev) + php artisan migrate --force"
 
 composer install --no-dev --no-interaction --optimize-autoloader --prefer-dist
 ok "Composer dependencies installed"
@@ -366,10 +394,10 @@ php artisan migrate --force
 ok "Migrations applied"
 
 # =============================================================================
-# STEP 6 — REFERENCE SEEDERS (explicit, NEVER db:seed)
+# STEP 7 — REFERENCE SEEDERS (explicit, NEVER db:seed)
 # =============================================================================
-CURRENT_STEP="6 / reference seeders"
-step 6 "run reference seeders explicitly (NEVER db:seed)"
+CURRENT_STEP="7 / reference seeders"
+step 7 "run reference seeders explicitly (NEVER db:seed)"
 
 # CRITICAL: do NOT call `php artisan db:seed`. Even with SEED-GUARD in place
 # (database/seeders/DatabaseSeeder.php), refuse the abstraction here — each
@@ -432,10 +460,10 @@ php artisan corex:sync-permissions --merge-defaults >> "$LOG_FILE" 2>&1
 ok "Permission keys synced (additive — customisations preserved)"
 
 # =============================================================================
-# STEP 7 — FRONTEND BUILD
+# STEP 8 — FRONTEND BUILD
 # =============================================================================
-CURRENT_STEP="7 / frontend build"
-step 7 "npm ci + npm run build"
+CURRENT_STEP="8 / frontend build"
+step 8 "npm ci + npm run build"
 
 # `npm ci` is reproducible (uses package-lock.json verbatim); `npm install`
 # would silently mutate package-lock.
@@ -448,10 +476,10 @@ php artisan storage:link >/dev/null 2>&1 || true
 ok "storage:link OK"
 
 # =============================================================================
-# STEP 8 — CACHES + OPCACHE
+# STEP 9 — CACHES + OPCACHE
 # =============================================================================
-CURRENT_STEP="8 / caches + opcache"
-step 8 "clear all caches + FPM opcache flush"
+CURRENT_STEP="9 / caches + opcache"
+step 9 "clear all caches + FPM opcache flush"
 
 # 8a. Drop Laravel's file-level caches (config, route, view, app, events,
 # compiled — `optimize:clear` runs all six).
@@ -480,10 +508,10 @@ ok "PHP-FPM opcache flushed (sudo systemctl reload php8.2-fpm)"
 sudo systemctl reload nginx 2>/dev/null || warn "nginx reload not available (skipped)"
 
 # =============================================================================
-# STEP 9 — QUEUE WORKERS
+# STEP 10 — QUEUE WORKERS
 # =============================================================================
-CURRENT_STEP="9 / queue workers"
-step 9 "signal + restart queue workers"
+CURRENT_STEP="10 / queue workers"
+step 10 "signal + restart queue workers"
 
 # 9a. Laravel-level signal — workers stop cleanly after their current job.
 # Always safe; works even when no host-level worker manager is installed.
@@ -538,10 +566,10 @@ fi
 ok "Worker mechanism: $WORKER_MECHANISM"
 
 # =============================================================================
-# STEP 10 — VERIFY (any failure here triggers the failure trap → rollback)
+# STEP 11 — VERIFY (any failure here triggers the failure trap → rollback)
 # =============================================================================
-CURRENT_STEP="10 / verify"
-step 10 "verify deployment"
+CURRENT_STEP="11 / verify"
+step 11 "verify deployment"
 
 # 10a. HEAD pinned.
 CHECK_SHA=$(git rev-parse HEAD)
@@ -561,18 +589,18 @@ php artisan view:cache >/dev/null 2>&1 || fail "view:cache re-compile failed —
 ok "Compiled views fresh"
 
 # =============================================================================
-# STEP 11 — END MAINTENANCE
+# STEP 12 — END MAINTENANCE
 # =============================================================================
-CURRENT_STEP="11 / up"
-step 11 "exit maintenance mode"
+CURRENT_STEP="12 / up"
+step 12 "exit maintenance mode"
 php artisan up
 MAINT_MODE_ON=0
 ok "Site is live"
 
 # =============================================================================
-# STEP 12 — SUCCESS SUMMARY
+# STEP 13 — SUCCESS SUMMARY
 # =============================================================================
-CURRENT_STEP="12 / summary"
+CURRENT_STEP="13 / summary"
 DURATION=$SECONDS
 TAG="deploy-${ENV_NAME}-${START_TS}"
 git tag -a "$TAG" -m "Deploy $NEW_SHA to $ENV_NAME" 2>/dev/null || true
