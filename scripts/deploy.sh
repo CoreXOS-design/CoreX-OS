@@ -377,9 +377,23 @@ step 5 "enforce storage/ + bootstrap/cache/ ownership + permissions"
 # deploy cycle rather than persisting indefinitely. Runs before composer
 # install / migrate / seeders / caches below, since those can themselves
 # write into storage/bootstrap-cache and should see correct ownership too.
-sudo chown -R www-data:www-data storage bootstrap/cache
-sudo chmod -R ug+rwX storage bootstrap/cache
-ok "storage/ + bootstrap/cache/ → www-data:www-data, group-writable (ug+rwX)"
+#
+# 2026-09-28 (Johan) — this step is DELIBERATELY NON-FATAL. Under this
+# script's set -e + ERR trap, a bare `sudo chown ...` that fails (the two
+# passwordless-sudo grants this needs are documented above but may not be
+# provisioned on every host yet) would abort the ENTIRE deploy — turning a
+# missing sudo grant into "no deploy can ever complete," which is worse
+# than the storage-permission bug this step exists to fix. Wrapped in its
+# own if/else instead: a failure here warns (never silently swallowed —
+# full output printed) and the deploy continues. The storage-permission
+# bug class stays possible on THIS host until the grant is added, but
+# nothing else breaks because of it.
+if PERM_OUT="$(sudo chown -R www-data:www-data storage bootstrap/cache 2>&1 && sudo chmod -R ug+rwX storage bootstrap/cache 2>&1)"; then
+    ok "storage/ + bootstrap/cache/ → www-data:www-data, group-writable (ug+rwX)"
+else
+    echo "$PERM_OUT"
+    warn "storage/bootstrap-cache ownership+permission enforcement failed — continuing deploy anyway. Add the passwordless-sudo grants in this script's own prerequisites header, then re-run this step manually (or the next deploy)."
+fi
 
 # =============================================================================
 # STEP 6 — COMPOSER + MIGRATE
