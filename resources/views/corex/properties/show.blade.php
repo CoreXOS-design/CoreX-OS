@@ -8478,8 +8478,28 @@
                 activeWetInkKey: null,
                 wetInkForm: {},
                 wetInkBusy: {},
+                // Found 2026-09-29 via a real click-through (rental-inventory.md
+                // §21) — a genuine Alpine/Vue-reactivity gotcha, not a logic
+                // bug: `(this.wetInkForm[key] = {file:null})` as a single
+                // assignment EXPRESSION evaluates to the raw object being
+                // assigned, NOT a re-read through the reactive Proxy's own
+                // getter. The FIRST time a template binding (:disabled,
+                // x-text) called this for a given key, it got back that raw,
+                // never-wrapped object and tracked a dependency on ITS
+                // `.file` property, which the reactive system never
+                // instruments since it was never accessed via the Proxy. A
+                // LATER @change mutation re-reads `this.wetInkForm[key]`
+                // through the reactive getter (properly wrapped) and sets
+                // `.file` there — correctly, but nothing was ever subscribed
+                // to THAT path, so :disabled/x-text silently never updated.
+                // This button has shipped since §16 with no real-browser
+                // click-through ever having proven it (§17.7's own docblock).
+                // Splitting the assignment into its own statement means
+                // every return value, including the very first call for a
+                // key, is a fresh reactive read.
                 wetInkField(key) {
-                    return this.wetInkForm[key] || (this.wetInkForm[key] = { file: null });
+                    if (!this.wetInkForm[key]) { this.wetInkForm[key] = { file: null }; }
+                    return this.wetInkForm[key];
                 },
                 openWetInkFor(key) {
                     this.activeSigningKey = null;

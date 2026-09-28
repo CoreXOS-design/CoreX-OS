@@ -613,7 +613,25 @@ function rentalInventoryShow(inventoryId) {
         wetInkForm: {},
         wetInkBusy: {},
         wetInkContext: {},
-        wetInkField(key) { return this.wetInkForm[key] || (this.wetInkForm[key] = { file: null }); },
+        // Found via the real click-through (rental-inventory.md §21) — a
+        // genuine Alpine/Vue-reactivity gotcha, not a logic bug: `(this.
+        // wetInkForm[key] = {file:null})` as a single assignment EXPRESSION
+        // evaluates to the raw object being assigned, NOT a re-read through
+        // the reactive Proxy's own getter. The FIRST time a template binding
+        // (:disabled, x-text) called this for a given key, it got back that
+        // raw, never-wrapped object and tracked a dependency on ITS `.file`
+        // property — which the reactive system never instruments, since
+        // it was never accessed via the Proxy. A LATER @change mutation
+        // (`wetInkField(key).file = file`) re-reads `this.wetInkForm[key]`
+        // through the reactive getter (properly wrapped this time) and sets
+        // `.file` there — correctly, but nothing was ever subscribed to
+        // THAT path, so :disabled/x-text silently never updated. Splitting
+        // the assignment into its own statement means every return value,
+        // including the very first call for a key, is a fresh reactive read.
+        wetInkField(key) {
+            if (!this.wetInkForm[key]) { this.wetInkForm[key] = { file: null }; }
+            return this.wetInkForm[key];
+        },
         openWetInkFor(key, existingSignatureId = null) {
             this.activeSigningKey = null;
             this.activeRefusalKey = null;
