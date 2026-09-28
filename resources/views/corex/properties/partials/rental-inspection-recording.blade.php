@@ -1384,6 +1384,22 @@
 
         <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>
 
+        {{-- Conductor brief 2026-09-29 — "print for signature": the same
+             report, plus blank signature blocks for every outstanding
+             party, to print and send/hand for a wet-ink signature. Not
+             gated on status !== 'awaiting_signature' the way the signing
+             block below is — an agent may want a printout before ANY
+             party has signed anything. --}}
+        <template x-if="!['completed', 'cancelled'].includes(currentInspection({{ $sectionJs }}).status)">
+            <div class="flex justify-end pt-1">
+                <a :href="inspectionUrls.inspectionsBase + '/' + currentInspection({{ $sectionJs }}).id + '/print-for-signature'"
+                   target="_blank" rel="noopener"
+                   class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); text-decoration:none;">
+                    Print for signature
+                </a>
+            </div>
+        </template>
+
         {{-- §15 (2026-09-20) — one shared signing block for both sections:
              per-tenant rows, the landlord row (if Property::
              sellerOwnerContact() resolves one — §15.4), then the agent's
@@ -1416,9 +1432,10 @@
                                 <span class="flex items-center gap-2">
                                     <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
                                           x-text="dispositionLabel(tenantDisposition({{ $sectionJs }}, tenant.contact_id))"></span>
-                                    <button type="button" x-show="canReplaceWetInk({{ $sectionJs }}, tenantDisposition({{ $sectionJs }}, tenant.contact_id))"
+                                    <button type="button" x-show="canActOnWetInk({{ $sectionJs }}, tenantDisposition({{ $sectionJs }}, tenant.contact_id))"
                                             @click="openWetInkFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
-                                            class="text-xs font-medium underline" style="color:var(--text-secondary);">Replace</button>
+                                            class="text-xs font-medium underline" style="color:var(--text-secondary);"
+                                            x-text="wetInkActionLabel(tenantDisposition({{ $sectionJs }}, tenant.contact_id))"></button>
                                 </span>
                             </template>
                             <template x-if="!tenantDisposition({{ $sectionJs }}, tenant.contact_id)">
@@ -1427,6 +1444,8 @@
                                             class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
                                     <button type="button" @click="openWetInkFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
                                             class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Wet ink</button>
+                                    <button type="button" @click="sendTenantForWetInk({{ $sectionJs }}, tenant)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Send for wet-ink</button>
                                     <button type="button" @click="openRefusalFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
                                             class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Refuses</button>
                                 </div>
@@ -1461,9 +1480,10 @@
                                     <span class="flex items-center gap-2">
                                         <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
                                               x-text="dispositionLabel(landlordDisposition({{ $sectionJs }}))"></span>
-                                        <button type="button" x-show="canReplaceWetInk({{ $sectionJs }}, landlordDisposition({{ $sectionJs }}))"
+                                        <button type="button" x-show="canActOnWetInk({{ $sectionJs }}, landlordDisposition({{ $sectionJs }}))"
                                                 @click="openWetInkFor({{ $sectionJs }} + '_landlord')"
-                                                class="text-xs font-medium underline" style="color:var(--text-secondary);">Replace</button>
+                                                class="text-xs font-medium underline" style="color:var(--text-secondary);"
+                                                x-text="wetInkActionLabel(landlordDisposition({{ $sectionJs }}))"></button>
                                     </span>
                                 </template>
                                 <template x-if="!landlordDisposition({{ $sectionJs }})">
@@ -1472,6 +1492,8 @@
                                                 class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
                                         <button type="button" @click="openWetInkFor({{ $sectionJs }} + '_landlord')"
                                                 class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Wet ink</button>
+                                        <button type="button" @click="sendLandlordForWetInk({{ $sectionJs }})"
+                                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Send for wet-ink</button>
                                         <button type="button" @click="openRefusalFor({{ $sectionJs }} + '_landlord')"
                                                 class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Refuses</button>
                                     </div>

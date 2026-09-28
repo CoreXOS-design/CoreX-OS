@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\DocumentType;
 use App\Models\PropertyRoom;
 use App\Models\RentalInventory;
 use App\Models\RentalInventoryLine;
@@ -10,9 +11,12 @@ use App\Models\RentalInventoryLineDisposition;
 use App\Models\RentalInventoryPhoto;
 use App\Models\RentalInventoryRoomMark;
 use App\Models\RentalInventorySignature;
+use App\Services\Distribution\SignedDocumentDistributionService;
 use App\Services\Images\PropertyImageStorer;
+use App\Support\Distribution\FileableDocumentAdapter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * .ai/specs/rental-inventory.md §4/§5 — adding/retiring lines and capturing
@@ -270,11 +274,13 @@ class RentalInventoryRecordingController extends Controller
 
     /**
      * POST /corex/rental-inventories/{inventory}/signatures — same shape and
-     * invariants as RentalInspectionRecordingController::storeSignature()
-     * (minus wet-ink, minus the sign_on_behalf-gated refusal-on-behalf
-     * permission — not built here, see the migration's own docblock).
+     * invariants as RentalInspectionRecordingController::storeSignature(),
+     * minus the sign_on_behalf-gated refusal-on-behalf permission (not built
+     * here, see the migration's own docblock). Conductor brief 2026-09-29 —
+     * wet-ink (disposition=wet_ink, with wet_ink_file) and the awaiting_wet_ink
+     * tracking marker are now accepted here too, same as inspections.
      */
-    public function storeSignature(Request $request, RentalInventory $rentalInventory): JsonResponse
+    public function storeSignature(Request $request, RentalInventory $rentalInventory, SignedDocumentDistributionService $distributionService): JsonResponse
     {
         $rentalInventory->assertEditable();
 
@@ -287,12 +293,24 @@ class RentalInventoryRecordingController extends Controller
             'disposition' => ['required', 'string', 'in:' . implode(',', [
                 RentalInventorySignature::DISPOSITION_SIGNED,
                 RentalInventorySignature::DISPOSITION_REFUSED,
+                RentalInventorySignature::DISPOSITION_WET_INK,
+                RentalInventorySignature::DISPOSITION_AWAITING_WET_INK,
             ])],
             'party_contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
             'signature_image' => ['nullable', 'string'],
+            // Same ceiling/mime list as RentalInspectionRecordingController's
+            // own wet_ink_file rule — a photographed or scanned paper page.
+            'wet_ink_file' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,heic'],
             'refusal_reason_preset' => ['nullable', 'string', 'max:60'],
             'refusal_reason_note' => ['nullable', 'string', 'max:2000'],
         ]);
+
+        // The agent is always present and signs live — never wet-ink, never
+        // "sent for a paper signature." Same guard as inspections.
+        if (in_array($validated['disposition'], [RentalInventorySignature::DISPOSITION_WET_INK, RentalInventorySignature::DISPOSITION_AWAITING_WET_INK], true)
+            && $validated['party_role'] === RentalInventorySignature::PARTY_AGENT) {
+            return response()->json(['message' => 'The agent is never wet-ink — the agent is always present and signs live.'], 422);
+        }
 
         if ($validated['party_role'] !== RentalInventorySignature::PARTY_AGENT) {
             $attributes = [
@@ -308,6 +326,9 @@ class RentalInventoryRecordingController extends Controller
         if (!empty($validated['signature_image'])) {
             $attributes['party_signature_path'] = RentalInventorySignature::storeCanvasImage($validated['signature_image'], $rentalInventory->property_id);
         }
+        if ($request->hasFile('wet_ink_file')) {
+            $attributes['wet_ink_upload_path'] = RentalInventorySignature::storeWetInkUpload($request->file('wet_ink_file'), $rentalInventory->property_id);
+        }
 
         try {
             $signature = RentalInventorySignature::capture($rentalInventory, $validated['party_role'], $validated['disposition'], $attributes);
@@ -315,7 +336,104 @@ class RentalInventoryRecordingController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        if ($validated['disposition'] === RentalInventorySignature::DISPOSITION_WET_INK && $request->hasFile('wet_ink_file')) {
+            $this->fileInventoryWetInkScan($rentalInventory, $signature, $request->file('wet_ink_file'), $distributionService);
+        }
+
         return response()->json($signature, 201);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/signatures/{signature}/supersede-wet-ink
+     * — Conductor brief 2026-09-29, mirrors RentalInspectionRecordingController
+     * ::supersedeWetInkSignature() exactly: correcting a wrong/unreadable
+     * upload, or resolving an awaiting_wet_ink row the first time a scan
+     * actually arrives. assertEditable() applies here same as every other
+     * capture-write endpoint on this controller (f9bd98e83's lock).
+     */
+    public function supersedeWetInkSignature(Request $request, RentalInventory $rentalInventory, RentalInventorySignature $signature, SignedDocumentDistributionService $distributionService): JsonResponse
+    {
+        abort_unless((int) $signature->rental_inventory_id === (int) $rentalInventory->id, 404);
+        $rentalInventory->assertEditable();
+
+        $validated = $request->validate([
+            'wet_ink_file' => ['required', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,heic'],
+        ]);
+
+        try {
+            $replacement = RentalInventorySignature::supersedeWetInk(
+                $signature,
+                $rentalInventory,
+                $validated['wet_ink_file'],
+                $request->user()->id,
+            );
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        $this->fileInventoryWetInkScan($rentalInventory, $replacement, $request->file('wet_ink_file'), $distributionService);
+
+        return response()->json($replacement, 201);
+    }
+
+    /**
+     * Conductor brief 2026-09-29 — files a party's wet-ink scan to the
+     * property's Document store via the SHARED SignedDocumentDistributionService.
+     * Byte-for-byte the same logic as RentalInspectionRecordingController's
+     * own fileInspectionWetInkScan() — see that method's own docblock for
+     * the full reasoning (why fileToProperty() needs PDF bytes, why the
+     * source_id is always the NEW signature row, why failures are absorbed
+     * rather than failing the capture that already succeeded).
+     */
+    private function fileInventoryWetInkScan(
+        RentalInventory $rentalInventory,
+        RentalInventorySignature $signature,
+        \Illuminate\Http\UploadedFile $file,
+        SignedDocumentDistributionService $distributionService,
+    ): void {
+        try {
+            $pdfBytes = $this->wetInkScanAsPdfBytes($file, $rentalInventory->property?->buildDisplayAddress() ?? '', ucfirst($signature->party_role) . ' — wet-ink signature');
+
+            $adapter = new FileableDocumentAdapter(
+                $rentalInventory->property,
+                'rental_inventory_signature_wet_ink',
+                $signature->id,
+            );
+            $filename = "wet-ink-{$signature->party_role}-{$signature->id}.pdf";
+            $document = $distributionService->fileToProperty($adapter, $pdfBytes, $filename);
+
+            if ($document && ! $document->document_type_id) {
+                $typeId = DocumentType::withTrashed()->where('slug', 'inventory_list')->value('id');
+                if ($typeId) {
+                    $document->forceFill(['document_type_id' => $typeId])->save();
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Rental inventory wet-ink scan filing failed', [
+                'inventory_id' => $rentalInventory->id,
+                'signature_id' => $signature->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /** Same logic as RentalInspectionRecordingController's own wetInkScanAsPdfBytes() — see that method's own docblock. */
+    private function wetInkScanAsPdfBytes(\Illuminate\Http\UploadedFile $file, string $propertyAddress, string $partyLabel): string
+    {
+        $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: '');
+        if ($extension === 'pdf') {
+            return file_get_contents($file->getRealPath());
+        }
+
+        $mime = $file->getMimeType() ?: 'image/jpeg';
+        $dataUri = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($file->getRealPath()));
+
+        return \Barryvdh\DomPDF\Facade\Pdf::loadView('corex.rental-signatures.wet-ink-scan-pdf', [
+            'imageDataUri' => $dataUri,
+            'propertyAddress' => $propertyAddress,
+            'partyLabel' => $partyLabel,
+            'uploadedAt' => now()->format('d M Y, H:i'),
+        ])->output();
     }
 
     /**

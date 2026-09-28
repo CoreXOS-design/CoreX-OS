@@ -37,6 +37,19 @@ class RentalInspectionSignature extends Model
      * same principle as a refusal never being presentable as a signature.
      */
     public const DISPOSITION_WET_INK = 'wet_ink';
+    /**
+     * Conductor brief 2026-09-29 — "the agent marks a party as sent [for a
+     * paper signature]. The screen shows who is outstanding." The scan
+     * hasn't arrived yet at this point — no upload, no signature image, no
+     * refusal. A tracking marker only, never a completing disposition:
+     * RentalInspection::markCompleted() refuses to complete while any party
+     * is still in this state (see that method's own guard). Never valid for
+     * party_role=agent, same as DISPOSITION_WET_INK. Resolved into
+     * DISPOSITION_WET_INK by supersedeWetInk() once the scan actually
+     * arrives — the SAME transition already used to correct a wrong
+     * wet-ink upload, just from a different starting disposition.
+     */
+    public const DISPOSITION_AWAITING_WET_INK = 'awaiting_wet_ink';
 
     protected $fillable = [
         'agency_id',
@@ -85,6 +98,17 @@ class RentalInspectionSignature extends Model
         return $this->disposition === self::DISPOSITION_WET_INK;
     }
 
+    public function isAwaitingWetInk(): bool
+    {
+        return $this->disposition === self::DISPOSITION_AWAITING_WET_INK;
+    }
+
+    /** Either wet-ink state — the two dispositions supersedeWetInk() below can replace. */
+    public function isReplaceableWetInk(): bool
+    {
+        return $this->isWetInk() || $this->isAwaitingWetInk();
+    }
+
     /**
      * §15.2a — the ONE place every invariant in this table is enforced, so
      * no caller (web controller today, a future mobile API controller
@@ -107,7 +131,7 @@ class RentalInspectionSignature extends Model
         if (! in_array($partyRole, [self::PARTY_TENANT, self::PARTY_LANDLORD, self::PARTY_AGENT], true)) {
             throw new \InvalidArgumentException("Unknown party_role: {$partyRole}");
         }
-        if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_REFUSED, self::DISPOSITION_WET_INK], true)) {
+        if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_REFUSED, self::DISPOSITION_WET_INK, self::DISPOSITION_AWAITING_WET_INK], true)) {
             throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
         }
 
@@ -123,6 +147,14 @@ class RentalInspectionSignature extends Model
             }
             if ($inspection->outstandingSignatories()->isNotEmpty()) {
                 throw new \LogicException('Cannot record the agent\'s signature until every tenant and the landlord has a disposition recorded — the agent\'s signature attests to the complete record, not a partial one.');
+            }
+            // Conductor brief 2026-09-29 — a party marked awaiting_wet_ink
+            // DOES have a live row, so outstandingSignatories() above never
+            // catches them; they still have no actual evidence yet, so the
+            // agent (who attests to the complete record) cannot sign until
+            // the scan arrives.
+            if ($inspection->firstAwaitingWetInkSignatory()) {
+                throw new \LogicException('Cannot record the agent\'s signature until every party\'s wet-ink upload has arrived — the agent\'s signature attests to the complete record, not a partial one.');
             }
             $attributes['party_contact_id'] = null;
             $attributes['wet_ink_upload_path'] = null;
@@ -182,7 +214,7 @@ class RentalInspectionSignature extends Model
                 }
                 $attributes['party_signature_path'] = null;
                 $attributes['wet_ink_upload_path'] = null;
-            } else { // wet_ink — evidence of a real signature, on paper, never rendered as an e-signature
+            } elseif ($disposition === self::DISPOSITION_WET_INK) { // evidence of a real signature, on paper, never rendered as an e-signature
                 if (empty($attributes['wet_ink_upload_path'])) {
                     throw new \InvalidArgumentException('A wet-ink disposition requires wet_ink_upload_path.');
                 }
@@ -190,6 +222,14 @@ class RentalInspectionSignature extends Model
                     throw new \InvalidArgumentException('A wet-ink disposition must not carry a canvas signature image — the two capture methods are never mixed on one row.');
                 }
                 $attributes['party_signature_path'] = null;
+                $attributes['refusal_reason_preset'] = null;
+                $attributes['refusal_reason_note'] = null;
+            } else { // awaiting_wet_ink — sent to be signed on paper; nothing has arrived yet
+                if (! empty($attributes['wet_ink_upload_path']) || ! empty($attributes['party_signature_path'])) {
+                    throw new \InvalidArgumentException('An awaiting-wet-ink disposition carries no upload and no signature image yet — those arrive via the supersede-wet-ink upload once the scan comes back.');
+                }
+                $attributes['party_signature_path'] = null;
+                $attributes['wet_ink_upload_path'] = null;
                 $attributes['refusal_reason_preset'] = null;
                 $attributes['refusal_reason_note'] = null;
             }
@@ -243,13 +283,16 @@ class RentalInspectionSignature extends Model
     }
 
     /**
-     * §16 — correcting a wrong or unreadable wet-ink upload. The document is
-     * evidence: never edited in place, never destroyed (non-negotiable #1).
-     * This marks the existing row superseded and captures a fresh one via
-     * capture() itself (never duplicating its invariants), inside one
-     * transaction so no window exists where either zero or two rows are
-     * live for this party. Old row's own file is left on disk untouched —
-     * the audit trail points to it via supersededBy(), not by removing it.
+     * §16 — correcting a wrong or unreadable wet-ink upload, AND (conductor
+     * brief 2026-09-29) resolving an awaiting_wet_ink row the FIRST time a
+     * scan actually arrives — the same transition, two different starting
+     * points. The document is evidence: never edited in place, never
+     * destroyed (non-negotiable #1). This marks the existing row superseded
+     * and captures a fresh DISPOSITION_WET_INK row via capture() itself
+     * (never duplicating its invariants), inside one transaction so no
+     * window exists where either zero or two rows are live for this party.
+     * Old row's own file (if it had one) is left on disk untouched — the
+     * audit trail points to it via supersededBy(), not by removing it.
      *
      * [design call] Refused once the agent has already signed: the agent's
      * signature attests to the complete record as it stood (§15.2a) — a
@@ -260,8 +303,8 @@ class RentalInspectionSignature extends Model
      */
     public static function supersedeWetInk(self $existing, RentalInspection $inspection, \Illuminate\Http\UploadedFile $file, ?int $recordedByUserId): self
     {
-        if (! $existing->isWetInk()) {
-            throw new \LogicException('Only a wet-ink disposition can be superseded this way — a signed or refused disposition is not corrected by re-upload.');
+        if (! $existing->isReplaceableWetInk()) {
+            throw new \LogicException('Only a wet-ink or awaiting-wet-ink disposition can be superseded this way — a signed or refused disposition is not corrected by re-upload.');
         }
         if ($existing->superseded_at !== null) {
             throw new \LogicException('This wet-ink upload has already been superseded.');

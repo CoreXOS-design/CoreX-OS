@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Models\DocumentType;
 use App\Models\Property;
 use App\Models\PropertyRoom;
 use App\Models\RentalInspection;
@@ -15,11 +16,14 @@ use App\Models\RentalInspectionScreenPreference;
 use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
 use App\Models\User;
+use App\Services\Distribution\SignedDocumentDistributionService;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\RentalInspectionPhotoAutoPairService;
+use App\Support\Distribution\FileableDocumentAdapter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 
 /**
@@ -1120,7 +1124,7 @@ class RentalInspectionRecordingController extends Controller
      * always for — an agent asserting something ON BEHALF of a party who
      * isn't signing, which recording a refusal genuinely is.
      */
-    public function storeSignature(Request $request, RentalInspection $rentalInspection): JsonResponse
+    public function storeSignature(Request $request, RentalInspection $rentalInspection, SignedDocumentDistributionService $distributionService): JsonResponse
     {
         $validated = $request->validate([
             'party_role' => ['required', 'string', 'in:' . implode(',', [
@@ -1132,6 +1136,10 @@ class RentalInspectionRecordingController extends Controller
                 RentalInspectionSignature::DISPOSITION_SIGNED,
                 RentalInspectionSignature::DISPOSITION_REFUSED,
                 RentalInspectionSignature::DISPOSITION_WET_INK,
+                // Conductor brief 2026-09-29 — "the agent marks a party as
+                // sent [for wet-ink]." A tracking marker; the actual scan
+                // arrives later via supersedeWetInkSignature() below.
+                RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK,
             ])],
             'party_contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
             'signature_image' => ['nullable', 'string'],
@@ -1153,7 +1161,10 @@ class RentalInspectionRecordingController extends Controller
         // evidence (the scan itself), same as recording a signed
         // disposition — so it stays behind the base rental_inspections.create
         // permission this whole endpoint already requires (route middleware).
-        if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_WET_INK
+        // awaiting_wet_ink carries no evidence yet, but is likewise never a
+        // stand-in assertion on the party's behalf — it just records that
+        // the agent handed them paper, same permission level.
+        if (in_array($validated['disposition'], [RentalInspectionSignature::DISPOSITION_WET_INK, RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK], true)
             && $validated['party_role'] === RentalInspectionSignature::PARTY_AGENT) {
             return response()->json(['message' => 'The agent is never wet-ink — the agent is always present and signs live.'], 422);
         }
@@ -1182,6 +1193,10 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_WET_INK && $request->hasFile('wet_ink_file')) {
+            $this->fileInspectionWetInkScan($rentalInspection, $signature, $request->file('wet_ink_file'), $distributionService);
+        }
+
         return response()->json($signature, 201);
     }
 
@@ -1192,7 +1207,7 @@ class RentalInspectionRecordingController extends Controller
      * never edited or destroyed (non-negotiable #1); RentalInspectionSignature
      * ::supersedeWetInk() marks it superseded and creates the replacement.
      */
-    public function supersedeWetInkSignature(Request $request, RentalInspection $rentalInspection, RentalInspectionSignature $signature): JsonResponse
+    public function supersedeWetInkSignature(Request $request, RentalInspection $rentalInspection, RentalInspectionSignature $signature, SignedDocumentDistributionService $distributionService): JsonResponse
     {
         abort_unless((int) $signature->rental_inspection_id === (int) $rentalInspection->id, 404);
 
@@ -1211,7 +1226,88 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        // Conductor brief 2026-09-29 — covers BOTH the "awaiting → wet_ink"
+        // first-real-upload transition and a wet_ink → wet_ink correction;
+        // either way the freshly-uploaded file gets filed as its own
+        // Document. The superseded row's own earlier filing (if any) is
+        // left exactly as it was — never removed (non-negotiable #1).
+        $this->fileInspectionWetInkScan($rentalInspection, $replacement, $request->file('wet_ink_file'), $distributionService);
+
         return response()->json($replacement, 201);
+    }
+
+    /**
+     * Conductor brief 2026-09-29 — files a party's wet-ink scan to the
+     * property's Document store, via the SHARED SignedDocumentDistributionService
+     * (never a bespoke second filing path). fileToProperty() only ever
+     * writes a PDF, so an image upload is wrapped in a one-page PDF first;
+     * an already-PDF upload is filed as its own raw bytes. Keyed on
+     * (source_type, source_id) = ('rental_inspection_signature_wet_ink',
+     * $signature->id) — a NEW signature id every time (the initial capture,
+     * or supersedeWetInk()'s replacement row), so a re-upload files its OWN
+     * new Document; the superseded row's earlier filing is untouched.
+     * Wrapped in its own try/catch — a filing failure must never fail the
+     * signature capture that already succeeded (same resilience pattern as
+     * fileAndMaybeEmailReport()'s own distribution try/catch in complete()).
+     */
+    private function fileInspectionWetInkScan(
+        RentalInspection $rentalInspection,
+        RentalInspectionSignature $signature,
+        \Illuminate\Http\UploadedFile $file,
+        SignedDocumentDistributionService $distributionService,
+    ): void {
+        try {
+            $pdfBytes = $this->wetInkScanAsPdfBytes($file, $rentalInspection->property?->buildDisplayAddress() ?? '', ucfirst($signature->party_role) . ' — wet-ink signature');
+
+            $adapter = new FileableDocumentAdapter(
+                $rentalInspection->property,
+                'rental_inspection_signature_wet_ink',
+                $signature->id,
+            );
+            $filename = "wet-ink-{$signature->party_role}-{$signature->id}.pdf";
+            $document = $distributionService->fileToProperty($adapter, $pdfBytes, $filename);
+
+            if ($document && ! $document->document_type_id) {
+                $typeId = DocumentType::withTrashed()->where('slug', 'inspection_report')->value('id');
+                if ($typeId) {
+                    $document->forceFill(['document_type_id' => $typeId])->save();
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Rental inspection wet-ink scan filing failed', [
+                'inspection_id' => $rentalInspection->id,
+                'signature_id' => $signature->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Conductor brief 2026-09-29 — shared by both inspections and inventory
+     * (the sibling helper on RentalInventoryRecordingController is
+     * byte-for-byte the same logic, kept duplicated per this module's own
+     * established precedent of two separate but mirrored implementations
+     * rather than a shared cross-module service — see RentalInventorySignature's
+     * own docblock for why). Already-PDF passthrough; an image is wrapped
+     * in the shared corex.rental-signatures.wet-ink-scan-pdf view via a
+     * base64 data: URI, so DomPDF never fetches it over HTTP.
+     */
+    private function wetInkScanAsPdfBytes(\Illuminate\Http\UploadedFile $file, string $propertyAddress, string $partyLabel): string
+    {
+        $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: '');
+        if ($extension === 'pdf') {
+            return file_get_contents($file->getRealPath());
+        }
+
+        $mime = $file->getMimeType() ?: 'image/jpeg';
+        $dataUri = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($file->getRealPath()));
+
+        return \Barryvdh\DomPDF\Facade\Pdf::loadView('corex.rental-signatures.wet-ink-scan-pdf', [
+            'imageDataUri' => $dataUri,
+            'propertyAddress' => $propertyAddress,
+            'partyLabel' => $partyLabel,
+            'uploadedAt' => now()->format('d M Y, H:i'),
+        ])->output();
     }
 
     /** POST /corex/rental-inspections/{inspection}/start-awaiting-signature */

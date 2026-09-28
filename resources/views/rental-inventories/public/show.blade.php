@@ -89,11 +89,16 @@
             </div>
         @endforeach
 
-        @if($inventory->signatures->isNotEmpty())
+        @php $liveInventorySignatures = $inventory->signatures->whereNull('superseded_at'); @endphp
+        @if($liveInventorySignatures->isNotEmpty())
             <div id="signatures" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                 <h2 class="text-sm font-bold uppercase tracking-wide text-slate-600 mb-3">Signatures</h2>
                 <div class="space-y-4">
-                    @foreach($inventory->signatures as $signature)
+                    {{-- Conductor brief 2026-09-29 — only LIVE (non-superseded)
+                         rows: a corrected wet-ink upload's old row stays in
+                         the record via supersededBy() but no longer prints
+                         here — its replacement is the current one. --}}
+                    @foreach($liveInventorySignatures as $signature)
                         {{-- Report-fixes, 2026-09-28 (Johan) — two fixes:
                              (1) the agent's own row never carries a
                              party_contact_id (an agent is a CoreX user, not
@@ -104,18 +109,44 @@
                              (2) the actual signature image was never shown
                              here at all — parity with the rental-inspection
                              public page, which already renders it. --}}
+                        @php
+                            // Conductor brief 2026-09-29 — wet_ink/awaiting_wet_ink
+                            // added alongside signed/refused. A wet-ink upload
+                            // is never presentable as an e-signature (same
+                            // principle as a refusal never being presentable
+                            // as one) — text + a link, never an <img> for a
+                            // PDF upload (the exact bug this build fixes on
+                            // the inspection public page — see that file's
+                            // own note for the full root cause).
+                            $statusLabel = match($signature->disposition) {
+                                'signed' => 'Signed',
+                                'wet_ink' => 'Signed on paper — scan on file',
+                                'awaiting_wet_ink' => 'Awaiting paper signature',
+                                default => 'Refused to sign',
+                            };
+                            $isImageScan = $signature->wet_ink_upload_path
+                                && in_array(strtolower(pathinfo($signature->wet_ink_upload_path, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'heic', 'heif']);
+                        @endphp
                         <div class="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
                             <div class="flex items-center justify-between text-sm">
                                 <span class="text-slate-600">
                                     {{ ucfirst($signature->party_role) }}{{ $signature->partyContact ? ' — ' . $signature->partyContact->full_name : ($signature->party_role === 'agent' && $signature->recordedByUser ? ' — ' . $signature->recordedByUser->name : '') }}
                                 </span>
                                 <span class="text-slate-500">
-                                    {{ $signature->disposition === 'signed' ? 'Signed' : 'Refused to sign' }}
+                                    {{ $statusLabel }}
                                     {{ $signature->disposition_recorded_at?->format('d M Y, H:i') }}
                                 </span>
                             </div>
                             @if($signature->disposition === 'signed' && $signature->party_signature_path)
                                 <img src="{{ $signature->party_signature_path }}" alt="{{ ucfirst($signature->party_role) }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                            @elseif($signature->disposition === 'wet_ink' && $signature->wet_ink_upload_path)
+                                @if($isImageScan)
+                                    <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener">
+                                        <img src="{{ $signature->wet_ink_upload_path }}" alt="{{ ucfirst($signature->party_role) }} wet-ink scan" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                    </a>
+                                @else
+                                    <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener" class="mt-2 inline-block text-sm font-semibold underline text-sky-600">View uploaded scan (PDF)</a>
+                                @endif
                             @endif
                         </div>
                     @endforeach

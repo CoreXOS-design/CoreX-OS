@@ -315,6 +315,31 @@ class RentalInspectionController extends Controller
     }
 
     /**
+     * GET /corex/rental-inspections/{inspection}/print-for-signature —
+     * conductor brief 2026-09-29. Same report, plus blank signature blocks
+     * for every outstanding party — the agent prints this and hands/sends
+     * it to whoever still needs to sign on paper. Mirrors report() exactly,
+     * including the same "ensure a live public link before printing a QR"
+     * step, so the same PDF can also stand in as the completed record once
+     * every party has signed (nobody needs to distinguish the two by URL).
+     */
+    public function printForSignature(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
+    {
+        $rentalInspection->loadMissing([
+            'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
+            'observations.item.room', 'observations.item', 'signatures.partyContact',
+        ]);
+
+        if (! $rentalInspection->publicLinkIsValid()) {
+            $rentalInspection->generatePublicLink();
+        }
+
+        $pdf = $service->generateForSignature($rentalInspection);
+
+        return $pdf->download($service->filenameForSignatureFor($rentalInspection));
+    }
+
+    /**
      * Johan's ruling, 2026-09-23 — "Next inspection" from any inspection:
      * the deliberate action that records the chain (RentalInspection::
      * startNext(), see its own docblock). Lands the agent on the new

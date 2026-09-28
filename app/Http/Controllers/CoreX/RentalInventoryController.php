@@ -137,7 +137,7 @@ class RentalInventoryController extends Controller
             'property', 'lease.tenants.contact',
             'lines.createdBy', 'lines.room',
             'roomMarks',
-            'signatures.partyContact', 'signatures.recordedByUser',
+            'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy',
             'createdBy', 'cancelledBy',
         ]);
 
@@ -185,6 +185,25 @@ class RentalInventoryController extends Controller
         $pdf = $service->generate($rentalInventory);
 
         return $pdf->download($service->filenameFor($rentalInventory));
+    }
+
+    /**
+     * GET /corex/rental-inventories/{inventory}/print-for-signature —
+     * conductor brief 2026-09-29. Same report, plus blank signature blocks
+     * for every outstanding party. Mirrors RentalInspectionController::
+     * printForSignature() exactly.
+     */
+    public function printForSignature(Request $request, RentalInventory $rentalInventory, \App\Services\Rentals\RentalInventoryReportPdfService $service)
+    {
+        $rentalInventory->loadMissing(['property', 'lease.tenants.contact', 'lines.room', 'lines.moveInPhotos', 'signatures.partyContact', 'createdBy']);
+
+        if (! $rentalInventory->publicLinkIsValid()) {
+            $rentalInventory->generatePublicLink();
+        }
+
+        $pdf = $service->generateForSignature($rentalInventory);
+
+        return $pdf->download($service->filenameForSignatureFor($rentalInventory));
     }
 
     /**

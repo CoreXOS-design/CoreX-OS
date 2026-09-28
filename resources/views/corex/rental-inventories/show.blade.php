@@ -50,6 +50,15 @@
             @if($inventory->status === \App\Models\RentalInventory::STATUS_COMPLETED && $inventory->lease_id)
                 <a href="{{ route('corex.rental-inventories.comparison', $inventory) }}" class="corex-btn-outline text-xs">Move-out comparison</a>
             @endif
+            {{-- Conductor brief 2026-09-29 — the agent captures the
+                 inventory, prints it, and sends it to the landlord/tenant
+                 for a wet-ink signature. Available any time the inventory
+                 isn't completed/cancelled — not gated on any party already
+                 being outstanding, since re-printing (a lost page, a fresh
+                 copy for a second party) is a normal, everyday action. --}}
+            @if(!in_array($inventory->status, ['completed', 'cancelled']))
+                <a href="{{ route('corex.rental-inventories.print-for-signature', $inventory) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs">Print for signature</a>
+            @endif
             <a href="{{ route('corex.rental-inventories.index') }}" class="corex-btn-outline text-xs">Back to list</a>
         </div>
     </div>
@@ -217,7 +226,12 @@
     <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold">Signatures</h2>
 
-        @foreach($inventory->signatures as $signature)
+        {{-- Conductor brief 2026-09-29 — only LIVE (non-superseded) rows:
+             a corrected wet-ink upload, or the awaiting_wet_ink row a real
+             upload just resolved, stays in the record via supersededBy()
+             but no longer prints here — its replacement is the current
+             one. --}}
+        @foreach($inventory->signatures->whereNull('superseded_at') as $signature)
             @php
                 // Report-fixes, 2026-09-28 (Johan) — the agent's own row
                 // never carries a party_contact_id (an agent is a CoreX
@@ -231,6 +245,12 @@
                     default => 'Tenant' . ($signature->partyContact ? ' — ' . $signature->partyContact->full_name : ''),
                 };
                 $reasonLabel = collect($refusalReasonPresets)->firstWhere('key', $signature->refusal_reason_preset)['label'] ?? $signature->refusal_reason_preset;
+                // §16 (inspections) parity — a wet-ink upload may still be
+                // replaced (a wrong/unreadable scan) as long as it hasn't
+                // been superseded already and the agent hasn't yet signed.
+                $canReplace = $signature->disposition === \App\Models\RentalInventorySignature::DISPOSITION_WET_INK
+                    && ! $inventory->hasAgentSignature()
+                    && !in_array($inventory->status, ['completed', 'cancelled']);
             @endphp
             <div class="text-sm py-2" style="border-bottom: 1px solid var(--border);">
                 <div class="flex items-center justify-between gap-3">
@@ -243,6 +263,31 @@
                         @if($signature->party_signature_path)
                             <div class="mt-1"><img src="{{ $signature->party_signature_path }}" alt="{{ $partyLabel }}'s signature" style="max-height: 60px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:4px;"></div>
                         @endif
+                    </div>
+                @elseif($signature->disposition === \App\Models\RentalInventorySignature::DISPOSITION_WET_INK)
+                    <div class="mt-1.5">
+                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Signed on paper — scan on file</span>
+                        @if($signature->wet_ink_upload_path)
+                            @php $isImage = in_array(strtolower(pathinfo($signature->wet_ink_upload_path, PATHINFO_EXTENSION)), ['jpg','jpeg','png','heic','heif']); @endphp
+                            <div class="mt-1">
+                                @if($isImage)
+                                    <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener"><img src="{{ $signature->wet_ink_upload_path }}" alt="{{ $partyLabel }} wet-ink scan" style="max-height: 60px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:4px;"></a>
+                                @else
+                                    <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener" class="text-xs font-semibold underline" style="color: var(--brand-button,#0ea5e9);">View uploaded scan (PDF)</a>
+                                @endif
+                            </div>
+                        @endif
+                        @if($canReplace)
+                            <button type="button" @click="openWetInkFor('{{ $signature->party_role }}_{{ $signature->party_contact_id }}', {{ $signature->id }})" class="text-xs font-medium underline mt-1" style="color: var(--text-secondary); background:none; border:none; cursor:pointer;">Replace</button>
+                            <template x-if="activeWetInkKey === '{{ $signature->party_role }}_{{ $signature->party_contact_id }}'">
+                                @include('corex.rental-inventories.partials._wetink-form', ['key' => "'{$signature->party_role}_{$signature->party_contact_id}'"])
+                            </template>
+                        @endif
+                    </div>
+                @elseif($signature->disposition === \App\Models\RentalInventorySignature::DISPOSITION_AWAITING_WET_INK)
+                    <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
+                        <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-secondary);">Awaiting paper signature</span>
+                        <div class="text-xs mt-0.5" style="color: var(--text-secondary);">Sent {{ $signature->disposition_recorded_at?->format('Y-m-d') }} — upload the scan below once it comes back.</div>
                     </div>
                 @else
                     <div class="mt-1.5 rounded-md px-3 py-2" style="background: var(--surface-2);">
@@ -268,14 +313,24 @@
                  disappearing here and appearing above happen in the same
                  reload, never out of sync. --}}
             @foreach($inventory->lease?->tenants ?? [] as $tenant)
-                <template x-if="!dispositionFor('tenant', {{ $tenant->contact_id }})">
+                <template x-if="needsAction('tenant', {{ $tenant->contact_id }})">
                     <div class="py-1.5" style="border-bottom:1px solid var(--border);">
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-sm" x-text="tenantName({{ $tenant->contact_id }}, '{{ addslashes($tenant->contact?->full_name ?? 'Tenant') }}')"></span>
-                            <div class="flex items-center gap-2">
-                                <button type="button" @click="openSigningFor('tenant_{{ $tenant->contact_id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Sign</button>
-                                <button type="button" @click="openRefusalFor('tenant_{{ $tenant->contact_id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Refuses</button>
-                            </div>
+                            <template x-if="isAwaitingWetInk('tenant', {{ $tenant->contact_id }})">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Awaiting paper signature</span>
+                                    <button type="button" @click="openWetInkFor('tenant_{{ $tenant->contact_id }}', dispositionFor('tenant', {{ $tenant->contact_id }}).id)" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Upload scan</button>
+                                </div>
+                            </template>
+                            <template x-if="!isAwaitingWetInk('tenant', {{ $tenant->contact_id }})">
+                                <div class="flex items-center gap-2">
+                                    <button type="button" @click="openSigningFor('tenant_{{ $tenant->contact_id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Sign</button>
+                                    <button type="button" @click="openWetInkFor('tenant_{{ $tenant->contact_id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Wet ink</button>
+                                    <button type="button" @click="sendForWetInkFor('tenant', {{ $tenant->contact_id }})" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Send for wet-ink</button>
+                                    <button type="button" @click="openRefusalFor('tenant_{{ $tenant->contact_id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Refuses</button>
+                                </div>
+                            </template>
                         </div>
                         <template x-if="activeSigningKey === 'tenant_{{ $tenant->contact_id }}'">
                             <div class="space-y-2 pt-2">
@@ -296,19 +351,32 @@
                                 <button type="button" @click="saveRefusalFor('tenant', {{ $tenant->contact_id }})" :disabled="!refusalField('tenant_{{ $tenant->contact_id }}').preset" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Record refusal</button>
                             </div>
                         </template>
+                        <template x-if="activeWetInkKey === 'tenant_{{ $tenant->contact_id }}'">
+                            @include('corex.rental-inventories.partials._wetink-form', ['key' => "'tenant_{$tenant->contact_id}'"])
+                        </template>
                     </div>
                 </template>
             @endforeach
 
             @if($landlordContact = $inventory->property?->sellerOwnerContact())
-                <template x-if="!dispositionFor('landlord', {{ $landlordContact->id }})">
+                <template x-if="needsAction('landlord', {{ $landlordContact->id }})">
                     <div class="py-1.5" style="border-bottom:1px solid var(--border);">
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-sm">{{ $landlordContact->full_name }} ({{ $ownerPartyLabel }})</span>
-                            <div class="flex items-center gap-2">
-                                <button type="button" @click="openSigningFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Sign</button>
-                                <button type="button" @click="openRefusalFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Refuses</button>
-                            </div>
+                            <template x-if="isAwaitingWetInk('landlord', {{ $landlordContact->id }})">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Awaiting paper signature</span>
+                                    <button type="button" @click="openWetInkFor('landlord_{{ $landlordContact->id }}', dispositionFor('landlord', {{ $landlordContact->id }}).id)" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Upload scan</button>
+                                </div>
+                            </template>
+                            <template x-if="!isAwaitingWetInk('landlord', {{ $landlordContact->id }})">
+                                <div class="flex items-center gap-2">
+                                    <button type="button" @click="openSigningFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Sign</button>
+                                    <button type="button" @click="openWetInkFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Wet ink</button>
+                                    <button type="button" @click="sendForWetInkFor('landlord', {{ $landlordContact->id }})" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Send for wet-ink</button>
+                                    <button type="button" @click="openRefusalFor('landlord_{{ $landlordContact->id }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);">Refuses</button>
+                                </div>
+                            </template>
                         </div>
                         <template x-if="activeSigningKey === 'landlord_{{ $landlordContact->id }}'">
                             <div class="space-y-2 pt-2">
@@ -328,6 +396,9 @@
                                 <input type="text" x-show="refusalField('landlord_{{ $landlordContact->id }}').preset === 'other'" x-model="refusalField('landlord_{{ $landlordContact->id }}').note" placeholder="Note (required for 'Other')" class="prop-input w-full">
                                 <button type="button" @click="saveRefusalFor('landlord', {{ $landlordContact->id }})" :disabled="!refusalField('landlord_{{ $landlordContact->id }}').preset" class="text-xs px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Record refusal</button>
                             </div>
+                        </template>
+                        <template x-if="activeWetInkKey === 'landlord_{{ $landlordContact->id }}'">
+                            @include('corex.rental-inventories.partials._wetink-form', ['key' => "'landlord_{$landlordContact->id}'"])
                         </template>
                     </div>
                 </template>
@@ -397,9 +468,11 @@
     // the finished array has zero top-level commas in the @json() call
     // itself, which is always safe regardless of how many keys it has.
     $signaturesForJs = $inventory->signatures->map(fn($s) => [
+        'id' => $s->id,
         'party_role' => $s->party_role,
         'party_contact_id' => $s->party_contact_id,
         'disposition' => $s->disposition,
+        'superseded_at' => $s->superseded_at,
     ]);
 @endphp
 @push('scripts')
@@ -445,12 +518,34 @@ function rentalInventoryShow(inventoryId) {
         },
         lifecycleError: '',
 
+        // Conductor brief 2026-09-29 — excludes a superseded row (a
+        // corrected wet-ink upload, or the awaiting_wet_ink row a real
+        // upload just resolved): the replacement is the live disposition,
+        // same filter the server applies in RentalInventory::
+        // outstandingSignatories()/RentalInventorySignature::capture().
         dispositionFor(role, contactId) {
-            return this.signatures.find(s => s.party_role === role && (role === 'agent' || Number(s.party_contact_id) === Number(contactId))) || null;
+            return this.signatures.find(s => s.party_role === role && !s.superseded_at
+                && (role === 'agent' || Number(s.party_contact_id) === Number(contactId))) || null;
         },
+        // A party needs an action row shown either when they have NO live
+        // disposition at all, or when their live disposition is
+        // awaiting_wet_ink — sent for a paper signature but nothing has
+        // arrived yet, so it isn't a resolved record like signed/refused/
+        // wet_ink (which stay in the read-only list above only).
+        needsAction(role, contactId) {
+            const sig = this.dispositionFor(role, contactId);
+            return !sig || sig.disposition === 'awaiting_wet_ink';
+        },
+        isAwaitingWetInk(role, contactId) {
+            return this.dispositionFor(role, contactId)?.disposition === 'awaiting_wet_ink';
+        },
+        // An awaiting_wet_ink party has a live row but no actual evidence
+        // yet — never counts as "dispositioned" for the agent's own Sign
+        // button, matching the server's own capture() guard.
         get allRequiredPartiesDispositioned() {
-            const tenantsOk = this.tenantContactIds.every(id => this.dispositionFor('tenant', id));
-            const landlordOk = !this.landlordContactId || this.dispositionFor('landlord', this.landlordContactId);
+            const isResolved = (role, id) => { const s = this.dispositionFor(role, id); return !!s && s.disposition !== 'awaiting_wet_ink'; };
+            const tenantsOk = this.tenantContactIds.every(id => isResolved('tenant', id));
+            const landlordOk = !this.landlordContactId || isResolved('landlord', this.landlordContactId);
             return tenantsOk && landlordOk;
         },
         tenantName(contactId, fallback) { return fallback; },
@@ -499,6 +594,67 @@ function rentalInventoryShow(inventoryId) {
                 window.location.reload();
             } catch (e) { this.lifecycleError = e.message; }
         },
+
+        // Conductor brief 2026-09-29 — wet-ink signing. "Send for wet-ink"
+        // marks a party as sent (disposition=awaiting_wet_ink, no file) via
+        // the SAME JSON _save() every other disposition already uses.
+        async sendForWetInkFor(role, contactId) {
+            const key = `${role}_${contactId}`;
+            await this._save({ party_role: role, disposition: 'awaiting_wet_ink', party_contact_id: contactId }, key, false);
+        },
+
+        // One form active at a time, same discipline as signing/refusal.
+        // wetInkContext[key] carries WHICH request the save button sends:
+        // an existingSignatureId means "supersede" (resolving an
+        // awaiting_wet_ink row, or correcting a wrong wet_ink upload);
+        // absent means a fresh capture (disposition=wet_ink straight off
+        // the "Wet ink" button, no prior marker).
+        activeWetInkKey: null,
+        wetInkForm: {},
+        wetInkBusy: {},
+        wetInkContext: {},
+        wetInkField(key) { return this.wetInkForm[key] || (this.wetInkForm[key] = { file: null }); },
+        openWetInkFor(key, existingSignatureId = null) {
+            this.activeSigningKey = null;
+            this.activeRefusalKey = null;
+            this.activeWetInkKey = this.activeWetInkKey === key ? null : key;
+            if (this.activeWetInkKey === key) {
+                this.wetInkContext[key] = { existingSignatureId };
+            }
+        },
+        async saveWetInk(key) {
+            const field = this.wetInkField(key);
+            if (!field.file) return;
+            const ctx = this.wetInkContext[key] || {};
+            this.lifecycleError = '';
+            this.wetInkBusy[key] = true;
+            try {
+                const form = new FormData();
+                form.append('wet_ink_file', field.file);
+                let url;
+                if (ctx.existingSignatureId) {
+                    url = `${this.baseUrl}/signatures/${ctx.existingSignatureId}/supersede-wet-ink`;
+                } else {
+                    const separatorIndex = key.indexOf('_');
+                    const role = separatorIndex === -1 ? key : key.slice(0, separatorIndex);
+                    const contactId = separatorIndex === -1 ? null : key.slice(separatorIndex + 1);
+                    form.append('party_role', role);
+                    form.append('disposition', 'wet_ink');
+                    if (contactId) form.append('party_contact_id', contactId);
+                    url = `${this.baseUrl}/signatures`;
+                }
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                    body: form,
+                });
+                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Request failed (${res.status}).`); }
+                // Same reload-on-success contract as _save() above.
+                window.location.reload();
+            } catch (e) { this.lifecycleError = e.message; }
+            finally { this.wetInkBusy[key] = false; }
+        },
+
         // Johan, 2026-09-28 — "the red completion warning must list the
         // unchecked rooms by name, each clickable to jump to that space."
         // unvisitedRooms holds the server's structured {id, label} list

@@ -292,8 +292,14 @@ class RentalInventory extends Model implements SignedDocumentDistributable
     /** Every tenant on the lease, plus the landlord if resolvable, who does NOT yet have a live disposition. */
     public function outstandingSignatories(): \Illuminate\Support\Collection
     {
+        // Conductor brief 2026-09-29 — a superseded wet-ink row (a corrected
+        // wrong upload, or the awaiting_wet_ink row a real upload just
+        // resolved) must not count as "this party is accounted for"; its
+        // replacement is the live disposition. Same filter
+        // RentalInspection::outstandingSignatories() already applies.
         $existing = $this->signatures()
             ->whereIn('party_role', [RentalInventorySignature::PARTY_TENANT, RentalInventorySignature::PARTY_LANDLORD])
+            ->whereNull('superseded_at')
             ->get(['party_role', 'party_contact_id']);
 
         $outstanding = collect();
@@ -324,6 +330,72 @@ class RentalInventory extends Model implements SignedDocumentDistributable
             ->where('party_role', RentalInventorySignature::PARTY_AGENT)
             ->where('disposition', RentalInventorySignature::DISPOSITION_SIGNED)
             ->exists();
+    }
+
+    /**
+     * Conductor brief 2026-09-29 — the first party (if any) still sitting in
+     * "paper sent, not yet returned." Distinct from outstandingSignatories()
+     * (which only reports a party with NO live row at all): a party marked
+     * awaiting_wet_ink DOES have a live row, so they never appear there, but
+     * they have not actually provided evidence yet either — markCompleted()
+     * below blocks on this the same way it blocks on a truly outstanding
+     * party.
+     */
+    public function firstAwaitingWetInkSignatory(): ?RentalInventorySignature
+    {
+        return $this->signatures()
+            ->where('disposition', RentalInventorySignature::DISPOSITION_AWAITING_WET_INK)
+            ->whereNull('superseded_at')
+            ->first();
+    }
+
+    /**
+     * Every signing party — tenant(s), the owner (landlord/seller), the
+     * agent — one row each, with the party's current live signature (if
+     * any). Mirrors RentalInspection::signatureSummaryRows() exactly (same
+     * shape, same "not_required" convention for an unresolvable landlord),
+     * built here for the report PDF's "print for signature" mode and its
+     * own signature section, which previously iterated raw
+     * $inventory->signatures instead of the full required roster.
+     *
+     * @return array<int, array{role:string, name:?string, signature:?RentalInventorySignature, not_required:bool}>
+     */
+    public function signatureSummaryRows(): array
+    {
+        $liveSignatureFor = fn (string $partyRole, ?int $contactId = null) => $this->signatures->first(
+            fn (RentalInventorySignature $s) => $s->party_role === $partyRole
+                && $s->superseded_at === null
+                && ($contactId === null || (int) $s->party_contact_id === (int) $contactId)
+        );
+
+        $rows = [];
+
+        foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
+            $rows[] = [
+                'role' => 'Tenant',
+                'name' => $leaseTenant->contact?->full_name,
+                'signature' => $liveSignatureFor(RentalInventorySignature::PARTY_TENANT, $leaseTenant->contact_id),
+                'not_required' => false,
+            ];
+        }
+
+        $owner = $this->property?->sellerOwnerContact();
+        $ownerRole = $this->lease_id ? 'Landlord' : 'Seller';
+        $rows[] = [
+            'role' => $ownerRole,
+            'name' => $owner?->full_name,
+            'signature' => $owner ? $liveSignatureFor(RentalInventorySignature::PARTY_LANDLORD, $owner->id) : null,
+            'not_required' => ! $owner,
+        ];
+
+        $rows[] = [
+            'role' => 'Agent',
+            'name' => $this->createdBy?->name,
+            'signature' => $liveSignatureFor(RentalInventorySignature::PARTY_AGENT),
+            'not_required' => false,
+        ];
+
+        return $rows;
     }
 
     /**
@@ -388,6 +460,20 @@ class RentalInventory extends Model implements SignedDocumentDistributable
                 throw new \LogicException("Cannot complete: {$name} has neither signed nor been marked as refusing.");
             }
             throw new \LogicException('Cannot complete: the landlord has neither signed nor been marked as refusing.');
+        }
+
+        // Conductor brief 2026-09-29 — a party marked "sent for a paper
+        // signature" is not truly outstanding (they have a live row) but
+        // has not actually provided evidence yet either. Checked after the
+        // outstanding-signatories gate (a genuinely blank party is the more
+        // fundamental problem) and before the agent-signature gate (the
+        // agent cannot sign until every party is fully resolved anyway, so
+        // this can never be reached with the agent already signed).
+        if ($awaiting = $this->firstAwaitingWetInkSignatory()) {
+            $name = $awaiting->party_role === RentalInventorySignature::PARTY_TENANT
+                ? (Contact::find($awaiting->party_contact_id)?->full_name ?? 'A tenant')
+                : 'The landlord';
+            throw new \LogicException("Cannot complete: {$name} is still awaiting a paper signature — upload the signed scan (or mark them as refused) before completing.");
         }
         if (! $this->hasAgentSignature()) {
             throw new \LogicException('Cannot complete an inventory without the agent\'s own signature.');

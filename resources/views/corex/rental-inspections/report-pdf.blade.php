@@ -49,9 +49,19 @@
          to a sensible size — this is a printed legal record, not a canvas
          viewer. --}}
     .sig-image { max-height: 50px; margin-top: 3pt; display: block; }
+    {{-- Conductor brief 2026-09-29 — "print for signature": the SAME
+         report, marked so nobody mistakes a not-yet-complete printout for
+         the finished, signed record. --}}
+    .for-signature-banner { background: #fdecec; border: 1pt solid #c41e3a; color: #c41e3a; font-weight: bold; font-size: 9pt; padding: 6pt 8pt; margin-bottom: 10pt; text-transform: uppercase; letter-spacing: 0.5pt; }
+    .blank-sig-block { margin-top: 4pt; }
+    .blank-sig-line { border-bottom: 0.75pt solid #333; height: 18pt; margin-top: 10pt; }
+    .blank-sig-caption { font-size: 7pt; color: #666; }
 </style>
 </head>
 <body>
+    @if($forSignature)
+        <div class="for-signature-banner">For signature — this document is not yet complete</div>
+    @endif
     <div class="cover">
         <p class="muted" style="text-transform:uppercase; font-size:7.5pt; letter-spacing:0.5pt;">{{ ucfirst($inspection->type) }}-inspection report</p>
         <h1>{{ $inspection->property?->buildDisplayAddress() }}</h1>
@@ -141,17 +151,35 @@
     <table class="sig-table">
         <tr><td colspan="3" style="font-weight:bold; border-top:none; padding-top:0;">Signatures</td></tr>
         @foreach($signatureRows as $row)
+            @php
+                // Conductor brief 2026-09-29 — "print for signature": a
+                // party with no live disposition yet, OR one still awaiting
+                // a paper signature (nothing has arrived yet), gets a blank
+                // signature block instead of a status line — this printout
+                // is exactly what goes to them for that purpose.
+                $isBlankEligible = ! $row['not_required']
+                    && ($row['signature'] === null || $row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK);
+            @endphp
             <tr>
                 <td>{{ $row['role'] }}{{ $row['name'] ? ' — ' . $row['name'] : '' }}</td>
                 <td>
                     @if($row['not_required'])
                         Not required
+                    @elseif($forSignature && $isBlankEligible)
+                        <div class="blank-sig-block">
+                            <div class="blank-sig-line"></div>
+                            <div class="blank-sig-caption">Signature</div>
+                            <div class="blank-sig-line" style="width:50%;"></div>
+                            <div class="blank-sig-caption">Date</div>
+                        </div>
                     @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED)
                         <span class="cond-red">Refused</span> —
                         {{ $refusalReasonLabels->get($row['signature']->refusal_reason_preset, ucfirst(str_replace('_', ' ', $row['signature']->refusal_reason_preset))) }}
                         @if($row['signature']->refusal_reason_note) ({{ $row['signature']->refusal_reason_note }}) @endif
                     @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK)
-                        Signed (wet-ink upload)
+                        Signed on paper — scan on file
+                    @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK)
+                        <span class="muted">Awaiting paper signature</span>
                     @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED)
                         <span class="cond-blue">Signed</span>
                         @if($row['signature_image_data_uri'])

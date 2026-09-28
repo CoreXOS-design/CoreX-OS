@@ -8369,18 +8369,28 @@
                 },
                 // §16 — one label, everywhere a disposition badge is shown, so
                 // wet-ink can never be mistaken for "Signed" (an e-signature).
+                // Conductor brief 2026-09-29 — awaiting_wet_ink gets its own
+                // label, distinct from a resolved wet_ink upload.
                 dispositionLabel(sig) {
                     if (!sig) return '';
                     if (sig.disposition === 'refused') return 'Refused';
                     if (sig.disposition === 'wet_ink') return 'Signed on paper';
+                    if (sig.disposition === 'awaiting_wet_ink') return 'Awaiting paper signature';
                     return 'Signed';
                 },
                 // §16 — mirrors RentalInspectionSignature::supersedeWetInk()'s
-                // own guard so the UI never offers a "Replace" the server will
-                // refuse: only a live (not superseded) wet-ink row, only before
-                // the agent has attested to the record.
-                canReplaceWetInk(section, sig) {
-                    return !!sig && sig.disposition === 'wet_ink' && !sig.superseded_at && !this.agentDisposition(section);
+                // own guard so the UI never offers an action the server will
+                // refuse: only a live (not superseded) wet-ink OR
+                // awaiting_wet_ink row, only before the agent has attested to
+                // the record. Conductor brief 2026-09-29 — widened from
+                // wet_ink-only ("Replace") to also cover awaiting_wet_ink
+                // ("Upload scan") — same button, same guard, different label.
+                canActOnWetInk(section, sig) {
+                    return !!sig && (sig.disposition === 'wet_ink' || sig.disposition === 'awaiting_wet_ink')
+                        && !sig.superseded_at && !this.agentDisposition(section);
+                },
+                wetInkActionLabel(sig) {
+                    return sig?.disposition === 'awaiting_wet_ink' ? 'Upload scan' : 'Replace';
                 },
                 allTenantsDispositioned(section) {
                     return this.inspectionTenants(section).every(t => this.tenantDisposition(section, t.contact_id));
@@ -8477,13 +8487,32 @@
                     this.activeWetInkKey = this.activeWetInkKey === key ? null : key;
                 },
 
+                // Conductor brief 2026-09-29 — "Send for wet-ink" marks a
+                // party as sent (disposition=awaiting_wet_ink, no file) via
+                // the SAME JSON _saveDisposition() every other disposition
+                // already uses.
+                async sendTenantForWetInk(section, tenant) {
+                    await this._saveDisposition(section, {
+                        party_role: 'tenant', disposition: 'awaiting_wet_ink', party_contact_id: tenant.contact_id,
+                    }, section + '_tenant_' + tenant.contact_id);
+                },
+                async sendLandlordForWetInk(section) {
+                    await this._saveDisposition(section, {
+                        party_role: 'landlord', disposition: 'awaiting_wet_ink', party_contact_id: this.landlordContact?.id,
+                    }, section + '_landlord');
+                },
+
+                // Conductor brief 2026-09-29 — existingWetInk now also
+                // covers a live awaiting_wet_ink row (the "Upload scan"
+                // action resolving it the first time a scan actually
+                // arrives), not just a wet_ink row being corrected.
                 async saveTenantWetInkFor(section, tenant) {
                     const key = section + '_tenant_' + tenant.contact_id;
                     const field = this.wetInkField(key);
                     if (!field.file) return;
                     const existing = this.tenantDisposition(section, tenant.contact_id);
                     await this._saveWetInk(section, key, field.file,
-                        (existing && existing.disposition === 'wet_ink') ? existing : null,
+                        (existing && (existing.disposition === 'wet_ink' || existing.disposition === 'awaiting_wet_ink')) ? existing : null,
                         { party_role: 'tenant', party_contact_id: tenant.contact_id });
                 },
 
@@ -8493,7 +8522,7 @@
                     if (!field.file) return;
                     const existing = this.landlordDisposition(section);
                     await this._saveWetInk(section, key, field.file,
-                        (existing && existing.disposition === 'wet_ink') ? existing : null,
+                        (existing && (existing.disposition === 'wet_ink' || existing.disposition === 'awaiting_wet_ink')) ? existing : null,
                         { party_role: 'landlord', party_contact_id: this.landlordContact?.id });
                 },
 

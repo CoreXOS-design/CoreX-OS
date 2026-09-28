@@ -337,6 +337,23 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     }
 
     /**
+     * Conductor brief 2026-09-29 — the first party (if any) still sitting in
+     * "paper sent, not yet returned." Distinct from outstandingSignatories()
+     * (which only reports a party with NO live row at all): a party marked
+     * awaiting_wet_ink DOES have a live row, so they never appear there, but
+     * they have not actually provided evidence yet either — markCompleted()
+     * below blocks on this the same way it blocks on a truly outstanding
+     * party. Mirrors RentalInventory::firstAwaitingWetInkSignatory() exactly.
+     */
+    public function firstAwaitingWetInkSignatory(): ?RentalInspectionSignature
+    {
+        return $this->signatures()
+            ->where('disposition', RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK)
+            ->whereNull('superseded_at')
+            ->first();
+    }
+
+    /**
      * §5/§7 — OWN/BRANCH/AGENCY scoping, layered on top of the hard
      * AgencyScope boundary. Same PermissionService::getDataScope() +
      * clampScope() convention as Lease::scopeVisibleTo() and rental
@@ -430,6 +447,17 @@ class RentalInspection extends Model implements SignedDocumentDistributable
                     throw new \LogicException("Cannot complete: {$name} has neither signed nor been marked as refusing.");
                 }
                 throw new \LogicException('Cannot complete: the landlord has neither signed nor been marked as refusing.');
+            }
+
+            // Conductor brief 2026-09-29 — a party marked "sent for a paper
+            // signature" is not truly outstanding (they have a live row)
+            // but has not actually provided evidence yet either. Same gate,
+            // same ordering, as RentalInventory::markCompleted().
+            if ($awaiting = $this->firstAwaitingWetInkSignatory()) {
+                $name = $awaiting->party_role === RentalInspectionSignature::PARTY_TENANT
+                    ? (\App\Models\Contact::find($awaiting->party_contact_id)?->full_name ?? 'A tenant')
+                    : 'The landlord';
+                throw new \LogicException("Cannot complete: {$name} is still awaiting a paper signature — upload the signed scan (or mark them as refused) before completing.");
             }
             if (! $this->hasAgentSignature()) {
                 throw new \LogicException('Cannot complete an inspection without the agent\'s own signature.');

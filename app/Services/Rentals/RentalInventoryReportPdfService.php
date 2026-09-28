@@ -2,6 +2,7 @@
 
 namespace App\Services\Rentals;
 
+use App\Models\RentalInspectionSetting;
 use App\Models\RentalInventory;
 use App\Models\RentalInventorySignature;
 use App\Support\StorageDataUri;
@@ -28,11 +29,22 @@ use Endroid\QrCode\Writer\PngWriter;
  */
 class RentalInventoryReportPdfService
 {
-    public function generate(RentalInventory $inventory)
+    /**
+     * Conductor brief 2026-09-29 — "print for signature": the SAME report
+     * content generate() already builds, plus blank signature blocks for
+     * every outstanding party. Mirrors RentalInspectionReportPdfService::
+     * generateForSignature() exactly — see that method's own docblock.
+     */
+    public function generateForSignature(RentalInventory $inventory)
+    {
+        return $this->generate($inventory, forSignature: true);
+    }
+
+    public function generate(RentalInventory $inventory, bool $forSignature = false)
     {
         $inventory->loadMissing([
             'lines.room', 'lines.moveInPhotos', 'signatures.partyContact', 'signatures.recordedByUser', 'property',
-            'roomMarks.room',
+            'roomMarks.room', 'lease.tenants.contact', 'createdBy',
         ]);
 
         $linesByRoom = $inventory->lines
@@ -70,14 +82,21 @@ class RentalInventoryReportPdfService
 
         // Johan, 2026-09-28 — "the PDF is the signed record that gets
         // auto-emailed... it must carry the actual signature images. A
-        // text-only 'signed' PDF is not acceptable." Inventory has no
-        // wet-ink disposition, so unlike the inspection PDF this is a
-        // straight "signed → embed" map, keyed by signature id (this
-        // view reads $inventory->signatures directly, not a shared
-        // signatureSummaryRows()-style resolver).
-        $signatureImages = $inventory->signatures
-            ->filter(fn (RentalInventorySignature $s) => $s->disposition === RentalInventorySignature::DISPOSITION_SIGNED)
-            ->mapWithKeys(fn (RentalInventorySignature $s) => [$s->id => StorageDataUri::fromPublicStoragePath($s->party_signature_path)]);
+        // text-only 'signed' PDF is not acceptable." Conductor brief
+        // 2026-09-29 — now reads the full required roster via
+        // RentalInventory::signatureSummaryRows() (the SAME resolver the
+        // "print for signature" blank blocks need to know who's still
+        // outstanding), not a raw filter over $inventory->signatures —
+        // matches RentalInspectionReportPdfService's own signatureRows
+        // shape exactly, including embedding wet-ink as text + a link
+        // rather than an image (never presentable as an e-signature).
+        $signatureRows = collect($inventory->signatureSummaryRows())->map(function (array $row) {
+            $row['signature_image_data_uri'] = $row['signature']?->disposition === RentalInventorySignature::DISPOSITION_SIGNED
+                ? StorageDataUri::fromPublicStoragePath($row['signature']->party_signature_path)
+                : null;
+
+            return $row;
+        })->all();
 
         return Pdf::loadView('corex.rental-inventories.report-pdf', [
             'inventory' => $inventory,
@@ -85,7 +104,13 @@ class RentalInventoryReportPdfService
             'emptyRoomLabels' => $emptyRoomLabels,
             'publicUrl' => $publicUrl,
             'qrDataUri' => $qrDataUri,
-            'signatureImages' => $signatureImages,
+            'signatureRows' => $signatureRows,
+            // §5 — inventory reuses inspections' own refusal-reason list
+            // directly ("why didn't this party sign" is one concept, not
+            // two lists for two documents) — same resolver
+            // RentalInventoryController::show() already passes to the view.
+            'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($inventory->agency_id))->pluck('label', 'key'),
+            'forSignature' => $forSignature,
         ])->setPaper('a4', 'portrait');
     }
 
@@ -94,5 +119,12 @@ class RentalInventoryReportPdfService
         $address = str($inventory->property?->buildDisplayAddress() ?? 'property')->slug();
 
         return "inventory-report-{$address}-{$inventory->id}.pdf";
+    }
+
+    public function filenameForSignatureFor(RentalInventory $inventory): string
+    {
+        $address = str($inventory->property?->buildDisplayAddress() ?? 'property')->slug();
+
+        return "inventory-for-signature-{$address}-{$inventory->id}.pdf";
     }
 }

@@ -215,7 +215,9 @@
                             @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED)
                                 <span style="color: {{ $severityColors['red'] }}">Refused to sign</span>
                             @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK)
-                                <span class="text-slate-600">Signed (wet-ink upload)</span>
+                                <span class="text-slate-600">Signed on paper — scan on file</span>
+                            @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK)
+                                <span class="text-slate-400">Awaiting paper signature</span>
                             @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED)
                                 <span style="color: {{ $severityColors['blue'] }}">Signed</span>
                             @else
@@ -232,9 +234,21 @@
                             @elseif($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED && $row['signature']->party_signature_path)
                                 <img src="{{ $row['signature']->party_signature_path }}" alt="{{ $row['role'] }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                             @elseif($row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK && $row['signature']->wet_ink_upload_path)
-                                <a href="{{ $row['signature']->wet_ink_upload_path }}" target="_blank" rel="noopener">
-                                    <img src="{{ $row['signature']->wet_ink_upload_path }}" alt="{{ $row['role'] }} wet-ink upload" class="mt-2 h-16 border border-slate-200 rounded bg-white">
-                                </a>
+                                {{-- Conductor brief 2026-09-29 — the bug this
+                                     build fixes: a wet-ink upload is not
+                                     always an image. A PDF scan rendered as
+                                     an <img> here shows nothing (a PDF is not
+                                     a browser-decodable image format) — the
+                                     extension decides <a> (PDF) vs the
+                                     existing linked-<img> (a real image). --}}
+                                @php $isImageScan = in_array(strtolower(pathinfo($row['signature']->wet_ink_upload_path, PATHINFO_EXTENSION)), ['jpg', 'jpeg', 'png', 'heic', 'heif']); @endphp
+                                @if($isImageScan)
+                                    <a href="{{ $row['signature']->wet_ink_upload_path }}" target="_blank" rel="noopener">
+                                        <img src="{{ $row['signature']->wet_ink_upload_path }}" alt="{{ $row['role'] }} wet-ink upload" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                    </a>
+                                @else
+                                    <a href="{{ $row['signature']->wet_ink_upload_path }}" target="_blank" rel="noopener" class="mt-2 inline-block text-sm font-semibold underline text-sky-600">View uploaded scan (PDF)</a>
+                                @endif
                             @endif
                         @endif
                     </div>

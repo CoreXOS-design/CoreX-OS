@@ -3302,6 +3302,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // 2026-09-23, Johan's ruling — the completed-inspection report: no
         // photos, a QR + link to the public page below instead.
         Route::get('/{rentalInspection}/report', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'report'])->name('corex.rental-inspections.report');
+        // Conductor brief 2026-09-29 — the SAME report content, plus blank
+        // signature blocks for every outstanding party, printed and handed
+        // to the landlord/tenant for a wet-ink signature.
+        Route::get('/{rentalInspection}/print-for-signature', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'printForSignature'])->name('corex.rental-inspections.print-for-signature');
         // The chain — "Next inspection" from this one, and the public-link
         // lifecycle (generate/regenerate, revoke).
         Route::post('/{rentalInspection}/next', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'next'])
@@ -3372,6 +3376,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // on the one path that needs it.
         Route::post('/{rentalInspection}/signatures', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'storeSignature'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.signatures.store');
+        // Note: 'awaiting_wet_ink' (conductor brief 2026-09-29 — "mark a
+        // party as sent for a paper signature") is captured through the
+        // SAME storeSignature() route above, as a fourth disposition value —
+        // no new route needed for that marker.
         // §16 — correcting a wrong/unreadable wet-ink upload; same base permission
         // as recording one (evidence-backed, not sign_on_behalf — see the controller).
         Route::post('/{rentalInspection}/signatures/{signature}/supersede-wet-ink', [\App\Http\Controllers\CoreX\RentalInspectionRecordingController::class, 'supersedeWetInkSignature'])
@@ -3424,6 +3432,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // corex.rental-inspections.report exactly): generates a public link
         // first if none is live, so a printed/shared link never 404s.
         Route::get('/{rentalInventory}/report', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'report'])->name('corex.rental-inventories.report');
+        // Conductor brief 2026-09-29 — the SAME report content, plus blank
+        // signature blocks for every outstanding party, printed and handed
+        // to the landlord/tenant for a wet-ink signature. Mirrors
+        // corex.rental-inspections.print-for-signature exactly.
+        Route::get('/{rentalInventory}/print-for-signature', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'printForSignature'])->name('corex.rental-inventories.print-for-signature');
         // §8 — the move-out comparison, read-only, gated on the inventory being completed.
         Route::get('/{rentalInventory}/comparison', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'comparison'])->name('corex.rental-inventories.comparison');
         Route::post('/{rentalInventory}/cancel', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'cancel'])
@@ -3444,6 +3457,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.dispositions.store');
         Route::post('/{rentalInventory}/signatures', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeSignature'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.signatures.store');
+        // Conductor brief 2026-09-29 — correcting a wrong/unreadable
+        // wet-ink upload, or resolving an awaiting_wet_ink row the first
+        // time a scan arrives. Mirrors
+        // corex.rental-inspections.signatures.supersede-wet-ink exactly.
+        Route::post('/{rentalInventory}/signatures/{signature}/supersede-wet-ink', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'supersedeWetInkSignature'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.signatures.supersede-wet-ink');
         Route::post('/{rentalInventory}/complete', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'complete'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.complete');
         // §41-follow-up (Job 3) — the manual "Resend report" path (confirm

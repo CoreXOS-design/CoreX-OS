@@ -6265,3 +6265,92 @@ all three signature images are genuinely embedded as raster objects in the PDF (
 four images total, three at 400×150 matching the real signature dimensions exactly, none of them
 served/streamed over HTTP at render time (base64-inlined, confirmed by inspecting the compiled Blade
 source — no `<img src="https://...">` for a signature anywhere in this file).
+
+---
+
+## 39. Wet-ink follow-up: awaiting_wet_ink, document filing, "print for signature" — closes §17.8-adjacent gaps (2026-09-29)
+
+Conductor brief 2026-09-29 — built alongside wet-ink signing for rental Inventory for the first time (see
+`rental-inventory.md` §21, the primary writeup — this section records what changed HERE, on the
+already-built §16/§17 inspections mechanism, kept in lockstep with Inventory's own new build). Full
+reasoning for each piece lives in `rental-inventory.md` §21.1-§21.6; not restated here.
+
+### 39.1 A new pre-state: `awaiting_wet_ink`
+
+§16/§17 only ever built a DIRECT wet-ink capture — no way to record "the paper has been sent, nothing has
+come back yet." `RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK` (new) is a tracking marker only
+— no upload, no signature image, no refusal fields — never valid for `party_role=agent`. `capture()`
+extended with a fourth branch; `disposition` widened `string(10)` → `string(20)` (17-character value).
+
+- `RentalInspection::firstAwaitingWetInkSignatory()` (new) — `markCompleted()` now refuses completion
+  while any party is still awaiting, with a plain message naming them, checked AFTER the existing
+  outstanding-signatories gate and BEFORE the agent-signature gate.
+- `RentalInspectionSignature::capture()`'s own agent branch gained the identical check — the agent cannot
+  sign while a party is still awaiting a paper signature, closing a real gap this build found: the
+  PRE-EXISTING `outstandingSignatories()->isNotEmpty()` guard never caught an awaiting party (they DO have
+  a live row), so without this fix the agent could have signed prematurely, attesting to a record with a
+  party's evidence still outstanding.
+- `RentalInspectionSignature::supersedeWetInk()` (§16.3) now accepts an existing row in EITHER `wet_ink`
+  (the original "correct a wrong upload" case) or `awaiting_wet_ink` (resolving the marker the first time
+  a scan arrives) — one mechanism, two starting points. `isAwaitingWetInk()`/`isReplaceableWetInk()`
+  helpers added alongside the existing `isWetInk()`.
+
+**The action:** "Send for wet-ink" — a new button alongside Sign/Wet ink/Refuses on
+`rental-inspection-recording.blade.php`'s tenant/landlord rows, POSTing `disposition=awaiting_wet_ink`
+through the SAME `signatures.store` endpoint (no new route). Once awaiting, the row shows "Awaiting paper
+signature" and an "Upload scan" action (the SAME wet-ink upload form, now resolving via supersede-wet-ink
+since a row already exists) in place of the four action buttons.
+
+### 39.2 The scan is now filed as a property Document (new)
+
+Previously a wet-ink upload only ever lived on the signature row itself (`wet_ink_upload_path`) — never
+separately filed to the property's Document store. Both `storeSignature()` (a direct wet_ink capture) and
+`supersedeWetInkSignature()` (resolving/correcting) now call a new private
+`fileInspectionWetInkScan()`/`wetInkScanAsPdfBytes()` pair, filing through the SHARED
+`SignedDocumentDistributionService::fileToProperty()` — never a bespoke second filing path. Keyed on
+`(source_type, source_id) = ('rental_inspection_signature_wet_ink', $signature->id)`; doc type
+`inspection_report` (the existing global catalogue slug, reused). Full mechanism — why an image gets
+wrapped in a one-page PDF first, why the source_id is always the NEW signature's own id, why a filing
+failure is absorbed rather than failing the capture — in `rental-inventory.md` §21.3 (identical on both
+modules, written up once).
+
+### 39.3 "Print for signature" (new)
+
+`GET /corex/rental-inspections/{inspection}/print-for-signature` →
+`RentalInspectionReportPdfService::generateForSignature()` — the SAME `report-pdf.blade.php` content
+`report()` already builds, plus a red "FOR SIGNATURE" banner and blank Signature/Date blocks for every
+party with no live disposition yet, or one still `awaiting_wet_ink`. Reachable from the inspection show
+page (next to "Download report (PDF)") and from the property tab's own recording panel (next to the
+"Ready to sign" control, visible any time the inspection isn't completed/cancelled — printing before
+anyone has signed anything is the normal case, not an edge case).
+
+### 39.4 Wording made consistent + the public-page bug fixed
+
+Every wet_ink display now reads **"Signed on paper — scan on file"** (was "Signed (wet-ink upload)" in
+some places) — the report PDF, the public page, the live recording screen's `dispositionLabel()`.
+`awaiting_wet_ink` reads "Awaiting paper signature" everywhere the same badge appears.
+
+**The bug this build fixes**, named exactly:
+`resources/views/rental-inspections/public/show.blade.php:234-236` rendered EVERY
+`wet_ink_upload_path` as an `<img>`, including a PDF scan — a PDF is not a browser-decodable image
+format, so it silently rendered nothing, with no visible error. Now branches on the file extension: an
+image extension (`jpg/jpeg/png/heic/heif`) keeps the existing linked-`<img>`; a PDF gets a plain "View
+uploaded scan (PDF)" link instead. Both the public page and the report PDF also now filter/branch on
+`superseded_at` so a corrected/resolved row's OLD entry never prints a second, stale line next to its
+replacement.
+
+### 39.5 Files
+
+See `rental-inventory.md` §21.8 for the full file list across both modules — this section's own new/changed
+files are the inspections-side half of that same list:
+`app/Models/RentalInspectionSignature.php`, `app/Models/RentalInspection.php`,
+`app/Http/Controllers/CoreX/RentalInspectionRecordingController.php`,
+`app/Http/Controllers/CoreX/RentalInspectionController.php`,
+`app/Services/Rentals/RentalInspectionReportPdfService.php`,
+`resources/views/corex/rental-inspections/report-pdf.blade.php`,
+`resources/views/corex/rental-inspections/show.blade.php`,
+`resources/views/corex/properties/partials/rental-inspection-recording.blade.php`,
+`resources/views/corex/properties/show.blade.php` (shared Alpine JS),
+`resources/views/rental-inspections/public/show.blade.php`,
+`database/migrations/2026_10_05_100000_widen_disposition_on_rental_signature_tables.php`,
+`tests/Feature/RentalInspections/RentalInspectionWetInkAwaitingTest.php` (new).

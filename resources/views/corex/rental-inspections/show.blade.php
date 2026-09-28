@@ -41,6 +41,12 @@
                  from the printable form above (that one is blank, for
                  capture BEFORE an inspection; this one is the record AFTER). --}}
             <a href="{{ route('corex.rental-inspections.report', $inspection) }}" class="corex-btn-outline text-xs">Download report (PDF)</a>
+            {{-- Conductor brief 2026-09-29 — "print for signature": the same
+                 report, plus blank signature blocks for every outstanding
+                 party, to print and send/hand for a wet-ink signature. --}}
+            @if(!in_array($inspection->status, ['completed', 'cancelled']))
+                <a href="{{ route('corex.rental-inspections.print-for-signature', $inspection) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs">Print for signature</a>
+            @endif
             @if($inspection->type === 'out')
                 {{-- rental-inspection-form.md §7 — the in-vs-out deposit comparison. --}}
                 <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Move-in vs move-out comparison</a>

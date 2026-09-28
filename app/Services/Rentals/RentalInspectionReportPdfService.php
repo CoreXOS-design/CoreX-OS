@@ -39,7 +39,21 @@ use Endroid\QrCode\Writer\PngWriter;
  */
 class RentalInspectionReportPdfService
 {
-    public function generate(RentalInspection $inspection)
+    /**
+     * Conductor brief 2026-09-29 — "print for signature": the SAME report
+     * content generate() already builds, plus blank signature blocks for
+     * every outstanding party. A thin wrapper rather than a second
+     * generate-shaped method — the item table, the QR/public-link cover,
+     * and the signature roster are all identical; only how the
+     * report-pdf.blade.php view renders an OUTSTANDING row differs
+     * ($forSignature branches that one section — see the view itself).
+     */
+    public function generateForSignature(RentalInspection $inspection)
+    {
+        return $this->generate($inspection, forSignature: true);
+    }
+
+    public function generate(RentalInspection $inspection, bool $forSignature = false)
     {
         $inspection->loadMissing([
             'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
@@ -150,6 +164,7 @@ class RentalInspectionReportPdfService
             'signatureRows' => $signatureRows,
             'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
+            'forSignature' => $forSignature,
         ])->setPaper('a4', 'portrait');
     }
 
@@ -158,5 +173,12 @@ class RentalInspectionReportPdfService
         $address = str($inspection->property?->buildDisplayAddress() ?? 'property')->slug();
 
         return "inspection-report-{$inspection->type}-{$address}-{$inspection->id}.pdf";
+    }
+
+    public function filenameForSignatureFor(RentalInspection $inspection): string
+    {
+        $address = str($inspection->property?->buildDisplayAddress() ?? 'property')->slug();
+
+        return "inspection-for-signature-{$inspection->type}-{$address}-{$inspection->id}.pdf";
     }
 }
