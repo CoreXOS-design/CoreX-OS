@@ -151,7 +151,16 @@ class GeneratePpraInspectionPackJob implements ShouldQueue
                 'generated_at'    => now(),
             ]);
 
-            $notifier->send($user, 'ppra_pack.generation_complete', $pack, new PpraPackReadyNotification($pack));
+            // threshold_hit_at is a REQUIRED dedup key (NotificationDispatcher
+            // throws InvalidArgumentException without it — confirmed the hard
+            // way, see this spec's own Phase J verification note). "Pack ready"
+            // is a discrete one-off event, not a persistent condition, so per
+            // the dispatcher's own documented guidance now() is the correct
+            // value here (a fresh fact every time, not something to dedupe
+            // against a stable threshold).
+            $notifier->send($user, 'ppra_pack.generation_complete', $pack, new PpraPackReadyNotification($pack), [
+                'threshold_hit_at' => now(),
+            ]);
         } catch (\Throwable $e) {
             $pack->update(['status' => 'failed', 'error_message' => $e->getMessage()]);
             Log::error('PPRA inspection pack generation failed', [
