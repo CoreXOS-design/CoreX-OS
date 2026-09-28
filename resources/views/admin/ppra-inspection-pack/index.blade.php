@@ -2,7 +2,7 @@
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5">
+<div class="w-full space-y-5" x-data x-on:ppra-sample-picker-saved.window="window.location.reload()">
 
     {{-- Page header (Pattern A — branded) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -139,6 +139,10 @@
                                 <a href="{{ route('admin.ppra-inspection-pack.sales-rentals.pdf') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export PDF</a>
                                 <a href="{{ route('admin.ppra-inspection-pack.sales-rentals.csv') }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Export CSV</a>
                             </div>
+                        @elseif($row->item === 'k')
+                            <button type="button" x-data x-on:click="$dispatch('open-modal', 'k-sample-picker')" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">
+                                Choose sample
+                            </button>
                         @else
                             <span class="text-xs" style="color:var(--text-muted);">—</span>
                         @endif
@@ -150,4 +154,6 @@
     </div>
 
 </div>
+
+<x-ppra-sample-picker mode="deal" name="k-sample-picker" title="Choose sales sample" />
 @endsection

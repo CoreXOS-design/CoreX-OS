@@ -74,11 +74,7 @@ class PpraInspectionPack extends Model
      */
     public static function findOrCreateDraftFor(Agency $agency, User $user): self
     {
-        $draft = static::where('agency_id', $agency->id)
-            ->where('status', 'queued')
-            ->whereNull('generated_at')
-            ->latest('created_at')
-            ->first();
+        $draft = static::currentDraftFor($agency);
 
         if ($draft) {
             return $draft;
@@ -89,5 +85,21 @@ class PpraInspectionPack extends Model
             'requested_by_user_id'  => $user->id,
             'status'                => 'queued',
         ]);
+    }
+
+    /**
+     * Read-only counterpart to findOrCreateDraftFor() — Phase G's checklist
+     * row k needs to know whether a sample has already been picked WITHOUT
+     * creating a draft pack merely because an admin viewed the checklist
+     * page (findOrCreateDraftFor()'s create side-effect is reserved for
+     * actually opening the picker or generating a pack).
+     */
+    public static function currentDraftFor(Agency $agency): ?self
+    {
+        return static::where('agency_id', $agency->id)
+            ->where('status', 'queued')
+            ->whereNull('generated_at')
+            ->latest('created_at')
+            ->first();
     }
 }

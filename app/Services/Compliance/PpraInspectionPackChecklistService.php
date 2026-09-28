@@ -7,10 +7,12 @@ use App\Models\Compliance\AgencyComplianceProvision;
 use App\Models\Compliance\AgencyDocumentTypeConfig;
 use App\Models\Compliance\AgencyTransformationNote;
 use App\Models\Compliance\PpraInspectionGapNote;
+use App\Models\Compliance\PpraInspectionPack;
+use App\Models\Deal;
 use Illuminate\Support\Collection;
 
 /**
- * PPRA Inspection Pack — Phase A + B + C + D + E. .ai/specs/ppra-inspection-pack.md §5.
+ * PPRA Inspection Pack — Phase A + B + C + D + E + G. .ai/specs/ppra-inspection-pack.md §5.
  *
  * Computes the live a-m checklist for an agency. Wired so far:
  * a, b, d, e, h (agency-vault-backed, Phase A), c, f, g (practitioner
@@ -18,10 +20,12 @@ use Illuminate\Support\Collection;
  * PractitionerFfcRosterService, role-filtered + UserDocument-backed, per
  * Johan's 2026-09-28 ruling), i (transformation initiatives, Phase D — v3
  * structured-or-document, either satisfies the item), j (sales/rentals FY
- * list, Phase E — v3 "active and advertised" derivation). Items k/l/m are
- * returned with status 'pending' ("not yet available" — later phases) so
- * the checklist page and Inspection Report keep a stable 13-row shape from
- * day one without guessing at data later phases will add.
+ * list, Phase E — v3 "active and advertised" derivation), k (sales file
+ * samples, Phase G — §6.8b, real `info` row reading the current draft
+ * pack's sample_deal_ids). Items l/m are still returned with status
+ * 'pending' ("not yet available" — Phases H/I) so the checklist page and
+ * Inspection Report keep a stable 13-row shape without guessing at data
+ * later phases will add.
  */
 class PpraInspectionPackChecklistService
 {
@@ -44,7 +48,6 @@ class PpraInspectionPackChecklistService
     ];
 
     private const PENDING_ITEMS = [
-        'k' => 'Sales Files Sampled',
         'l' => 'Rental Files Sampled',
         'm' => 'Mandates + MDFs, Active Listings',
     ];
@@ -85,6 +88,7 @@ class PpraInspectionPackChecklistService
         $rows->push($this->letterheadRow($agency));
         $rows->push($this->transformationRow($agency));
         $rows->push($this->salesRentalsRow($agency));
+        $rows->push($this->salesFileSampleRow($agency));
 
         foreach (self::PENDING_ITEMS as $key => $label) {
             $rows->push((object) [
@@ -270,6 +274,45 @@ class PpraInspectionPackChecklistService
             'status'      => 'green',
             'why'         => $why,
             'evidence'    => $why,
+            'gap_note'    => null,
+            'document'    => null,
+            'upload_configs' => collect(),
+        ];
+    }
+
+    /**
+     * Item k — sales file samples (Phase G, §6.8b/§5). `info` row, never
+     * pass/fail — reads the agency's current DRAFT pack (§4.5) read-only
+     * (PpraInspectionPack::currentDraftFor(), no create side-effect merely
+     * from viewing the checklist) for whichever deal ids the shared picker
+     * (§6.8a) has already saved.
+     */
+    private function salesFileSampleRow(Agency $agency): object
+    {
+        $item = 'k';
+        $draft = PpraInspectionPack::currentDraftFor($agency);
+        $sampleSize = $agency->ppra_pack_sales_sample_size ?: 5;
+        $ids = $draft?->sample_deal_ids ?? [];
+
+        if (empty($ids)) {
+            $why = "No sales files sampled yet — pick up to {$sampleSize} deals and pull every document, communication and pipeline record CoreX holds for each.";
+            $evidence = null;
+        } else {
+            $count = count($ids);
+            $labels = Deal::whereIn('id', $ids)->get(['id', 'property_address', 'deal_no'])
+                ->map(fn (Deal $d) => $d->property_address ?: ('Deal #' . ($d->deal_no ?: $d->id)))
+                ->implode(', ');
+            $why = "{$count} deal(s) sampled: {$labels}.";
+            $evidence = $why;
+        }
+
+        return (object) [
+            'item'        => $item,
+            'label'       => 'Sales Files Sampled',
+            'requirement' => 'A sample of ' . $sampleSize . ' sale deals (agency setting) with every document, communication and pipeline record CoreX holds for each.',
+            'status'      => 'info',
+            'why'         => $why,
+            'evidence'    => $evidence,
             'gap_note'    => null,
             'document'    => null,
             'upload_configs' => collect(),

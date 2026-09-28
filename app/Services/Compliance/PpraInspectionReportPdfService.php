@@ -4,6 +4,8 @@ namespace App\Services\Compliance;
 
 use App\Models\Agency;
 use App\Models\Compliance\AgencyTransformationNote;
+use App\Models\Compliance\PpraInspectionPack;
+use App\Models\Deal;
 use App\Models\User;
 use App\Services\Compliance\Concerns\GeneratesPdfViaPuppeteer;
 
@@ -25,6 +27,7 @@ class PpraInspectionReportPdfService
     public function __construct(
         private PpraInspectionPackChecklistService $checklist = new PpraInspectionPackChecklistService(),
         private PractitionerFfcRosterService $practitionerRoster = new PractitionerFfcRosterService(),
+        private PpraSalesFileAggregationService $salesFileAggregation = new PpraSalesFileAggregationService(),
     ) {
     }
 
@@ -38,6 +41,7 @@ class PpraInspectionReportPdfService
         $roster = $this->practitionerRoster->rosterFor($agency->id);
         $principals = $this->practitionerRoster->principalsFor($agency->id);
         $transformation = AgencyTransformationNote::currentFor($agency->id);
+        $kSample = $this->salesFileSample($agency);
 
         $reportReference = 'PPRA-' . $agency->id . '-' . now()->format('Ymd-Hi');
 
@@ -48,6 +52,7 @@ class PpraInspectionReportPdfService
             'roster'          => $roster,
             'principals'      => $principals,
             'transformation'  => $transformation,
+            'kSample'         => $kSample,
             'reportReference' => $reportReference,
             'generatedBy'     => $generatedBy,
             'generatedAt'     => now(),
@@ -71,5 +76,33 @@ class PpraInspectionReportPdfService
         @unlink($htmlPath);
 
         return $pdfPath;
+    }
+
+    /**
+     * Item k's per-file index (§6.2 item 5 / §6.8b) — one manifest per
+     * currently-sampled deal, from whichever DRAFT pack the picker (§6.8a)
+     * has saved a selection onto. Empty array (not null) when nothing has
+     * been sampled yet, so the Report can print "No sales files sampled
+     * for this pack" (§9 edge case) rather than a missing section.
+     *
+     * @return array<int, object>
+     */
+    private function salesFileSample(Agency $agency): array
+    {
+        $draft = PpraInspectionPack::currentDraftFor($agency);
+        $ids = $draft?->sample_deal_ids ?? [];
+
+        if (empty($ids)) {
+            return [];
+        }
+
+        $deals = Deal::whereIn('id', $ids)->get()->keyBy('id');
+
+        return collect($ids)
+            ->map(fn ($id) => $deals->get($id))
+            ->filter()
+            ->map(fn (Deal $deal) => $this->salesFileAggregation->aggregate($deal))
+            ->values()
+            ->all();
     }
 }

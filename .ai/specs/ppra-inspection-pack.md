@@ -1,6 +1,6 @@
 # PPRA Inspection Pack — Specification
 
-**Status:** Draft v3 — Phases A–F shipped; G onward re-planned around Johan's item-by-item rulings below
+**Status:** Draft v3 — Phases A–G shipped; H onward re-planned around Johan's item-by-item rulings below
 **Author:** Claude (senior engineering), from the read-only PPRA s25 investigation of 2026-09-28
 **Date:** 28 September 2026
 **Spec location:** `.ai/specs/ppra-inspection-pack.md`
@@ -505,10 +505,10 @@ The new practitioner register (§6.6), the sample picker (§6.8a) and its k/l/m 
 - No standalone checklist row shipped — pure infrastructure consumed by Phases G/H/I, as specced. A **temporary, unlinked verification harness** was added at `/admin/ppra-inspection-pack/sample-picker/preview` (permission `ppra_inspection_pack.view`, direct-URL only, no sidebar/nav entry, no link from the checklist page) purely so this phase's deliverable is browser-testable ahead of G/H/I wiring the real k/l/m rows. Remove this route once Phase I lands (the real rows supersede it).
 - "Rental" mode is the `Rental` model (the lease record, `rentals` table) — agency-scoped via `whereHas('branch', ...)` since `Rental` carries `branch_id` not `agency_id` directly. "Listing" mode reuses `Property::onMarket()` (not the FY-bounded `PpraFinancialYearListService::advertisedListings()` — that reuse is item m's job in Phase I per §6.8d, not Phase F's).
 
-**Phase G — item k: sales file samples**
-- Deep per-deal aggregation (§6.8b): deal + pipeline, all deal docs, property-level mandate/MDF, FICA all parties, communications log, commission/proforma.
-- Per-deal-folder ZIP structure + per-file index page in the Report.
-- Checklist row k wired to the picker (§6.8a).
+**Phase G — shipped (`<PHASE_G_SHA>`) — item k: sales file samples**
+- `PpraSalesFileAggregationService::aggregate(Deal $deal): object` — deep per-deal aggregation (§6.8b): pipeline-step summary, every `Document` filed `source_type='deal'` against the deal (mandate/OTP/MDF-disclosure/commission-proforma/whatever is filed — the real catalogue has no separate "MDF" slug; `mandate`+`disclosure` stand in for "mandate/MDF"), property-level mandate/disclosure documents deduplicated against the deal's own, FICA for every contact on the deal (`FicaDocument` + `linkedDocuments()`), and the DR2 communications log via `CommunicationLink` — bridged from the sampled DR1 `Deal` through `DealV2.legacy_deal_id`, which is **not** a guaranteed 1:1 link (confirmed: 96/169 DR1 deals on this agency have no DR2 twin) — a deal predating DR2 gets an explicit "not available" note, never a silently empty section. Returns a manifest (source + label + destination path inside the future `k-sales-sample/{deal-reference}/` ZIP folder) plus an explicit `missing` list — Phase J's job consumes this manifest to actually write the ZIP; this phase does not write one.
+- Report's item (k) section (§6.2 item 4/5): per-sampled-deal per-file index table, "Missing" list rendered in red, "No sales files sampled for this pack" when the draft has none (§9 edge case). New `.badge-info` CSS — item (k) is this spec's first row to actually render at `info` status; the class didn't exist yet.
+- Checklist row k (`PpraInspectionPackChecklistService::salesFileSampleRow()`) — real `info` row reading the agency's current draft pack read-only (`PpraInspectionPack::currentDraftFor()`, no create-on-view side effect), "Choose sample" action opens the shared picker (§6.8a) in deal mode directly on the checklist page (Phase F's harness route is untouched, still removed only when Phase I lands per its own note above).
 
 **Phase H — item l: rental file samples**
 - Same shape as G for rentals (§6.8c): mandate, application, lease, in/out inspections, MDF, FICA tenant+landlord, communications.

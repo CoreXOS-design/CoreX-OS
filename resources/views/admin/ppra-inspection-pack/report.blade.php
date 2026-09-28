@@ -32,6 +32,7 @@
         .badge-amber { background: #fef3c7; color: #92400e; }
         .badge-red { background: #fee2e2; color: #991b1b; }
         .badge-pending { background: #e2e8f0; color: #475569; }
+        .badge-info { background: #e0f2fe; color: #0369a1; }
 
         .item-block { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid #f1f5f9; }
         .requirement { color: #475569; font-style: italic; margin-bottom: 6px; }
@@ -259,6 +260,46 @@
                     correctly counts as advertised, but multiple separate windows within the year cannot be
                     reconstructed from those two columns alone.
                 </p>
+            @endif
+
+            {{-- Item (k) — sales file samples, per-file index (§6.2 item 5 / §6.8b, Phase G). --}}
+            @if($row->item === 'k')
+                @if(!isset($kSample) || count($kSample) === 0)
+                    <p class="evidence">No sales files sampled for this pack.</p>
+                @else
+                    @foreach($kSample as $sample)
+                        <p class="evidence"><strong>{{ $sample->reference }}</strong> &mdash; {{ $sample->deal->property_address ?? 'no address on file' }} &mdash; folder: <code>{{ $sample->folder }}</code></p>
+                        <table>
+                            <thead>
+                                <tr><th>Category</th><th>File</th><th>Path in ZIP</th></tr>
+                            </thead>
+                            <tbody>
+                                @foreach($sample->sections as $section)
+                                    @forelse($section['files'] as $file)
+                                        <tr>
+                                            <td>{{ $section['category'] }}</td>
+                                            <td>{{ $file->label }}{{ $file->note ? ' — ' . $file->note : '' }}</td>
+                                            <td>{{ $file->dest_path }}</td>
+                                        </tr>
+                                    @empty
+                                        <tr>
+                                            <td>{{ $section['category'] }}</td>
+                                            <td colspan="2" style="color:#991b1b;">Nothing found for this category.</td>
+                                        </tr>
+                                    @endforelse
+                                @endforeach
+                            </tbody>
+                        </table>
+                        @if(count($sample->missing))
+                            <p class="evidence" style="color:#991b1b;">
+                                <strong>Missing:</strong>
+                                @foreach($sample->missing as $m)
+                                    {{ $m }}@if(!$loop->last)<br>@endif
+                                @endforeach
+                            </p>
+                        @endif
+                    @endforeach
+                @endif
             @endif
         @endif
     </div>
