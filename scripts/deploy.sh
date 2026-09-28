@@ -388,7 +388,16 @@ step 5 "enforce storage/ + bootstrap/cache/ ownership + permissions"
 # full output printed) and the deploy continues. The storage-permission
 # bug class stays possible on THIS host until the grant is added, but
 # nothing else breaks because of it.
-if PERM_OUT="$(sudo chown -R www-data:www-data storage bootstrap/cache 2>&1 && sudo chmod -R ug+rwX storage bootstrap/cache 2>&1)"; then
+#
+# 2026-09-28 (follow-up) — plain `sudo` still isn't safe here even wrapped
+# in if/else: with the two grants unprovisioned, `sudo` (no `-n`) detects a
+# controlling TTY (this script's own `use_pty` sudoers default guarantees
+# one) and PROMPTS for a password on it instead of failing — the deploy
+# hangs waiting for input nobody is going to type, never reaching the
+# else branch at all. `sudo -n` (non-interactive) forces sudo to fail
+# immediately whenever it would otherwise prompt, in every invocation
+# context (TTY or not), so the if/else below actually gets to run.
+if PERM_OUT="$(sudo -n chown -R www-data:www-data storage bootstrap/cache 2>&1 && sudo -n chmod -R ug+rwX storage bootstrap/cache 2>&1)"; then
     ok "storage/ + bootstrap/cache/ → www-data:www-data, group-writable (ug+rwX)"
 else
     echo "$PERM_OUT"
