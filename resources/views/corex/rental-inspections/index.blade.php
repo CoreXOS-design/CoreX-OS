@@ -42,6 +42,51 @@
         </div>
     </div>
 
+    {{-- §39, 2026-09-28 — Johan: a summary tiles row, exactly the FICA/
+         rental-applications pattern reused verbatim (compliance/fica/
+         index.blade.php's own tab-tile row, byte-for-byte the same markup/
+         classes) — never a new design. One row, no helper text. Each
+         tile's own href sets the query param(s) that already drive this
+         page's existing status/has_unresolved_discrepancy/scheduled
+         filters (RentalInspectionController::index()) — clicking the
+         ACTIVE tile again clears back to "All" instead of reapplying it. --}}
+    @php
+        $currentTile = null;
+        if (($filters['status'] ?? '') === 'draft') { $currentTile = 'draft'; }
+        elseif (($filters['status'] ?? '') === 'in_progress') { $currentTile = 'in_progress'; }
+        elseif (($filters['status'] ?? '') === 'awaiting_signature') { $currentTile = 'awaiting_signature'; }
+        elseif (($filters['status'] ?? '') === 'completed') { $currentTile = 'completed'; }
+        elseif ($filters['has_unresolved_discrepancy'] ?? false) { $currentTile = 'unresolved_discrepancies'; }
+        elseif ($scheduled ?? false) { $currentTile = 'scheduled'; }
+
+        $tileDefs = [
+            'draft' => ['label' => 'Draft', 'params' => ['status' => 'draft']],
+            'in_progress' => ['label' => 'In progress', 'params' => ['status' => 'in_progress']],
+            'awaiting_signature' => ['label' => 'Awaiting signature', 'params' => ['status' => 'awaiting_signature']],
+            'completed' => ['label' => 'Completed', 'params' => ['status' => 'completed']],
+            'unresolved_discrepancies' => ['label' => 'Unresolved discrepancies', 'params' => ['has_unresolved_discrepancy' => 1]],
+            'scheduled' => ['label' => 'Scheduled (upcoming)', 'params' => ['scheduled' => 1]],
+        ];
+        $tileClearParams = ['status' => null, 'has_unresolved_discrepancy' => null, 'scheduled' => null, 'page' => null];
+        $tileHref = fn ($key, $def) => route('corex.rental-inspections.index', array_merge(
+            request()->except(array_keys($tileClearParams)),
+            $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
+        ));
+    @endphp
+    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
+        @foreach($tileDefs as $key => $def)
+            @php $active = $currentTile === $key; @endphp
+            <a href="{{ $tileHref($key, $def) }}"
+               class="px-4 py-2 transition-colors"
+               style="{{ $active
+                    ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
+                    : 'color: var(--text-secondary); border-bottom: 2px solid transparent;' }}">
+                {{ $def['label'] }}
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-secondary);">{{ number_format($tileCounts[$key]) }}</span>
+            </a>
+        @endforeach
+    </div>
+
     <form method="GET" action="{{ route('corex.rental-inspections.index') }}" class="flex flex-wrap items-end gap-3">
         @if($archived)
             <input type="hidden" name="archived" value="1">

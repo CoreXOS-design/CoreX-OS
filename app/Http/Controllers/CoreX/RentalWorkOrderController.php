@@ -116,6 +116,24 @@ class RentalWorkOrderController extends Controller
         $filteredProperty = $propertyId ? Property::find($propertyId) : null;
         $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
 
+        // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
+        // applications pattern (§39 note on RentalInspectionController).
+        // Status tiles are the real enum (RentalWorkOrder::STATUS_*).
+        // Exception tile: "Overdue" — reuses the SAME overdue() scope +
+        // RentalWorkOrderSetting::overdueReminderDaysFor() the ?overdue=1
+        // filter above already wires in; a spend-threshold tile was the
+        // other option Johan named, but overdue is the one this list
+        // already has a real, working query-param filter for.
+        $woTileBase = fn () => RentalWorkOrder::query()->visibleTo($user, $request->get('scope'));
+        $tileCounts = [
+            'reported' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_REPORTED)->count(),
+            'ordered' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_ORDERED)->count(),
+            'in_progress' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_IN_PROGRESS)->count(),
+            'completed' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_COMPLETED)->count(),
+            'cancelled' => $woTileBase()->where('rental_work_orders.status', RentalWorkOrder::STATUS_CANCELLED)->count(),
+            'overdue' => $woTileBase()->overdue(RentalWorkOrderSetting::overdueReminderDaysFor($user->effectiveAgencyId()))->count(),
+        ];
+
         return view('corex.rental-work-orders.index', [
             'workOrders' => $workOrders,
             'sort' => $sort,
@@ -124,6 +142,7 @@ class RentalWorkOrderController extends Controller
             'filters' => $request->only(['q', 'status', 'trade_type', 'priority', 'property_id', 'lease_id', 'paid_by', 'date_from', 'date_to', 'overdue']),
             'filteredProperty' => $filteredProperty,
             'filteredLease' => $filteredLease,
+            'tileCounts' => $tileCounts,
         ]);
     }
 

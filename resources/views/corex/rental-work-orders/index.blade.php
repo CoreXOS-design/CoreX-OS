@@ -33,6 +33,44 @@
         @endpermission
     </div>
 
+    {{-- §39, 2026-09-28 — summary tiles row, the same reused FICA/rental-
+         applications tab-tile pattern (compliance/fica/index.blade.php),
+         never a new design. One row, no helper text. --}}
+    @php
+        $currentTile = null;
+        foreach (['reported', 'ordered', 'in_progress', 'completed', 'cancelled'] as $s) {
+            if (($filters['status'] ?? '') === $s) { $currentTile = $s; break; }
+        }
+        if (!$currentTile && ($filters['overdue'] ?? false)) { $currentTile = 'overdue'; }
+
+        $tileDefs = [
+            'reported' => ['label' => 'Reported', 'params' => ['status' => 'reported']],
+            'ordered' => ['label' => 'Ordered', 'params' => ['status' => 'ordered']],
+            'in_progress' => ['label' => 'In progress', 'params' => ['status' => 'in_progress']],
+            'completed' => ['label' => 'Completed', 'params' => ['status' => 'completed']],
+            'cancelled' => ['label' => 'Cancelled', 'params' => ['status' => 'cancelled']],
+            'overdue' => ['label' => 'Overdue', 'params' => ['overdue' => 1]],
+        ];
+        $tileClearParams = ['status' => null, 'overdue' => null, 'page' => null];
+        $tileHref = fn ($key, $def) => route('corex.rental-work-orders.index', array_merge(
+            request()->except(array_keys($tileClearParams)),
+            $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
+        ));
+    @endphp
+    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
+        @foreach($tileDefs as $key => $def)
+            @php $active = $currentTile === $key; @endphp
+            <a href="{{ $tileHref($key, $def) }}"
+               class="px-4 py-2 transition-colors"
+               style="{{ $active
+                    ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
+                    : 'color: var(--text-secondary); border-bottom: 2px solid transparent;' }}">
+                {{ $def['label'] }}
+                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-secondary);">{{ number_format($tileCounts[$key]) }}</span>
+            </a>
+        @endforeach
+    </div>
+
     <form method="GET" action="{{ route('corex.rental-work-orders.index') }}" class="flex flex-wrap items-end gap-3">
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Search</label><br>

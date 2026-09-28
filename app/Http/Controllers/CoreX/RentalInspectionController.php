@@ -125,6 +125,13 @@ class RentalInspectionController extends Controller
             $query->withUnresolvedDiscrepancy();
         }
 
+        // §39, 2026-09-28 — the summary tiles' own "Scheduled (upcoming)"
+        // exception tile, same shape as every other ad-hoc filter above.
+        $scheduled = $request->boolean('scheduled');
+        if ($scheduled) {
+            $query->where('rental_inspections.scheduled_for', '>=', now());
+        }
+
         if ($sort === 'property') {
             $query->join('properties', 'properties.id', '=', 'rental_inspections.property_id')
                 ->orderBy('properties.title', $direction)
@@ -140,12 +147,35 @@ class RentalInspectionController extends Controller
 
         $inspections = $query->paginate(25)->withQueryString();
 
+        // §39, 2026-09-28 — Johan: a summary tiles row, same reused pattern
+        // as FICA/rental-applications (compliance/fica/index.blade.php,
+        // corex.rental-applications.index) — every tile's count comes from
+        // the SAME own/branch/agency-scoped, archived-aware base query the
+        // list itself uses, cloned before any OTHER ad-hoc filter (search,
+        // status, date range) is applied, so a tile count never drifts from
+        // what "All" on this exact same scope would show. Johan's own named
+        // list, verbatim: Draft, In progress, Awaiting signature, Completed,
+        // Unresolved discrepancies, Scheduled (upcoming).
+        $tileBase = fn () => RentalInspection::query()
+            ->when($archived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'));
+        $tileCounts = [
+            'draft' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_DRAFT)->count(),
+            'in_progress' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_IN_PROGRESS)->count(),
+            'awaiting_signature' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_AWAITING_SIGNATURE)->count(),
+            'completed' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_COMPLETED)->count(),
+            'unresolved_discrepancies' => $tileBase()->withUnresolvedDiscrepancy()->count(),
+            'scheduled' => $tileBase()->where('rental_inspections.scheduled_for', '>=', now())->count(),
+        ];
+
         return view('corex.rental-inspections.index', [
             'inspections' => $inspections,
             'sort' => $sort,
             'direction' => $direction,
             'hasAnyInspections' => $hasAnyInspections,
             'archived' => $archived,
+            'tileCounts' => $tileCounts,
+            'scheduled' => $scheduled,
             'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy']),
         ]);
     }

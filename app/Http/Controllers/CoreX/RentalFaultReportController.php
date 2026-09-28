@@ -65,6 +65,17 @@ class RentalFaultReportController extends Controller
             $query->where('rental_fault_reports.outcome', $outcome);
         }
 
+        // §39, 2026-09-28 — the summary tiles' own "Open, no work order"
+        // exception tile: still active (not resolved/cancelled/declined)
+        // and nothing raised against it yet.
+        if ($request->boolean('open_no_work_order')) {
+            $query->whereNotIn('rental_fault_reports.status', [
+                RentalFaultReport::STATUS_RESOLVED,
+                RentalFaultReport::STATUS_CANCELLED,
+                RentalFaultReport::STATUS_DECLINED,
+            ])->whereDoesntHave('workOrder');
+        }
+
         // Navigation, 2026-09-22 — reached from a property/lease/contact's
         // own detail page (Johan: "every feature needs a navigation link
         // where the work happens"), not picked from a dropdown.
@@ -105,14 +116,36 @@ class RentalFaultReportController extends Controller
         $filteredProperty = $propertyId ? Property::find($propertyId) : null;
         $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
 
+        // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
+        // applications pattern (§39 note on RentalInspectionController).
+        // Status tiles are the real enum (RentalFaultReport::STATUS_*).
+        $frTileBase = fn () => RentalFaultReport::query()->visibleTo($user, $request->get('scope'));
+        $tileCounts = [
+            'reported' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_REPORTED)->count(),
+            'awaiting_approval' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_AWAITING_APPROVAL)->count(),
+            'approved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_APPROVED)->count(),
+            'declined' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_DECLINED)->count(),
+            'work_order_raised' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_WORK_ORDER_RAISED)->count(),
+            'owner_handling' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_OWNER_HANDLING)->count(),
+            'resolved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_RESOLVED)->count(),
+            'cancelled' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_CANCELLED)->count(),
+            'open_no_work_order' => $frTileBase()
+                ->whereNotIn('rental_fault_reports.status', [
+                    RentalFaultReport::STATUS_RESOLVED,
+                    RentalFaultReport::STATUS_CANCELLED,
+                    RentalFaultReport::STATUS_DECLINED,
+                ])->whereDoesntHave('workOrder')->count(),
+        ];
+
         return view('corex.rental-fault-reports.index', [
             'faultReports' => $faultReports,
             'sort' => $sort,
             'direction' => $direction,
             'hasAnyFaultReports' => $hasAnyFaultReports,
-            'filters' => $request->only(['q', 'status', 'outcome', 'property_id', 'lease_id', 'date_from', 'date_to']),
+            'filters' => $request->only(['q', 'status', 'outcome', 'property_id', 'lease_id', 'date_from', 'date_to', 'open_no_work_order']),
             'filteredProperty' => $filteredProperty,
             'filteredLease' => $filteredLease,
+            'tileCounts' => $tileCounts,
         ]);
     }
 
