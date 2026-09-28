@@ -31,6 +31,8 @@
         .cta-box .highlight { color: #ffffff; font-weight: 600; }
         .sources { background: #f1f5f9; border-radius: 6px; padding: 20px; margin-top: 28px; font-size: 12px; color: #475569; }
         .sources h4 { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
+        .readmore { background: #f1f5f9; border-radius: 6px; padding: 20px; margin-top: 16px; font-size: 13px; color: #334155; }
+        .readmore h4 { font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 8px; }
         .disclaimer { font-size: 11px; color: #94a3b8; font-style: italic; margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; line-height: 1.6; }
         .footer { background: #f1f5f9; padding: 20px 32px; text-align: center; font-size: 12px; color: #64748b; }
         .footer a { color: #0d9488; }
@@ -114,6 +116,20 @@
     <p><strong>Property Practitioners Act 22 of 2019</strong> &mdash; Sections 47-49 (FFC/registration/penalties), 67 (MDF), 71 (offences). theppra.org.za</p>
     <p><strong>Financial Intelligence Centre Act 38 of 2001</strong> &mdash; Section 21A (CDD), 45C (penalties). fic.gov.za</p>
     <p>PPRA Register: <a href="https://theppra.org.za">theppra.org.za</a></p>
+</div>
+
+<div class="readmore">
+    <h4>Read more: real cases and expert articles</h4>
+    <ul style="margin:8px 0 0 20px; padding:0;">
+        <li style="margin-bottom:8px;"><a href="https://www.saflii.org/za/cases/ZASCA/2011/161.html" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Wakefields Real Estate v Attree (SCA 2011)</a> &mdash; sellers paid two agencies</li>
+        <li style="margin-bottom:8px;"><a href="https://www.saflii.org/za/cases/ZASCA/2023/102.html" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Le Roux v Zietsman (SCA 2023)</a> &mdash; hidden roof defects</li>
+        <li style="margin-bottom:8px;"><a href="https://lawlibrary.org.za/akn/za-gp/judgment/zagpphc/2023/1019/eng@2023-09-05" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Chuma v Bondcor (High Court 2023)</a> &mdash; undisclosed sinkhole risk</li>
+        <li style="margin-bottom:8px;"><a href="https://www.iol.co.za/news/crime-and-courts/pretoria-property-owner-ordered-to-pay-back-over-r600000-after-he-knowingly-sold-land-with-high-risk-of-sinkhole-formation-dc0da740-adbd-4e9b-86d1-42ee0d86881e" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">News report on the Chuma case</a></li>
+        <li style="margin-bottom:8px;"><a href="https://www.miltons.law.za/property-dont-pay-double-commission/" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">"Property: Don't Pay Double Commission!"</a> (Miltons Matsemela)</li>
+        <li style="margin-bottom:8px;"><a href="https://www.benaters.com/news-and-insights/a-double-commission-claim-yes-sellers-beware" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">"A double commission claim? Yes, sellers beware"</a> (Benaters)</li>
+        <li style="margin-bottom:8px;"><a href="https://www.wylie.co.za/Articles/Read/1348/What-constitutes-the-effective-cause-of-the-sale-where-multiple-property-practitioners-(estate-agents)-are-involved-in-the-transaction" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">Effective cause with multiple agents</a> (Shepstone &amp; Wylie)</li>
+        <li style="margin-bottom:0;"><a href="https://theppra.org.za/compliance-and-investigations/investigations/code-of-conduct/" target="_blank" rel="noopener" style="color:#0d9488;text-decoration:underline;">PPRA Code of Conduct</a></li>
+    </ul>
 </div>
 
 <p class="disclaimer">This communication is for general information only and does not constitute legal advice. Property law is complex and fact-specific. For advice on your particular situation please consult a qualified conveyancer or attorney.</p>
