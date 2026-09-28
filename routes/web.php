@@ -959,6 +959,8 @@ Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(functi
     // DR2 documents (AT-225/226 docs lane) — upload/attach on the deal (files to deal+property+contacts via the twin bridge).
     Route::post('/{deal}/documents',                    [\App\Http\Controllers\Dr2\DealDocumentController::class, 'store'])->whereNumber('deal')->middleware('permission:view_deals')->name('documents.store');
     Route::get('/{deal}/documents/{document}/download', [\App\Http\Controllers\Dr2\DealDocumentController::class, 'download'])->whereNumber(['deal', 'document'])->middleware(['permission:view_deals', 'deny_assistant_download'])->name('documents.download');
+    // Inline (in-browser) view — no deny_assistant_download by design (AT-267 permits VIEW).
+    Route::get('/{deal}/documents/{document}/view',     [\App\Http\Controllers\Dr2\DealDocumentController::class, 'view'])->whereNumber(['deal', 'document'])->middleware(['permission:view_deals'])->name('documents.view');
 
     // Proforma Invoices (Accounting pillar) — any agent may generate from Granted onward
     // (server-gated); the endpoint re-checks eligibility, never trusts the hidden button.
@@ -2166,6 +2168,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:upload_own_documents')->name('agent.portal.upload');
     Route::patch('/my-portal/profile', [\App\Http\Controllers\Agent\AgentPortalController::class, 'updateProfile'])
         ->middleware('permission:edit_own_profile')->name('agent.portal.profile.update');
+
+    // Sidebar Favourites — a user's own pinned pages. No permission key: this is
+    // a personal preference over pages the user can already open, and the action
+    // is hard-scoped to Auth::user()'s own rows.
+    // Spec: .ai/specs/sidebar-favourites.md
+    Route::put('/my-portal/favourites', [\App\Http\Controllers\Agent\NavFavouriteController::class, 'update'])
+        ->name('agent.portal.favourites.update');
 
     // Saved signature / initial / signing PIN — agent sets their own (My Portal).
     Route::patch('/my-portal/signature', [\App\Http\Controllers\Agent\AgentPortalController::class, 'saveSignature'])
@@ -3946,6 +3955,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/{property}/files',                    [\App\Http\Controllers\CoreX\PropertyFileController::class, 'store'])->name('files.store');
         // AT-267 / POPIA — gated download of a property Drive file (replaces direct /storage URLs).
         Route::get('/{property}/files/{document}/download', [\App\Http\Controllers\CoreX\PropertyFileController::class, 'download'])->middleware('deny_assistant_download')->name('files.download');
+        // Inline (in-browser) view — same scope guard, NO deny_assistant_download: AT-267 lets an
+        // assistant OPEN and VIEW a document, only not pull it down. Spec: document-inline-view.md
+        Route::get('/{property}/files/{document}/view',     [\App\Http\Controllers\CoreX\PropertyFileController::class, 'view'])->name('files.view');
         Route::put('/{property}/files/{document}/tag',      [\App\Http\Controllers\CoreX\PropertyFileController::class, 'updateTag'])->name('files.tag');
         Route::delete('/{property}/files/{document}',       [\App\Http\Controllers\CoreX\PropertyFileController::class, 'destroy'])->name('files.destroy');
         // Contacts
@@ -4236,6 +4248,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // Documents (Drive)
         Route::post('/{contact}/documents',                    [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'store'])->name('documents.store');
         Route::get('/{contact}/documents/{document}/download', [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'download'])->middleware('deny_assistant_download')->name('documents.download');
+        // Inline (in-browser) view — no deny_assistant_download by design (AT-267 permits VIEW).
+        Route::get('/{contact}/documents/{document}/view',     [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'view'])->name('documents.view');
         Route::put('/{contact}/documents/{document}/tag',      [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'updateTag'])->name('documents.tag');
         Route::delete('/{contact}/documents/{document}',       [\App\Http\Controllers\CoreX\ContactDocumentController::class, 'destroy'])->name('documents.destroy');
         // Properties
@@ -5255,6 +5269,9 @@ Route::middleware(['auth', 'permission:access_document_library', 'feature:docume
     Route::get('/library/{item}/download', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'download'])
         ->middleware('deny_assistant_download')
         ->name('library.download');
+    // Inline (in-browser) view — no deny_assistant_download by design (AT-267 permits VIEW).
+    Route::get('/library/{item}/view', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'view'])
+        ->name('library.view');
     Route::post('/library/attach', [\App\Http\Controllers\Documents\DocumentLibraryController::class, 'attach'])
         ->name('library.attach');
 

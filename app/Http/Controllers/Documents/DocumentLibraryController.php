@@ -97,6 +97,74 @@ class DocumentLibraryController extends Controller
         return redirect()->back()->with('success', 'Document uploaded to library.');
     }
 
+    /**
+     * Inline (in-browser) view of a library item — the View button beside Download.
+     *
+     * Same feature flag + agency scope as download() (BelongsToAgency on the model means a
+     * cross-agency id never resolves). Deliberately NOT behind the assistant download toggle —
+     * AT-267 permits VIEW, only not pulling the file down.
+     *
+     * The Content-Type is a FIXED whitelist value, never the stored mime_type: an inline
+     * response renders in the app origin, so an `.svg` or an `text/html` mime would be stored
+     * XSS. Non-viewable types fall back to the gated download.
+     * Spec: .ai/specs/document-inline-view.md §5.2, §6
+     */
+    public function view(DocumentLibraryItem $item)
+    {
+        if (!config('features.document_library_v1')) {
+            abort(404);
+        }
+
+        $fullPath = storage_path('app/private/' . $item->stored_path);
+
+        if (!file_exists($fullPath)) {
+            abort(404, 'File not found.');
+        }
+
+        $contentType = static::inlineMimeFor($item);
+
+        if ($contentType === null) {
+            abort_unless(auth()->user()?->canDownloadDocuments(), 403);
+
+            return response()->download($fullPath, $item->original_name);
+        }
+
+        return response()->file($fullPath, [
+            'Content-Type'           => $contentType,
+            'Content-Disposition'    => 'inline; filename="' . addslashes((string) $item->original_name) . '"',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * The Content-Type a library item may be served inline as, or null when it may not be.
+     * PDF + raster images only — SVG is excluded on purpose (it carries script).
+     */
+    public static function inlineMimeFor(DocumentLibraryItem $item): ?string
+    {
+        $mime = strtolower(trim((string) $item->mime_type));
+        $ext  = strtolower(pathinfo((string) $item->original_name, PATHINFO_EXTENSION));
+
+        $key = match (true) {
+            $mime === 'application/pdf'                          => 'pdf',
+            $mime === 'image/jpeg' || $mime === 'image/jpg'       => 'jpg',
+            $mime === 'image/png'                                => 'png',
+            $mime === 'image/gif'                                => 'gif',
+            $mime === 'image/webp'                               => 'webp',
+            $mime === '' || $mime === 'application/octet-stream'  => $ext,
+            default                                              => null,
+        };
+
+        return match ($key) {
+            'pdf'         => 'application/pdf',
+            'jpg', 'jpeg' => 'image/jpeg',
+            'png'         => 'image/png',
+            'gif'         => 'image/gif',
+            'webp'        => 'image/webp',
+            default       => null,
+        };
+    }
+
     public function download(DocumentLibraryItem $item)
     {
         if (!config('features.document_library_v1')) {

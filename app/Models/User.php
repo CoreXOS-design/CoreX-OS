@@ -332,6 +332,7 @@ class User extends Authenticatable
         'show_on_website' => 'boolean',
         'exclude_from_p24' => 'boolean',
         'daily_digest_enabled' => 'boolean',
+        'nav_favourites_autoopen' => 'boolean',
         'website_order' => 'integer',
 
         'agent_cut_percent' => 'decimal:2',
@@ -487,6 +488,12 @@ class User extends Authenticatable
     public function documents(): HasMany
     {
         return $this->hasMany(UserDocument::class);
+    }
+
+    /** Pages this user has pinned to the sidebar Favourites panel. */
+    public function navFavourites(): HasMany
+    {
+        return $this->hasMany(UserNavFavourite::class)->ordered();
     }
 
     /** Articles the agent has authored for their public website profile. */

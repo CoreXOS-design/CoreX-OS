@@ -328,6 +328,41 @@
     // when $_demoNavApply is true. See .ai/specs/demo-sidebar-curation.md.
     $_demoHiddenNav = \App\Models\DevSetting::demoHiddenSidebar();
     $_demoNavApply  = $user && $_userAgency && $_userAgency->is_demo && !$user->isEffectiveOwner();
+
+    // ── Sidebar Favourites — the user's own pinned pages, rendered in a panel
+    //    above their name. forUser() drops any favourite whose page has since
+    //    been renamed, removed, or put behind a permission they no longer hold,
+    //    so a stale pin is never shown as a dead link.
+    //
+    //    Computed HERE, after the demo-curation flags, on purpose: the demo hide
+    //    pass only walks .corex-nav-root, so a demo user who had pinned a page
+    //    before it was curated out would still have kept a live shortcut to it in
+    //    the Favourites panel. Curation is decluttering, not access control, but a
+    //    demo walkthrough should not show a page the curator removed.
+    //    Spec: .ai/specs/sidebar-favourites.md · .ai/specs/demo-sidebar-curation.md
+    $_navFavService  = app(\App\Services\Navigation\NavFavouriteService::class);
+    $_navFavourites  = $user ? $_navFavService->forUser($user) : collect();
+    $_navFavAutoOpen = (bool) ($user?->nav_favourites_autoopen ?? false);
+
+    // Can this user actually REACH the picker? My Portal is gated on
+    // access_my_portal, so for a user without it the "choose your pages" link is a
+    // 403 waiting to happen — a dead button, which STANDARDS forbids. Derived from
+    // the route's own middleware rather than hardcoding the permission key, so it
+    // cannot drift. Someone who cannot manage favourites but already HAS some
+    // (permission revoked later) still gets the panel; they just are not offered a
+    // link they cannot open.
+    $_navFavCanManage = $user ? $_navFavService->isAccessible(route('agent.portal', [], false), $user) : false;
+
+    if ($_demoNavApply && $_navFavourites->isNotEmpty() && !empty($_demoHiddenNav)) {
+        $_demoHiddenPaths = collect($_demoHiddenNav)
+            ->filter(fn ($k) => is_string($k) && str_starts_with($k, 'p:'))
+            ->map(fn ($k) => rtrim(substr($k, 2), '/') ?: '/')
+            ->all();
+
+        $_navFavourites = $_navFavourites
+            ->reject(fn ($fav) => in_array($fav->path(), $_demoHiddenPaths, true))
+            ->values();
+    }
 @endphp
 
 <div class="corex-sidebar">
@@ -343,9 +378,12 @@
             <div id="help-widget-slot" style="flex-shrink:0;"></div>
             @endauth
             {{-- Mobile-only: close sidebar for a full-screen page --}}
-            <button type="button" @click="sidebarOpen = false" class="lg:hidden"
+            {{-- display lives in the `flex` CLASS, never inline: an inline
+                 display:flex outranks `lg:hidden`, and the X then leaks onto
+                 desktop, where there is no sidebar to close. --}}
+            <button type="button" @click="sidebarOpen = false" class="flex lg:hidden"
                     aria-label="Close menu" title="Close menu"
-                    style="display:flex; align-items:center; justify-content:center; width:2rem; height:2rem; border-radius:6px; color:var(--text-secondary); background:transparent;">
+                    style="align-items:center; justify-content:center; width:2rem; height:2rem; border-radius:6px; color:var(--text-secondary); background:transparent;">
                 <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                 </svg>
@@ -2827,6 +2865,63 @@
         </div>
         @endif
 
+        {{-- ═══════════════════════════════════════════
+             FAVOURITES — the user's own pinned pages. Opens UPWARDS over the
+             sidebar, capped at exactly half the sidebar's height (measured, not
+             50vh — the sidebar is the viewport minus the env banner).
+             Spec: .ai/specs/sidebar-favourites.md §6.1
+             ═══════════════════════════════════════════ --}}
+        @if($_navFavCanManage || $_navFavourites->isNotEmpty())
+        <div class="corex-fav"
+             x-data="corexFavourites({ autoOpen: @js($_navFavAutoOpen), count: {{ $_navFavourites->count() }} })"
+             x-init="init()">
+
+            <div x-show="open" x-cloak x-transition
+                 @click.outside="close()" @keydown.escape.window="close()"
+                 {{-- Object syntax: a STRING :style replaces the whole style attribute
+                      (Alpine setStylesFromString), which would silently drop any static
+                      inline style added here later. --}}
+                 :style="{ maxHeight: maxHeight > 0 ? maxHeight + 'px' : null }"
+                 class="corex-fav-panel corex-brand-scroll"
+                 role="menu" aria-label="Favourites">
+
+                @forelse($_navFavourites as $_fav)
+                    @php $_favPath = $_fav->path(); @endphp
+                    <a href="{{ $_favPath }}"
+                       class="corex-fav-item {{ request()->getPathInfo() === $_favPath ? 'active' : '' }}">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                            <path d="M11.48 3.5a.56.56 0 0 1 1.04 0l2.13 4.32c.08.16.24.28.42.3l4.77.7a.58.58 0 0 1 .32.99l-3.45 3.36a.58.58 0 0 0-.17.51l.82 4.75a.58.58 0 0 1-.84.61l-4.27-2.24a.58.58 0 0 0-.54 0l-4.27 2.24a.58.58 0 0 1-.84-.61l.82-4.75a.58.58 0 0 0-.17-.51L3.84 9.81a.58.58 0 0 1 .32-.99l4.77-.7a.58.58 0 0 0 .42-.3L11.48 3.5Z" />
+                        </svg>
+                        <span>{{ $_fav->label }}</span>
+                    </a>
+                @empty
+                    <div class="corex-fav-empty">
+                        <div class="corex-fav-empty-title">No favourites yet.</div>
+                        @if($_navFavCanManage)
+                            <a href="{{ route('agent.portal') }}#favourites" class="corex-fav-empty-link">
+                                Choose your pages in My Profile &rarr; Favourites
+                            </a>
+                        @endif
+                    </div>
+                @endforelse
+            </div>
+
+            <button type="button" @click="toggle()" class="corex-fav-toggle" :class="{ 'is-open': open }"
+                    :aria-expanded="open ? 'true' : 'false'" title="Your favourite pages">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11.48 3.5a.56.56 0 0 1 1.04 0l2.13 4.32c.08.16.24.28.42.3l4.77.7a.58.58 0 0 1 .32.99l-3.45 3.36a.58.58 0 0 0-.17.51l.82 4.75a.58.58 0 0 1-.84.61l-4.27-2.24a.58.58 0 0 0-.54 0l-4.27 2.24a.58.58 0 0 1-.84-.61l.82-4.75a.58.58 0 0 0-.17-.51L3.84 9.81a.58.58 0 0 1 .32-.99l4.77-.7a.58.58 0 0 0 .42-.3L11.48 3.5Z" />
+                </svg>
+                <span class="corex-fav-toggle-label">Favourites</span>
+                @if($_navFavourites->count() > 0)
+                    <span class="corex-fav-count">{{ $_navFavourites->count() }}</span>
+                @endif
+                <svg class="corex-fav-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+                </svg>
+            </button>
+        </div>
+        @endif
+
         <div class="corex-user-profile">
             <div class="corex-user-avatar">{{ $userInitials }}</div>
             <div class="flex-1 min-w-0">
@@ -2889,6 +2984,68 @@
 </div>
 
 <script>
+// ── Sidebar Favourites ────────────────────────────────────────────────
+// Spec: .ai/specs/sidebar-favourites.md §6.1, §6.2
+// Defined here, in a plain (non-deferred) script, so it exists before Alpine
+// (loaded as a deferred module by the Vite bundle) boots and evaluates x-data.
+// NB: never write the Vite directive's literal name in this file — Blade
+// compiles that token even inside a script comment, and it 500s the sidebar.
+function corexFavourites(config) {
+    return {
+        open: false,
+        maxHeight: 0,
+        autoOpen: !!(config && config.autoOpen),
+        count: (config && config.count) || 0,
+
+        init() {
+            this.measure();
+            window.addEventListener('resize', () => this.measure());
+            this.maybeAutoOpen();
+        },
+
+        // Exactly half the sidebar, MEASURED — deliberately not 50vh. The
+        // sidebar is height:100% of its <aside>, i.e. the viewport minus the env
+        // banner (24px on local/demo/staging, 0 on live), so 50vh would overshoot
+        // half the sidebar on every non-live box.
+        measure() {
+            const sidebar = this.$el.closest('.corex-sidebar');
+            const h = sidebar ? sidebar.clientHeight : 0;
+            this.maxHeight = h > 0 ? Math.floor(h / 2) : 0;
+        },
+
+        // Auto-open is once per LOGIN: a new sign-in is a new browser session, so
+        // sessionStorage is the store. Every access is guarded — a private window
+        // or blocked storage must never break the sidebar, and the safe direction
+        // is "treat it as already seen" (don't auto-open) rather than reopening on
+        // every page.
+        seenThisSession() {
+            try { return sessionStorage.getItem('corex-fav-autoopen-seen') === '1'; }
+            catch (e) { return true; }
+        },
+
+        markSeen() {
+            try { sessionStorage.setItem('corex-fav-autoopen-seen', '1'); } catch (e) {}
+        },
+
+        maybeAutoOpen() {
+            if (!this.autoOpen || this.seenThisSession()) return;
+            this.markSeen();
+            this.openPanel();
+        },
+
+        openPanel() {
+            this.measure();
+            this.open = true;
+        },
+
+        close() { this.open = false; },
+
+        toggle() {
+            if (this.open) { this.close(); } else { this.openPanel(); }
+        },
+    };
+}
+
 // ── Demo sidebar curation (presentation-only) ──────────────────────────
 // Exposed always so the Dev Settings curator can pre-check; the removal pass
 // below only acts for demo-agency members. See .ai/specs/demo-sidebar-curation.md

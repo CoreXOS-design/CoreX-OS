@@ -113,6 +113,9 @@
                 $portalTabs = [
                     'overview' => 'Overview',
                     'profile' => 'Profile',
+                    // Sidebar Favourites — personal navigation, available to every
+                    // signed-in user. Spec: .ai/specs/sidebar-favourites.md §6.3
+                    'favourites' => 'Favourites',
                 ];
                 if (!($isAssistant ?? false)) {
                     $portalTabs['tools'] = 'Tools';
@@ -706,6 +709,299 @@
             </div>{{-- /x-show articles --}}
         </div>
     </div>{{-- /tab: profile --}}
+
+    {{-- ═══════════════════════════════════════════
+         TAB: FAVOURITES — choose the pages that appear in the sidebar
+         Favourites panel above your name.
+         The checklist is built client-side from the live sidebar
+         (window.CorexNavSearch) so it always mirrors exactly what THIS user
+         can open — no hand-maintained page registry, nothing to keep in sync.
+         Spec: .ai/specs/sidebar-favourites.md §6.3, §6.4
+         ═══════════════════════════════════════════ --}}
+    <div x-show="tab === 'favourites'" x-cloak>
+        <form method="POST" action="{{ route('agent.portal.favourites.update') }}"
+              x-data="corexFavouritesPicker(@js($navFavourites->map(fn($f) => ['key' => $f->nav_key, 'label' => $f->label])->values()), {{ $navFavouriteMax }}, @js((bool) $user->nav_favourites_autoopen))"
+              x-init="init()">
+            @csrf
+            @method('PUT')
+
+            <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:20px 24px;">
+                <h3 style="font-size:0.9375rem; font-weight:600; color:var(--text-primary); margin-bottom:4px;">Favourites</h3>
+                <p style="font-size:0.8125rem; color:var(--text-secondary); margin-bottom:20px;">
+                    Pick the pages you use most. They appear in a Favourites list just above your name in the
+                    sidebar, one click away from anywhere in CoreX.
+                </p>
+
+                {{-- ── Auto-open ─────────────────────────────────────────── --}}
+                {{-- The hidden 0 keeps auto_open ALWAYS present in this post, so
+                     unticking the box actually turns the setting off. An unchecked
+                     checkbox submits nothing, and the controller's $request->has()
+                     guard (which protects partial posts from other forms) would
+                     otherwise read "absent" and leave the setting untouched. --}}
+                <input type="hidden" name="auto_open" value="0">
+                <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:12px 14px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2);">
+                    <input type="checkbox" name="auto_open" value="1" x-model="autoOpen"
+                           style="margin-top:2px; width:16px; height:16px; accent-color:var(--brand-button, #0ea5e9);">
+                    <span>
+                        <span style="display:block; font-size:0.8125rem; font-weight:500; color:var(--text-primary);">Open my Favourites automatically when I sign in</span>
+                        <span style="display:block; font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                            What this changes: the Favourites list opens by itself the first time you land in CoreX
+                            after signing in. Close it and it stays closed until your next sign-in.
+                        </span>
+                    </span>
+                </label>
+
+                {{-- ── My favourites (ordered) ───────────────────────────── --}}
+                <div style="margin-top:24px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                        <h4 style="font-size:0.8125rem; font-weight:600; color:var(--text-primary);">My favourites</h4>
+                        <span style="font-size:0.75rem; color:var(--text-muted);">
+                            <span x-text="chosen.length"></span> of {{ $navFavouriteMax }}
+                        </span>
+                    </div>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:10px;">
+                        Drag a page to reorder it, or use the arrows. This is the order they appear in the sidebar.
+                    </p>
+
+                    <template x-if="chosen.length === 0">
+                        <div style="padding:16px; border:1px dashed var(--border); border-radius:6px; font-size:0.8125rem; color:var(--text-muted);">
+                            You haven't chosen any pages yet — tick them below.
+                        </div>
+                    </template>
+
+                    <div x-show="chosen.length > 0" style="border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+                        <template x-for="(fav, i) in chosen" :key="fav.key">
+                            <div draggable="true"
+                                 @dragstart="startDrag(i)" @dragover.prevent="dragOver(i)"
+                                 @drop.prevent="endDrag()" @dragend="endDrag()"
+                                 {{-- Object syntax, never a string: Alpine's setStylesFromString()
+                                      does setAttribute('style', value), which REPLACES the static
+                                      style attribute — a string binding here wiped display:flex and
+                                      wrapped every row. Object syntax merges per property. --}}
+                                 :style="{ opacity: i === dragIndex ? 0.45 : 1 }"
+                                 style="display:flex; align-items:center; gap:10px; padding:8px 12px; border-bottom:1px solid var(--border); background:var(--surface); cursor:grab;">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:14px; height:14px; color:var(--text-muted); flex-shrink:0;">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 9h16.5m-16.5 6.75h16.5" />
+                                </svg>
+                                <span style="flex:1; font-size:0.8125rem; color:var(--text-primary);" x-text="fav.label"></span>
+                                <button type="button" @click="move(i, -1)" :disabled="i === 0" title="Move up"
+                                        style="padding:3px; border:none; background:transparent; cursor:pointer; color:var(--text-muted);"
+                                        :style="{ opacity: i === 0 ? 0.3 : 1, cursor: i === 0 ? 'default' : 'pointer' }">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 15.75 7.5-7.5 7.5 7.5" /></svg>
+                                </button>
+                                <button type="button" @click="move(i, 1)" :disabled="i === chosen.length - 1" title="Move down"
+                                        style="padding:3px; border:none; background:transparent; cursor:pointer; color:var(--text-muted);"
+                                        :style="{ opacity: i === chosen.length - 1 ? 0.3 : 1, cursor: i === chosen.length - 1 ? 'default' : 'pointer' }">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" /></svg>
+                                </button>
+                                <button type="button" @click="removeAt(i)" title="Remove from favourites"
+                                        style="padding:3px; border:none; background:transparent; cursor:pointer; color:var(--ds-crimson, #dc2626);">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:14px;height:14px;"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                </button>
+                                <input type="hidden" :name="'favourites[' + i + '][key]'" :value="fav.key">
+                                <input type="hidden" :name="'favourites[' + i + '][label]'" :value="fav.label">
+                            </div>
+                        </template>
+                    </div>
+
+                    <p x-show="atLimit()" x-cloak style="margin-top:8px; font-size:0.75rem; color:var(--ds-amber, #d97706);">
+                        You've reached the limit of {{ $navFavouriteMax }} favourites. Remove one to add another.
+                    </p>
+                </div>
+
+                {{-- ── All pages you can open ────────────────────────────── --}}
+                <div style="margin-top:28px;">
+                    <h4 style="font-size:0.8125rem; font-weight:600; color:var(--text-primary); margin-bottom:10px;">All pages you can open</h4>
+
+                    <div style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:14px;">
+                        <input type="text" x-model="q" placeholder="Search pages…" autocomplete="off" spellcheck="false"
+                               aria-label="Search pages"
+                               style="flex:1; min-width:200px; padding:7px 10px; font-size:0.8125rem; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);">
+                        <select x-model="filterMode" aria-label="Filter pages"
+                                style="padding:7px 10px; font-size:0.8125rem; border-radius:6px; border:1px solid var(--border); background:var(--surface-2); color:var(--text-primary);">
+                            <option value="all">All pages</option>
+                            <option value="mine">Only my favourites</option>
+                        </select>
+                    </div>
+
+                    <template x-if="!ready">
+                        <p style="font-size:0.8125rem; color:var(--text-muted);">Reading your menu…</p>
+                    </template>
+
+                    <template x-if="ready && failed">
+                        <p style="font-size:0.8125rem; color:var(--text-muted);">Couldn't read your menu — please reload the page.</p>
+                    </template>
+
+                    <template x-if="ready && !failed && visibleSections().length === 0">
+                        <p style="font-size:0.8125rem; color:var(--text-muted);"
+                           x-text="filterMode === 'mine' ? 'You haven\'t chosen any pages yet.' : 'No pages match “' + q + '”.'"></p>
+                    </template>
+
+                    {{-- The page list scrolls INSIDE itself. With ~150 pages across a
+                         dozen sections, letting it run down the page pushed Save far
+                         below the fold — the user had to scroll past everything just to
+                         save. Bounded here, so Save stays a short reach away whatever
+                         the menu size. The pane shrinks to fit when a search narrows it. --}}
+                    <div class="space-y-3 corex-brand-scroll"
+                         x-show="ready && !failed && visibleSections().length > 0"
+                         style="max-height:420px; overflow-y:auto; overscroll-behavior:contain; box-sizing:border-box; padding:12px; border:1px solid var(--border); border-radius:6px;">
+                        <template x-for="section in visibleSections()" :key="section.label">
+                            <div style="border:1px solid var(--border); border-radius:6px; padding:12px 14px; background:var(--surface-2);">
+                                <div style="font-size:0.6875rem; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:8px;"
+                                     x-text="section.label"></div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                    <template x-for="page in section.pages" :key="page.key">
+                                        <label style="display:flex; align-items:center; gap:8px; font-size:0.8125rem; color:var(--text-primary); padding:2px 0;"
+                                               :style="{ opacity: (!isChosen(page.key) && atLimit()) ? 0.45 : 1, cursor: (!isChosen(page.key) && atLimit()) ? 'default' : 'pointer' }">
+                                            <input type="checkbox" :checked="isChosen(page.key)"
+                                                   :disabled="!isChosen(page.key) && atLimit()"
+                                                   @change="togglePage(page)"
+                                                   style="width:16px; height:16px; border-radius:4px; accent-color:var(--brand-button, #0ea5e9);">
+                                            <span x-text="page.label"></span>
+                                        </label>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; margin-top:24px; padding-top:16px; border-top:1px solid var(--border);">
+                    <button type="submit" class="corex-btn-primary">Save Favourites</button>
+                </div>
+            </div>
+        </form>
+    </div>{{-- /tab: favourites --}}
+
+    <script>
+    // ── Favourites picker ────────────────────────────────────────────────
+    // Spec: .ai/specs/sidebar-favourites.md §6.3, §6.4
+    // Plain (non-deferred) script so the factory exists before Alpine (loaded as
+    // a deferred module by the Vite bundle) evaluates the x-data above.
+    function corexFavouritesPicker(saved, max, autoOpen) {
+        return {
+            ready: false,
+            failed: false,
+            max: max || 25,
+            autoOpen: !!autoOpen,
+            chosen: (saved || []).map(function (f) { return { key: f.key, label: f.label }; }),
+            sections: [],
+            q: '',
+            filterMode: 'all',
+            dragIndex: null,
+
+            init() {
+                const run = () => this.build();
+                if (window.CorexNavSearch) run();
+                else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+                else run();
+            },
+
+            // Must match NavFavouriteService::normalisePath() on the server —
+            // same-origin pathname, trailing slash stripped — so a page is one
+            // favourite, not two.
+            navKeyFor(entry) {
+                if (!entry.href) return null;
+                try {
+                    let path = new URL(entry.href, location.origin).pathname;
+                    if (path.length > 1) path = path.replace(/\/+$/, '');
+                    return 'p:' + path;
+                } catch (e) {
+                    return null;
+                }
+            },
+
+            build() {
+                if (!window.CorexNavSearch) { this.failed = true; this.ready = true; return; }
+
+                const entries = window.CorexNavSearch.build();
+                const map = {};
+                const order = [];
+                const seen = {};
+
+                entries.forEach((e) => {
+                    // Decision #1 — only entries that open a page. A group toggle
+                    // just slides a sub-menu open and is not pinnable.
+                    if (e.group) return;
+                    const key = this.navKeyFor(e);
+                    if (!key) return;
+
+                    const section = e.parent || 'Pages';
+                    if (!map[section]) { map[section] = { label: section, pages: [] }; order.push(section); }
+
+                    const dedupe = section + '|' + key;
+                    if (seen[dedupe]) return;
+                    seen[dedupe] = true;
+                    map[section].pages.push({ key: key, label: e.label });
+                });
+
+                const sections = order.map((s) => map[s]);
+                sections.forEach((s) => s.pages.sort((a, b) => a.label.localeCompare(b.label)));
+                sections.sort((a, b) => {
+                    if (a.label === 'Pages') return -1;
+                    if (b.label === 'Pages') return 1;
+                    return a.label.localeCompare(b.label);
+                });
+
+                // Refresh stored labels from the live sidebar, so a page renamed
+                // since it was pinned shows its current name.
+                const labels = {};
+                sections.forEach((s) => s.pages.forEach((p) => { labels[p.key] = p.label; }));
+                this.chosen.forEach((c) => { if (labels[c.key]) c.label = labels[c.key]; });
+
+                this.sections = sections;
+                this.failed = sections.length === 0;
+                this.ready = true;
+            },
+
+            isChosen(key) { return this.chosen.some((c) => c.key === key); },
+
+            atLimit() { return this.chosen.length >= this.max; },
+
+            togglePage(page) {
+                const i = this.chosen.findIndex((c) => c.key === page.key);
+                if (i >= 0) { this.chosen.splice(i, 1); return; }
+                if (this.atLimit()) return;
+                this.chosen.push({ key: page.key, label: page.label });
+            },
+
+            removeAt(i) { this.chosen.splice(i, 1); },
+
+            move(i, d) {
+                const j = i + d;
+                if (j < 0 || j >= this.chosen.length) return;
+                const row = this.chosen.splice(i, 1)[0];
+                this.chosen.splice(j, 0, row);
+            },
+
+            startDrag(i) { this.dragIndex = i; },
+
+            dragOver(i) {
+                if (this.dragIndex === null || this.dragIndex === i) return;
+                const row = this.chosen.splice(this.dragIndex, 1)[0];
+                this.chosen.splice(i, 0, row);
+                this.dragIndex = i;
+            },
+
+            endDrag() { this.dragIndex = null; },
+
+            visibleSections() {
+                const q = (this.q || '').trim().toLowerCase();
+                const mine = this.filterMode === 'mine';
+                const out = [];
+                this.sections.forEach((s) => {
+                    const pages = s.pages.filter((p) => {
+                        if (mine && !this.isChosen(p.key)) return false;
+                        if (!q) return true;
+                        return p.label.toLowerCase().indexOf(q) >= 0 || s.label.toLowerCase().indexOf(q) >= 0;
+                    });
+                    if (pages.length) out.push({ label: s.label, pages: pages });
+                });
+                return out;
+            },
+        };
+    }
+    </script>
 
     {{-- ═══════════════════════════════════════════
          TAB: TOOLS — utilities moved out of Profile
