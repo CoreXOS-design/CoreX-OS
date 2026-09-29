@@ -290,6 +290,29 @@ class OtherAgencyStockTest extends TestCase
         $this->assertSame(1, OtherAgencyStockConsent::where('property_id', $property->id)->count());
     }
 
+    /**
+     * 2026-09-29 QA1 real-browser proof — an ordinary agent (no
+     * other_agency_stock.change_status grant) got refused importing at all,
+     * because the import itself sets status=other_agency_stock and the
+     * status gate didn't know to exempt the sanctioned import path from
+     * itself. Reproduced here via a REAL authenticated HTTP request (not a
+     * direct service call, which never populates auth()->user() and so
+     * never actually exercised the gate) — this is the exact gap that let
+     * the bug through the original test suite.
+     */
+    public function test_ordinary_agent_without_change_status_permission_can_still_import_via_the_real_endpoint(): void
+    {
+        Http::fake(['*' => Http::response('', 404)]);
+
+        $response = $this->actingAs($this->agent)
+            ->postJson(route('v1.other-agency-stock.import'), $this->importPayload());
+
+        $response->assertOk();
+        $property = Property::withoutGlobalScope(AgencyScope::class)->find($response->json('property_id'));
+        $this->assertSame(Property::STATUS_OTHER_AGENCY_STOCK, $property->status);
+        $this->assertSame($this->agent->id, $property->agent_id);
+    }
+
     public function test_reimport_updates_the_same_property_and_relocks(): void
     {
         Http::fake(['*' => Http::response('', 404)]);
