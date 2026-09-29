@@ -21,6 +21,7 @@ use App\Services\SlidingScaleService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
@@ -392,8 +393,27 @@ class DealRegisterController extends Controller
         // The deal is never created half-right.
         $additionalProperties = $this->validateAdditionalPropertiesPayload($request);
 
+        // Double-submit guard (deals 1826/1827, 2026-09-29: the same create form was
+        // POSTed twice a second apart and captured two identical deals). Each rendered
+        // create form carries a one-time _submission_key; the first request claims it
+        // atomically, any repeat is answered with the deal the first one created.
+        $submissionKey = null;
+        $createdDealId = null;
+        $rawKey = (string) $request->input('_submission_key', '');
+        if (preg_match('/^[0-9a-f-]{36}$/i', $rawKey)) {
+            $submissionKey = 'dr2:store:' . auth()->id() . ':' . strtolower($rawKey);
+            if (! Cache::add($submissionKey, 'pending', now()->addHour())) {
+                $existingId = Cache::get($submissionKey);
+                $existing = is_numeric($existingId) ? Deal::find((int) $existingId) : null;
+
+                return redirect()->route('deals-dr2.index')->with('status', $existing
+                    ? "Deal {$existing->deal_no} was already captured — it was only saved once."
+                    : 'This deal is already being saved — it will only be captured once.');
+            }
+        }
+
         try {
-            return DB::transaction(function () use ($request, $additionalProperties) {
+            $response = DB::transaction(function () use ($request, $additionalProperties, &$createdDealId) {
                 $deal = new Deal();
 
                 // NUMERIC DEAL NUMBERING — supports legacy D-#### and numeric formats (DR1 parity).
@@ -416,6 +436,7 @@ class DealRegisterController extends Controller
 
                 $resp = $this->persistDeal($deal, $request, true);
                 if ($deal->exists) {
+                    $createdDealId = (int) $deal->id;
                     $this->logDealEvent($deal, 'created', null, null, 'Deal created');
 
                     // AT-216 V1.1 — auto-attach the selected/defaulted pipeline on save. A bad
@@ -438,14 +459,27 @@ class DealRegisterController extends Controller
 
                 return $resp;
             });
+
+            if ($submissionKey !== null) {
+                // Deal captured → remember which one, so a repeat submit points at it.
+                // Nothing captured (validation bounce) → free the key for the retry.
+                $createdDealId
+                    ? Cache::put($submissionKey, $createdDealId, now()->addHour())
+                    : Cache::forget($submissionKey);
+            }
+
+            return $response;
         } catch (\Illuminate\Validation\ValidationException $e) {
+            if ($submissionKey !== null) Cache::forget($submissionKey);
             throw $e;
         } catch (\App\Exceptions\Deal\PropertyOwnerMismatchException $e) {
+            if ($submissionKey !== null) Cache::forget($submissionKey);
             // Same exact shape as addProperty()'s own catch — the plain-
             // English refusal message travels unwrapped, never behind the
             // generic "Failed to save deal:" prefix below.
             return back()->withErrors(['property_id' => $e->getMessage()])->withInput();
         } catch (\Throwable $e) {
+            if ($submissionKey !== null) Cache::forget($submissionKey);
             \Log::error('DR2 store() failed', [
                 'error' => $e->getMessage(),
                 'file'  => $e->getFile() . ':' . $e->getLine(),
