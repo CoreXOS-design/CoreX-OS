@@ -3016,3 +3016,60 @@ report) had `document_type_id = NULL` — only the WET-INK SCAN filing path
 endpoint results in a filed Document carrying `document_type_id = inventory_list`'s id; the backfill
 migration types a pre-existing untyped row the same way. Full `tests/Feature/RentalInventory/` directory
 re-run clean (110 passed, 342 assertions) after this and the §22 changes together — no regressions.
+
+---
+
+## 24. Buyer acceptance — a separate, later, optional signature (2026-09-29, Johan)
+
+Johan's ruling: *"once a buyer exists, the agent can send the completed inventory to the buyer for a
+'signature of acceptance' of what they get in the sale. This must NOT reopen or edit the completed
+record. It is a separate acceptance signature that sits alongside it, on screen or wet-ink. Buyer is
+resolved from the deal / accepted offer on that property."*
+
+**New table/model — `rental_inventory_buyer_acceptances` / `RentalInventoryBuyerAcceptance`.**
+Deliberately separate from `RentalInventorySignature`: that model's whole shape
+(`outstandingSignatories()`, the completion gate) is about who must sign BEFORE an inventory can
+complete. Buyer acceptance is additive and optional — no code path in this feature ever calls
+`RentalInventory::assertEditable()`. Two capture methods only, per Johan's own words ("on screen or
+wet-ink") — no refusal disposition, no `awaiting_wet_ink` tracking marker; this is not a gate anything
+blocks on. No DB-level unique constraint on `(rental_inventory_id, buyer_contact_id)` — a correction is
+soft-delete + a fresh row (non-negotiable #1), and MySQL's unique indexes would block that pattern
+(soft-deleted rows still count); "at most one LIVE row per buyer" is enforced in `capture()` instead,
+same discipline `RentalInventorySignature::capture()` already uses.
+
+**The one gate — `RentalInventory::buyerAcceptanceOfferedFor(): bool`**: `status === completed && lease_id
+=== null && property.listing_type === 'sale' && property.purchasingDeal() !== null`. Buyer resolution
+reuses `Property::purchasingDeal()`/`->buyers()` AS-IS (Granted/Registered only — "an offer is not a
+purchase," that method's own docblock) — no new resolver needed, it already implemented exactly this.
+`RentalInventory::eligibleBuyerContacts()` / `outstandingBuyerAcceptances()` read through this one gate.
+
+**Two surfaces, deliberately separate**:
+- **Agent side** — `RentalInventoryBuyerAcceptanceController::send()` (its own controller, not
+  `RentalInventoryRecordingController`, so the "never touches `assertEditable()`" boundary is structural,
+  not a convention to remember). Emails the buyer their own public share link (generated if none is live
+  yet), reusing the existing `SignedDocumentDistributionMail` directly — no new Mailable, no forced
+  `SignedDocumentDistributable` contract for a party the inventory itself doesn't require a signature
+  from. `SignedDocumentDistributionService::sendGenericMail()` — new, small — extracts the SAME
+  `TEST_RECIPIENT`-safety-rail + per-mailbox-with-fallback `dispatch()` for a Mailable outside that
+  contract, so the mail-safety rail can never drift between the two send paths. `show.blade.php` gained a
+  "Buyer acceptance" panel (shown only when `buyerAcceptanceOfferedFor()`), listing already-accepted
+  buyers (read-only, with their signature/scan) and outstanding ones (a "Send for acceptance" button) —
+  no signing UI here; the buyer signs on THEIR OWN device.
+- **Buyer side** — `RentalInventoryPublicController::storeBuyerAcceptance()`, a new POST on the EXISTING
+  public/token-gated inventory page (no new token, no new page — the same `public_token` that already
+  gates read access). `public/show.blade.php` gained a signing block per outstanding buyer: "Sign on
+  screen" (a `SignaturePad` canvas, same library/version as the agent-side pages) or "Upload signed scan"
+  (a file upload) — both submit to the same endpoint. A `csrf-token` meta tag was added to this
+  previously-bare public page (Laravel starts a session, and its CSRF token, for every visitor regardless
+  of login state — this route sits in the `web` middleware group like every other route in this file).
+  The submitted `buyer_contact_id` is checked against BOTH the inventory's own `eligibleBuyerContacts()`
+  AND (since the controller reads the Contact via `withoutGlobalScopes()`, same as `findByPublicToken()`
+  itself) an explicit `agency_id` match, so the parameter can never be used to probe another agency's
+  contact record now that scoping is bypassed.
+
+**Proven** — `RentalInventoryBuyerAcceptanceTest` (10 tests): not offered without a committed deal;
+offered once one exists; capturing an on-screen acceptance leaves the inventory's own `status` untouched;
+a non-buyer contact is refused; a second capture for the same buyer is refused; both public-endpoint
+capture methods (on-screen JSON + wet-ink multipart) work end to end through the real HTTP route; an
+invalid token 404s; the agent-side send endpoint emails the buyer and generates a public link on demand;
+sending is refused outright when acceptance isn't offered yet.

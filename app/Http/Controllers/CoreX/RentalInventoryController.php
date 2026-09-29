@@ -138,6 +138,7 @@ class RentalInventoryController extends Controller
             'lines.createdBy', 'lines.room',
             'roomMarks',
             'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy',
+            'buyerAcceptances.buyerContact', 'buyerAcceptances.recordedByUser',
             'createdBy', 'cancelledBy',
         ]);
 

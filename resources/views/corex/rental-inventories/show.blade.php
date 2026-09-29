@@ -452,6 +452,50 @@
         @endpermission
     </div>
 
+    {{-- §24 ruling (Johan, 2026-09-29) — buyer acceptance: offered ONLY
+         once a committed deal exists on this sale property. A genuinely
+         separate step from the signatures above — never gates or reopens
+         the completed record above. The buyer signs on THEIR OWN device
+         via their public link (rental-inventories.public.show), never
+         here — this panel only sends that link and shows status. --}}
+    @if($inventory->buyerAcceptanceOfferedFor())
+    <div class="rounded-md p-4 space-y-3" x-data="rentalInventoryBuyerAcceptances({{ $inventory->id }})" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold">Buyer acceptance</h2>
+        <p class="text-xs" style="color: var(--text-muted);">Optional — a signature of acceptance from the buyer(s) on the accepted offer, for what they get in the sale.</p>
+
+        @foreach($inventory->buyerAcceptances as $acceptance)
+            <div class="text-sm py-2" style="border-bottom: 1px solid var(--border);">
+                <div class="flex items-center justify-between gap-3">
+                    <span>{{ $acceptance->buyerContact?->full_name ?? 'Buyer' }}</span>
+                    <span class="text-xs" style="color: var(--text-muted);">{{ $acceptance->accepted_at?->format('Y-m-d H:i') }}</span>
+                </div>
+                <div class="mt-1.5">
+                    <span class="text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">
+                        {{ $acceptance->disposition === 'wet_ink' ? 'Signed on paper — scan on file' : 'Signed' }}
+                    </span>
+                    @if($acceptance->party_signature_path)
+                        <div class="mt-1"><img src="{{ $acceptance->party_signature_path }}" alt="Buyer signature" style="max-height: 60px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:4px;"></div>
+                    @elseif($acceptance->wet_ink_upload_path)
+                        <div class="mt-1"><a href="{{ $acceptance->wet_ink_upload_path }}" target="_blank" rel="noopener" class="text-xs font-semibold underline" style="color: var(--brand-button,#0ea5e9);">View uploaded scan</a></div>
+                    @endif
+                </div>
+            </div>
+        @endforeach
+
+        @permission('rental_inventories.create')
+        @foreach($inventory->outstandingBuyerAcceptances() as $buyer)
+            <div class="flex items-center justify-between gap-3 py-1.5" style="border-bottom:1px solid var(--border);">
+                <span class="text-sm">{{ $buyer->full_name }}{{ $buyer->email ? '' : ' (no email on file)' }}</span>
+                <button type="button" @click="send({{ $buyer->id }})" :disabled="sending === {{ $buyer->id }}"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2);"
+                        x-text="sentTo.includes({{ $buyer->id }}) ? 'Sent' : (sending === {{ $buyer->id }} ? 'Sending…' : 'Send for acceptance')"></button>
+            </div>
+        @endforeach
+        <p x-show="error" x-text="error" class="text-xs" style="color:#ef4444;"></p>
+        @endpermission
+    </div>
+    @endif
+
     @permission('rental_inventories.create')
     @if(!in_array($inventory->status, ['completed', 'cancelled']))
     <form method="POST" action="{{ route('corex.rental-inventories.cancel', $inventory) }}" onsubmit="return confirm('Cancel this inventory?');" class="pt-2">
@@ -704,6 +748,33 @@ function rentalInventoryShow(inventoryId) {
                 }
                 window.location.reload();
             } catch (e) { this.lifecycleError = e.message; }
+        },
+    };
+}
+
+// §24 ruling — standalone, deliberately not part of rentalInventoryShow()
+// above: this only ever sends an email, it never touches signatures,
+// completion state, or anything assertEditable() guards.
+function rentalInventoryBuyerAcceptances(inventoryId) {
+    return {
+        csrf: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+        baseUrl: `/corex/rental-inventories/${inventoryId}`,
+        sending: null,
+        sentTo: [],
+        error: '',
+        async send(contactId) {
+            this.error = '';
+            this.sending = contactId;
+            try {
+                const res = await fetch(`${this.baseUrl}/buyer-acceptances/${contactId}/send`, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) { throw new Error(data.message || `Request failed (${res.status}).`); }
+                this.sentTo.push(contactId);
+            } catch (e) { this.error = e.message; }
+            finally { this.sending = null; }
         },
     };
 }

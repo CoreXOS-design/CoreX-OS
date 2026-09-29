@@ -120,6 +120,49 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         return $this->hasMany(RentalInventorySignature::class);
     }
 
+    /** §24 ruling — the buyer's own separate acceptance record(s). Never gates markCompleted(). */
+    public function buyerAcceptances(): HasMany
+    {
+        return $this->hasMany(RentalInventoryBuyerAcceptance::class);
+    }
+
+    /**
+     * §24 ruling (Johan, 2026-09-29) — buyer acceptance is offered ONLY
+     * once: the inventory is completed, it is a sale property-level record
+     * (never a lease-attached rental one — a tenant is never a "buyer"),
+     * AND the property has a COMMITTED deal (Property::purchasingDeal(),
+     * Granted/Registered only — an active offer alone does not count, same
+     * "an offer is not a purchase" honesty that method's own docblock
+     * states). This is the ONE gate every buyer-acceptance surface reads.
+     */
+    public function buyerAcceptanceOfferedFor(): bool
+    {
+        return $this->status === self::STATUS_COMPLETED
+            && $this->lease_id === null
+            && $this->property?->listing_type === 'sale'
+            && $this->property->purchasingDeal() !== null;
+    }
+
+    /** Every buyer on the property's current committed deal — empty when buyerAcceptanceOfferedFor() is false. */
+    public function eligibleBuyerContacts(): \Illuminate\Support\Collection
+    {
+        if (! $this->buyerAcceptanceOfferedFor()) {
+            return collect();
+        }
+
+        return $this->property->purchasingDeal()->buyers()->get();
+    }
+
+    /** Every eligible buyer who has NOT yet recorded their acceptance. */
+    public function outstandingBuyerAcceptances(): \Illuminate\Support\Collection
+    {
+        $acceptedContactIds = $this->buyerAcceptances()->pluck('buyer_contact_id');
+
+        return $this->eligibleBuyerContacts()
+            ->reject(fn (Contact $buyer) => $acceptedContactIds->contains($buyer->id))
+            ->values();
+    }
+
     public function photos(): HasMany
     {
         return $this->hasMany(RentalInventoryPhoto::class);
