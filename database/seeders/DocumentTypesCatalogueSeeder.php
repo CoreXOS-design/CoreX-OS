@@ -77,7 +77,12 @@ class DocumentTypesCatalogueSeeder extends Seeder implements SyncableReferenceSe
         'mandate_price_reduction' => ['Mandate Price Reduction', 30, 'shared', null, 'none', false],
         'coc' => ['COC', 31, 'shared', null, 'none', false],
         'property_plans' => ['Property Plans', 32, 'shared', null, 'none', false],
-        'inventory_list' => ['Inventory List', 33, 'shared', null, 'none', false],
+        // buyer_pack_eligible=true (2026-09-29, §23 ruling) — was false,
+        // silently clobbering migration 2026_10_06_090100's own fix to this
+        // same flag on every deploy (migrate runs before this seeder in
+        // qa-deploy.sh's own pipeline). Now matches the migration's intent:
+        // a completed inventory is a selectable Viewing Pack document.
+        'inventory_list' => ['Inventory List', 33, 'shared', null, 'none', true],
         'inventory_exclusion_list' => ['Inventory Exclusion List', 34, 'shared', null, 'none', false],
         'market_analysis_report' => ['Market Analysis Report', 35, 'shared', [], 'none', true],
         'coc_request' => ['COC Request', 900, 'shared', null, 'none', false],
