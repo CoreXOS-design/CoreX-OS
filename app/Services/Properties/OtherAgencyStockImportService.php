@@ -9,6 +9,7 @@ use App\Models\Property;
 use App\Models\PropertyExternalSource;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * .ai/specs/other-agency-stock.md §3/§4 — import (or re-import) ONE
@@ -120,15 +121,72 @@ class OtherAgencyStockImportService
                 ]);
             }
 
-            if (! empty($data['photos'])) {
+            $photos = $this->filterKnownNonGalleryPhotos($data['photos'] ?? [], $data, $property->id);
+            if (! empty($photos)) {
                 // DownloadOtherAgencyStockGalleryJob uses saveQuietly() — it never
                 // touches the content lock at all (no need for the transient
                 // allowOtherAgencyStockContentWrite bypass on this async path).
-                DownloadOtherAgencyStockGalleryJob::dispatch($property->id, array_values($data['photos']));
+                DownloadOtherAgencyStockGalleryJob::dispatch($property->id, $photos);
             }
 
             return $property->fresh();
         });
+    }
+
+    /**
+     * .ai/specs/other-agency-stock.md §5 — 2026-09-29 gallery-filter fix.
+     * Server-side belt-and-braces: drop any photo URL that matches the
+     * agent's own photo or the agency's logo, exact-URL first and then by
+     * numeric image id (P24 serves the SAME image at different size
+     * suffixes — images.prop24.com/{id}/Ensure960x540 vs .../UpperCrop200x200
+     * — so an exact-URL check alone would miss a same-photo-different-size
+     * case). Independent of whatever exclusion the extension's own
+     * client-side logic already did — a regressed extension build must
+     * never be the only thing standing between an agent photo and the
+     * imported gallery. PP is unaffected in practice (its gallery and
+     * agent/agency images are served from different hosts entirely and were
+     * confirmed never to overlap), but the same check runs uniformly for
+     * both portals rather than special-casing one.
+     */
+    private function filterKnownNonGalleryPhotos(array $photos, array $data, int $propertyId): array
+    {
+        $excludeUrls = array_values(array_filter([
+            $data['source_agent_image_url'] ?? null,
+            $data['source_agency_logo_url'] ?? null,
+        ]));
+        if (empty($excludeUrls) || empty($photos)) {
+            return array_values($photos);
+        }
+
+        $excludeIds = array_values(array_filter(array_map([$this, 'p24ImageId'], $excludeUrls)));
+
+        $filtered = array_values(array_filter($photos, function ($url) use ($excludeUrls, $excludeIds) {
+            if (in_array($url, $excludeUrls, true)) {
+                return false;
+            }
+            $id = $this->p24ImageId($url);
+
+            return ! ($id !== null && in_array($id, $excludeIds, true));
+        }));
+
+        $dropped = count($photos) - count($filtered);
+        if ($dropped > 0) {
+            Log::info('OtherAgencyStockImportService: dropped agent/agency image(s) from gallery payload', [
+                'property_id' => $propertyId,
+                'dropped'     => $dropped,
+            ]);
+        }
+
+        return $filtered;
+    }
+
+    private function p24ImageId(?string $url): ?string
+    {
+        if ($url && preg_match('#images\.prop24\.com/(\d+)#', $url, $m)) {
+            return $m[1];
+        }
+
+        return null;
     }
 
     private function deriveTitle(array $data): ?string

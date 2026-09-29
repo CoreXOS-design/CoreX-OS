@@ -89,6 +89,16 @@ class OtherAgencyStockImportController extends Controller
                 }
             }],
             'date_posted'    => ['nullable', 'date'],
+
+            // .ai/specs/other-agency-stock.md §5 — 2026-09-29 gallery-filter
+            // fix. Never persisted; used ONLY by the service to strip these
+            // exact URLs out of `photos[]` server-side, independent of
+            // whatever the extension's own client-side exclusion already
+            // did (defense in depth — a regressed extension version must
+            // never be the only thing standing between an agent photo and
+            // the imported gallery).
+            'source_agent_image_url'  => ['nullable', 'string', 'max:2048'],
+            'source_agency_logo_url'  => ['nullable', 'string', 'max:2048'],
         ]);
 
         $property = $service->import($validated, $request->user());
