@@ -2979,3 +2979,40 @@ failure while building `RentalInventoryPartyRolesTest` (expected `'Lessor'`, got
 snapshot itself is untouched, since regenerating it is shared infra outside this task's scope. Any OTHER
 test anywhere in the suite that depends on these 6 rows existing via that migration has the same latent
 gap.
+
+---
+
+## 23. Viewing Pack eligibility — the completed inventory is now a selectable document (2026-09-29, Johan)
+
+Johan: *"the inventory should be one of the documents an agent can select for a viewing pack."* The
+Viewing Pack feature already exists in full (`app/Models/ViewingPack*.php`,
+`app/Http/Controllers/CommandCenter/ViewingPackController.php`, `.ai/specs/viewing-pack.md`) — an agent
+picks properties for a buyer's viewing day, then per-property picks eligible attached documents to
+bundle. Eligibility is `document_types.buyer_pack_eligible` (+ per-agency override), resolved by
+`AgencyComplianceDocTypeService::isBuyerPackEligible()`, and
+`ViewingPackDocumentService::eligibleDocumentsFor()` filters on `$document->documentType?->slug` — so a
+`Document` row with no `document_type_id` is structurally invisible to it, regardless of the catalogue
+flag.
+
+**Root cause found**: every inventory Document filed via `fileAndMaybeEmailReport()` (the completed
+report) had `document_type_id = NULL` — only the WET-INK SCAN filing path
+(`fileInventoryWetInkScan()`) already stamped one, to the pre-existing `inventory_list` catalogue slug
+(no new slug needed — reused, not invented).
+
+**Fix**:
+- `RentalInventoryRecordingController::stampInventoryListDocumentType()` — new shared private helper
+  (extracted from `fileInventoryWetInkScan()`'s own inline logic, now called from BOTH filing paths) —
+  sets `document_type_id` to the `inventory_list` type on a freshly-filed Document that doesn't already
+  have one. Idempotent by construction (`fileToProperty()` itself is idempotent; the helper no-ops if
+  already typed).
+- Migration `2026_10_06_090100_mark_inventory_list_buyer_pack_eligible` flips the EXISTING
+  `document_types.buyer_pack_eligible` catalogue default for slug `inventory_list` to `true` (was
+  `false` — never buyer-eligible before this ruling). Per-agency overrides, if any exist, are untouched.
+- Migration `2026_10_06_090200_backfill_inventory_document_type_id` — every already-filed
+  `documents` row with `source_type IN ('rental_inventory_report', 'rental_inventory_signature_wet_ink')`
+  and `document_type_id IS NULL` gets typed. Idempotent, logs the backfilled count.
+
+**Proven** — `RentalInventoryViewingPackDocumentTypeTest`: completing a sale inventory via the real HTTP
+endpoint results in a filed Document carrying `document_type_id = inventory_list`'s id; the backfill
+migration types a pre-existing untyped row the same way. Full `tests/Feature/RentalInventory/` directory
+re-run clean (110 passed, 342 assertions) after this and the §22 changes together — no regressions.

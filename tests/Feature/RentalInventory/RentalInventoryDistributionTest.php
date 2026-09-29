@@ -92,12 +92,13 @@ final class RentalInventoryDistributionTest extends TestCase
             'quantity' => 1, 'description' => 'Built-in oven', 'created_by_user_id' => $this->agent->id,
         ]);
         // The attached seller resolves as this property's sellerOwnerContact(),
-        // so markCompleted()'s own gate requires their disposition too — same
-        // 'landlord' party_role RentalInventorySignature stores either way
-        // (§15's own note: display-only distinction, not a schema one).
-        // Must be captured BEFORE the agent's own signature — capture()'s
-        // agent branch refuses while any party is still outstanding.
-        RentalInventorySignature::capture($inventory, 'landlord', 'signed', [
+        // so markCompleted()'s own gate requires their disposition too — §22
+        // (2026-09-29) made this a REAL 'seller' party_role for a sale
+        // property (RentalInventory::ownerPartyRole()), no longer 'landlord'
+        // relabelled. Must be captured BEFORE the agent's own signature —
+        // capture()'s agent branch refuses while any party is still
+        // outstanding.
+        RentalInventorySignature::capture($inventory, RentalInventorySignature::PARTY_SELLER, 'signed', [
             'party_contact_id' => $seller->id,
             'party_signature_path' => 'signatures/fake-seller.png',
             'recorded_by_user_id' => $this->agent->id,
