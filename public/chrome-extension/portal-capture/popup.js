@@ -622,13 +622,51 @@
       if (m) listingRef = m[1];
     }
 
+    var leadCtx = null;
+    try {
+      var scriptText = document.documentElement.outerHTML;
+      var lm = scriptText.match(/listingLeadFormContext\s*=\s*(\{[\s\S]*?\});/);
+      if (lm) leadCtx = JSON.parse(lm[1]);
+    } catch (e) { /* ignore */ }
+
+    function idFromP24Url(url) {
+      var m2 = (url || '').match(/images\.prop24\.com\/(\d+)/);
+      return m2 ? m2[1] : null;
+    }
+
+    // The bug this block fixes: every img[src*="images.prop24.com"] on the
+    // page is NOT the gallery — the agent's own profile photo and the
+    // agency's branding logo are ALSO served from images.prop24.com and
+    // rendered elsewhere on the same listing page, and a blanket collection
+    // silently pulls them in as if they were gallery photos (confirmed live,
+    // 2026-09-29 QA1 proof: 32 collected vs the page's own declared 30).
+    // Build an explicit exclusion set from every KNOWN non-gallery image on
+    // this page before collecting, rather than guessing a container class —
+    // .agentDetails[].imageURL / .primaryAgent.imageURL (agent photos) and
+    // offers.offeredBy.worksFor.logo (agency logo, JSON-LD) are the two
+    // confirmed sources; both are exact, not heuristic.
+    var excludeIds = {};
+    if (leadCtx) {
+      if (leadCtx.primaryAgent && leadCtx.primaryAgent.imageURL) {
+        var pid = idFromP24Url(leadCtx.primaryAgent.imageURL);
+        if (pid) excludeIds[pid] = true;
+      }
+      (leadCtx.agentDetails || []).forEach(function (a) {
+        var aid = idFromP24Url(a.imageURL);
+        if (aid) excludeIds[aid] = true;
+      });
+    }
+    var agencyLogoUrl = (offers.offeredBy && offers.offeredBy.worksFor && offers.offeredBy.worksFor.logo) || null;
+    var agencyLogoId = idFromP24Url(agencyLogoUrl);
+    if (agencyLogoId) excludeIds[agencyLogoId] = true;
+
     var galleryUrls = [];
     var seen = {};
     var imgEls = document.querySelectorAll('img[src*="images.prop24.com"]');
     for (var k = 0; k < imgEls.length; k++) {
       var src = imgEls[k].src;
-      var idm = src.match(/images\.prop24\.com\/(\d+)/);
-      if (idm && !seen[idm[1]]) { seen[idm[1]] = true; galleryUrls.push(src); }
+      var idm = idFromP24Url(src);
+      if (idm && !seen[idm] && !excludeIds[idm]) { seen[idm] = true; galleryUrls.push(src); }
     }
     // Fallback: scan the raw page HTML for the same URL pattern in case some
     // gallery images are referenced from inline scripts rather than <img> tags.
@@ -637,17 +675,21 @@
       var re = /https:\/\/images\.prop24\.com\/\d+\/[A-Za-z0-9]+/g;
       var mm;
       while ((mm = re.exec(html)) !== null) {
-        var id2 = mm[0].match(/images\.prop24\.com\/(\d+)/)[1];
-        if (!seen[id2]) { seen[id2] = true; galleryUrls.push(mm[0]); }
+        var id2 = idFromP24Url(mm[0]);
+        if (id2 && !seen[id2] && !excludeIds[id2]) { seen[id2] = true; galleryUrls.push(mm[0]); }
       }
     }
 
-    var leadCtx = null;
-    try {
-      var scriptText = document.documentElement.outerHTML;
-      var lm = scriptText.match(/listingLeadFormContext\s*=\s*(\{[\s\S]*?\});/);
-      if (lm) leadCtx = JSON.parse(lm[1]);
-    } catch (e) { /* ignore */ }
+    // Validate against the page's OWN declared count (ListingViewDesktop's
+    // imageCount prop) — this is the number the sample listing's page script
+    // itself asserts the gallery holds (30), independent of however many
+    // <img> tags happen to be present. A mismatch doesn't block the import
+    // (a portal's own declared count is informational, not infallible) but
+    // is surfaced to the agent in the preview panel and left on the payload
+    // for the server-side audit log.
+    var expectedPhotoCount = null;
+    var icm = document.documentElement.outerHTML.match(/imageCount"?\s*:\s*(\d+)/);
+    if (icm) expectedPhotoCount = parseInt(icm[1], 10);
 
     var erfSize = null, floorSize = null, beds = null, baths = null, garages = null;
     document.querySelectorAll('.p24_propertyOverviewRow').forEach(function (row) {
@@ -685,8 +727,15 @@
       source_agency_name: leadCtx ? leadCtx.agencyName : null,
       source_agent_name: leadCtx && leadCtx.primaryAgent ? leadCtx.primaryAgent.name : (leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].name : null),
       source_agent_profile_url: leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].profileURL : null,
+      // Sent ONLY so the server can independently cross-check and strip these
+      // exact URLs out of `photos` too (defense in depth — never persisted,
+      // never shown as a listing photo).
+      source_agent_image_url: (leadCtx && leadCtx.primaryAgent && leadCtx.primaryAgent.imageURL)
+        || (leadCtx && leadCtx.agentDetails && leadCtx.agentDetails[0] ? leadCtx.agentDetails[0].imageURL : null) || null,
+      source_agency_logo_url: agencyLogoUrl,
       date_posted: ld.datePosted || null,
       _title: ld.name || textOf('h1'),
+      _expected_photo_count: expectedPhotoCount,
     };
   }
 
@@ -741,7 +790,18 @@
       source_agency_name: agencyInfo ? agencyInfo.agencyName : null,
       source_agent_name: contact ? (contact.name || null) : null,
       source_agent_profile_url: contact && contact.agentPageUrl ? ('https://www.privateproperty.co.za' + contact.agentPageUrl) : null,
+      // .ai/specs/other-agency-stock.md §5 — 2026-09-29 gallery-filter fix.
+      // bundleParams.galleryPhotos is served from a completely different CDN
+      // host (images.pp.co.za) than agent/agency images
+      // (helium.privateproperty.co.za / a blob-storage placeholder host) and
+      // was confirmed clean against both real fixtures (T12292, T3497323) —
+      // no PP contamination found, unlike P24. Sent anyway, purely for the
+      // server's uniform cross-check (same field names as the P24 path) —
+      // costs nothing since these URLs never appear in `photos` here.
+      source_agent_image_url: contact ? (contact.image || null) : null,
+      source_agency_logo_url: agencyInfo ? (agencyInfo.agencyLogo || null) : null,
       _title: bp.title || document.title,
+      _expected_photo_count: null, // PP's page has no equivalent declared-count field to cross-check against.
     };
   }
 
@@ -792,7 +852,11 @@
       if (data.garages != null) feats.push('<span class="feat">' + data.garages + ' Garage</span>');
       els.oasFeatures.innerHTML = feats.join('');
       const photoCount = (data.photos || []).length;
-      els.oasImagesCount.textContent = photoCount + ' photo' + (photoCount !== 1 ? 's' : '') + ' will be imported';
+      let photoCountText = photoCount + ' photo' + (photoCount !== 1 ? 's' : '') + ' will be imported';
+      if (data._expected_photo_count != null && data._expected_photo_count !== photoCount) {
+        photoCountText += ' (the page declares ' + data._expected_photo_count + ' — check the gallery before importing)';
+      }
+      els.oasImagesCount.textContent = photoCountText;
       els.oasAgency.textContent = data.source_agency_name ? ('Agency: ' + data.source_agency_name) : 'Agency not shown (private seller, or not on this page) — import will proceed with a blank agency.';
       if (data.photos && data.photos[0]) {
         const img = document.createElement('img');
@@ -826,6 +890,7 @@
 
     const payload = Object.assign({}, oasExtracted, { consent: true });
     delete payload._title;
+    delete payload._expected_photo_count; // client-side preview hint only — not a payload field
 
     try {
       const res = await chrome.runtime.sendMessage({
