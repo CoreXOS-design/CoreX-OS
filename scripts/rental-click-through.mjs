@@ -91,6 +91,13 @@
  *      of those touch the Ceiling item this check pairs, but auto-pair's
  *      own success is easiest to prove while nothing else on the item has
  *      changed yet.
+ *  27. Compare viewer — opening a photo shows both sides (Johan, 2026-09-29
+ *      — "clicking a photo ... does NOT show the other side", both
+ *      directions). Clicks the Ceiling item's real predecessor photo, then
+ *      its real tail photo (both still UNPAIRED — this runs BEFORE #26),
+ *      and asserts BOTH panes render a real image (naturalWidth/Height > 0)
+ *      each time, not just the clicked side. Screenshots saved to the
+ *      scratchpad for a human to review.
  *
  *  NOT covered (named so this stays an honest list, not a silent gap):
  *   - The document-highlighter's CREATE flow (drag a new highlight on the
@@ -734,6 +741,61 @@ async function main() {
     // data-prop-tab="{{ $tab['key'] }}" on each tab button.
     await inspPage.click('[data-prop-tab="inspections"]');
     await new Promise((r) => setTimeout(r, 500));
+
+    // 27 — Compare viewer: opening a photo shows the OTHER side too (Johan,
+    // 2026-09-29 — "clicking a photo opens the viewer, but it does NOT show
+    // the other side", reproduced both directions: an old photo clicked
+    // shows only old, a new photo clicked shows only new). Root cause:
+    // openCompareViewer() only populated the other side's photo when the
+    // clicked photo already belonged to an auto-paired match group; with no
+    // match it left that pane's photoId null (rendered as the empty
+    // placeholder) even though that side had real, unrelated photos of its
+    // own. Run BEFORE #26 (Auto-pair): the Ceiling item is the fixture's
+    // one pair of real, UNPAIRED photos on both predecessor and tail (see
+    // the fixture's own docblock) — exactly the shape that reproduced the
+    // bug. Running this after #26 would pair them first and never exercise
+    // the no-match fallback the fix adds.
+    {
+      const name = '27. Compare viewer — opening a photo shows both sides';
+      const ceilingId = inspFx.ceiling_item_id;
+      const dims = async (qa) => {
+        const img = await inspPage.$(`[data-qa="${qa}"]`);
+        if (!img) return null;
+        return inspPage.evaluate((el) => ({ w: el.naturalWidth, h: el.naturalHeight }), img);
+      };
+      const clickAndCheck = async (clickSelector, clickedQa, otherQa, label, screenshotName) => {
+        const handle = await inspPage.$(clickSelector);
+        if (!handle) return { ok: false, detail: `${label}: selector not found: ${clickSelector}` };
+        await handle.click();
+        await new Promise((r) => setTimeout(r, 600));
+        const clickedDims = await dims(clickedQa);
+        const otherDims = await dims(otherQa);
+        try {
+          await inspPage.screenshot({ path: `/tmp/claude-0/-corex-staging/4c370366-4e81-45e2-a698-e64a2f2a56be/scratchpad/${screenshotName}` });
+        } catch (e) { console.error('Screenshot failed (non-fatal):', e.message); }
+        await inspPage.keyboard.press('Escape');
+        await new Promise((r) => setTimeout(r, 300));
+        if (!clickedDims || clickedDims.w <= 0 || clickedDims.h <= 0) {
+          return { ok: false, detail: `${label}: clicked side (${clickedQa}) did not render a real image` };
+        }
+        if (!otherDims || otherDims.w <= 0 || otherDims.h <= 0) {
+          return { ok: false, detail: `${label}: OTHER side (${otherQa}) did not render a real image (${otherDims ? `${otherDims.w}x${otherDims.h}` : 'no element'}) — THE BUG CLASS THIS CHECK HUNTS` };
+        }
+        return { ok: true, detail: `${label}: clicked=${clickedDims.w}x${clickedDims.h}, other=${otherDims.w}x${otherDims.h}` };
+      };
+
+      const oldSide = await clickAndCheck(
+        `img[data-qa="insp-tile-predecessor"][data-item-id="${ceilingId}"]`,
+        'cv-pane-img-left', 'cv-pane-img-right',
+        'clicked OLD (predecessor) photo', 'compare-viewer-old-clicked.png',
+      );
+      const newSide = await clickAndCheck(
+        `img[data-qa="insp-tile-tail"][data-item-id="${ceilingId}"]`,
+        'cv-pane-img-right', 'cv-pane-img-left',
+        'clicked NEW (tail) photo', 'compare-viewer-new-clicked.png',
+      );
+      record(name, oldSide.ok && newSide.ok, [oldSide.detail, newSide.detail].join(' | '));
+    }
 
     // 26 — Auto-pair. Run first: nothing else on the Ceiling item (the only
     // item this check touches) changes state before it.

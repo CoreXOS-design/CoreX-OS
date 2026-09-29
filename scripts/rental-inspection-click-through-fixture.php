@@ -63,6 +63,8 @@ use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionObservation;
 use App\Models\RentalInspectionPhoto;
 use App\Models\User;
+use App\Services\Images\PropertyImageStorer;
+use Illuminate\Http\UploadedFile;
 
 if (isset($opts['create'])) {
     $stamp = 'insp-clickthrough-' . date('YmdHis') . '-' . substr(uniqid(), -5);
@@ -124,11 +126,30 @@ if (isset($opts['create'])) {
     // either side sharing that key — the exact "exactly one candidate per
     // side" shape RentalInspectionPhotoAutoPairService requires to propose
     // a pair at all (.ai/specs/rental-inspections.md §24.5).
-    $makePhoto = fn (RentalInspection $insp, RentalInspectionObservation $obs) => RentalInspectionPhoto::create([
-        'agency_id' => $agency->id, 'rental_inspection_id' => $insp->id,
-        'rental_inspection_observation_id' => $obs->id, 'property_room_id' => $bedroom->id,
-        'storage_path' => '/gate-fixture/ceiling.jpg', 'uploaded_by_user_id' => $agent->id,
-    ]);
+    //
+    // §40, 2026-09-29 — these used to be a bare 'storage_path' string
+    // ('/gate-fixture/ceiling.jpg') pointing at nothing on disk. That was
+    // fine for every check that only needed a photo ROW to exist (auto-pair,
+    // the strip tiles), but check #27 (rental-click-through.mjs) asserts the
+    // compare viewer's <img> actually renders with real pixel dimensions —
+    // a 404'd src would fail that check regardless of whether the fix
+    // works. Routed through the SAME PropertyImageStorer::store() every
+    // real upload uses (RentalInspectionRecordingController@storePhotos),
+    // reusing the one real test JPEG already checked into this repo for
+    // check #24's own real-upload proof (tests/Fixtures/Images/
+    // huawei-orientation0.jpg) — a genuine servable file each run, not a
+    // second fake path to keep in sync with reality.
+    $fixtureImage = $appRoot . '/tests/Fixtures/Images/huawei-orientation0.jpg';
+    $imageStorer = $app->make(PropertyImageStorer::class);
+    $makePhoto = function (RentalInspection $insp, RentalInspectionObservation $obs) use ($agency, $bedroom, $agent, $property, $imageStorer, $fixtureImage) {
+        $uploaded = new UploadedFile($fixtureImage, 'ceiling.jpg', 'image/jpeg', null, true);
+        $url = $imageStorer->store($uploaded, $property->id);
+        return RentalInspectionPhoto::create([
+            'agency_id' => $agency->id, 'rental_inspection_id' => $insp->id,
+            'rental_inspection_observation_id' => $obs->id, 'property_room_id' => $bedroom->id,
+            'storage_path' => $url, 'uploaded_by_user_id' => $agent->id,
+        ]);
+    };
     $predPhoto = $makePhoto($predecessor, $predObs);
     $tailPhoto = $makePhoto($tail, $tailObs);
 

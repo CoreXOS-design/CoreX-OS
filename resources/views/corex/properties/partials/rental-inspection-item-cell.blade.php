@@ -189,6 +189,7 @@
                              by default, see this file's own docblock),
                              so it is passed straight through as insp. --}}
                         <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
+                             data-qa="insp-tile-predecessor" :data-item-id="item.id"
                              style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
                              @click="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})" alt="">
                         <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
@@ -236,6 +237,7 @@
                              this.chainTail) is the correct inspection
                              object. --}}
                         <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
+                             data-qa="insp-tile-tail" :data-item-id="item.id"
                              style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
                              @click="tile.photo && openCompareViewer(tile.photo, chainTail)" alt="">
                         <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
